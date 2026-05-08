@@ -10,7 +10,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/config"
+	kbrdfs "kbrd/fs"
 )
+
+type watchMsg struct{}
 
 type Board struct {
 	cfg              config.Config
@@ -29,6 +32,8 @@ type Board struct {
 	statusColor      string
 	statusTimer      int
 	theme            string
+	watcher          *kbrdfs.Watcher
+	dialog           Dialog
 }
 
 func NewBoard(cfg config.Config) *Board {
@@ -46,7 +51,32 @@ func (b *Board) Init() tea.Cmd {
 		if err := b.loadColumns(); err != nil {
 			return toastMsg{Message: "failed to load columns: " + err.Error(), Type: toastError}
 		}
-		return toastMsg{Message: "loaded", Type: toastSuccess}
+		paths, err := kbrdfs.DiscoverPaths(b.cfg.Path)
+		if err == nil {
+			if w, err := kbrdfs.NewWatcher(paths); err == nil {
+				b.watcher = w
+			}
+		}
+		return watchMsg{}
+	}
+}
+
+func (b *Board) watchCmd() tea.Cmd {
+	if b.watcher == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		select {
+		case _, ok := <-b.watcher.Events():
+			if !ok {
+				return nil
+			}
+		case _, ok := <-b.watcher.Errors():
+			if !ok {
+				return nil
+			}
+		}
+		return watchMsg{}
 	}
 }
 
@@ -89,6 +119,10 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toastMsg:
 		return b, b.toastMgr.Add(msg.Message, msg.Type)
 
+	case watchMsg:
+		b.loadColumns()
+		return b, b.watchCmd()
+
 	case toastTickMsg:
 		tm, cmd := b.toastMgr.Update(msg)
 		b.toastMgr = tm
@@ -120,6 +154,11 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle dialog
+	if b.dialog.active {
+		return b, b.dialog.Update(msg)
+	}
+
 	// Handle editor open
 	if b.editor.state != editorNone {
 		cmd, _ := b.editor.Update(msg)
@@ -257,7 +296,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
-			return b, b.editor.OpenConfirmDelete(b.selectedCol, item.Name)
+			b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
+				{Label: "Yes", Danger: true, Msg: deleteConfirmMsg{ColIndex: b.selectedCol, FileName: item.Name}},
+				{Label: "No", Primary: true},
+			})
+			b.dialog.selected = 1
 		}
 	case "m":
 		if col.HasSelectedItem() {
@@ -513,6 +556,10 @@ func (b *Board) View() string {
 	editorView := b.renderEditor()
 	if editorView != "" {
 		result += "\n\n" + editorView
+	}
+	dialogView := b.dialog.View()
+	if dialogView != "" {
+		result += "\n\n" + dialogView
 	}
 	result += "\n" + statusBar
 

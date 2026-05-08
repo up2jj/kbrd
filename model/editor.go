@@ -16,7 +16,6 @@ const (
 	editorPrepend
 	editorJournal
 	editorNew
-	editorConfirmDelete
 )
 
 type Editor struct {
@@ -79,14 +78,6 @@ func (e *Editor) OpenNew(colIdx int) tea.Cmd {
 	return nil
 }
 
-func (e *Editor) OpenConfirmDelete(colIdx int, fileName string) tea.Cmd {
-	e.state = editorConfirmDelete
-	e.ColIndex = colIdx
-	e.FileName = fileName
-	e.input = ""
-	e.cursor = 0
-	return nil
-}
 
 func (e *Editor) Close() {
 	e.state = editorNone
@@ -151,15 +142,6 @@ func (e *Editor) handleEnter() (tea.Cmd, tea.Msg) {
 		return nil, nil
 	}
 
-	if e.state == editorConfirmDelete {
-		if text == "yes" {
-			e.Close()
-			return nil, deleteConfirmMsg{ColIndex: e.ColIndex, FileName: e.FileName}
-		}
-		e.Close()
-		return nil, nil
-	}
-
 	var msg tea.Msg
 	switch e.state {
 	case editorEdit:
@@ -207,9 +189,6 @@ func (e *Editor) View() string {
 	case editorNew:
 		label = "New file in column " + string(rune('1'+e.ColIndex))
 		placeholder = "New file name (without .md)..."
-	case editorConfirmDelete:
-		label = "Delete: " + e.FileName + " (type 'yes' to confirm)"
-		placeholder = "Type 'yes' to confirm..."
 	}
 
 	header := lipgloss.NewStyle().
