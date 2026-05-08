@@ -21,7 +21,7 @@ type itemDelegate struct {
 	isActive bool
 }
 
-func (d itemDelegate) Height() int  { return 1 }
+func (d itemDelegate) Height() int  { return 3 }
 func (d itemDelegate) Spacing() int { return 1 }
 func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
@@ -41,18 +41,50 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		pinIcon = "📌 "
 	}
 
-	nameStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth)
+	// Line 1 — name
+	nameStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Bold(true)
 	switch {
 	case isSelected && d.isActive:
-		nameStyle = nameStyle.Bold(true).
+		nameStyle = nameStyle.
 			Background(lipgloss.Color("#3b82f6")).
 			Foreground(lipgloss.Color("#ffffff"))
 	case isSelected:
-		nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
+		nameStyle = nameStyle.Foreground(lipgloss.Color("#f1f5f9"))
 	default:
-		nameStyle = nameStyle.Foreground(lipgloss.Color("#64748b"))
+		nameStyle = nameStyle.Foreground(lipgloss.Color("#f1f5f9"))
 	}
-	fmt.Fprint(w, nameStyle.Render(cursor+pinIcon+item.Name))
+	fmt.Fprintln(w, nameStyle.Render(cursor+pinIcon+item.Name))
+
+	// Line 2 — preview
+	preview := "—"
+	if len(item.Preview) > 0 {
+		preview = item.Preview[0]
+	}
+	var previewFg lipgloss.Color
+	switch {
+	case isSelected && d.isActive:
+		previewFg = lipgloss.Color("#bfdbfe")
+	case isSelected:
+		previewFg = lipgloss.Color("#94a3b8")
+	default:
+		previewFg = lipgloss.Color("#64748b")
+	}
+	previewStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(previewFg).Italic(true)
+	fmt.Fprintln(w, previewStyle.Render(preview))
+
+	// Line 3 — meta (modified + size)
+	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
+	var metaFg lipgloss.Color
+	switch {
+	case isSelected && d.isActive:
+		metaFg = lipgloss.Color("#93c5fd")
+	case isSelected:
+		metaFg = lipgloss.Color("#64748b")
+	default:
+		metaFg = lipgloss.Color("#334155")
+	}
+	metaStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(metaFg)
+	fmt.Fprint(w, metaStyle.Render(meta))
 }
 
 // Column represents one kanban column backed by a directory.

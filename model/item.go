@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -52,6 +53,32 @@ func NewItem(fullPath string) (Item, error) {
 }
 
 func (i Item) FilterValue() string { return i.Name }
+
+func (i Item) HumanSize() string {
+	if i.Size < 1024 {
+		return fmt.Sprintf("%d B", i.Size)
+	}
+	return fmt.Sprintf("%.1f KB", float64(i.Size)/1024)
+}
+
+func timeAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		if t.Year() == time.Now().Year() {
+			return t.Format("Jan 2")
+		}
+		return t.Format("Jan 2 2006")
+	}
+}
 
 func (i *Item) TogglePin() {
 	i.Pinned = !i.Pinned
