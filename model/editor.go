@@ -1,9 +1,12 @@
 package model
 
 import (
+	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -19,144 +22,128 @@ const (
 )
 
 type Editor struct {
-	state    editorState
-	input    string
-	cursor   int
-	quitting bool
-	ColIndex int
-	FileName string
+	state     editorState
+	textarea  textarea.Model
+	textinput textinput.Model
+	ColIndex  int
+	FileName  string
 }
 
 func NewEditor() *Editor {
-	return &Editor{
-		state: editorNone,
-	}
+	ta := textarea.New()
+	ta.ShowLineNumbers = false
+	ta.SetWidth(60)
+	ta.SetHeight(10)
+
+	ti := textinput.New()
+	ti.CharLimit = 120
+	ti.Width = 60
+	ti.Placeholder = "filename (without .md)"
+
+	return &Editor{textarea: ta, textinput: ti}
 }
 
-func (e *Editor) OpenEdit(colIdx int, fileName string) tea.Cmd {
+func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.state = editorEdit
 	e.ColIndex = colIdx
 	e.FileName = fileName
-	e.input = ""
-	e.cursor = 0
-	return nil
+	content, _ := os.ReadFile(fullPath)
+	e.textarea.SetValue(strings.TrimRight(string(content), "\n"))
+	e.textarea.CursorEnd()
+	return e.textarea.Focus()
 }
 
 func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.state = editorAppend
 	e.ColIndex = colIdx
 	e.FileName = fileName
-	e.input = ""
-	e.cursor = 0
-	return nil
+	e.textarea.SetValue("")
+	return e.textarea.Focus()
 }
 
 func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.state = editorPrepend
 	e.ColIndex = colIdx
 	e.FileName = fileName
-	e.input = ""
-	e.cursor = 0
-	return nil
+	e.textarea.SetValue("")
+	return e.textarea.Focus()
 }
 
 func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.state = editorJournal
 	e.ColIndex = colIdx
 	e.FileName = fileName
-	e.input = ""
-	e.cursor = 0
-	return nil
+	e.textarea.SetValue("")
+	return e.textarea.Focus()
 }
 
 func (e *Editor) OpenNew(colIdx int) tea.Cmd {
 	e.state = editorNew
 	e.ColIndex = colIdx
 	e.FileName = ""
-	e.input = ""
-	e.cursor = 0
-	return nil
+	e.textinput.SetValue("")
+	return e.textinput.Focus()
 }
-
 
 func (e *Editor) Close() {
 	e.state = editorNone
+	e.textarea.Blur()
+	e.textinput.Blur()
 }
 
 func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 	if e.state == editorNone {
-		return nil, ""
-	}
-
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return nil, ""
-	}
-	key := keyMsg.String()
-
-	switch key {
-	case "esc":
-		e.Close()
-		return nil, ""
-	case "enter":
-		cmd, msg := e.handleEnter()
-		if msg != nil {
-			return func() tea.Msg { return msg }, nil
-		}
-		return cmd, nil
-	case "backspace":
-		if e.cursor > 0 {
-			e.input = e.input[:e.cursor-1] + e.input[e.cursor:]
-			e.cursor--
-		}
-	case "delete":
-		if e.cursor < len(e.input) {
-			e.input = e.input[:e.cursor] + e.input[e.cursor+1:]
-		}
-	case "left":
-		if e.cursor > 0 {
-			e.cursor--
-		}
-	case "right":
-		if e.cursor < len(e.input) {
-			e.cursor++
-		}
-	case "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z":
-		e.input = e.input[:e.cursor] + key + e.input[e.cursor:]
-		e.cursor++
-	case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		e.input = e.input[:e.cursor] + key + e.input[e.cursor:]
-		e.cursor++
-	case "!":
-		e.input = e.input[:e.cursor] + "!" + e.input[e.cursor:]
-		e.cursor++
-	}
-
-	return nil, ""
-}
-
-func (e *Editor) handleEnter() (tea.Cmd, tea.Msg) {
-	text := strings.TrimSpace(e.input)
-	if text == "" {
-		e.Close()
 		return nil, nil
 	}
 
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "esc":
+			e.Close()
+			return nil, nil
+		case "ctrl+s":
+			if e.state != editorNew {
+				return e.submit()
+			}
+		case "enter":
+			if e.state == editorNew {
+				return e.submit()
+			}
+		}
+	}
+
+	if e.state == editorNew {
+		ti, cmd := e.textinput.Update(msg)
+		e.textinput = ti
+		return cmd, nil
+	}
+
+	ta, cmd := e.textarea.Update(msg)
+	e.textarea = ta
+	return cmd, nil
+}
+
+func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 	var msg tea.Msg
 	switch e.state {
 	case editorEdit:
-		msg = editorSaveMsg{ColIndex: e.ColIndex, FileName: e.FileName, Content: text}
+		msg = editorSaveMsg{ColIndex: e.ColIndex, FileName: e.FileName, Content: e.textarea.Value()}
 	case editorAppend:
-		msg = editorAppendMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		msg = editorAppendMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
 	case editorPrepend:
-		msg = editorPrependMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		msg = editorPrependMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
 	case editorJournal:
-		msg = editorJournalMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		msg = editorJournalMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
 	case editorNew:
-		msg = editorNewMsg{ColIndex: e.ColIndex, FileName: text}
+		name := strings.TrimSpace(e.textinput.Value())
+		if name == "" {
+			e.Close()
+			return nil, nil
+		}
+		msg = editorNewMsg{ColIndex: e.ColIndex, FileName: name}
 	}
 	e.Close()
-	return nil, msg
+	return func() tea.Msg { return msg }, nil
 }
 
 func (e *Editor) View() string {
@@ -164,45 +151,42 @@ func (e *Editor) View() string {
 		return ""
 	}
 
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
-		Padding(1, 2).
-		Width(60).
-		Height(10)
-
-	var label string
-	var placeholder string
+	var label, hint string
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName
-		placeholder = "Edit content..."
+		hint = "ctrl+s save   esc cancel"
 	case editorAppend:
 		label = "Append to: " + e.FileName
-		placeholder = "Append text..."
+		hint = "ctrl+s save   esc cancel"
 	case editorPrepend:
 		label = "Prepend to: " + e.FileName
-		placeholder = "Prepend text..."
+		hint = "ctrl+s save   esc cancel"
 	case editorJournal:
-		label = "Journal to: " + e.FileName
-		placeholder = "Journal entry..."
+		label = "Journal entry for: " + e.FileName
+		hint = "ctrl+s save   esc cancel"
 	case editorNew:
-		label = "New file in column " + string(rune('1'+e.ColIndex))
-		placeholder = "New file name (without .md)..."
+		label = "New item in column " + string(rune('1'+e.ColIndex))
+		hint = "enter confirm   esc cancel"
 	}
 
-	header := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#94a3b8")).
-		Render(label)
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3b82f6")).
+		Padding(0, 1)
 
-	cursor := e.input[:e.cursor] + "█" + e.input[e.cursor:]
-	if cursor == "" {
-		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b")).Render(placeholder)
+	var input string
+	if e.state == editorNew {
+		input = e.textinput.View()
+	} else {
+		input = e.textarea.View()
 	}
 
-	body := borderStyle.Render(cursor)
-	return header + "\n" + body
+	return headerStyle.Render(label) + "\n" +
+		boxStyle.Render(input) + "\n" +
+		hintStyle.Render(hint)
 }
 
 type editorSaveMsg struct {

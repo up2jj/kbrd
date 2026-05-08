@@ -244,7 +244,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
-			return b, b.editor.OpenEdit(b.selectedCol, item.Name)
+			return b, b.editor.OpenEdit(b.selectedCol, item.Name, item.FullPath)
 		}
 	case "a":
 		if col.HasSelectedItem() {
@@ -341,7 +341,17 @@ func (b *Board) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
-	err := os.WriteFile(col.Path+"/"+msg.FileName, []byte(msg.Content), 0644)
+	fullPath := ""
+	for _, item := range col.Items {
+		if item.Name == msg.FileName {
+			fullPath = item.FullPath
+			break
+		}
+	}
+	if fullPath == "" {
+		return b, b.toastMgr.Add("item not found: "+msg.FileName, toastError)
+	}
+	err := os.WriteFile(fullPath, []byte(msg.Content), 0644)
 	if err != nil {
 		return b, b.toastMgr.Add("failed to save: "+err.Error(), toastError)
 	}
@@ -542,7 +552,6 @@ func (b *Board) View() string {
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 
-	statusBar := b.renderStatusBar()
 	toastView := b.toastMgr.Render()
 	quickCmdView := b.renderQuickCommand()
 
@@ -556,12 +565,14 @@ func (b *Board) View() string {
 	editorView := b.renderEditor()
 	if editorView != "" {
 		result += "\n\n" + editorView
+		return result
 	}
 	dialogView := b.dialog.View()
 	if dialogView != "" {
 		result += "\n\n" + dialogView
+		return result
 	}
-	result += "\n" + statusBar
+	result += "\n" + b.renderStatusBar()
 
 	return result
 }
@@ -587,14 +598,6 @@ func (b *Board) renderStatusBar() string {
 			Align(lipgloss.Center).
 			Foreground(lipgloss.Color("#94a3b8")).
 			Render(strings.Join(parts, "  "))
-	}
-
-	if b.editor.state != editorNone {
-		return lipgloss.NewStyle().
-			Width(80).
-			Align(lipgloss.Center).
-			Foreground(lipgloss.Color("#94a3b8")).
-			Render("Editor open - Esc to cancel")
 	}
 
 	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem() {
