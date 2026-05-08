@@ -1,32 +1,128 @@
 package model
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
+const colWidth = 32
+
+// itemDelegate renders each kanban item inside a bubbles list.
+type itemDelegate struct {
+	isActive bool
+}
+
+func (d itemDelegate) Height() int  { return 1 }
+func (d itemDelegate) Spacing() int { return 1 }
+func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	item, ok := listItem.(Item)
+	if !ok {
+		return
+	}
+	isSelected := index == m.Index()
+
+	cursor := "  "
+	if isSelected && d.isActive {
+		cursor = "> "
+	}
+	pinIcon := ""
+	if item.Pinned {
+		pinIcon = "📌 "
+	}
+
+	nameStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth)
+	switch {
+	case isSelected && d.isActive:
+		nameStyle = nameStyle.Bold(true).
+			Background(lipgloss.Color("#3b82f6")).
+			Foreground(lipgloss.Color("#ffffff"))
+	case isSelected:
+		nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
+	default:
+		nameStyle = nameStyle.Foreground(lipgloss.Color("#64748b"))
+	}
+	fmt.Fprint(w, nameStyle.Render(cursor+pinIcon+item.Name))
+}
+
+// Column represents one kanban column backed by a directory.
 type Column struct {
-	Name           string
-	Path           string
-	Items          []Item
-	SelectedIndex  int
-	Offset         int
-	HasFocus       bool
-	SearchQuery    string
-	FilteredItems  []Item
+	Name  string
+	Path  string
+	Items []Item // unfiltered master list (used by file operations)
+	list  list.Model
 }
 
 func NewColumn(name, path string) *Column {
-	return &Column{
-		Name: name,
-		Path: path,
+	delegate := itemDelegate{}
+	l := list.New(nil, delegate, colWidth, 20)
+	l.SetShowTitle(true)
+	l.SetShowFilter(false)
+	l.SetShowStatusBar(false)
+	l.SetShowPagination(false)
+	l.SetShowHelp(false)
+	l.SetFilteringEnabled(true)
+	l.DisableQuitKeybindings()
+	l.Title = name
+	// Override defaults: remove bottom padding from TitleBar and purple background from Title
+	l.Styles.TitleBar = lipgloss.NewStyle().
+		Width(colWidth)
+	l.Styles.Title = lipgloss.NewStyle().
+		Width(colWidth).
+		Bold(true).
+		Padding(0, 1).
+		Foreground(lipgloss.Color("#94a3b8")).
+		Background(lipgloss.Color("#1e293b"))
+	l.Styles.NoItems = lipgloss.NewStyle().
+		PaddingLeft(2).
+		Foreground(lipgloss.Color("#64748b"))
+
+	return &Column{Name: name, Path: path, list: l}
+}
+
+func (c *Column) SetActive(active bool) {
+	titleBase := lipgloss.NewStyle().Width(colWidth).Bold(true).Padding(0, 1)
+	if active {
+		c.list.Styles.Title = titleBase.
+			Foreground(lipgloss.Color("#ffffff")).
+			Background(lipgloss.Color("#3b82f6"))
+	} else {
+		c.list.Styles.Title = titleBase.
+			Foreground(lipgloss.Color("#94a3b8")).
+			Background(lipgloss.Color("#1e293b"))
 	}
+}
+
+func (c *Column) SetHeight(h int) {
+	c.list.SetHeight(h)
+}
+
+func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	c.list, cmd = c.list.Update(msg)
+	return cmd
+}
+
+func (c *Column) View(isActive bool) string {
+	c.SetActive(isActive)
+	c.list.SetDelegate(itemDelegate{isActive: isActive})
+	c.list.Title = c.Name + " [" + strconv.Itoa(c.TotalCount()) + "]"
+	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
+	return c.list.View()
+}
+
+func (c *Column) IsFiltering() bool {
+	return c.list.SettingFilter()
 }
 
 func (c *Column) LoadItems() error {
@@ -47,111 +143,30 @@ func (c *Column) LoadItems() error {
 	}
 
 	c.Items = SortItems(items)
-	c.applySearch()
+
+	listItems := make([]list.Item, len(c.Items))
+	for i, item := range c.Items {
+		listItems[i] = item
+	}
+	c.list.SetItems(listItems)
 	return nil
-}
-
-func (c *Column) applySearch() {
-	if c.SearchQuery == "" {
-		c.FilteredItems = c.Items
-		return
-	}
-
-	c.FilteredItems = []Item{}
-	for _, item := range c.Items {
-		if strings.Contains(strings.ToLower(item.Name), strings.ToLower(c.SearchQuery)) {
-			c.FilteredItems = append(c.FilteredItems, item)
-		}
-	}
-
-	if c.SelectedIndex >= len(c.FilteredItems) {
-		c.SelectedIndex = len(c.FilteredItems) - 1
-	}
-	if c.SelectedIndex < 0 {
-		c.SelectedIndex = 0
-	}
 }
 
 func (c *Column) TotalCount() int {
 	return len(c.Items)
 }
 
-func (c *Column) VisibleCount() int {
-	return len(c.FilteredItems)
-}
-
-func (c *Column) VisibleItems() []Item {
-	return c.FilteredItems
-}
-
-func (c *Column) SelectUp() {
-	if c.SelectedIndex > 0 {
-		c.SelectedIndex--
-		c.ensureVisible()
-	}
-}
-
-func (c *Column) SelectDown() {
-	if c.SelectedIndex < len(c.FilteredItems)-1 {
-		c.SelectedIndex++
-		c.ensureVisible()
-	}
-}
-
-func (c *Column) SelectFirst() {
-	c.SelectedIndex = 0
-	c.Offset = 0
-}
-
-func (c *Column) SelectLast() {
-	c.SelectedIndex = len(c.FilteredItems) - 1
-	c.ensureVisible()
-}
-
-func (c *Column) PageUp() {
-	pageSize := 10
-	c.SelectedIndex -= pageSize
-	if c.SelectedIndex < 0 {
-		c.SelectedIndex = 0
-		c.Offset = 0
-	} else {
-		c.Offset -= pageSize
-		if c.Offset < 0 {
-			c.Offset = 0
-		}
-	}
-}
-
-func (c *Column) PageDown() {
-	pageSize := 10
-	c.SelectedIndex += pageSize
-	if c.SelectedIndex >= len(c.FilteredItems) {
-		c.SelectedIndex = len(c.FilteredItems) - 1
-	}
-	c.ensureVisible()
-}
-
-func (c *Column) ensureVisible() {
-	if len(c.FilteredItems) == 0 {
-		return
-	}
-	if c.SelectedIndex < c.Offset {
-		c.Offset = c.SelectedIndex
-	}
-	if c.SelectedIndex >= c.Offset+10 {
-		c.Offset = c.SelectedIndex - 9
-	}
-}
-
 func (c *Column) HasSelectedItem() bool {
-	return c.SelectedIndex >= 0 && c.SelectedIndex < len(c.FilteredItems)
+	return len(c.Items) > 0 && c.list.SelectedItem() != nil
 }
 
 func (c *Column) SelectedItem() *Item {
-	if !c.HasSelectedItem() {
+	li := c.list.SelectedItem()
+	if li == nil {
 		return nil
 	}
-	return &c.FilteredItems[c.SelectedIndex]
+	item := li.(Item)
+	return &item
 }
 
 func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
@@ -167,8 +182,7 @@ func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
 	}
 
 	destPath := filepath.Join(destCol.Path, filepath.Base(srcPath))
-	err := os.Rename(srcPath, destPath)
-	if err != nil {
+	if err := os.Rename(srcPath, destPath); err != nil {
 		return err
 	}
 
@@ -178,17 +192,12 @@ func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
 }
 
 func (c *Column) DeleteItem(itemName string) error {
-	fullPath := ""
 	for _, item := range c.Items {
 		if item.Name == itemName {
-			fullPath = item.FullPath
-			break
+			return os.Remove(item.FullPath)
 		}
 	}
-	if fullPath == "" {
-		return os.ErrNotExist
-	}
-	return os.Remove(fullPath)
+	return os.ErrNotExist
 }
 
 func (c *Column) CreateItem(name string) (string, error) {
@@ -202,82 +211,50 @@ func (c *Column) CreateItem(name string) (string, error) {
 }
 
 func (c *Column) AppendText(itemName, text string) error {
-	fullPath := ""
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			fullPath = item.FullPath
-			break
-		}
-	}
+	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return err
 	}
-
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		text = "\n" + text
 	}
-
 	return os.WriteFile(fullPath, append(content, []byte(text+"\n")...), 0644)
 }
 
 func (c *Column) PrependText(itemName, text string) error {
-	fullPath := ""
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			fullPath = item.FullPath
-			break
-		}
-	}
+	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return err
 	}
-
 	return os.WriteFile(fullPath, append([]byte(text+"\n"), content...), 0644)
 }
 
 func (c *Column) JournalText(itemName, text string) error {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	journalEntry := timestamp + " - " + text + "\n"
-	return c.AppendText(itemName, journalEntry)
+	return c.AppendText(itemName, timestamp+" - "+text)
 }
 
 func (c *Column) CopyContent(itemName string) ([]byte, error) {
-	fullPath := ""
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			fullPath = item.FullPath
-			break
-		}
-	}
+	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return nil, os.ErrNotExist
 	}
-
 	return os.ReadFile(fullPath)
 }
 
 func (c *Column) OpenFile(itemName string) error {
-	fullPath := ""
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			fullPath = item.FullPath
-			break
-		}
-	}
+	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-
 	return openFile(fullPath)
 }
 
@@ -287,145 +264,20 @@ func (c *Column) PinItem(itemName string) error {
 			c.Items[i].TogglePin()
 			newName := c.Items[i].Name
 			newPath := filepath.Join(c.Path, newName+".md")
-			err := os.Rename(c.Items[i].FullPath, newPath)
-			if err != nil {
+			if err := os.Rename(c.Items[i].FullPath, newPath); err != nil {
 				return err
 			}
-			c.Items[i].FullPath = newPath
-			c.LoadItems()
-			return nil
+			return c.LoadItems()
 		}
 	}
 	return os.ErrNotExist
 }
 
-func (c *Column) UpdateSearch(msg tea.KeyMsg) tea.Cmd {
-	if msg.Type == tea.KeyEsc {
-		c.SearchQuery = ""
-		return nil
-	}
-	if msg.Type == tea.KeyRunes {
-		for _, r := range msg.Runes {
-			c.SearchQuery += string(r)
-		}
-		c.applySearch()
-		return nil
-	}
-	return nil
-}
-
-const colWidth = 30
-
-func (c *Column) Render(style ColumnStyle, visibleHeight int, isActive bool) string {
-	var result strings.Builder
-
-	headerStyle := lipgloss.NewStyle().
-		Width(colWidth).
-		Align(lipgloss.Left).
-		Bold(true).
-		Padding(0, 1)
-
-	if isActive {
-		headerStyle = headerStyle.
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#3b82f6"))
-	} else {
-		headerStyle = headerStyle.
-			Foreground(lipgloss.Color("#94a3b8")).
-			Background(lipgloss.Color("#1e293b"))
-	}
-
-	header := headerStyle.Render(" " + c.Name + " [" + strconv.Itoa(c.TotalCount()) + "] ")
-	result.WriteString(header)
-	result.WriteString("\n")
-
-	separatorColor := lipgloss.Color("#3b82f6")
-	if !isActive {
-		separatorColor = lipgloss.Color("#334155")
-	}
-	separator := strings.Repeat("─", colWidth)
-	result.WriteString(lipgloss.NewStyle().Foreground(separatorColor).Render(separator))
-	result.WriteString("\n")
-
-	items := c.FilteredItems
-	if len(items) == 0 {
-		result.WriteString(lipgloss.NewStyle().Width(colWidth).PaddingLeft(2).Foreground(lipgloss.Color("#64748b")).Render("(empty)"))
-		result.WriteString("\n")
-		return result.String()
-	}
-
-	start := c.Offset
-	end := start + visibleHeight
-	if end > len(items) {
-		end = len(items)
-	}
-
-	for i := start; i < end; i++ {
-		item := items[i]
-		isSelected := i == c.SelectedIndex
-
-		cursor := "  "
-		if isSelected && isActive {
-			cursor = "> "
-		}
-
-		pinIcon := ""
-		if item.Pinned {
-			pinIcon = "📌 "
-		}
-
-		itemStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth)
-
-		if isSelected && isActive {
-			itemStyle = itemStyle.
-				Bold(true).
-				Background(lipgloss.Color("#3b82f6")).
-				Foreground(lipgloss.Color("#ffffff"))
-		} else if isSelected {
-			itemStyle = itemStyle.
-				Bold(true).
-				Foreground(lipgloss.Color("#e2e8f0"))
-		} else {
-			itemStyle = itemStyle.Foreground(lipgloss.Color("#64748b"))
-		}
-
-		result.WriteString(itemStyle.Render(cursor + pinIcon + item.Name))
-		result.WriteString("\n")
-
-		for _, line := range item.Preview {
-			var previewColor lipgloss.Color
-			if isSelected && isActive {
-				previewColor = lipgloss.Color("#bfdbfe")
-			} else if isSelected {
-				previewColor = lipgloss.Color("#94a3b8")
-			} else {
-				previewColor = lipgloss.Color("#475569")
-			}
-			previewStyle := lipgloss.NewStyle().
-				Width(colWidth).
-				MaxWidth(colWidth).
-				PaddingLeft(4).
-				Foreground(previewColor)
-			result.WriteString(previewStyle.Render(line))
-			result.WriteString("\n")
-		}
-
-		if i < end-1 {
-			result.WriteString("\n")
+func (c *Column) fullPathFor(itemName string) string {
+	for _, item := range c.Items {
+		if item.Name == itemName {
+			return item.FullPath
 		}
 	}
-
-	return result.String()
-}
-
-type ColumnStyle struct {
-	BorderColor lipgloss.Color
-	HeaderColor lipgloss.Color
-}
-
-func DefaultColumnStyle() ColumnStyle {
-	return ColumnStyle{
-		BorderColor: lipgloss.Color("#334155"),
-		HeaderColor: lipgloss.Color("#94a3b8"),
-	}
+	return ""
 }

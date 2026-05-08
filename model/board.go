@@ -16,33 +16,29 @@ import (
 type watchMsg struct{}
 
 type Board struct {
-	cfg              config.Config
-	columns          []*Column
-	colStyle         ColumnStyle
-	visibleHeight    int
-	selectedCol      int
-	quitting         bool
-	editor           *Editor
-	toastMgr         *ToastManager
-	searchMode       bool
-	searchCol        *Column
-	quickCmdMode     bool
-	quickCmdInput    string
-	statusMsg        string
-	statusColor      string
-	statusTimer      int
-	theme            string
-	watcher          *kbrdfs.Watcher
-	dialog           Dialog
+	cfg           config.Config
+	columns       []*Column
+	visibleHeight int
+	selectedCol   int
+	quitting      bool
+	editor        *Editor
+	toastMgr      *ToastManager
+	quickCmdMode  bool
+	quickCmdInput string
+	statusMsg     string
+	statusColor   string
+	statusTimer   int
+	theme         string
+	watcher       *kbrdfs.Watcher
+	dialog        Dialog
 }
 
 func NewBoard(cfg config.Config) *Board {
 	return &Board{
-		cfg:        cfg,
-		colStyle:   DefaultColumnStyle(),
-		visibleHeight: 10,
-		editor:     NewEditor(),
-		toastMgr:   NewToastManager(),
+		cfg:           cfg,
+		visibleHeight: 20,
+		editor:        NewEditor(),
+		toastMgr:      NewToastManager(),
 	}
 }
 
@@ -110,7 +106,10 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		b.visibleHeight = msg.Height - 6
+		b.visibleHeight = msg.Height - 4
+		for _, col := range b.columns {
+			col.SetHeight(b.visibleHeight)
+		}
 		return b, nil
 
 	case tea.KeyMsg:
@@ -148,6 +147,12 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case quickCommandMsg:
 		return b.handleQuickCommand(msg)
+
+	default:
+		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
+		if len(b.columns) > 0 {
+			return b, b.columns[b.selectedCol].UpdateList(msg)
+		}
 	}
 
 	return b, nil
@@ -159,18 +164,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.dialog.Update(msg)
 	}
 
-	// Handle editor open
+	// Handle editor
 	if b.editor.state != editorNone {
 		cmd, _ := b.editor.Update(msg)
 		if b.editor.state == editorNone {
 			b.editor = NewEditor()
 		}
 		return b, cmd
-	}
-
-	// Handle search
-	if b.searchMode {
-		return b.handleSearchKey(msg)
 	}
 
 	// Handle quick command
@@ -187,60 +187,38 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch msg.String() {
-	case "q":
-		return b, b.openQuickCommand()
-	case "t":
-		b.toggleTheme()
-		return b, nil
-	case "R":
-		return b, b.refresh()
-	}
-
 	if len(b.columns) == 0 {
 		return b, nil
 	}
 
 	col := b.columns[b.selectedCol]
 
+	// When list is filtering, all keys go directly to it
+	if col.IsFiltering() {
+		return b, col.UpdateList(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		b.quitting = true
 		return b, tea.Quit
-	case "left", "h":
+	case ".":
+		return b, b.openQuickCommand()
+	case "t":
+		b.toggleTheme()
+		return b, nil
+	case "R":
+		return b, b.refresh()
+	case "[", "shift+tab":
 		b.selectedCol--
 		if b.selectedCol < 0 {
 			b.selectedCol = len(b.columns) - 1
 		}
-	case "right", "l":
+	case "]", "tab":
 		b.selectedCol++
 		if b.selectedCol >= len(b.columns) {
 			b.selectedCol = 0
 		}
-	case "Tab":
-		b.selectedCol++
-		if b.selectedCol >= len(b.columns) {
-			b.selectedCol = 0
-		}
-	case "shift+tab":
-		b.selectedCol--
-		if b.selectedCol < 0 {
-			b.selectedCol = len(b.columns) - 1
-		}
-	case "up", "k":
-		col.SelectUp()
-	case "down", "j":
-		col.SelectDown()
-	case "home":
-		col.SelectFirst()
-	case "end":
-		col.SelectLast()
-	case "pgup":
-		col.PageUp()
-	case "pgdown":
-		col.PageDown()
-	case "/":
-		return b, b.openSearch()
 	case "e":
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
@@ -311,33 +289,18 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = nextCol
 		}
-	case "n":
+	case "/":
+		col.list.SetShowFilter(true)
+		return b, col.UpdateList(msg)
+	case "n", "N":
 		return b, b.editor.OpenNew(b.selectedCol)
-	case "N":
-		return b, b.editor.OpenNew(b.selectedCol)
+	default:
+		return b, col.UpdateList(msg)
 	}
 
 	return b, nil
 }
 
-func (b *Board) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		b.searchMode = false
-		b.searchCol.SearchQuery = ""
-		return b, nil
-	case tea.KeyEnter:
-		query := strings.TrimSpace(b.searchCol.SearchQuery)
-		if query != "" {
-			b.searchCol.SearchQuery = query
-		}
-		b.searchMode = false
-		return b, nil
-	}
-
-	cmd := b.searchCol.UpdateSearch(msg)
-	return b, cmd
-}
 
 func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
@@ -499,15 +462,6 @@ func (b *Board) openQuickCommand() tea.Cmd {
 	}
 }
 
-func (b *Board) openSearch() tea.Cmd {
-	if len(b.columns) == 0 {
-		return nil
-	}
-	b.searchMode = true
-	b.searchCol = b.columns[b.selectedCol]
-	b.searchCol.SearchQuery = ""
-	return nil
-}
 
 func (b *Board) refresh() tea.Cmd {
 	return func() tea.Msg {
@@ -545,10 +499,10 @@ func (b *Board) View() string {
 		return "No columns found in " + b.cfg.Path
 	}
 
-	colStyle := lipgloss.NewStyle().MarginRight(2)
+	gap := lipgloss.NewStyle().MarginRight(2)
 	rendered := make([]string, len(b.columns))
 	for i, col := range b.columns {
-		rendered[i] = colStyle.Render(col.Render(b.colStyle, b.visibleHeight, i == b.selectedCol))
+		rendered[i] = gap.Render(col.View(i == b.selectedCol))
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 
@@ -580,17 +534,6 @@ func (b *Board) View() string {
 func (b *Board) renderStatusBar() string {
 	var parts []string
 
-	if b.searchMode {
-		parts = append(parts, "/"+b.searchCol.SearchQuery)
-		parts = append(parts, "Enter confirm")
-		parts = append(parts, "Esc cancel")
-		return lipgloss.NewStyle().
-			Width(80).
-			Align(lipgloss.Center).
-			Foreground(lipgloss.Color("#94a3b8")).
-			Render(strings.Join(parts, "  "))
-	}
-
 	if b.quickCmdMode {
 		parts = append(parts, "Esc cancel")
 		return lipgloss.NewStyle().
@@ -601,22 +544,22 @@ func (b *Board) renderStatusBar() string {
 	}
 
 	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem() {
-		parts = append(parts, "↑↓ navigate")
+		parts = append(parts, "tab/[ ] cols")
+		parts = append(parts, "j/k nav")
 		parts = append(parts, "e edit")
 		parts = append(parts, "a append")
 		parts = append(parts, "p prepend")
-		parts = append(parts, "j journal")
-		parts = append(parts, "c copy")
-		parts = append(parts, "o open")
-		parts = append(parts, "! pin")
-		parts = append(parts, "N new")
+		parts = append(parts, "J journal")
+		parts = append(parts, "m move")
 		parts = append(parts, "d delete")
-		parts = append(parts, "q quick cmd")
+		parts = append(parts, "n new")
+		parts = append(parts, ". cmd")
 	} else {
-		parts = append(parts, "←→ columns")
-		parts = append(parts, "N new")
+		parts = append(parts, "tab/[ ] cols")
+		parts = append(parts, "n new")
+		parts = append(parts, "/ filter")
 		parts = append(parts, "R refresh")
-		parts = append(parts, "q quit")
+		parts = append(parts, ". cmd")
 	}
 
 	if b.statusMsg != "" {

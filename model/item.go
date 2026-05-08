@@ -51,9 +51,7 @@ func NewItem(fullPath string) (Item, error) {
 	}, nil
 }
 
-func (i Item) DisplayName() string {
-	return i.Name
-}
+func (i Item) FilterValue() string { return i.Name }
 
 func (i *Item) TogglePin() {
 	i.Pinned = !i.Pinned
