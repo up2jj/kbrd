@@ -2,10 +2,10 @@ package model
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -250,8 +250,12 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return b, b.toastMgr.Add("failed to copy: "+err.Error(), toastError)
 			}
-			// Use system clipboard
 			return b, b.copyToClipboard([]byte(content))
+		}
+	case "V":
+		if col.HasSelectedItem() {
+			item := col.SelectedItem()
+			return b, b.pasteToItem(b.selectedCol, item.Name)
 		}
 	case "o":
 		if col.HasSelectedItem() {
@@ -485,16 +489,26 @@ func (b *Board) toggleTheme() {
 }
 
 func (b *Board) copyToClipboard(content []byte) tea.Cmd {
-	cmd := exec.Command("pbcopy")
-	cmd.Stdin = strings.NewReader(string(content))
-	err := cmd.Run()
-	if err != nil {
-		return func() tea.Msg {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(string(content)); err != nil {
 			return toastMsg{Message: "clipboard not available", Type: toastError}
 		}
-	}
-	return func() tea.Msg {
 		return toastMsg{Message: "copied to clipboard", Type: toastSuccess}
+	}
+}
+
+func (b *Board) pasteToItem(colIdx int, fileName string) tea.Cmd {
+	return func() tea.Msg {
+		text, err := clipboard.ReadAll()
+		if err != nil || text == "" {
+			return toastMsg{Message: "clipboard empty or unavailable", Type: toastError}
+		}
+		col := b.columns[colIdx]
+		if err := col.AppendText(fileName, text); err != nil {
+			return toastMsg{Message: "failed to paste: " + err.Error(), Type: toastError}
+		}
+		col.LoadItems()
+		return toastMsg{Message: "pasted to " + fileName, Type: toastSuccess}
 	}
 }
 
@@ -559,6 +573,8 @@ func (b *Board) renderStatusBar() string {
 		parts = append(parts, "a append")
 		parts = append(parts, "p prepend")
 		parts = append(parts, "J journal")
+		parts = append(parts, "c copy")
+		parts = append(parts, "V paste")
 		parts = append(parts, "m move")
 		parts = append(parts, "d delete")
 		parts = append(parts, "n new")
