@@ -66,41 +66,18 @@ type Column struct {
 func NewColumn(name, path string) *Column {
 	delegate := itemDelegate{}
 	l := list.New(nil, delegate, colWidth, 20)
-	l.SetShowTitle(true)
+	l.SetShowTitle(false)
 	l.SetShowFilter(false)
 	l.SetShowStatusBar(false)
 	l.SetShowPagination(false)
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
 	l.DisableQuitKeybindings()
-	l.Title = name
-	// Override defaults: remove bottom padding from TitleBar and purple background from Title
-	l.Styles.TitleBar = lipgloss.NewStyle().
-		Width(colWidth)
-	l.Styles.Title = lipgloss.NewStyle().
-		Width(colWidth).
-		Bold(true).
-		Padding(0, 1).
-		Foreground(lipgloss.Color("#94a3b8")).
-		Background(lipgloss.Color("#1e293b"))
 	l.Styles.NoItems = lipgloss.NewStyle().
 		PaddingLeft(2).
-		Foreground(lipgloss.Color("#64748b"))
+		Foreground(lipgloss.Color("#475569"))
 
 	return &Column{Name: name, Path: path, list: l}
-}
-
-func (c *Column) SetActive(active bool) {
-	titleBase := lipgloss.NewStyle().Width(colWidth).Bold(true).Padding(0, 1)
-	if active {
-		c.list.Styles.Title = titleBase.
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#3b82f6"))
-	} else {
-		c.list.Styles.Title = titleBase.
-			Foreground(lipgloss.Color("#94a3b8")).
-			Background(lipgloss.Color("#1e293b"))
-	}
 }
 
 func (c *Column) SetHeight(h int) {
@@ -113,12 +90,56 @@ func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+func (c *Column) renderHeader(isActive bool) string {
+	var bg, fg, sepColor lipgloss.Color
+	if isActive {
+		bg = lipgloss.Color("#3b82f6")
+		fg = lipgloss.Color("#ffffff")
+		sepColor = lipgloss.Color("#60a5fa")
+	} else {
+		bg = lipgloss.Color("#1e293b")
+		fg = lipgloss.Color("#64748b")
+		sepColor = lipgloss.Color("#334155")
+	}
+
+	baseStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
+
+	name := baseStyle.Bold(true).Padding(0, 1).Render(c.Name)
+	count := baseStyle.Padding(0, 1).Render(strconv.Itoa(c.TotalCount()))
+
+	// fill remaining space between name and count
+	gap := colWidth - lipgloss.Width(name) - lipgloss.Width(count)
+	if gap < 0 {
+		gap = 0
+	}
+	spacer := baseStyle.Render(strings.Repeat(" ", gap))
+
+	header := lipgloss.JoinHorizontal(lipgloss.Top, name, spacer, count)
+	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", colWidth))
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep)
+}
+
 func (c *Column) View(isActive bool) string {
-	c.SetActive(isActive)
 	c.list.SetDelegate(itemDelegate{isActive: isActive})
-	c.list.Title = c.Name + " [" + strconv.Itoa(c.TotalCount()) + "]"
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
-	return c.list.View()
+
+	var borderColor lipgloss.Color
+	if isActive {
+		borderColor = lipgloss.Color("#3b82f6")
+	} else {
+		borderColor = lipgloss.Color("#334155")
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		c.renderHeader(isActive),
+		c.list.View(),
+	)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Render(content)
 }
 
 func (c *Column) IsFiltering() bool {

@@ -499,7 +499,7 @@ func (b *Board) View() string {
 		return "No columns found in " + b.cfg.Path
 	}
 
-	gap := lipgloss.NewStyle().MarginRight(2)
+	gap := lipgloss.NewStyle().MarginRight(1)
 	rendered := make([]string, len(b.columns))
 	for i, col := range b.columns {
 		rendered[i] = gap.Render(col.View(i == b.selectedCol))
