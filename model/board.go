@@ -19,6 +19,8 @@ type Board struct {
 	cfg           config.Config
 	columns       []*Column
 	visibleHeight int
+	termWidth     int
+	termHeight    int
 	selectedCol   int
 	quitting      bool
 	editor        *Editor
@@ -106,6 +108,8 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		b.termWidth = msg.Width
+		b.termHeight = msg.Height
 		b.visibleHeight = msg.Height - 4
 		for _, col := range b.columns {
 			col.SetHeight(b.visibleHeight)
@@ -516,15 +520,20 @@ func (b *Board) View() string {
 	if toastView != "" {
 		result += "\n\n" + toastView
 	}
+	w, h := b.termWidth, b.termHeight
+	if w == 0 {
+		w = 80
+	}
+	if h == 0 {
+		h = 24
+	}
 	editorView := b.renderEditor()
 	if editorView != "" {
-		result += "\n\n" + editorView
-		return result
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
 	}
 	dialogView := b.dialog.View()
 	if dialogView != "" {
-		result += "\n\n" + dialogView
-		return result
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
 	}
 	result += "\n" + b.renderStatusBar()
 
