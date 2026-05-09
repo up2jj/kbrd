@@ -138,6 +138,7 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, col := range b.columns {
 			col.SetHeight(b.visibleHeight)
 		}
+		b.editor.SetTermSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.KeyMsg:

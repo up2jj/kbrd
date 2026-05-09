@@ -38,6 +38,64 @@ type Editor struct {
 	redo          []string
 	lastCommitted string
 	lastCommitAt  time.Time
+	expanded      bool
+	termWidth     int
+	termHeight    int
+}
+
+const (
+	editorDefaultWidth  = 60
+	editorDefaultHeight = 10
+	editorMaxWidth      = 120
+)
+
+func (e *Editor) SetTermSize(w, h int) {
+	e.termWidth = w
+	e.termHeight = h
+	e.applySize()
+}
+
+func (e *Editor) applySize() {
+	if e.termWidth <= 0 || e.termHeight <= 0 {
+		e.textarea.SetWidth(editorDefaultWidth)
+		e.textarea.SetHeight(editorDefaultHeight)
+		return
+	}
+	maxW := e.termWidth - 4
+	if maxW < 20 {
+		maxW = 20
+	}
+	maxH := e.termHeight - 6
+	if maxH < 4 {
+		maxH = 4
+	}
+	var w, h int
+	if e.expanded {
+		w = maxW
+		if w > editorMaxWidth {
+			w = editorMaxWidth
+		}
+		h = maxH
+		if h < editorDefaultHeight {
+			h = editorDefaultHeight
+		}
+	} else {
+		w = editorDefaultWidth
+		if w > maxW {
+			w = maxW
+		}
+		h = editorDefaultHeight
+		if h > maxH {
+			h = maxH
+		}
+	}
+	e.textarea.SetWidth(w)
+	e.textarea.SetHeight(h)
+}
+
+func (e *Editor) toggleExpanded() {
+	e.expanded = !e.expanded
+	e.applySize()
 }
 
 func (e *Editor) resetHistory(initial string) {
@@ -66,8 +124,8 @@ func isCommitBoundary(key string) bool {
 func NewEditor() *Editor {
 	ta := textarea.New()
 	ta.ShowLineNumbers = false
-	ta.SetWidth(60)
-	ta.SetHeight(10)
+	ta.SetWidth(editorDefaultWidth)
+	ta.SetHeight(editorDefaultHeight)
 
 	ti := textinput.New()
 	ti.CharLimit = 120
@@ -87,6 +145,8 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.textarea.CursorEnd()
 	e.initialValue = initial
 	e.resetHistory(initial)
+	e.expanded = false
+	e.applySize()
 	return e.textarea.Focus()
 }
 
@@ -97,6 +157,8 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
+	e.expanded = false
+	e.applySize()
 	return e.textarea.Focus()
 }
 
@@ -107,6 +169,8 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
+	e.expanded = false
+	e.applySize()
 	return e.textarea.Focus()
 }
 
@@ -117,6 +181,8 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
+	e.expanded = false
+	e.applySize()
 	return e.textarea.Focus()
 }
 
@@ -173,6 +239,11 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 		case "ctrl+y":
 			if e.state != editorNew {
 				e.redoOnce()
+				return nil, nil
+			}
+		case "ctrl+e":
+			if e.state != editorNew {
+				e.toggleExpanded()
 				return nil, nil
 			}
 		}
@@ -272,7 +343,11 @@ func (e *Editor) View() string {
 	if len(e.redo) > 0 {
 		textareaHints = append(textareaHints, Shortcut{"ctrl+y", "redo"})
 	}
-	textareaHints = append(textareaHints, Shortcut{"esc", "cancel"})
+	expandLabel := "expand"
+	if e.expanded {
+		expandLabel = "collapse"
+	}
+	textareaHints = append(textareaHints, Shortcut{"ctrl+e", expandLabel}, Shortcut{"esc", "cancel"})
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName
