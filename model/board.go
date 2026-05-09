@@ -3,6 +3,7 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -39,6 +40,7 @@ type Board struct {
 	theme         string
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
+	helpOpen      bool
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
@@ -184,6 +186,19 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle help overlay
+	if b.helpOpen {
+		switch msg.String() {
+		case "?", "esc", "ctrl+c":
+			b.helpOpen = false
+			if msg.String() == "ctrl+c" {
+				b.quitting = true
+				return b, tea.Quit
+			}
+		}
+		return b, nil
+	}
+
 	// Handle dialog
 	if b.dialog.active {
 		return b, b.dialog.Update(msg)
@@ -227,6 +242,9 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		b.quitting = true
 		return b, tea.Quit
+	case "?":
+		b.helpOpen = true
+		return b, nil
 	case ".":
 		return b, b.openQuickCommand()
 	case "t":
@@ -688,6 +706,12 @@ func (b *Board) View() string {
 	if h == 0 {
 		h = 24
 	}
+	if b.helpOpen {
+		overlay := RenderHelpOverlay(w, h, GlobalShortcuts(ShortcutContext{
+			HasSelectedItem: b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem(),
+		}))
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay)
+	}
 	editorView := b.renderEditor()
 	if editorView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
@@ -702,47 +726,48 @@ func (b *Board) View() string {
 }
 
 func (b *Board) renderStatusBar() string {
-	var parts []string
-
-	if b.quickCmdMode {
-		parts = append(parts, "Esc cancel")
-		return lipgloss.NewStyle().
-			Width(80).
-			Align(lipgloss.Center).
-			Foreground(lipgloss.Color("#94a3b8")).
-			Render(strings.Join(parts, "  "))
+	width := b.termWidth
+	if width == 0 {
+		width = 80
 	}
 
-	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem() {
-		parts = append(parts, "tab/[ ] cols")
-		parts = append(parts, "j/k nav")
-		parts = append(parts, "e edit")
-		parts = append(parts, "a append")
-		parts = append(parts, "p prepend")
-		parts = append(parts, "J journal")
-		parts = append(parts, "c copy")
-		parts = append(parts, "V paste")
-		parts = append(parts, "m move")
-		parts = append(parts, "d delete")
-		parts = append(parts, "n new")
-		parts = append(parts, ". cmd")
-	} else {
-		parts = append(parts, "tab/[ ] cols")
-		parts = append(parts, "n new")
-		parts = append(parts, "/ filter")
-		parts = append(parts, "R refresh")
-		parts = append(parts, ". cmd")
+	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode}
+	var primary string
+	hasSelected := b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
+	ctx.HasSelectedItem = hasSelected
+
+	sepDot := helpSepStyle.Render(" · ")
+
+	switch {
+	case b.quickCmdMode:
+		primary = helpTitleStyle.Render("⏵ command")
+	case b.selectedCol < len(b.columns):
+		col := b.columns[b.selectedCol]
+		mode := helpTitleStyle.Render("⏵ board")
+		colLabel := helpLabelStyle.Render("column: ") + helpKeyStyle.Render(col.Name)
+		count := helpLabelStyle.Render(itemCountLabel(col.TotalCount()))
+		primary = mode + sepDot + colLabel + sepDot + count
+	default:
+		primary = helpTitleStyle.Render("⏵ board")
 	}
 
 	if b.statusMsg != "" {
-		parts = append([]string{b.statusMsg}, parts...)
+		statusColor := b.getStatusColor()
+		primary = lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(b.statusMsg) +
+			sepDot + primary
 	}
 
-	return lipgloss.NewStyle().
-		Width(80).
-		Align(lipgloss.Center).
-		Foreground(lipgloss.Color(b.getStatusColor())).
-		Render(strings.Join(parts, "  "))
+	secondary := RenderInlineHints(ContextShortcuts(ctx))
+
+	lineStyle := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
+	return lineStyle.Render(primary) + "\n" + lineStyle.Render(secondary)
+}
+
+func itemCountLabel(n int) string {
+	if n == 1 {
+		return "1 item"
+	}
+	return strconv.Itoa(n) + " items"
 }
 
 func (b *Board) getStatusColor() string {

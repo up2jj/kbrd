@@ -151,27 +151,28 @@ func (e *Editor) View() string {
 		return ""
 	}
 
-	var label, hint string
+	var label string
+	var hints []Shortcut
+	saveHints := []Shortcut{{"ctrl+s", "save"}, {"esc", "cancel"}}
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName
-		hint = "ctrl+s save   esc cancel"
+		hints = saveHints
 	case editorAppend:
 		label = "Append to: " + e.FileName
-		hint = "ctrl+s save   esc cancel"
+		hints = saveHints
 	case editorPrepend:
 		label = "Prepend to: " + e.FileName
-		hint = "ctrl+s save   esc cancel"
+		hints = saveHints
 	case editorJournal:
 		label = "Journal entry for: " + e.FileName
-		hint = "ctrl+s save   esc cancel"
+		hints = saveHints
 	case editorNew:
 		label = "New item in column " + string(rune('1'+e.ColIndex))
-		hint = "enter confirm   esc cancel"
+		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3b82f6")).
@@ -186,7 +187,7 @@ func (e *Editor) View() string {
 
 	return headerStyle.Render(label) + "\n" +
 		boxStyle.Render(input) + "\n" +
-		hintStyle.Render(hint)
+		RenderInlineHints(hints)
 }
 
 type editorSaveMsg struct {

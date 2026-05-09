@@ -61,7 +61,6 @@ func (d *Dialog) View() string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f1f5f9"))
 	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
 
 	btnBase := lipgloss.NewStyle().Padding(0, 3)
 	activeDanger := btnBase.Bold(true).Background(lipgloss.Color("#ef4444")).Foreground(lipgloss.Color("#ffffff"))
@@ -94,7 +93,11 @@ func (d *Dialog) View() string {
 		"",
 		btnRow,
 		"",
-		hintStyle.Render("←/→ select   enter confirm   esc cancel"),
+		RenderInlineHints([]Shortcut{
+			{"←/→", "select"},
+			{"enter", "confirm"},
+			{"esc", "cancel"},
+		}),
 	)
 
 	return lipgloss.NewStyle().
