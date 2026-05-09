@@ -45,6 +45,7 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 		{
 			Title: "Item",
 			Items: []Shortcut{
+				{"space", "peek"},
 				{"e", "edit"},
 				{"a", "append"},
 				{"p", "prepend"},
@@ -83,6 +84,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	}
 	if ctx.HasSelectedItem {
 		return []Shortcut{
+			{"space", "peek"},
 			{"e", "edit"},
 			{"a", "append"},
 			{"d", "delete"},

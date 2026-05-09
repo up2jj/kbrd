@@ -41,6 +41,7 @@ type Board struct {
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
 	helpOpen      bool
+	peek          Peek
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
@@ -226,6 +227,12 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	}
 
+	// Handle peek modal
+	if b.peek.Active() {
+		b.peek.Update(msg)
+		return b, nil
+	}
+
 	// Handle quick command
 	if b.quickCmdMode {
 		return b.handleQuickCommandKey(msg)
@@ -349,6 +356,16 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = nextCol
 		}
+	case " ":
+		if col.HasSelectedItem() {
+			item := col.SelectedItem()
+			content, err := col.CopyContent(item.Name)
+			if err != nil {
+				return b, b.toastMgr.Add("failed to peek: "+err.Error(), toastError)
+			}
+			return b, b.peek.Open(item.Name, string(content), b.termWidth)
+		}
+		return b, nil
 	case "/":
 		col.list.SetShowFilter(true)
 		return b, col.UpdateList(msg)
@@ -732,6 +749,9 @@ func (b *Board) View() string {
 	editorView := b.renderEditor()
 	if editorView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
+	}
+	if b.peek.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.peek.View(w, h))
 	}
 	result += "\n" + b.renderStatusBar()
 
