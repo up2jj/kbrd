@@ -370,8 +370,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		col.list.SetShowFilter(true)
 		return b, col.UpdateList(msg)
-	case "n", "N":
-		return b, b.editor.OpenNew(b.selectedCol)
+	case "n":
+		return b, b.editor.OpenNew(b.selectedCol, b.columns[b.selectedCol].Name)
+	case "N":
+		if len(b.columns) == 0 {
+			return b, b.toastMgr.Add("no folders available", toastError)
+		}
+		return b, b.editor.OpenNew(0, b.columns[0].Name)
 	default:
 		return b, col.UpdateList(msg)
 	}

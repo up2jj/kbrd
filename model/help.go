@@ -61,7 +61,8 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 		{
 			Title: "Create & Command",
 			Items: []Shortcut{
-				{"n / N", "new item"},
+				{"n", "new item in current folder"},
+				{"N", "new item in first folder"},
 				{".", "quick command"},
 			},
 		},

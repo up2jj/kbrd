@@ -32,6 +32,7 @@ type Editor struct {
 	textarea      textarea.Model
 	textinput     textinput.Model
 	ColIndex      int
+	ColName       string
 	FileName      string
 	initialValue  string
 	undo          []string
@@ -186,9 +187,10 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	return e.textarea.Focus()
 }
 
-func (e *Editor) OpenNew(colIdx int) tea.Cmd {
+func (e *Editor) OpenNew(colIdx int, colName string) tea.Cmd {
 	e.state = editorNew
 	e.ColIndex = colIdx
+	e.ColName = colName
 	e.FileName = ""
 	e.textinput.SetValue("")
 	e.initialValue = ""
@@ -362,7 +364,7 @@ func (e *Editor) View() string {
 		label = "Journal entry for: " + e.FileName
 		hints = textareaHints
 	case editorNew:
-		label = "New item in column " + string(rune('1'+e.ColIndex))
+		label = "New item in: " + e.ColName
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
