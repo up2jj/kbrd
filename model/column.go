@@ -143,8 +143,15 @@ func (c *Column) renderHeader(isActive bool) string {
 
 	baseStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
 
-	name := baseStyle.Bold(true).Padding(0, 1).Render(c.Name)
-	count := baseStyle.Padding(0, 1).Render(strconv.Itoa(c.TotalCount()))
+	nameLabel := c.Name
+	countLabel := strconv.Itoa(c.TotalCount())
+	if c.list.IsFiltered() && !c.list.SettingFilter() {
+		nameLabel = "⌕ " + c.Name
+		countLabel = strconv.Itoa(len(c.list.VisibleItems())) + "/" + strconv.Itoa(c.TotalCount())
+	}
+
+	name := baseStyle.Bold(true).Padding(0, 1).Render(nameLabel)
+	count := baseStyle.Padding(0, 1).Render(countLabel)
 
 	// fill remaining space between name and count
 	gap := colWidth - lipgloss.Width(name) - lipgloss.Width(count)
