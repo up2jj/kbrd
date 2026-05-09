@@ -18,7 +18,9 @@ const colWidth = 32
 
 // itemDelegate renders each kanban item inside a bubbles list.
 type itemDelegate struct {
-	isActive bool
+	isActive   bool
+	mnemonicOf func(name string) string
+	gutterW    int
 }
 
 func (d itemDelegate) Height() int  { return 3 }
@@ -32,28 +34,58 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 	isSelected := index == m.Index()
 
-	cursor := "  "
-	if isSelected && d.isActive {
-		cursor = "> "
+	gutterW := d.gutterW
+	if gutterW < 2 {
+		gutterW = 2
 	}
+	mnemonic := ""
+	if d.mnemonicOf != nil {
+		mnemonic = d.mnemonicOf(item.Name)
+	}
+
+	// Row palette — every cell on the row shares the same background so the
+	// mnemonic cell visually belongs to the row.
+	var rowBg, mnemFg, nameFg lipgloss.Color
+	hasRowBg := false
+	switch {
+	case isSelected && d.isActive:
+		rowBg = lipgloss.Color("#3b82f6")
+		mnemFg = lipgloss.Color("#fde047")
+		nameFg = lipgloss.Color("#ffffff")
+		hasRowBg = true
+	case isSelected:
+		mnemFg = lipgloss.Color("#f59e0b")
+		nameFg = lipgloss.Color("#f1f5f9")
+	default:
+		mnemFg = lipgloss.Color("#f59e0b")
+		nameFg = lipgloss.Color("#f1f5f9")
+	}
+
 	pinIcon := ""
 	if item.Pinned {
 		pinIcon = "📌 "
 	}
 
-	// Line 1 — name
-	nameStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).Bold(true)
-	switch {
-	case isSelected && d.isActive:
-		nameStyle = nameStyle.
-			Background(lipgloss.Color("#3b82f6")).
-			Foreground(lipgloss.Color("#ffffff"))
-	case isSelected:
-		nameStyle = nameStyle.Foreground(lipgloss.Color("#f1f5f9"))
-	default:
-		nameStyle = nameStyle.Foreground(lipgloss.Color("#f1f5f9"))
+	// Build line 1 as gutter + rest, each rendered with the same row background
+	// so they fuse into one continuous bar.
+	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
+	restWidth := colWidth - gutterW
+	if restWidth < 1 {
+		restWidth = 1
 	}
-	fmt.Fprintln(w, nameStyle.Render(cursor+pinIcon+item.Name))
+	restStyle := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Width(restWidth).MaxWidth(restWidth)
+	if hasRowBg {
+		gutterStyle = gutterStyle.Background(rowBg)
+		restStyle = restStyle.Background(rowBg)
+	}
+
+	gutterText := mnemonic
+	if gutterText == "" {
+		if isSelected && d.isActive {
+			gutterText = ">"
+		}
+	}
+	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(pinIcon+item.Name))
 
 	// Line 2 — preview
 	preview := "—"
@@ -70,7 +102,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		previewFg = lipgloss.Color("#64748b")
 	}
-	previewStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(previewFg).Italic(true)
+	previewStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
@@ -87,7 +119,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		metaFg = lipgloss.Color("#334155")
 	}
-	metaStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(metaFg)
+	metaStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(gutterW).Foreground(metaFg)
 	if isSelected && d.isActive {
 		metaStyle = metaStyle.Background(detailBg)
 	}
@@ -129,45 +161,56 @@ func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func (c *Column) renderHeader(isActive bool) string {
-	var bg, fg, sepColor lipgloss.Color
+func (c *Column) renderHeader(isActive bool, leftPad int) string {
+	var nameFg, countFg, sepColor lipgloss.Color
 	if isActive {
-		bg = lipgloss.Color("#3b82f6")
-		fg = lipgloss.Color("#ffffff")
-		sepColor = lipgloss.Color("#60a5fa")
+		nameFg = lipgloss.Color("#f8fafc")
+		countFg = lipgloss.Color("#60a5fa")
+		sepColor = lipgloss.Color("#3b82f6")
 	} else {
-		bg = lipgloss.Color("#1e293b")
-		fg = lipgloss.Color("#64748b")
+		nameFg = lipgloss.Color("#94a3b8")
+		countFg = lipgloss.Color("#475569")
 		sepColor = lipgloss.Color("#334155")
 	}
 
-	baseStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
-
-	nameLabel := c.Name
+	nameLabel := strings.ToUpper(c.Name)
 	countLabel := strconv.Itoa(c.TotalCount())
-	if c.list.IsFiltered() && !c.list.SettingFilter() {
-		nameLabel = "⌕ " + c.Name
+	filtered := c.list.IsFiltered() && !c.list.SettingFilter()
+	if filtered {
 		countLabel = strconv.Itoa(len(c.list.VisibleItems())) + "/" + strconv.Itoa(c.TotalCount())
 	}
 
-	name := baseStyle.Bold(true).Padding(0, 1).Render(nameLabel)
-	count := baseStyle.Padding(0, 1).Render(countLabel)
-
-	// fill remaining space between name and count
-	gap := colWidth - lipgloss.Width(name) - lipgloss.Width(count)
-	if gap < 0 {
-		gap = 0
+	indicator := "  "
+	if isActive {
+		indicator = lipgloss.NewStyle().Foreground(sepColor).Bold(true).Render("▍ ")
 	}
-	spacer := baseStyle.Render(strings.Repeat(" ", gap))
+	if filtered {
+		indicator = lipgloss.NewStyle().Foreground(countFg).Render("⌕ ")
+	}
 
-	header := lipgloss.JoinHorizontal(lipgloss.Top, name, spacer, count)
+	leftPadStr := ""
+	if leftPad > 0 {
+		leftPadStr = strings.Repeat(" ", leftPad)
+	}
+
+	name := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Render(nameLabel)
+	count := lipgloss.NewStyle().Foreground(countFg).Render(countLabel)
+
+	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
+	gap := colWidth - used
+	if gap < 1 {
+		gap = 1
+	}
+	spacer := strings.Repeat(" ", gap)
+
+	header := leftPadStr + indicator + name + spacer + count
 	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", colWidth))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep)
 }
 
-func (c *Column) View(isActive bool) string {
-	c.list.SetDelegate(itemDelegate{isActive: isActive})
+func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int) string {
+	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW})
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
 
 	var borderColor lipgloss.Color
@@ -177,8 +220,12 @@ func (c *Column) View(isActive bool) string {
 		borderColor = lipgloss.Color("#334155")
 	}
 
+	leftPad := gutterW - 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		c.renderHeader(isActive),
+		c.renderHeader(isActive, leftPad),
 		c.list.View(),
 	)
 
@@ -221,6 +268,19 @@ func (c *Column) LoadItems() error {
 
 func (c *Column) TotalCount() int {
 	return len(c.Items)
+}
+
+// VisibleItems returns the items currently rendered (post filter+sort), in
+// display order.
+func (c *Column) VisibleItems() []Item {
+	li := c.list.VisibleItems()
+	out := make([]Item, 0, len(li))
+	for _, it := range li {
+		if item, ok := it.(Item); ok {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func (c *Column) HasSelectedItem() bool {

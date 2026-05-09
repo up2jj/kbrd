@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -14,6 +15,11 @@ import (
 )
 
 type watchMsg struct{}
+
+type itemRef struct {
+	ColIndex int
+	Name     string
+}
 
 type Board struct {
 	cfg           config.Config
@@ -26,21 +32,36 @@ type Board struct {
 	editor        *Editor
 	toastMgr      *ToastManager
 	quickCmdMode  bool
-	quickCmdInput string
+	quickCmdInput textinput.Model
 	statusMsg     string
 	statusColor   string
 	statusTimer   int
 	theme         string
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
+
+	// mnemonic state — rebuilt whenever the visible item set changes
+	mnemonicByRef map[itemRef]string
+	refByMnemonic map[string]itemRef
+	mnemonicMaxLen int
 }
 
 func NewBoard(cfg config.Config) *Board {
+	ti := textinput.New()
+	ti.Prompt = ": "
+	ti.Placeholder = "type command…"
+	ti.CharLimit = 32
+	ti.Width = 30
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Italic(true)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
 	return &Board{
 		cfg:           cfg,
 		visibleHeight: 20,
 		editor:        NewEditor(),
 		toastMgr:      NewToastManager(),
+		quickCmdInput: ti,
 	}
 }
 
@@ -424,52 +445,172 @@ func (b *Board) handleQuickCommand(msg quickCommandMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	switch key {
+	switch msg.String() {
 	case "esc":
 		b.quickCmdMode = false
-		b.quickCmdInput = ""
+		b.quickCmdInput.Blur()
+		b.quickCmdInput.SetValue("")
 		return b, nil
 	case "enter":
 		b.quickCmdMode = false
-		cmd := strings.TrimSpace(b.quickCmdInput)
+		b.quickCmdInput.Blur()
+		cmd := strings.TrimSpace(b.quickCmdInput.Value())
+		b.quickCmdInput.SetValue("")
 		if cmd == "" {
 			return b, nil
 		}
 		return b, func() tea.Msg {
 			return quickCommandMsg{Command: cmd}
 		}
-	case "backspace":
-		if len(b.quickCmdInput) > 0 {
-			b.quickCmdInput = b.quickCmdInput[:len(b.quickCmdInput)-1]
-		}
-	case "left":
-		// handled by tea
-	case "right":
-		// handled by tea
-	default:
-		if msg.Type == tea.KeyRunes {
-			for _, r := range msg.Runes {
-				b.quickCmdInput += string(r)
-			}
-		} else if len(key) == 1 {
-			b.quickCmdInput += key
-		}
 	}
 
-	return b, nil
+	ti, cmd := b.quickCmdInput.Update(msg)
+	b.quickCmdInput = ti
+
+	buf := b.quickCmdInput.Value()
+	// Item-command fast path: first char is an item action, the rest must match
+	// a mnemonic. Dispatch on unique resolution.
+	if len(buf) >= 1 && isItemCommandAction(buf[0]) {
+		action := buf[0]
+		suffix := buf[1:]
+		if suffix == "" {
+			return b, cmd
+		}
+		if ref, ok := b.refByMnemonic[suffix]; ok {
+			b.quickCmdMode = false
+			b.quickCmdInput.Blur()
+			b.quickCmdInput.SetValue("")
+			return b, b.dispatchItemCommand(action, ref)
+		}
+		for tag := range b.refByMnemonic {
+			if strings.HasPrefix(tag, suffix) {
+				return b, cmd
+			}
+		}
+		b.quickCmdMode = false
+		b.quickCmdInput.Blur()
+		b.quickCmdInput.SetValue("")
+		return b, b.toastMgr.Add("no item: "+suffix, toastError)
+	}
+
+	return b, cmd
+}
+
+func isItemCommandAction(c byte) bool {
+	switch c {
+	case 'e', 'a', 'p', 'J', 'c', 'V', 'o', '!', 'd', 'm':
+		return true
+	}
+	return false
 }
 
 func (b *Board) openQuickCommand() tea.Cmd {
-	return func() tea.Msg {
-		b.quickCmdMode = true
-		b.quickCmdInput = ":"
-		b.quickCmdInput = ""
-		return nil
-	}
+	b.quickCmdMode = true
+	b.quickCmdInput.SetValue("")
+	return b.quickCmdInput.Focus()
 }
 
+
+// dispatchItemCommand runs a single-character item command against an arbitrary
+// item identified by ref, regardless of which column is currently selected.
+// Used by the mnemonic-driven quick-command path. Returns the tea.Cmd produced
+// by the action (or nil) — never changes b.selectedCol so cross-column targeting
+// is non-disruptive.
+func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
+	if ref.ColIndex < 0 || ref.ColIndex >= len(b.columns) {
+		return b.toastMgr.Add("invalid column", toastError)
+	}
+	col := b.columns[ref.ColIndex]
+	var item *Item
+	for i := range col.Items {
+		if col.Items[i].Name == ref.Name {
+			it := col.Items[i]
+			item = &it
+			break
+		}
+	}
+	if item == nil {
+		return b.toastMgr.Add("item not found: "+ref.Name, toastError)
+	}
+
+	switch action {
+	case 'e':
+		return b.editor.OpenEdit(ref.ColIndex, item.Name, item.FullPath)
+	case 'a':
+		return b.editor.OpenAppend(ref.ColIndex, item.Name)
+	case 'p':
+		return b.editor.OpenPrepend(ref.ColIndex, item.Name)
+	case 'J':
+		return b.editor.OpenJournal(ref.ColIndex, item.Name)
+	case 'c':
+		content, err := col.CopyContent(item.Name)
+		if err != nil {
+			return b.toastMgr.Add("failed to copy: "+err.Error(), toastError)
+		}
+		return b.copyToClipboard(content)
+	case 'V':
+		return b.pasteToItem(ref.ColIndex, item.Name)
+	case 'o':
+		if err := col.OpenFile(item.Name); err != nil {
+			return b.toastMgr.Add("failed to open: "+err.Error(), toastError)
+		}
+		return b.toastMgr.Add("opened "+item.Name, toastSuccess)
+	case '!':
+		if err := col.PinItem(item.Name); err != nil {
+			return b.toastMgr.Add("failed to pin: "+err.Error(), toastError)
+		}
+		state := "unpinned"
+		if !item.Pinned {
+			state = "pinned"
+		}
+		return b.toastMgr.Add(item.Name+" "+state, toastSuccess)
+	case 'd':
+		b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
+			{Label: "Yes", Danger: true, Msg: deleteConfirmMsg{ColIndex: ref.ColIndex, FileName: item.Name}},
+			{Label: "No", Primary: true},
+		})
+		b.dialog.selected = 1
+		return nil
+	case 'm':
+		nextCol := (ref.ColIndex + 1) % len(b.columns)
+		if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
+			return b.toastMgr.Add("failed to move: "+err.Error(), toastError)
+		}
+		return b.toastMgr.Add("moved "+item.Name+" → "+b.columns[nextCol].Name, toastSuccess)
+	}
+	return b.toastMgr.Add("unknown command: "+string(action), toastError)
+}
+
+func (b *Board) rebuildMnemonics() {
+	type cell struct {
+		ref itemRef
+	}
+	var cells []cell
+	for ci, col := range b.columns {
+		for _, item := range col.VisibleItems() {
+			cells = append(cells, cell{ref: itemRef{ColIndex: ci, Name: item.Name}})
+		}
+	}
+	tags := GenerateMnemonics(len(cells))
+	b.mnemonicByRef = make(map[itemRef]string, len(cells))
+	b.refByMnemonic = make(map[string]itemRef, len(cells))
+	max := 0
+	for i, c := range cells {
+		tag := tags[i]
+		b.mnemonicByRef[c.ref] = tag
+		b.refByMnemonic[tag] = c.ref
+		if len(tag) > max {
+			max = len(tag)
+		}
+	}
+	b.mnemonicMaxLen = max
+}
+
+func (b *Board) mnemonicLookup(colIdx int) func(name string) string {
+	return func(name string) string {
+		return b.mnemonicByRef[itemRef{ColIndex: colIdx, Name: name}]
+	}
+}
 
 func (b *Board) refresh() tea.Cmd {
 	return func() tea.Msg {
@@ -517,10 +658,16 @@ func (b *Board) View() string {
 		return "No columns found in " + b.cfg.Path
 	}
 
+	b.rebuildMnemonics()
+
 	gap := lipgloss.NewStyle().MarginRight(1)
 	rendered := make([]string, len(b.columns))
+	gutterW := 2
+	if b.mnemonicMaxLen+1 > gutterW {
+		gutterW = b.mnemonicMaxLen + 1
+	}
 	for i, col := range b.columns {
-		rendered[i] = gap.Render(col.View(i == b.selectedCol))
+		rendered[i] = gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW))
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 
@@ -609,15 +756,11 @@ func (b *Board) renderQuickCommand() string {
 	if !b.quickCmdMode {
 		return ""
 	}
-
-	cursor := b.quickCmdInput + "█"
-	if cursor == "█" {
-		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b")).Render(": type command...")
-	}
-
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#e2e8f0")).
-		Render(cursor)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3b82f6")).
+		Padding(0, 1)
+	return box.Render(b.quickCmdInput.View())
 }
 
 func (b *Board) renderEditor() string {
