@@ -172,6 +172,11 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case deleteConfirmMsg:
 		return b.handleDelete(msg)
 
+	case editorDiscardMsg:
+		b.editor.Close()
+		b.editor = NewEditor()
+		return b, nil
+
 	case quickCommandMsg:
 		return b.handleQuickCommand(msg)
 
@@ -206,6 +211,14 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle editor
 	if b.editor.state != editorNone {
+		if msg.String() == "esc" && b.editor.IsDirty() {
+			b.dialog.Open("Discard unsaved changes?", "Your edits will be lost.", []DialogButton{
+				{Label: "Cancel", Primary: true, Msg: nil},
+				{Label: "Discard", Danger: true, Msg: editorDiscardMsg{}},
+			})
+			b.dialog.selected = 0
+			return b, nil
+		}
 		cmd, _ := b.editor.Update(msg)
 		if b.editor.state == editorNone {
 			b.editor = NewEditor()
@@ -712,13 +725,13 @@ func (b *Board) View() string {
 		}))
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay)
 	}
-	editorView := b.renderEditor()
-	if editorView != "" {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
-	}
 	dialogView := b.dialog.View()
 	if dialogView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
+	}
+	editorView := b.renderEditor()
+	if editorView != "" {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
 	}
 	result += "\n" + b.renderStatusBar()
 

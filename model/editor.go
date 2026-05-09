@@ -22,11 +22,12 @@ const (
 )
 
 type Editor struct {
-	state     editorState
-	textarea  textarea.Model
-	textinput textinput.Model
-	ColIndex  int
-	FileName  string
+	state        editorState
+	textarea     textarea.Model
+	textinput    textinput.Model
+	ColIndex     int
+	FileName     string
+	initialValue string
 }
 
 func NewEditor() *Editor {
@@ -48,8 +49,10 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.ColIndex = colIdx
 	e.FileName = fileName
 	content, _ := os.ReadFile(fullPath)
-	e.textarea.SetValue(strings.TrimRight(string(content), "\n"))
+	initial := strings.TrimRight(string(content), "\n")
+	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
+	e.initialValue = initial
 	return e.textarea.Focus()
 }
 
@@ -58,6 +61,7 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.ColIndex = colIdx
 	e.FileName = fileName
 	e.textarea.SetValue("")
+	e.initialValue = ""
 	return e.textarea.Focus()
 }
 
@@ -66,6 +70,7 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.ColIndex = colIdx
 	e.FileName = fileName
 	e.textarea.SetValue("")
+	e.initialValue = ""
 	return e.textarea.Focus()
 }
 
@@ -74,6 +79,7 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.ColIndex = colIdx
 	e.FileName = fileName
 	e.textarea.SetValue("")
+	e.initialValue = ""
 	return e.textarea.Focus()
 }
 
@@ -82,7 +88,18 @@ func (e *Editor) OpenNew(colIdx int) tea.Cmd {
 	e.ColIndex = colIdx
 	e.FileName = ""
 	e.textinput.SetValue("")
+	e.initialValue = ""
 	return e.textinput.Focus()
+}
+
+func (e *Editor) IsDirty() bool {
+	if e.state == editorNone {
+		return false
+	}
+	if e.state == editorNew {
+		return e.textinput.Value() != e.initialValue
+	}
+	return e.textarea.Value() != e.initialValue
 }
 
 func (e *Editor) Close() {
@@ -218,6 +235,8 @@ type editorNewMsg struct {
 	ColIndex int
 	FileName string
 }
+
+type editorDiscardMsg struct{}
 
 type deleteConfirmMsg struct {
 	ColIndex int
