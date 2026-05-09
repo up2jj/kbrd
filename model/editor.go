@@ -3,11 +3,17 @@ package model
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	undoStackLimit  = 200
+	undoIdlePauseMs = 600
 )
 
 type editorState int
@@ -22,12 +28,39 @@ const (
 )
 
 type Editor struct {
-	state        editorState
-	textarea     textarea.Model
-	textinput    textinput.Model
-	ColIndex     int
-	FileName     string
-	initialValue string
+	state         editorState
+	textarea      textarea.Model
+	textinput     textinput.Model
+	ColIndex      int
+	FileName      string
+	initialValue  string
+	undo          []string
+	redo          []string
+	lastCommitted string
+	lastCommitAt  time.Time
+}
+
+func (e *Editor) resetHistory(initial string) {
+	e.undo = e.undo[:0]
+	e.redo = e.redo[:0]
+	e.lastCommitted = initial
+	e.lastCommitAt = time.Now()
+}
+
+func (e *Editor) pushUndo(prev string) {
+	e.undo = append(e.undo, prev)
+	if len(e.undo) > undoStackLimit {
+		e.undo = e.undo[len(e.undo)-undoStackLimit:]
+	}
+	e.redo = e.redo[:0]
+}
+
+func isCommitBoundary(key string) bool {
+	switch key {
+	case " ", "enter", "tab", "backspace", "delete", "ctrl+w", "ctrl+u", "ctrl+k":
+		return true
+	}
+	return false
 }
 
 func NewEditor() *Editor {
@@ -53,6 +86,7 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
 	e.initialValue = initial
+	e.resetHistory(initial)
 	return e.textarea.Focus()
 }
 
@@ -62,6 +96,7 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.FileName = fileName
 	e.textarea.SetValue("")
 	e.initialValue = ""
+	e.resetHistory("")
 	return e.textarea.Focus()
 }
 
@@ -71,6 +106,7 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.FileName = fileName
 	e.textarea.SetValue("")
 	e.initialValue = ""
+	e.resetHistory("")
 	return e.textarea.Focus()
 }
 
@@ -80,6 +116,7 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.FileName = fileName
 	e.textarea.SetValue("")
 	e.initialValue = ""
+	e.resetHistory("")
 	return e.textarea.Focus()
 }
 
@@ -113,8 +150,10 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 		return nil, nil
 	}
 
+	keyStr := ""
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		switch keyMsg.String() {
+		keyStr = keyMsg.String()
+		switch keyStr {
 		case "esc":
 			e.Close()
 			return nil, nil
@@ -126,6 +165,16 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 			if e.state == editorNew {
 				return e.submit()
 			}
+		case "ctrl+z":
+			if e.state != editorNew {
+				e.undoOnce()
+				return nil, nil
+			}
+		case "ctrl+y":
+			if e.state != editorNew {
+				e.redoOnce()
+				return nil, nil
+			}
 		}
 	}
 
@@ -135,9 +184,58 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 		return cmd, nil
 	}
 
+	prev := e.textarea.Value()
 	ta, cmd := e.textarea.Update(msg)
 	e.textarea = ta
+	cur := e.textarea.Value()
+
+	if cur != prev {
+		idle := time.Since(e.lastCommitAt) >= undoIdlePauseMs*time.Millisecond
+		boundary := isCommitBoundary(keyStr)
+		if (boundary || idle) && e.lastCommitted != prev {
+			e.pushUndo(e.lastCommitted)
+			e.lastCommitted = prev
+			e.lastCommitAt = time.Now()
+		} else if len(e.undo) == 0 && e.lastCommitted == "" && prev == "" {
+			e.lastCommitAt = time.Now()
+		}
+	}
+
 	return cmd, nil
+}
+
+func (e *Editor) undoOnce() {
+	cur := e.textarea.Value()
+	if cur != e.lastCommitted {
+		e.redo = append(e.redo, cur)
+		e.textarea.SetValue(e.lastCommitted)
+		e.textarea.CursorEnd()
+		e.lastCommitAt = time.Now()
+		return
+	}
+	if len(e.undo) == 0 {
+		return
+	}
+	target := e.undo[len(e.undo)-1]
+	e.undo = e.undo[:len(e.undo)-1]
+	e.redo = append(e.redo, cur)
+	e.textarea.SetValue(target)
+	e.textarea.CursorEnd()
+	e.lastCommitted = target
+	e.lastCommitAt = time.Now()
+}
+
+func (e *Editor) redoOnce() {
+	if len(e.redo) == 0 {
+		return
+	}
+	target := e.redo[len(e.redo)-1]
+	e.redo = e.redo[:len(e.redo)-1]
+	e.undo = append(e.undo, e.lastCommitted)
+	e.textarea.SetValue(target)
+	e.textarea.CursorEnd()
+	e.lastCommitted = target
+	e.lastCommitAt = time.Now()
 }
 
 func (e *Editor) submit() (tea.Cmd, tea.Msg) {
@@ -170,26 +268,35 @@ func (e *Editor) View() string {
 
 	var label string
 	var hints []Shortcut
-	saveHints := []Shortcut{{"ctrl+s", "save"}, {"esc", "cancel"}}
+	textareaHints := []Shortcut{{"ctrl+s", "save"}, {"ctrl+z", "undo"}}
+	if len(e.redo) > 0 {
+		textareaHints = append(textareaHints, Shortcut{"ctrl+y", "redo"})
+	}
+	textareaHints = append(textareaHints, Shortcut{"esc", "cancel"})
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName
-		hints = saveHints
+		hints = textareaHints
 	case editorAppend:
 		label = "Append to: " + e.FileName
-		hints = saveHints
+		hints = textareaHints
 	case editorPrepend:
 		label = "Prepend to: " + e.FileName
-		hints = saveHints
+		hints = textareaHints
 	case editorJournal:
 		label = "Journal entry for: " + e.FileName
-		hints = saveHints
+		hints = textareaHints
 	case editorNew:
 		label = "New item in column " + string(rune('1'+e.ColIndex))
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
+	dirtyMark := ""
+	if e.IsDirty() {
+		dirtyStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f59e0b"))
+		dirtyMark = dirtyStyle.Render("● ")
+	}
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3b82f6")).
@@ -202,7 +309,7 @@ func (e *Editor) View() string {
 		input = e.textarea.View()
 	}
 
-	return headerStyle.Render(label) + "\n" +
+	return dirtyMark + headerStyle.Render(label) + "\n" +
 		boxStyle.Render(input) + "\n" +
 		RenderInlineHints(hints)
 }
