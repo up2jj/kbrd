@@ -55,6 +55,7 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 				{"o", "open in $EDITOR"},
 				{"!", "pin / unpin"},
 				{"m", "move to next column"},
+				{"r", "rename item"},
 				{"d", "delete"},
 			},
 		},
@@ -67,9 +68,15 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 			},
 		},
 		{
+			Title: "Column",
+			Items: []Shortcut{
+				{"R", "rename column"},
+			},
+		},
+		{
 			Title: "Global",
 			Items: []Shortcut{
-				{"R", "refresh"},
+				{"F5", "refresh"},
 				{"t", "toggle theme"},
 				{"?", "toggle this help"},
 				{"ctrl+c", "quit"},
@@ -97,7 +104,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	return []Shortcut{
 		{"n", "new"},
 		{"/", "filter"},
-		{"R", "refresh"},
+		{"R", "rename col"},
 		{".", "cmd"},
 		{"?", "more"},
 	}

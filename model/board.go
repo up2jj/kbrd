@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -174,6 +175,18 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case deleteConfirmMsg:
 		return b.handleDelete(msg)
 
+	case renameItemRequestMsg:
+		return b.handleRenameItemRequest(msg)
+
+	case renameColumnRequestMsg:
+		return b.handleRenameColumnRequest(msg)
+
+	case renameItemConfirmMsg:
+		return b.handleRenameItemConfirm(msg)
+
+	case renameColumnConfirmMsg:
+		return b.handleRenameColumnConfirm(msg)
+
 	case editorDiscardMsg:
 		b.editor.Close()
 		b.editor = NewEditor()
@@ -271,8 +284,15 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		b.toggleTheme()
 		return b, nil
-	case "R":
+	case "f5":
 		return b, b.refresh()
+	case "r":
+		if col.HasSelectedItem() {
+			item := col.SelectedItem()
+			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
+		}
+	case "R":
+		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
 	case "[", "shift+tab":
 		b.selectedCol--
 		if b.selectedCol < 0 {
@@ -457,6 +477,101 @@ func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 		return b, b.toastMgr.Add("failed to create: "+err.Error(), toastError)
 	}
 	b.statusMsg = "created " + msg.FileName + ".md"
+	b.statusColor = "#4ade80"
+	b.statusTimer = 60
+	return b, nil
+}
+
+func validateRenameName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("name cannot contain path separators")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid name")
+	}
+	return nil
+}
+
+func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, tea.Cmd) {
+	newName := strings.TrimSpace(msg.NewName)
+	if err := validateRenameName(newName); err != nil {
+		return b, b.toastMgr.Add("invalid name: "+err.Error(), toastError)
+	}
+	if newName == msg.OldName {
+		return b, nil
+	}
+	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
+		return b, b.toastMgr.Add("invalid column", toastError)
+	}
+	col := b.columns[msg.ColIndex]
+	target := filepath.Join(col.Path, newName+".md")
+	if _, err := os.Stat(target); err == nil {
+		return b, b.toastMgr.Add("file already exists: "+newName+".md", toastError)
+	}
+	b.dialog.Open("Rename item?", msg.OldName+".md → "+newName+".md", []DialogButton{
+		{Label: "Yes", Primary: true, Msg: renameItemConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
+		{Label: "No", Msg: nil},
+	})
+	b.dialog.selected = 0
+	return b, nil
+}
+
+func (b *Board) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model, tea.Cmd) {
+	newName := strings.TrimSpace(msg.NewName)
+	if err := validateRenameName(newName); err != nil {
+		return b, b.toastMgr.Add("invalid name: "+err.Error(), toastError)
+	}
+	if newName == msg.OldName {
+		return b, nil
+	}
+	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
+		return b, b.toastMgr.Add("invalid column", toastError)
+	}
+	parent := filepath.Dir(b.columns[msg.ColIndex].Path)
+	target := filepath.Join(parent, newName)
+	if _, err := os.Stat(target); err == nil {
+		return b, b.toastMgr.Add("folder already exists: "+newName, toastError)
+	}
+	b.dialog.Open("Rename column?", msg.OldName+" → "+newName, []DialogButton{
+		{Label: "Yes", Primary: true, Msg: renameColumnConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
+		{Label: "No", Msg: nil},
+	})
+	b.dialog.selected = 0
+	return b, nil
+}
+
+func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, tea.Cmd) {
+	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
+		return b, b.toastMgr.Add("invalid column", toastError)
+	}
+	col := b.columns[msg.ColIndex]
+	if err := col.RenameItem(msg.OldName, msg.NewName); err != nil {
+		return b, b.toastMgr.Add("failed to rename: "+err.Error(), toastError)
+	}
+	for i, it := range col.Items {
+		if it.Name == msg.NewName {
+			col.list.Select(i)
+			break
+		}
+	}
+	b.statusMsg = "renamed " + msg.OldName + " → " + msg.NewName
+	b.statusColor = "#4ade80"
+	b.statusTimer = 60
+	return b, nil
+}
+
+func (b *Board) handleRenameColumnConfirm(msg renameColumnConfirmMsg) (tea.Model, tea.Cmd) {
+	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
+		return b, b.toastMgr.Add("invalid column", toastError)
+	}
+	col := b.columns[msg.ColIndex]
+	if err := col.Rename(msg.NewName); err != nil {
+		return b, b.toastMgr.Add("failed to rename: "+err.Error(), toastError)
+	}
+	b.statusMsg = "renamed column " + msg.OldName + " → " + msg.NewName
 	b.statusColor = "#4ade80"
 	b.statusTimer = 60
 	return b, nil

@@ -25,7 +25,13 @@ const (
 	editorPrepend
 	editorJournal
 	editorNew
+	editorRenameItem
+	editorRenameColumn
 )
+
+func isInputState(s editorState) bool {
+	return s == editorNew || s == editorRenameItem || s == editorRenameColumn
+}
 
 type Editor struct {
 	state         editorState
@@ -197,11 +203,32 @@ func (e *Editor) OpenNew(colIdx int, colName string) tea.Cmd {
 	return e.textinput.Focus()
 }
 
+func (e *Editor) OpenRenameItem(colIdx int, fileName string) tea.Cmd {
+	e.state = editorRenameItem
+	e.ColIndex = colIdx
+	e.FileName = fileName
+	e.textinput.SetValue(fileName)
+	e.textinput.CursorEnd()
+	e.initialValue = fileName
+	return e.textinput.Focus()
+}
+
+func (e *Editor) OpenRenameColumn(colIdx int, colName string) tea.Cmd {
+	e.state = editorRenameColumn
+	e.ColIndex = colIdx
+	e.ColName = colName
+	e.FileName = ""
+	e.textinput.SetValue(colName)
+	e.textinput.CursorEnd()
+	e.initialValue = colName
+	return e.textinput.Focus()
+}
+
 func (e *Editor) IsDirty() bool {
 	if e.state == editorNone {
 		return false
 	}
-	if e.state == editorNew {
+	if isInputState(e.state) {
 		return e.textinput.Value() != e.initialValue
 	}
 	return e.textarea.Value() != e.initialValue
@@ -226,32 +253,32 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 			e.Close()
 			return nil, nil
 		case "ctrl+s":
-			if e.state != editorNew {
+			if !isInputState(e.state) {
 				return e.submit()
 			}
 		case "enter":
-			if e.state == editorNew {
+			if isInputState(e.state) {
 				return e.submit()
 			}
 		case "ctrl+z":
-			if e.state != editorNew {
+			if !isInputState(e.state) {
 				e.undoOnce()
 				return nil, nil
 			}
 		case "ctrl+y":
-			if e.state != editorNew {
+			if !isInputState(e.state) {
 				e.redoOnce()
 				return nil, nil
 			}
 		case "ctrl+e":
-			if e.state != editorNew {
+			if !isInputState(e.state) {
 				e.toggleExpanded()
 				return nil, nil
 			}
 		}
 	}
 
-	if e.state == editorNew {
+	if isInputState(e.state) {
 		ti, cmd := e.textinput.Update(msg)
 		e.textinput = ti
 		return cmd, nil
@@ -329,6 +356,20 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 			return nil, nil
 		}
 		msg = editorNewMsg{ColIndex: e.ColIndex, FileName: name}
+	case editorRenameItem:
+		name := strings.TrimSpace(e.textinput.Value())
+		if name == "" || name == e.initialValue {
+			e.Close()
+			return nil, nil
+		}
+		msg = renameItemRequestMsg{ColIndex: e.ColIndex, OldName: e.initialValue, NewName: name}
+	case editorRenameColumn:
+		name := strings.TrimSpace(e.textinput.Value())
+		if name == "" || name == e.initialValue {
+			e.Close()
+			return nil, nil
+		}
+		msg = renameColumnRequestMsg{ColIndex: e.ColIndex, OldName: e.initialValue, NewName: name}
 	}
 	e.Close()
 	return func() tea.Msg { return msg }, nil
@@ -366,6 +407,12 @@ func (e *Editor) View() string {
 	case editorNew:
 		label = "New item in: " + e.ColName
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
+	case editorRenameItem:
+		label = "Rename item: " + e.initialValue
+		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
+	case editorRenameColumn:
+		label = "Rename column: " + e.initialValue
+		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
@@ -380,7 +427,7 @@ func (e *Editor) View() string {
 		Padding(0, 1)
 
 	var input string
-	if e.state == editorNew {
+	if isInputState(e.state) {
 		input = e.textinput.View()
 	} else {
 		input = e.textarea.View()
@@ -425,4 +472,28 @@ type editorDiscardMsg struct{}
 type deleteConfirmMsg struct {
 	ColIndex int
 	FileName string
+}
+
+type renameItemRequestMsg struct {
+	ColIndex int
+	OldName  string
+	NewName  string
+}
+
+type renameColumnRequestMsg struct {
+	ColIndex int
+	OldName  string
+	NewName  string
+}
+
+type renameItemConfirmMsg struct {
+	ColIndex int
+	OldName  string
+	NewName  string
+}
+
+type renameColumnConfirmMsg struct {
+	ColIndex int
+	OldName  string
+	NewName  string
 }

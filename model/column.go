@@ -385,6 +385,36 @@ func (c *Column) OpenFile(itemName string) error {
 	return openFile(fullPath)
 }
 
+func (c *Column) RenameItem(oldName, newName string) error {
+	for i := range c.Items {
+		if c.Items[i].Name == oldName {
+			newPath := filepath.Join(c.Path, newName+".md")
+			if _, err := os.Stat(newPath); err == nil {
+				return os.ErrExist
+			}
+			if err := os.Rename(c.Items[i].FullPath, newPath); err != nil {
+				return err
+			}
+			return c.LoadItems()
+		}
+	}
+	return os.ErrNotExist
+}
+
+func (c *Column) Rename(newName string) error {
+	parent := filepath.Dir(c.Path)
+	newPath := filepath.Join(parent, newName)
+	if _, err := os.Stat(newPath); err == nil {
+		return os.ErrExist
+	}
+	if err := os.Rename(c.Path, newPath); err != nil {
+		return err
+	}
+	c.Name = newName
+	c.Path = newPath
+	return c.LoadItems()
+}
+
 func (c *Column) PinItem(itemName string) error {
 	for i := range c.Items {
 		if c.Items[i].Name == itemName {
