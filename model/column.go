@@ -60,16 +60,20 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	if len(item.Preview) > 0 {
 		preview = item.Preview[0]
 	}
-	var previewFg lipgloss.Color
+	var previewFg, detailBg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
 		previewFg = lipgloss.Color("#bfdbfe")
+		detailBg = lipgloss.Color("#1e3a8a")
 	case isSelected:
 		previewFg = lipgloss.Color("#94a3b8")
 	default:
 		previewFg = lipgloss.Color("#64748b")
 	}
 	previewStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(previewFg).Italic(true)
+	if isSelected && d.isActive {
+		previewStyle = previewStyle.Background(detailBg)
+	}
 	fmt.Fprintln(w, previewStyle.Render(preview))
 
 	// Line 3 — meta (modified + size)
@@ -84,6 +88,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		metaFg = lipgloss.Color("#334155")
 	}
 	metaStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(2).Foreground(metaFg)
+	if isSelected && d.isActive {
+		metaStyle = metaStyle.Background(detailBg)
+	}
 	fmt.Fprint(w, metaStyle.Render(meta))
 }
 
