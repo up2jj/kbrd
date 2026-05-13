@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -41,19 +42,19 @@ func (s *Switcher) Close() {
 func (s *Switcher) Active() bool { return s.active }
 
 func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "esc", "ctrl+p":
+	switch {
+	case key.Matches(msg, Keys.SwitcherClose):
 		s.Close()
 		return nil
-	case "up", "k":
+	case key.Matches(msg, Keys.SwitcherPrev):
 		if s.selected > 0 {
 			s.selected--
 		}
-	case "down", "j":
+	case key.Matches(msg, Keys.SwitcherNext):
 		if s.selected < len(s.entries)-1 {
 			s.selected++
 		}
-	case "enter":
+	case key.Matches(msg, Keys.SwitcherConfirm):
 		if len(s.entries) == 0 {
 			s.Close()
 			return nil

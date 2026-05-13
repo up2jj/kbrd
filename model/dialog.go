@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -33,22 +34,22 @@ func (d *Dialog) Close() {
 }
 
 func (d *Dialog) Update(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "left", "h", "shift+tab":
+	switch {
+	case key.Matches(msg, Keys.DialogPrev):
 		if d.selected > 0 {
 			d.selected--
 		}
-	case "right", "l", "tab":
+	case key.Matches(msg, Keys.DialogNext):
 		if d.selected < len(d.buttons)-1 {
 			d.selected++
 		}
-	case "enter":
+	case key.Matches(msg, Keys.DialogConfirm):
 		chosen := d.buttons[d.selected]
 		d.Close()
 		if chosen.Msg != nil {
 			return func() tea.Msg { return chosen.Msg }
 		}
-	case "esc":
+	case key.Matches(msg, Keys.DialogCancel):
 		d.Close()
 	}
 	return nil
@@ -95,8 +96,8 @@ func (d *Dialog) View() string {
 		"",
 		RenderInlineHints([]Shortcut{
 			{"←/→", "select"},
-			{"enter", "confirm"},
-			{"esc", "cancel"},
+			bindingShortcut(Keys.DialogConfirm),
+			bindingShortcut(Keys.DialogCancel),
 		}),
 	)
 

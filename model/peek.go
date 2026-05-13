@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -47,27 +48,27 @@ func (p *Peek) Update(msg tea.KeyMsg) {
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
-	switch msg.String() {
-	case "esc", "q":
+	switch {
+	case key.Matches(msg, Keys.PeekClose):
 		p.Close()
-	case "enter", " ", "pgdown":
+	case key.Matches(msg, Keys.PeekPageDown):
 		next := p.offset + page
 		if next >= len(p.lines) {
 			p.Close()
 			return
 		}
 		p.offset = next
-	case "j", "down":
+	case key.Matches(msg, Keys.PeekDown):
 		if p.offset < maxOffset {
 			p.offset++
 		}
-	case "k", "up":
+	case key.Matches(msg, Keys.PeekUp):
 		if p.offset > 0 {
 			p.offset--
 		}
-	case "g", "home":
+	case key.Matches(msg, Keys.PeekTop):
 		p.offset = 0
-	case "G", "end":
+	case key.Matches(msg, Keys.PeekBottom):
 		p.offset = maxOffset
 	}
 }

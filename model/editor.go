@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -248,29 +249,29 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 	keyStr := ""
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		keyStr = keyMsg.String()
-		switch keyStr {
-		case "esc":
+		switch {
+		case key.Matches(keyMsg, Keys.EditorCancel):
 			e.Close()
 			return nil, nil
-		case "ctrl+s":
+		case key.Matches(keyMsg, Keys.EditorSave):
 			if !isInputState(e.state) {
 				return e.submit()
 			}
-		case "enter":
+		case key.Matches(keyMsg, Keys.EditorConfirm):
 			if isInputState(e.state) {
 				return e.submit()
 			}
-		case "ctrl+z":
+		case key.Matches(keyMsg, Keys.EditorUndo):
 			if !isInputState(e.state) {
 				e.undoOnce()
 				return nil, nil
 			}
-		case "ctrl+y":
+		case key.Matches(keyMsg, Keys.EditorRedo):
 			if !isInputState(e.state) {
 				e.redoOnce()
 				return nil, nil
 			}
-		case "ctrl+e":
+		case key.Matches(keyMsg, Keys.EditorToggleExpand):
 			if !isInputState(e.state) {
 				e.toggleExpanded()
 				return nil, nil

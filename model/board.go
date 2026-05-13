@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -265,13 +266,13 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle help overlay
 	if b.helpOpen {
-		switch msg.String() {
-		case "?", "esc", "ctrl+c":
+		switch {
+		case key.Matches(msg, Keys.Quit):
 			b.helpOpen = false
-			if msg.String() == "ctrl+c" {
-				b.quitting = true
-				return b, tea.Quit
-			}
+			b.quitting = true
+			return b, tea.Quit
+		case key.Matches(msg, Keys.ToggleHelp), msg.String() == "esc":
+			b.helpOpen = false
 		}
 		return b, nil
 	}
@@ -325,44 +326,44 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, col.UpdateList(msg)
 	}
 
-	switch msg.String() {
-	case "ctrl+c":
+	switch {
+	case key.Matches(msg, Keys.Quit):
 		b.quitting = true
 		return b, tea.Quit
-	case "?":
+	case key.Matches(msg, Keys.ToggleHelp):
 		b.helpOpen = true
 		return b, nil
-	case ".":
+	case key.Matches(msg, Keys.QuickCmd):
 		return b, b.openQuickCommand()
-	case "ctrl+p":
+	case key.Matches(msg, Keys.SwitchBoard):
 		return b, b.openSwitcher()
-	case "t":
+	case key.Matches(msg, Keys.ToggleTheme):
 		b.toggleTheme()
 		return b, nil
-	case "f5":
+	case key.Matches(msg, Keys.Refresh):
 		return b, b.refresh()
-	case "r":
+	case key.Matches(msg, Keys.RenameItem):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
 		}
-	case "R":
+	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
-	case "[", "shift+tab":
+	case key.Matches(msg, Keys.PrevCol):
 		b.selectedCol--
 		if b.selectedCol < 0 {
 			b.selectedCol = len(b.columns) - 1
 		}
-	case "]", "tab":
+	case key.Matches(msg, Keys.NextCol):
 		b.selectedCol++
 		if b.selectedCol >= len(b.columns) {
 			b.selectedCol = 0
 		}
-	case "H":
+	case key.Matches(msg, Keys.PanLeft):
 		if b.firstVisibleCol > 0 {
 			b.firstVisibleCol--
 		}
-	case "L":
+	case key.Matches(msg, Keys.PanRight):
 		_, count := b.visibleColRange()
 		maxFirst := len(b.columns) - count
 		if maxFirst < 0 {
@@ -371,27 +372,27 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.firstVisibleCol < maxFirst {
 			b.firstVisibleCol++
 		}
-	case "e":
+	case key.Matches(msg, Keys.Edit):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.editor.OpenEdit(b.selectedCol, item.Name, item.FullPath)
 		}
-	case "a":
+	case key.Matches(msg, Keys.Append):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.editor.OpenAppend(b.selectedCol, item.Name)
 		}
-	case "p":
+	case key.Matches(msg, Keys.Prepend):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.editor.OpenPrepend(b.selectedCol, item.Name)
 		}
-	case "J":
+	case key.Matches(msg, Keys.Journal):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.editor.OpenJournal(b.selectedCol, item.Name)
 		}
-	case "c":
+	case key.Matches(msg, Keys.Copy):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			content, err := col.CopyContent(item.Name)
@@ -400,12 +401,12 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, b.copyToClipboard([]byte(content))
 		}
-	case "V":
+	case key.Matches(msg, Keys.Paste):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			return b, b.pasteToItem(b.selectedCol, item.Name)
 		}
-	case "o":
+	case key.Matches(msg, Keys.OpenExternal):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			err := col.OpenFile(item.Name)
@@ -414,7 +415,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, b.notifier.Send("opened "+item.Name, notifySuccess)
 		}
-	case "!":
+	case key.Matches(msg, Keys.Pin):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			err := col.PinItem(item.Name)
@@ -427,7 +428,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, b.notifier.Send(item.Name+" "+pinState, notifySuccess)
 		}
-	case "d":
+	case key.Matches(msg, Keys.Delete):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
@@ -436,7 +437,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			})
 			b.dialog.selected = 1
 		}
-	case "m":
+	case key.Matches(msg, Keys.MoveNext):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			nextCol := (b.selectedCol + 1) % len(b.columns)
@@ -445,7 +446,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = nextCol
 		}
-	case "M":
+	case key.Matches(msg, Keys.MoveFirst):
 		if col.HasSelectedItem() {
 			if len(b.columns) == 0 {
 				return b, b.notifier.Send("no folders available", notifyError)
@@ -459,7 +460,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = 0
 		}
-	case " ":
+	case key.Matches(msg, Keys.Peek):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			content, err := col.CopyContent(item.Name)
@@ -469,12 +470,12 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, b.peek.Open(item.Name, string(content), b.termWidth)
 		}
 		return b, nil
-	case "/":
+	case key.Matches(msg, Keys.Filter):
 		col.list.SetShowFilter(true)
 		return b, col.UpdateList(msg)
-	case "n":
+	case key.Matches(msg, Keys.New):
 		return b, b.editor.OpenNew(b.selectedCol, b.columns[b.selectedCol].Name)
-	case "N":
+	case key.Matches(msg, Keys.NewFirst):
 		if len(b.columns) == 0 {
 			return b, b.notifier.Send("no folders available", notifyError)
 		}
@@ -672,13 +673,13 @@ func (b *Board) handleQuickCommand(msg quickCommandMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, Keys.QuickCmdCancel):
 		b.quickCmdMode = false
 		b.quickCmdInput.Blur()
 		b.quickCmdInput.SetValue("")
 		return b, nil
-	case "enter":
+	case key.Matches(msg, Keys.QuickCmdConfirm):
 		b.quickCmdMode = false
 		b.quickCmdInput.Blur()
 		cmd := strings.TrimSpace(b.quickCmdInput.Value())

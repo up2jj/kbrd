@@ -32,84 +32,32 @@ var (
 
 // GlobalShortcuts returns the full grouped registry, used by the help overlay.
 func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
-	return []ShortcutGroup{
-		{
-			Title: "Navigation",
-			Items: []Shortcut{
-				{"tab / ]", "next column"},
-				{"shift+tab / [", "previous column"},
-				{"H / L", "pan columns left / right"},
-				{"j / k", "move within column"},
-				{"/", "filter"},
-			},
-		},
-		{
-			Title: "Item",
-			Items: []Shortcut{
-				{"space", "peek"},
-				{"e", "edit"},
-				{"a", "append"},
-				{"p", "prepend"},
-				{"J", "journal entry"},
-				{"c", "copy"},
-				{"V", "paste"},
-				{"o", "open in $EDITOR"},
-				{"!", "pin / unpin"},
-				{"m", "move to next column"},
-				{"M", "move to first column"},
-				{"r", "rename item"},
-				{"d", "delete"},
-			},
-		},
-		{
-			Title: "Create & Command",
-			Items: []Shortcut{
-				{"n", "new item in current folder"},
-				{"N", "new item in first folder"},
-				{".", "quick command"},
-			},
-		},
-		{
-			Title: "Column",
-			Items: []Shortcut{
-				{"R", "rename column"},
-			},
-		},
-		{
-			Title: "Global",
-			Items: []Shortcut{
-				{"F5", "refresh"},
-				{"t", "toggle theme"},
-				{"ctrl+p", "switch board"},
-				{"?", "toggle this help"},
-				{"ctrl+c", "quit"},
-			},
-		},
-	}
+	return ShortcutGroups()
 }
 
 // ContextShortcuts returns the small subset shown on the secondary footer line.
 func ContextShortcuts(ctx ShortcutContext) []Shortcut {
+	short := func(keys, label string) Shortcut { return Shortcut{Keys: keys, Label: label} }
 	if ctx.QuickCmdMode {
-		return []Shortcut{{"esc", "cancel"}}
+		return []Shortcut{bindingShortcut(Keys.QuickCmdCancel)}
 	}
 	if ctx.HasSelectedItem {
 		return []Shortcut{
-			{"space", "peek"},
-			{"e", "edit"},
-			{"a", "append"},
-			{"d", "delete"},
-			{"m", "move"},
-			{".", "cmd"},
-			{"?", "more"},
+			bindingShortcut(Keys.Peek),
+			bindingShortcut(Keys.Edit),
+			bindingShortcut(Keys.Append),
+			bindingShortcut(Keys.Delete),
+			short(Keys.MoveNext.Help().Key, "move"),
+			short(Keys.QuickCmd.Help().Key, "cmd"),
+			short(Keys.ToggleHelp.Help().Key, "more"),
 		}
 	}
 	return []Shortcut{
-		{"n", "new"},
-		{"/", "filter"},
-		{"R", "rename col"},
-		{".", "cmd"},
-		{"?", "more"},
+		short(Keys.New.Help().Key, "new"),
+		bindingShortcut(Keys.Filter),
+		short(Keys.RenameCol.Help().Key, "rename col"),
+		short(Keys.QuickCmd.Help().Key, "cmd"),
+		short(Keys.ToggleHelp.Help().Key, "more"),
 	}
 }
 
