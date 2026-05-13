@@ -28,6 +28,7 @@ type Config struct {
 	PreviewLines  int
 	Theme         string
 	NotifyBackend string
+	BoardName     string
 }
 
 func Load(path string) (Config, error) {
@@ -82,5 +83,6 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		PreviewLines:  v.GetInt("display.preview_lines"),
 		Theme:         v.GetString("display.theme"),
 		NotifyBackend: v.GetString("notify.backend"),
+		BoardName:     v.GetString("board.name"),
 	}, nil
 }

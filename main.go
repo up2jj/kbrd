@@ -9,6 +9,7 @@ import (
 
 	"kbrd/config"
 	"kbrd/model"
+	"kbrd/recents"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
@@ -58,6 +59,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if abs, absErr := filepath.Abs(cwd); absErr == nil {
+		store, _ := recents.Load()
+		store.Touch(abs, cfg.BoardName)
+		_ = store.Save()
 	}
 
 	m := model.NewBoard(cfg)

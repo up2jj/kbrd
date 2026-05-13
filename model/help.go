@@ -78,6 +78,7 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 			Items: []Shortcut{
 				{"F5", "refresh"},
 				{"t", "toggle theme"},
+				{"ctrl+p", "switch board"},
 				{"?", "toggle this help"},
 				{"ctrl+c", "quit"},
 			},

@@ -14,7 +14,15 @@ import (
 
 	"kbrd/config"
 	kbrdfs "kbrd/fs"
+	"kbrd/recents"
 )
+
+const Version = "v0.1.0"
+
+const logoArt = `  __   __           __
+ / /__/ /  ____ ___/ /
+/  '_/ _ \/ __// _  /
+\_,_/_.__/_/   \_,_/`
 
 type watchMsg struct{}
 
@@ -40,6 +48,7 @@ type Board struct {
 	dialog        Dialog
 	helpOpen      bool
 	peek          Peek
+	switcher      Switcher
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
@@ -114,6 +123,9 @@ func (b *Board) loadColumns() error {
 			if err := col.LoadItems(); err != nil {
 				continue
 			}
+			if b.visibleHeight > 0 {
+				col.SetHeight(b.visibleHeight)
+			}
 			b.columns = append(b.columns, col)
 		}
 	}
@@ -133,7 +145,7 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
-		b.visibleHeight = msg.Height - 4
+		b.visibleHeight = msg.Height - 8
 		for _, col := range b.columns {
 			col.SetHeight(b.visibleHeight)
 		}
@@ -188,6 +200,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case quickCommandMsg:
 		return b.handleQuickCommand(msg)
 
+	case switchBoardMsg:
+		return b.handleSwitchBoard(msg)
+
 	default:
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
 		if len(b.columns) > 0 {
@@ -240,6 +255,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	// Handle board switcher
+	if b.switcher.Active() {
+		return b, b.switcher.Update(msg)
+	}
+
 	// Handle quick command
 	if b.quickCmdMode {
 		return b.handleQuickCommandKey(msg)
@@ -265,6 +285,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case ".":
 		return b, b.openQuickCommand()
+	case "ctrl+p":
+		return b, b.openSwitcher()
 	case "t":
 		b.toggleTheme()
 		return b, nil
@@ -633,6 +655,56 @@ func isItemCommandAction(c byte) bool {
 	return false
 }
 
+func (b *Board) openSwitcher() tea.Cmd {
+	store, err := recents.Load()
+	if err != nil {
+		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+	}
+	removed := store.Prune()
+	if removed > 0 {
+		_ = store.Save()
+	}
+	activeAbs, _ := filepath.Abs(b.cfg.Path)
+	b.switcher.Open(store.Entries, activeAbs)
+	return nil
+}
+
+func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
+	newCfg, err := config.Load(msg.Path)
+	if err != nil {
+		return b, b.notifier.Send("failed to load board: "+err.Error(), notifyError)
+	}
+
+	if b.watcher != nil {
+		_ = b.watcher.Close()
+		b.watcher = nil
+	}
+
+	b.cfg = newCfg
+	b.theme = newCfg.Theme
+	b.selectedCol = 0
+
+	if err := b.loadColumns(); err != nil {
+		return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
+	}
+
+	if paths, err := kbrdfs.DiscoverPaths(b.cfg.Path); err == nil {
+		if w, err := kbrdfs.NewWatcher(paths); err == nil {
+			b.watcher = w
+		}
+	}
+
+	store, _ := recents.Load()
+	store.Touch(b.cfg.Path, b.cfg.BoardName)
+	_ = store.Save()
+
+	label := b.cfg.Path
+	if b.cfg.BoardName != "" {
+		label = "[" + b.cfg.BoardName + "] " + b.cfg.Path
+	}
+	return b, tea.Batch(b.watchCmd(), b.notifier.Send("switched to "+label, notifySuccess))
+}
+
 func (b *Board) openQuickCommand() tea.Cmd {
 	b.quickCmdMode = true
 	b.quickCmdInput.SetValue("")
@@ -782,6 +854,17 @@ func (b *Board) pasteToItem(colIdx int, fileName string) tea.Cmd {
 	}
 }
 
+func (b *Board) renderLogo() string {
+	logoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#60a5fa")).
+		Italic(true).
+		Bold(true)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#64748b")).
+		Italic(true)
+	return logoStyle.Render(logoArt) + "  " + versionStyle.Render(Version)
+}
+
 func (b *Board) View() string {
 	if len(b.columns) == 0 {
 		return "No columns found in " + b.cfg.Path
@@ -802,7 +885,7 @@ func (b *Board) View() string {
 
 	quickCmdView := b.renderQuickCommand()
 
-	result := columnsView
+	result := b.renderLogo() + "\n" + columnsView
 	if quickCmdView != "" {
 		result += "\n" + quickCmdView
 	}
@@ -830,6 +913,9 @@ func (b *Board) View() string {
 	if b.peek.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.peek.View(w, h))
 	}
+	if b.switcher.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.switcher.View())
+	}
 	result += "\n" + b.renderStatusBar()
 
 	return result
@@ -854,17 +940,25 @@ func (b *Board) renderStatusBar() string {
 	case b.selectedCol < len(b.columns):
 		col := b.columns[b.selectedCol]
 		mode := helpTitleStyle.Render("⏵ board")
+		boardLabel := helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
 		colLabel := helpLabelStyle.Render("column: ") + helpKeyStyle.Render(col.Name)
 		count := helpLabelStyle.Render(itemCountLabel(col.TotalCount()))
-		primary = mode + sepDot + colLabel + sepDot + count
+		primary = mode + sepDot + boardLabel + sepDot + colLabel + sepDot + count
 	default:
-		primary = helpTitleStyle.Render("⏵ board")
+		primary = helpTitleStyle.Render("⏵ board") + sepDot + helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
 	}
 
 	secondary := RenderInlineHints(ContextShortcuts(ctx))
 
 	lineStyle := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
 	return lineStyle.Render(primary) + "\n" + lineStyle.Render(secondary)
+}
+
+func (b *Board) boardLabel() string {
+	if b.cfg.BoardName != "" {
+		return "[" + b.cfg.BoardName + "] " + filepath.Base(b.cfg.Path)
+	}
+	return filepath.Base(b.cfg.Path)
 }
 
 func itemCountLabel(n int) string {
