@@ -20,7 +20,7 @@ func newTestColumn(t *testing.T, files map[string]string) *Column {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	col := NewColumn(filepath.Base(dir), dir)
+	col := NewColumn(filepath.Base(dir), dir, 32, 3)
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestColumn_LoadItems(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	col := NewColumn("c", dir)
+	col := NewColumn("c", dir, 32, 3)
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestColumn_LoadItems(t *testing.T) {
 
 func TestColumn_LoadItems_MissingDir(t *testing.T) {
 	t.Parallel()
-	col := NewColumn("c", filepath.Join(t.TempDir(), "nope"))
+	col := NewColumn("c", filepath.Join(t.TempDir(), "nope"), 32, 3)
 	if err := col.LoadItems(); err == nil {
 		t.Fatal("expected error for missing dir")
 	}
@@ -416,7 +416,7 @@ func TestColumn_HasSelectedItem(t *testing.T) {
 
 func TestColumn_NewColumn_Defaults(t *testing.T) {
 	t.Parallel()
-	col := NewColumn("name", "/path")
+	col := NewColumn("name", "/path", 32, 3)
 	if col.Name != "name" || col.Path != "/path" {
 		t.Errorf("col = %+v, want Name=name Path=/path", col)
 	}

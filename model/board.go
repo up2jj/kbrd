@@ -61,8 +61,9 @@ func NewBoard(cfg config.Config) *Board {
 		cfg:           cfg,
 		visibleHeight: 20,
 		editor:        NewEditor(),
-		notifier:      NewNotifier(),
+		notifier:      NewNotifier(cfg.NotifyBackend),
 		quickCmdInput: ti,
+		theme:         cfg.Theme,
 	}
 }
 
@@ -109,7 +110,7 @@ func (b *Board) loadColumns() error {
 	b.columns = []*Column{}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			col := NewColumn(entry.Name(), filepath.Join(b.cfg.Path, entry.Name()))
+			col := NewColumn(entry.Name(), filepath.Join(b.cfg.Path, entry.Name()), b.cfg.ColumnWidth, b.cfg.PreviewLines)
 			if err := col.LoadItems(); err != nil {
 				continue
 			}

@@ -14,13 +14,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const colWidth = 32
-
 // itemDelegate renders each kanban item inside a bubbles list.
 type itemDelegate struct {
 	isActive   bool
 	mnemonicOf func(name string) string
 	gutterW    int
+	colWidth   int
 }
 
 func (d itemDelegate) Height() int  { return 3 }
@@ -69,7 +68,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	// Build line 1 as gutter + rest, each rendered with the same row background
 	// so they fuse into one continuous bar.
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := colWidth - gutterW
+	restWidth := d.colWidth - gutterW
 	if restWidth < 1 {
 		restWidth = 1
 	}
@@ -102,7 +101,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		previewFg = lipgloss.Color("#64748b")
 	}
-	previewStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
+	previewStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
@@ -119,7 +118,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		metaFg = lipgloss.Color("#334155")
 	}
-	metaStyle := lipgloss.NewStyle().Width(colWidth).MaxWidth(colWidth).PaddingLeft(gutterW).Foreground(metaFg)
+	metaStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(metaFg)
 	if isSelected && d.isActive {
 		metaStyle = metaStyle.Background(detailBg)
 	}
@@ -128,14 +127,16 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 // Column represents one kanban column backed by a directory.
 type Column struct {
-	Name  string
-	Path  string
-	Items []Item // unfiltered master list (used by file operations)
-	list  list.Model
+	Name         string
+	Path         string
+	Items        []Item // unfiltered master list (used by file operations)
+	list         list.Model
+	colWidth     int
+	previewLines int
 }
 
-func NewColumn(name, path string) *Column {
-	delegate := itemDelegate{}
+func NewColumn(name, path string, colWidth, previewLines int) *Column {
+	delegate := itemDelegate{colWidth: colWidth}
 	l := list.New(nil, delegate, colWidth, 20)
 	l.SetShowTitle(false)
 	l.SetShowFilter(false)
@@ -148,7 +149,7 @@ func NewColumn(name, path string) *Column {
 		PaddingLeft(2).
 		Foreground(lipgloss.Color("#475569"))
 
-	return &Column{Name: name, Path: path, list: l}
+	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, previewLines: previewLines}
 }
 
 func (c *Column) SetHeight(h int) {
@@ -197,20 +198,20 @@ func (c *Column) renderHeader(isActive bool, leftPad int) string {
 	count := lipgloss.NewStyle().Foreground(countFg).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
-	gap := colWidth - used
+	gap := c.colWidth - used
 	if gap < 1 {
 		gap = 1
 	}
 	spacer := strings.Repeat(" ", gap)
 
 	header := leftPadStr + indicator + name + spacer + count
-	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", colWidth))
+	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", c.colWidth))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep)
 }
 
 func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int) string {
-	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW})
+	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth})
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
 
 	var borderColor lipgloss.Color
@@ -249,7 +250,7 @@ func (c *Column) LoadItems() error {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
 			fullPath := filepath.Join(c.Path, entry.Name())
-			item, err := NewItem(fullPath)
+			item, err := NewItem(fullPath, c.previewLines)
 			if err == nil {
 				items = append(items, item)
 			}

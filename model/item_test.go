@@ -22,7 +22,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("plain file", func(t *testing.T) {
 		path := writeFile(t, dir, "task.md", "first line\nsecond line\n")
-		item, err := NewItem(path)
+		item, err := NewItem(path, 3)
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -45,7 +45,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("pinned file", func(t *testing.T) {
 		path := writeFile(t, dir, "p_urgent.md", "do me first")
-		item, err := NewItem(path)
+		item, err := NewItem(path, 3)
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -59,7 +59,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("empty file", func(t *testing.T) {
 		path := writeFile(t, dir, "empty.md", "")
-		item, err := NewItem(path)
+		item, err := NewItem(path, 3)
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -71,7 +71,7 @@ func TestNewItem(t *testing.T) {
 	t.Run("preview capped at 3 non-empty lines from first 3 lines", func(t *testing.T) {
 		// Loop reads i=0..2 only, skipping empty entries within that window.
 		path := writeFile(t, dir, "many.md", "one\ntwo\nthree\nfour\nfive\n")
-		item, err := NewItem(path)
+		item, err := NewItem(path, 3)
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("blank lines within first 3 are skipped", func(t *testing.T) {
 		path := writeFile(t, dir, "blanks.md", "\n\nthird\nfourth\n")
-		item, err := NewItem(path)
+		item, err := NewItem(path, 3)
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -98,7 +98,7 @@ func TestNewItem(t *testing.T) {
 	})
 
 	t.Run("missing file returns error", func(t *testing.T) {
-		_, err := NewItem(filepath.Join(dir, "nope.md"))
+		_, err := NewItem(filepath.Join(dir, "nope.md"), 3)
 		if err == nil {
 			t.Fatal("expected error for missing file")
 		}
@@ -177,7 +177,7 @@ func TestItem_Refresh(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := writeFile(t, dir, "r.md", "old\n")
-	item, err := NewItem(path)
+	item, err := NewItem(path, 3)
 	if err != nil {
 		t.Fatalf("NewItem: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestItem_Refresh(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if err := item.Refresh(); err != nil {
+	if err := item.Refresh(3); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 	if item.Size != int64(len(newContent)) {
@@ -207,7 +207,7 @@ func TestItem_Refresh(t *testing.T) {
 func TestItem_Refresh_MissingFile(t *testing.T) {
 	t.Parallel()
 	it := Item{FullPath: filepath.Join(t.TempDir(), "ghost.md")}
-	if err := it.Refresh(); err == nil {
+	if err := it.Refresh(3); err == nil {
 		t.Fatal("expected error for missing file")
 	}
 }

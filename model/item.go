@@ -18,7 +18,7 @@ type Item struct {
 	Modified time.Time
 }
 
-func NewItem(fullPath string) (Item, error) {
+func NewItem(fullPath string, previewLines int) (Item, error) {
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return Item{}, err
@@ -35,7 +35,7 @@ func NewItem(fullPath string) (Item, error) {
 	content, err := os.ReadFile(fullPath)
 	if err == nil {
 		lines := strings.Split(string(content), "\n")
-		for i := 0; i < len(lines) && i < 3; i++ {
+		for i := 0; i < len(lines) && i < previewLines; i++ {
 			if lines[i] != "" {
 				preview = append(preview, lines[i])
 			}
@@ -89,7 +89,7 @@ func (i *Item) TogglePin() {
 	}
 }
 
-func (i *Item) Refresh() error {
+func (i *Item) Refresh(previewLines int) error {
 	info, err := os.Stat(i.FullPath)
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func (i *Item) Refresh() error {
 	if err == nil {
 		lines := strings.Split(string(content), "\n")
 		i.Preview = []string{}
-		for j := 0; j < len(lines) && j < 3; j++ {
+		for j := 0; j < len(lines) && j < previewLines; j++ {
 			if lines[j] != "" {
 				i.Preview = append(i.Preview, lines[j])
 			}

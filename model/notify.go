@@ -37,8 +37,8 @@ type notifyMsg struct {
 	Type    notifySeverity
 }
 
-func NewNotifier() *Notifier {
-	n := &Notifier{kind: detectNotifyKind()}
+func NewNotifier(backend string) *Notifier {
+	n := &Notifier{kind: detectNotifyKind(backend)}
 
 	if n.kind == notifyOSC777 || n.kind == notifyOSC9 {
 		f, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
@@ -51,8 +51,8 @@ func NewNotifier() *Notifier {
 	return n
 }
 
-func detectNotifyKind() notifyKind {
-	switch strings.ToLower(os.Getenv("KBRD_NOTIFY")) {
+func detectNotifyKind(backend string) notifyKind {
+	switch strings.ToLower(backend) {
 	case "osascript":
 		return notifyOsascript
 	case "osc9":
@@ -61,6 +61,8 @@ func detectNotifyKind() notifyKind {
 		return notifyOSC777
 	case "none", "off":
 		return notifyNone
+	case "auto", "":
+		// fall through to auto-detection
 	}
 	switch os.Getenv("TERM_PROGRAM") {
 	case "WezTerm":
