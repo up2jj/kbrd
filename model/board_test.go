@@ -191,3 +191,78 @@ func TestBoard_WindowSizeMsg_ClampsVisibleHeight(t *testing.T) {
 		t.Errorf("visibleHeight = %d, want >= 1", b.visibleHeight)
 	}
 }
+
+func writeColItem(t *testing.T, col *Column, name string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(col.Path, name+".md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := col.LoadItems(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func columnHasItem(col *Column, name string) bool {
+	for _, it := range col.Items {
+		if it.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBoard_MMovesItemToFirstColumn(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[2], "task")
+	b.selectedCol = 2
+
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+
+	if b.selectedCol != 0 {
+		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
+	}
+	if !columnHasItem(b.columns[0], "task") {
+		t.Errorf("first column missing item 'task'; items=%v", b.columns[0].Items)
+	}
+	if len(b.columns[2].Items) != 0 {
+		t.Errorf("source column not empty: %v", b.columns[2].Items)
+	}
+	if _, err := os.Stat(filepath.Join(b.columns[0].Path, "task.md")); err != nil {
+		t.Errorf("file not at destination: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(b.columns[2].Path, "task.md")); !os.IsNotExist(err) {
+		t.Errorf("file still at source (err=%v)", err)
+	}
+}
+
+func TestBoard_MOnFirstColumnIsNoop(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[0], "task")
+	b.selectedCol = 0
+
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+
+	if b.selectedCol != 0 {
+		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
+	}
+	if !columnHasItem(b.columns[0], "task") {
+		t.Errorf("item missing from first column after no-op M")
+	}
+	if _, err := os.Stat(filepath.Join(b.columns[0].Path, "task.md")); err != nil {
+		t.Errorf("file missing at first column: %v", err)
+	}
+}
+
+func TestBoard_MWithoutSelectionDoesNothing(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	b.selectedCol = 1
+
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+
+	if b.selectedCol != 1 {
+		t.Errorf("selectedCol = %d, want 1 (unchanged)", b.selectedCol)
+	}
+}

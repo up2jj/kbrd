@@ -56,6 +56,7 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 				{"o", "open in $EDITOR"},
 				{"!", "pin / unpin"},
 				{"m", "move to next column"},
+				{"M", "move to first column"},
 				{"r", "rename item"},
 				{"d", "delete"},
 			},

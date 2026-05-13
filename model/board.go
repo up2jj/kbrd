@@ -445,6 +445,20 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = nextCol
 		}
+	case "M":
+		if col.HasSelectedItem() {
+			if len(b.columns) == 0 {
+				return b, b.notifier.Send("no folders available", notifyError)
+			}
+			if b.selectedCol == 0 {
+				return b, nil
+			}
+			item := col.SelectedItem()
+			if err := col.MoveItemTo(b.columns[0], item.Name); err != nil {
+				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
+			}
+			b.selectedCol = 0
+		}
 	case " ":
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
