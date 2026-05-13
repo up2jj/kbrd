@@ -26,6 +26,10 @@ const logoArt = `  __   __           __
 
 type watchMsg struct{}
 
+type initBoardRequestMsg struct{}
+type initBoardConfirmMsg struct{}
+type initBoardDeclineMsg struct{}
+
 type itemRef struct {
 	ColIndex int
 	Name     string
@@ -87,8 +91,20 @@ func (b *Board) Init() tea.Cmd {
 				b.watcher = w
 			}
 		}
+		if len(b.columns) == 0 {
+			return initBoardRequestMsg{}
+		}
 		return watchMsg{}
 	}
+}
+
+func (b *Board) createDefaultColumns() error {
+	for _, name := range []string{"1. TO DO", "2. IN PROGRESS", "3. DONE"} {
+		if err := os.MkdirAll(filepath.Join(b.cfg.Path, name), 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *Board) watchCmd() tea.Cmd {
@@ -119,7 +135,11 @@ func (b *Board) loadColumns() error {
 	b.columns = []*Column{}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			col := NewColumn(entry.Name(), filepath.Join(b.cfg.Path, entry.Name()), b.cfg.ColumnWidth, b.cfg.PreviewLines)
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+				continue
+			}
+			col := NewColumn(name, filepath.Join(b.cfg.Path, name), b.cfg.ColumnWidth, b.cfg.PreviewLines)
 			if err := col.LoadItems(); err != nil {
 				continue
 			}
@@ -161,6 +181,31 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case watchMsg:
 		b.loadColumns()
 		return b, b.watchCmd()
+
+	case initBoardRequestMsg:
+		b.dialog.Open(
+			"Initialize kanban board?",
+			"Create default columns in "+b.cfg.Path+":\n1. TO DO  •  2. IN PROGRESS  •  3. DONE",
+			[]DialogButton{
+				{Label: "Create", Primary: true, Msg: initBoardConfirmMsg{}},
+				{Label: "Quit", Msg: initBoardDeclineMsg{}},
+			},
+		)
+		b.dialog.selected = 0
+		return b, nil
+
+	case initBoardConfirmMsg:
+		if err := b.createDefaultColumns(); err != nil {
+			return b, b.notifier.Send("failed to create columns: "+err.Error(), notifyError)
+		}
+		if err := b.loadColumns(); err != nil {
+			return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
+		}
+		return b, tea.Batch(b.notifier.Send("created default columns", notifySuccess), b.watchCmd())
+
+	case initBoardDeclineMsg:
+		b.quitting = true
+		return b, tea.Quit
 
 	case editorSaveMsg:
 		return b.handleSave(msg)
@@ -867,6 +912,16 @@ func (b *Board) renderLogo() string {
 
 func (b *Board) View() string {
 	if len(b.columns) == 0 {
+		w, h := b.termWidth, b.termHeight
+		if w == 0 {
+			w = 80
+		}
+		if h == 0 {
+			h = 24
+		}
+		if dialogView := b.dialog.View(); dialogView != "" {
+			return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
+		}
 		return "No columns found in " + b.cfg.Path
 	}
 

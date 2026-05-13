@@ -70,6 +70,37 @@ func TestColumn_LoadItems(t *testing.T) {
 	}
 }
 
+func TestColumn_LoadItems_SkipsHiddenAndUnderscore(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	files := []string{
+		"alpha.md",   // included
+		".hidden.md", // skipped (dotfile)
+		"_draft.md",  // skipped (underscore prefix)
+		"bravo.md",   // included
+	}
+	for _, name := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	col := NewColumn("c", dir, 32, 3)
+	if err := col.LoadItems(); err != nil {
+		t.Fatalf("LoadItems: %v", err)
+	}
+	got := itemNames(col.Items)
+	want := []string{"alpha", "bravo"}
+	if len(got) != len(want) {
+		t.Fatalf("Items = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Items[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestColumn_LoadItems_MissingDir(t *testing.T) {
 	t.Parallel()
 	col := NewColumn("c", filepath.Join(t.TempDir(), "nope"), 32, 3)

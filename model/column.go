@@ -248,8 +248,12 @@ func (c *Column) LoadItems() error {
 
 	items := []Item{}
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			fullPath := filepath.Join(c.Path, entry.Name())
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			continue
+		}
+		if !entry.IsDir() && strings.HasSuffix(name, ".md") {
+			fullPath := filepath.Join(c.Path, name)
 			item, err := NewItem(fullPath, c.previewLines)
 			if err == nil {
 				items = append(items, item)
