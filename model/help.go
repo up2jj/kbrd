@@ -38,6 +38,7 @@ func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
 			Items: []Shortcut{
 				{"tab / ]", "next column"},
 				{"shift+tab / [", "previous column"},
+				{"H / L", "pan columns left / right"},
 				{"j / k", "move within column"},
 				{"/", "filter"},
 			},

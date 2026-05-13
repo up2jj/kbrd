@@ -41,8 +41,9 @@ type Board struct {
 	visibleHeight int
 	termWidth     int
 	termHeight    int
-	selectedCol   int
-	quitting      bool
+	selectedCol     int
+	firstVisibleCol int
+	quitting        bool
 	editor        *Editor
 	notifier      *Notifier
 	quickCmdMode  bool
@@ -166,6 +167,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
 		b.visibleHeight = msg.Height - 8
+		if b.visibleHeight < 1 {
+			b.visibleHeight = 1
+		}
 		for _, col := range b.columns {
 			col.SetHeight(b.visibleHeight)
 		}
@@ -353,6 +357,19 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.selectedCol++
 		if b.selectedCol >= len(b.columns) {
 			b.selectedCol = 0
+		}
+	case "H":
+		if b.firstVisibleCol > 0 {
+			b.firstVisibleCol--
+		}
+	case "L":
+		_, count := b.visibleColRange()
+		maxFirst := len(b.columns) - count
+		if maxFirst < 0 {
+			maxFirst = 0
+		}
+		if b.firstVisibleCol < maxFirst {
+			b.firstVisibleCol++
 		}
 	case "e":
 		if col.HasSelectedItem() {
@@ -910,6 +927,49 @@ func (b *Board) renderLogo() string {
 	return logoStyle.Render(logoArt) + "  " + versionStyle.Render(Version)
 }
 
+// slotWidth is the rendered width of one column cell on the row:
+// configured colWidth + 2 for the rounded border + 1 for the right margin.
+func (b *Board) slotWidth() int { return b.cfg.ColumnWidth + 3 }
+
+// visibleColRange returns the index of the first column to render and the
+// number of columns that fit horizontally. It also adjusts firstVisibleCol so
+// the active column is always within the visible window.
+func (b *Board) visibleColRange() (first, count int) {
+	if len(b.columns) == 0 {
+		return 0, 0
+	}
+	w := b.termWidth
+	if w == 0 {
+		w = 80
+	}
+	const indicatorReserve = 6 // room for "◀ N " / " N ▶" chips on either side
+	count = (w - indicatorReserve) / b.slotWidth()
+	if count < 1 {
+		count = 1
+	}
+	if count > len(b.columns) {
+		count = len(b.columns)
+	}
+
+	if b.selectedCol < b.firstVisibleCol {
+		b.firstVisibleCol = b.selectedCol
+	}
+	if b.selectedCol >= b.firstVisibleCol+count {
+		b.firstVisibleCol = b.selectedCol - count + 1
+	}
+	maxFirst := len(b.columns) - count
+	if maxFirst < 0 {
+		maxFirst = 0
+	}
+	if b.firstVisibleCol > maxFirst {
+		b.firstVisibleCol = maxFirst
+	}
+	if b.firstVisibleCol < 0 {
+		b.firstVisibleCol = 0
+	}
+	return b.firstVisibleCol, count
+}
+
 func (b *Board) View() string {
 	if len(b.columns) == 0 {
 		w, h := b.termWidth, b.termHeight
@@ -925,16 +985,50 @@ func (b *Board) View() string {
 		return "No columns found in " + b.cfg.Path
 	}
 
+	// Bail out cleanly on tiny terminals rather than draw a broken layout.
+	if b.termWidth > 0 && b.termWidth < b.cfg.ColumnWidth+4 {
+		w, h := b.termWidth, b.termHeight
+		if h == 0 {
+			h = 24
+		}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8")).Render("terminal too small"))
+	}
+	if b.termHeight > 0 && b.termHeight < 10 {
+		w := b.termWidth
+		if w == 0 {
+			w = 80
+		}
+		return lipgloss.Place(w, b.termHeight, lipgloss.Center, lipgloss.Center,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8")).Render("terminal too small"))
+	}
+
 	b.rebuildMnemonics()
 
 	gap := lipgloss.NewStyle().MarginRight(1)
-	rendered := make([]string, len(b.columns))
 	gutterW := 2
 	if b.mnemonicMaxLen+1 > gutterW {
 		gutterW = b.mnemonicMaxLen + 1
 	}
-	for i, col := range b.columns {
-		rendered[i] = gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW))
+
+	first, count := b.visibleColRange()
+	end := first + count
+	rendered := make([]string, 0, count+2)
+
+	indicatorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#64748b")).
+		Bold(true).
+		PaddingTop(1).
+		MarginRight(1)
+	if first > 0 {
+		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("◀ %d", first)))
+	}
+	for i := first; i < end; i++ {
+		col := b.columns[i]
+		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW)))
+	}
+	if end < len(b.columns) {
+		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 
@@ -997,8 +1091,9 @@ func (b *Board) renderStatusBar() string {
 		mode := helpTitleStyle.Render("⏵ board")
 		boardLabel := helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
 		colLabel := helpLabelStyle.Render("column: ") + helpKeyStyle.Render(col.Name)
+		colPos := helpLabelStyle.Render("col ") + helpKeyStyle.Render(fmt.Sprintf("%d/%d", b.selectedCol+1, len(b.columns)))
 		count := helpLabelStyle.Render(itemCountLabel(col.TotalCount()))
-		primary = mode + sepDot + boardLabel + sepDot + colLabel + sepDot + count
+		primary = mode + sepDot + boardLabel + sepDot + colLabel + sepDot + colPos + sepDot + count
 	default:
 		primary = helpTitleStyle.Render("⏵ board") + sepDot + helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
 	}

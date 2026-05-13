@@ -228,12 +228,44 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		c.renderHeader(isActive, leftPad),
 		c.list.View(),
+		c.renderOverflowFooter(),
 	)
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Render(content)
+}
+
+// renderOverflowFooter shows "▲ N above" / "▼ N below" chips when the current
+// page of items doesn't cover the full visible-items list. Always returns a
+// single-line string (possibly blank) so column heights stay stable.
+func (c *Column) renderOverflowFooter() string {
+	style := lipgloss.NewStyle().
+		Width(c.colWidth).
+		MaxWidth(c.colWidth).
+		Foreground(lipgloss.Color("#64748b")).
+		Italic(true).
+		PaddingLeft(2)
+
+	total := len(c.list.VisibleItems())
+	start, end := c.list.Paginator.GetSliceBounds(total)
+	above, below := start, total-end
+	if above <= 0 && below <= 0 {
+		return style.Render("")
+	}
+
+	parts := make([]string, 0, 3)
+	if above > 0 {
+		parts = append(parts, fmt.Sprintf("▲ %d above", above))
+	}
+	if above > 0 && below > 0 {
+		parts = append(parts, "·")
+	}
+	if below > 0 {
+		parts = append(parts, fmt.Sprintf("▼ %d below", below))
+	}
+	return style.Render(strings.Join(parts, " "))
 }
 
 func (c *Column) IsFiltering() bool {

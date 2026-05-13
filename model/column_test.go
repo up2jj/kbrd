@@ -472,3 +472,49 @@ func TestNewTestColumn_HelperIsClean(t *testing.T) {
 		t.Errorf("temp dir has %d entries: %v", len(entries), strings.Join(names, ", "))
 	}
 }
+
+func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
+	t.Parallel()
+	files := make(map[string]string, 50)
+	for i := 0; i < 50; i++ {
+		files["f"+string(rune('a'+i%26))+string(rune('a'+i/26))] = "x"
+	}
+	col := newTestColumn(t, files)
+	// Item delegate height is 3 + spacing 1 = 4. Set list height to 12 → 3 items per page.
+	col.SetHeight(12)
+	// Trigger a render so paginator updates its PerPage/page count.
+	_ = col.View(true, func(string) string { return "" }, 2)
+
+	footer := col.renderOverflowFooter()
+	if !strings.Contains(footer, "below") {
+		t.Errorf("expected 'below' indicator on first page, got %q", footer)
+	}
+	if strings.Contains(footer, "above") {
+		t.Errorf("unexpected 'above' indicator on first page: %q", footer)
+	}
+
+	// Jump to the end and re-render.
+	end := len(col.list.VisibleItems()) - 1
+	col.list.Select(end)
+	_ = col.View(true, func(string) string { return "" }, 2)
+
+	footer = col.renderOverflowFooter()
+	if !strings.Contains(footer, "above") {
+		t.Errorf("expected 'above' indicator on last page, got %q", footer)
+	}
+	if strings.Contains(footer, "below") {
+		t.Errorf("unexpected 'below' indicator on last page: %q", footer)
+	}
+}
+
+func TestColumn_OverflowFooter_BlankWhenAllFit(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{"a": "x", "b": "y"})
+	col.SetHeight(40)
+	_ = col.View(true, func(string) string { return "" }, 2)
+
+	footer := col.renderOverflowFooter()
+	if strings.Contains(footer, "above") || strings.Contains(footer, "below") {
+		t.Errorf("expected no overflow chips, got %q", footer)
+	}
+}

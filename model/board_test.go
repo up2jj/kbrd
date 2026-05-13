@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"kbrd/config"
 )
@@ -90,5 +93,101 @@ func TestBoard_CreateDefaultColumns(t *testing.T) {
 	}
 	if len(b.columns) != 3 {
 		t.Errorf("columns = %d, want 3", len(b.columns))
+	}
+}
+
+// boardWithNCols builds a board backed by N empty column dirs, sized so that
+// only `visibleCols` columns fit on the row.
+func boardWithNCols(t *testing.T, n, visibleCols int) *Board {
+	t.Helper()
+	dir := t.TempDir()
+	for i := 0; i < n; i++ {
+		name := filepath.Join(dir, "c"+string(rune('0'+i)))
+		if err := os.Mkdir(name, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := NewBoard(config.Config{Path: dir, ColumnWidth: 20, PreviewLines: 3})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+	// slotWidth = ColumnWidth + 3 = 23; indicatorReserve = 6.
+	// width = visibleCols * 23 + 6 makes exactly visibleCols fit.
+	b.termWidth = visibleCols*b.slotWidth() + 6
+	b.termHeight = 40
+	b.visibleHeight = 32
+	for _, c := range b.columns {
+		c.SetHeight(b.visibleHeight)
+	}
+	return b
+}
+
+func TestBoard_VisibleColRange_FitsAndPansOnSelection(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 10, 3)
+
+	first, count := b.visibleColRange()
+	if first != 0 || count != 3 {
+		t.Fatalf("initial range = (%d,%d), want (0,3)", first, count)
+	}
+
+	b.selectedCol = 7
+	first, count = b.visibleColRange()
+	if first != 5 || count != 3 {
+		t.Fatalf("after selecting col 7, range = (%d,%d), want (5,3)", first, count)
+	}
+
+	// View() should mention "◀ 5" (5 hidden left) and "2 ▶" (2 hidden right).
+	out := b.View()
+	if !strings.Contains(out, "◀ 5") {
+		t.Errorf("View() missing left indicator '◀ 5':\n%s", out)
+	}
+	if !strings.Contains(out, "2 ▶") {
+		t.Errorf("View() missing right indicator '2 ▶':\n%s", out)
+	}
+}
+
+func TestBoard_PanKeysMoveWindow(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 10, 3)
+	// Force window initialization.
+	b.visibleColRange()
+	if b.firstVisibleCol != 0 {
+		t.Fatalf("firstVisibleCol = %d, want 0", b.firstVisibleCol)
+	}
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")})
+	if b.firstVisibleCol != 1 {
+		t.Errorf("after L, firstVisibleCol = %d, want 1", b.firstVisibleCol)
+	}
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	if b.firstVisibleCol != 0 {
+		t.Errorf("after H, firstVisibleCol = %d, want 0", b.firstVisibleCol)
+	}
+}
+
+func TestBoard_View_TinyTerminalShortCircuits(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 1)
+	b.termWidth = 20 // < ColumnWidth + 4 = 24
+	b.termHeight = 24
+	out := b.View()
+	if !strings.Contains(out, "terminal too small") {
+		t.Errorf("expected too-small placeholder, got:\n%s", out)
+	}
+
+	b.termWidth = 200
+	b.termHeight = 5
+	out = b.View()
+	if !strings.Contains(out, "terminal too small") {
+		t.Errorf("expected too-small placeholder for short terminal, got:\n%s", out)
+	}
+}
+
+func TestBoard_WindowSizeMsg_ClampsVisibleHeight(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 2, 2)
+	b.Update(tea.WindowSizeMsg{Width: 200, Height: 3})
+	if b.visibleHeight < 1 {
+		t.Errorf("visibleHeight = %d, want >= 1", b.visibleHeight)
 	}
 }
