@@ -32,12 +32,9 @@ type Board struct {
 	selectedCol   int
 	quitting      bool
 	editor        *Editor
-	toastMgr      *ToastManager
+	notifier      *Notifier
 	quickCmdMode  bool
 	quickCmdInput textinput.Model
-	statusMsg     string
-	statusColor   string
-	statusTimer   int
 	theme         string
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
@@ -64,7 +61,7 @@ func NewBoard(cfg config.Config) *Board {
 		cfg:           cfg,
 		visibleHeight: 20,
 		editor:        NewEditor(),
-		toastMgr:      NewToastManager(),
+		notifier:      NewNotifier(),
 		quickCmdInput: ti,
 	}
 }
@@ -72,7 +69,7 @@ func NewBoard(cfg config.Config) *Board {
 func (b *Board) Init() tea.Cmd {
 	return func() tea.Msg {
 		if err := b.loadColumns(); err != nil {
-			return toastMsg{Message: "failed to load columns: " + err.Error(), Type: toastError}
+			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
 		paths, err := kbrdfs.DiscoverPaths(b.cfg.Path)
 		if err == nil {
@@ -145,17 +142,12 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return b.handleKey(msg)
 
-	case toastMsg:
-		return b, b.toastMgr.Add(msg.Message, msg.Type)
+	case notifyMsg:
+		return b, b.notifier.Send(msg.Message, msg.Type)
 
 	case watchMsg:
 		b.loadColumns()
 		return b, b.watchCmd()
-
-	case toastTickMsg:
-		tm, cmd := b.toastMgr.Update(msg)
-		b.toastMgr = tm
-		return b, cmd
 
 	case editorSaveMsg:
 		return b.handleSave(msg)
@@ -252,15 +244,6 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b.handleQuickCommandKey(msg)
 	}
 
-	// Handle status message timeout
-	if b.statusTimer > 0 {
-		b.statusTimer--
-		if b.statusTimer == 0 {
-			b.statusMsg = ""
-			b.statusColor = ""
-		}
-	}
-
 	if len(b.columns) == 0 {
 		return b, nil
 	}
@@ -328,7 +311,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			content, err := col.CopyContent(item.Name)
 			if err != nil {
-				return b, b.toastMgr.Add("failed to copy: "+err.Error(), toastError)
+				return b, b.notifier.Send("failed to copy: "+err.Error(), notifyError)
 			}
 			return b, b.copyToClipboard([]byte(content))
 		}
@@ -342,22 +325,22 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			err := col.OpenFile(item.Name)
 			if err != nil {
-				return b, b.toastMgr.Add("failed to open: "+err.Error(), toastError)
+				return b, b.notifier.Send("failed to open: "+err.Error(), notifyError)
 			}
-			return b, b.toastMgr.Add("opened "+item.Name, toastSuccess)
+			return b, b.notifier.Send("opened "+item.Name, notifySuccess)
 		}
 	case "!":
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			err := col.PinItem(item.Name)
 			if err != nil {
-				return b, b.toastMgr.Add("failed to pin: "+err.Error(), toastError)
+				return b, b.notifier.Send("failed to pin: "+err.Error(), notifyError)
 			}
 			pinState := "unpinned"
 			if item.Pinned {
 				pinState = "pinned"
 			}
-			return b, b.toastMgr.Add(item.Name+" "+pinState, toastSuccess)
+			return b, b.notifier.Send(item.Name+" "+pinState, notifySuccess)
 		}
 	case "d":
 		if col.HasSelectedItem() {
@@ -373,7 +356,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			nextCol := (b.selectedCol + 1) % len(b.columns)
 			if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
-				return b, b.toastMgr.Add("failed to move: "+err.Error(), toastError)
+				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
 			}
 			b.selectedCol = nextCol
 		}
@@ -382,7 +365,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			content, err := col.CopyContent(item.Name)
 			if err != nil {
-				return b, b.toastMgr.Add("failed to peek: "+err.Error(), toastError)
+				return b, b.notifier.Send("failed to peek: "+err.Error(), notifyError)
 			}
 			return b, b.peek.Open(item.Name, string(content), b.termWidth)
 		}
@@ -394,7 +377,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.editor.OpenNew(b.selectedCol, b.columns[b.selectedCol].Name)
 	case "N":
 		if len(b.columns) == 0 {
-			return b, b.toastMgr.Add("no folders available", toastError)
+			return b, b.notifier.Send("no folders available", notifyError)
 		}
 		return b, b.editor.OpenNew(0, b.columns[0].Name)
 	default:
@@ -415,71 +398,56 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if fullPath == "" {
-		return b, b.toastMgr.Add("item not found: "+msg.FileName, toastError)
+		return b, b.notifier.Send("item not found: "+msg.FileName, notifyError)
 	}
 	err := os.WriteFile(fullPath, []byte(msg.Content), 0644)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to save: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.statusMsg = "saved " + msg.FileName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("saved "+msg.FileName, notifySuccess)
 }
 
 func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
 	err := col.AppendText(msg.FileName, msg.Text)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to append: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.statusMsg = "appended to " + msg.FileName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("appended to "+msg.FileName, notifySuccess)
 }
 
 func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
 	err := col.PrependText(msg.FileName, msg.Text)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to prepend: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.statusMsg = "prepended to " + msg.FileName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("prepended to "+msg.FileName, notifySuccess)
 }
 
 func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
 	err := col.JournalText(msg.FileName, msg.Text)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to journal: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.statusMsg = "journal entry added to " + msg.FileName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
 }
 
 func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
 	if msg.FileName == "" {
-		return b, b.toastMgr.Add("filename cannot be empty", toastError)
+		return b, b.notifier.Send("filename cannot be empty", notifyError)
 	}
 	_, err := col.CreateItem(msg.FileName)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to create: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
 	}
-	b.statusMsg = "created " + msg.FileName + ".md"
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
 }
 
 func validateRenameName(name string) error {
@@ -498,18 +466,18 @@ func validateRenameName(name string) error {
 func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, tea.Cmd) {
 	newName := strings.TrimSpace(msg.NewName)
 	if err := validateRenameName(newName); err != nil {
-		return b, b.toastMgr.Add("invalid name: "+err.Error(), toastError)
+		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
 	}
 	if newName == msg.OldName {
 		return b, nil
 	}
 	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.toastMgr.Add("invalid column", toastError)
+		return b, b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[msg.ColIndex]
 	target := filepath.Join(col.Path, newName+".md")
 	if _, err := os.Stat(target); err == nil {
-		return b, b.toastMgr.Add("file already exists: "+newName+".md", toastError)
+		return b, b.notifier.Send("file already exists: "+newName+".md", notifyError)
 	}
 	b.dialog.Open("Rename item?", msg.OldName+".md → "+newName+".md", []DialogButton{
 		{Label: "Yes", Primary: true, Msg: renameItemConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
@@ -522,18 +490,18 @@ func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, te
 func (b *Board) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model, tea.Cmd) {
 	newName := strings.TrimSpace(msg.NewName)
 	if err := validateRenameName(newName); err != nil {
-		return b, b.toastMgr.Add("invalid name: "+err.Error(), toastError)
+		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
 	}
 	if newName == msg.OldName {
 		return b, nil
 	}
 	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.toastMgr.Add("invalid column", toastError)
+		return b, b.notifier.Send("invalid column", notifyError)
 	}
 	parent := filepath.Dir(b.columns[msg.ColIndex].Path)
 	target := filepath.Join(parent, newName)
 	if _, err := os.Stat(target); err == nil {
-		return b, b.toastMgr.Add("folder already exists: "+newName, toastError)
+		return b, b.notifier.Send("folder already exists: "+newName, notifyError)
 	}
 	b.dialog.Open("Rename column?", msg.OldName+" → "+newName, []DialogButton{
 		{Label: "Yes", Primary: true, Msg: renameColumnConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
@@ -545,11 +513,11 @@ func (b *Board) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model
 
 func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, tea.Cmd) {
 	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.toastMgr.Add("invalid column", toastError)
+		return b, b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[msg.ColIndex]
 	if err := col.RenameItem(msg.OldName, msg.NewName); err != nil {
-		return b, b.toastMgr.Add("failed to rename: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
 	}
 	for i, it := range col.Items {
 		if it.Name == msg.NewName {
@@ -557,37 +525,28 @@ func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, te
 			break
 		}
 	}
-	b.statusMsg = "renamed " + msg.OldName + " → " + msg.NewName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("renamed "+msg.OldName+" → "+msg.NewName, notifySuccess)
 }
 
 func (b *Board) handleRenameColumnConfirm(msg renameColumnConfirmMsg) (tea.Model, tea.Cmd) {
 	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.toastMgr.Add("invalid column", toastError)
+		return b, b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[msg.ColIndex]
 	if err := col.Rename(msg.NewName); err != nil {
-		return b, b.toastMgr.Add("failed to rename: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
 	}
-	b.statusMsg = "renamed column " + msg.OldName + " → " + msg.NewName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("renamed column "+msg.OldName+" → "+msg.NewName, notifySuccess)
 }
 
 func (b *Board) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
 	err := col.DeleteItem(msg.FileName)
 	if err != nil {
-		return b, b.toastMgr.Add("failed to delete: "+err.Error(), toastError)
+		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.statusMsg = "deleted " + msg.FileName
-	b.statusColor = "#4ade80"
-	b.statusTimer = 60
-	return b, nil
+	return b, b.notifier.Send("deleted "+msg.FileName, notifySuccess)
 }
 
 func (b *Board) handleQuickCommand(msg quickCommandMsg) (tea.Model, tea.Cmd) {
@@ -609,7 +568,7 @@ func (b *Board) handleQuickCommand(msg quickCommandMsg) (tea.Model, tea.Cmd) {
 	case 'q':
 		return b, b.openQuickCommand()
 	default:
-		return b, b.toastMgr.Add("unknown command: "+string(action), toastError)
+		return b, b.notifier.Send("unknown command: "+string(action), notifyError)
 	}
 }
 
@@ -659,7 +618,7 @@ func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.quickCmdMode = false
 		b.quickCmdInput.Blur()
 		b.quickCmdInput.SetValue("")
-		return b, b.toastMgr.Add("no item: "+suffix, toastError)
+		return b, b.notifier.Send("no item: "+suffix, notifyError)
 	}
 
 	return b, cmd
@@ -687,7 +646,7 @@ func (b *Board) openQuickCommand() tea.Cmd {
 // is non-disruptive.
 func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 	if ref.ColIndex < 0 || ref.ColIndex >= len(b.columns) {
-		return b.toastMgr.Add("invalid column", toastError)
+		return b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[ref.ColIndex]
 	var item *Item
@@ -699,7 +658,7 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		}
 	}
 	if item == nil {
-		return b.toastMgr.Add("item not found: "+ref.Name, toastError)
+		return b.notifier.Send("item not found: "+ref.Name, notifyError)
 	}
 
 	switch action {
@@ -714,25 +673,25 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 	case 'c':
 		content, err := col.CopyContent(item.Name)
 		if err != nil {
-			return b.toastMgr.Add("failed to copy: "+err.Error(), toastError)
+			return b.notifier.Send("failed to copy: "+err.Error(), notifyError)
 		}
 		return b.copyToClipboard(content)
 	case 'V':
 		return b.pasteToItem(ref.ColIndex, item.Name)
 	case 'o':
 		if err := col.OpenFile(item.Name); err != nil {
-			return b.toastMgr.Add("failed to open: "+err.Error(), toastError)
+			return b.notifier.Send("failed to open: "+err.Error(), notifyError)
 		}
-		return b.toastMgr.Add("opened "+item.Name, toastSuccess)
+		return b.notifier.Send("opened "+item.Name, notifySuccess)
 	case '!':
 		if err := col.PinItem(item.Name); err != nil {
-			return b.toastMgr.Add("failed to pin: "+err.Error(), toastError)
+			return b.notifier.Send("failed to pin: "+err.Error(), notifyError)
 		}
 		state := "unpinned"
 		if !item.Pinned {
 			state = "pinned"
 		}
-		return b.toastMgr.Add(item.Name+" "+state, toastSuccess)
+		return b.notifier.Send(item.Name+" "+state, notifySuccess)
 	case 'd':
 		b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
 			{Label: "Yes", Danger: true, Msg: deleteConfirmMsg{ColIndex: ref.ColIndex, FileName: item.Name}},
@@ -743,11 +702,11 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 	case 'm':
 		nextCol := (ref.ColIndex + 1) % len(b.columns)
 		if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
-			return b.toastMgr.Add("failed to move: "+err.Error(), toastError)
+			return b.notifier.Send("failed to move: "+err.Error(), notifyError)
 		}
-		return b.toastMgr.Add("moved "+item.Name+" → "+b.columns[nextCol].Name, toastSuccess)
+		return b.notifier.Send("moved "+item.Name+" → "+b.columns[nextCol].Name, notifySuccess)
 	}
-	return b.toastMgr.Add("unknown command: "+string(action), toastError)
+	return b.notifier.Send("unknown command: "+string(action), notifyError)
 }
 
 func (b *Board) rebuildMnemonics() {
@@ -784,9 +743,9 @@ func (b *Board) mnemonicLookup(colIdx int) func(name string) string {
 func (b *Board) refresh() tea.Cmd {
 	return func() tea.Msg {
 		if err := b.loadColumns(); err != nil {
-			return toastMsg{Message: "failed to refresh: " + err.Error(), Type: toastError}
+			return notifyMsg{Message: "failed to refresh: " + err.Error(), Type: notifyError}
 		}
-		return toastMsg{Message: "refreshed", Type: toastSuccess}
+		return notifyMsg{Message: "refreshed", Type: notifySuccess}
 	}
 }
 
@@ -801,9 +760,9 @@ func (b *Board) toggleTheme() {
 func (b *Board) copyToClipboard(content []byte) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(string(content)); err != nil {
-			return toastMsg{Message: "clipboard not available", Type: toastError}
+			return notifyMsg{Message: "clipboard not available", Type: notifyError}
 		}
-		return toastMsg{Message: "copied to clipboard", Type: toastSuccess}
+		return notifyMsg{Message: "copied to clipboard", Type: notifySuccess}
 	}
 }
 
@@ -811,14 +770,14 @@ func (b *Board) pasteToItem(colIdx int, fileName string) tea.Cmd {
 	return func() tea.Msg {
 		text, err := clipboard.ReadAll()
 		if err != nil || text == "" {
-			return toastMsg{Message: "clipboard empty or unavailable", Type: toastError}
+			return notifyMsg{Message: "clipboard empty or unavailable", Type: notifyError}
 		}
 		col := b.columns[colIdx]
 		if err := col.AppendText(fileName, text); err != nil {
-			return toastMsg{Message: "failed to paste: " + err.Error(), Type: toastError}
+			return notifyMsg{Message: "failed to paste: " + err.Error(), Type: notifyError}
 		}
 		col.LoadItems()
-		return toastMsg{Message: "pasted to " + fileName, Type: toastSuccess}
+		return notifyMsg{Message: "pasted to " + fileName, Type: notifySuccess}
 	}
 }
 
@@ -840,15 +799,11 @@ func (b *Board) View() string {
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 
-	toastView := b.toastMgr.Render()
 	quickCmdView := b.renderQuickCommand()
 
 	result := columnsView
 	if quickCmdView != "" {
 		result += "\n" + quickCmdView
-	}
-	if toastView != "" {
-		result += "\n\n" + toastView
 	}
 	w, h := b.termWidth, b.termHeight
 	if w == 0 {
@@ -905,12 +860,6 @@ func (b *Board) renderStatusBar() string {
 		primary = helpTitleStyle.Render("⏵ board")
 	}
 
-	if b.statusMsg != "" {
-		statusColor := b.getStatusColor()
-		primary = lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(b.statusMsg) +
-			sepDot + primary
-	}
-
 	secondary := RenderInlineHints(ContextShortcuts(ctx))
 
 	lineStyle := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
@@ -922,13 +871,6 @@ func itemCountLabel(n int) string {
 		return "1 item"
 	}
 	return strconv.Itoa(n) + " items"
-}
-
-func (b *Board) getStatusColor() string {
-	if b.statusColor != "" {
-		return b.statusColor
-	}
-	return "#94a3b8"
 }
 
 func (b *Board) renderQuickCommand() string {
