@@ -55,6 +55,8 @@ type Board struct {
 	helpOpen      bool
 	peek          Peek
 	switcher      Switcher
+	leftIndicatorWidth int
+	logoHeight         int
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
@@ -167,7 +169,7 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
-		b.visibleHeight = msg.Height - 8
+		b.visibleHeight = msg.Height - 11
 		if b.visibleHeight < 1 {
 			b.visibleHeight = 1
 		}
@@ -179,6 +181,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return b.handleKey(msg)
+
+	case tea.MouseMsg:
+		return b.handleMouse(msg)
 
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
@@ -484,6 +489,39 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, col.UpdateList(msg)
 	}
 
+	return b, nil
+}
+
+func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if b.helpOpen || b.dialog.active || b.editor.state != editorNone ||
+		b.peek.Active() || b.switcher.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		return b, nil
+	}
+	if b.columns[b.selectedCol].IsFiltering() {
+		return b, nil
+	}
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return b, nil
+	}
+
+	xc := msg.X - b.leftIndicatorWidth
+	if xc < 0 {
+		return b, nil
+	}
+	first, count := b.visibleColRange()
+	slotIdx := xc / b.slotWidth()
+	if slotIdx < 0 || slotIdx >= count {
+		return b, nil
+	}
+	colIdx := first + slotIdx
+	col := b.columns[colIdx]
+
+	itemIdx, ok := col.HitTest(msg.Y - b.logoHeight)
+	if !ok {
+		return b, nil
+	}
+	b.selectedCol = colIdx
+	col.SelectIndex(itemIdx)
 	return b, nil
 }
 
@@ -1035,8 +1073,11 @@ func (b *Board) View() string {
 		Bold(true).
 		PaddingTop(1).
 		MarginRight(1)
+	b.leftIndicatorWidth = 0
 	if first > 0 {
-		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("◀ %d", first)))
+		chip := indicatorStyle.Render(fmt.Sprintf("◀ %d", first))
+		rendered = append(rendered, chip)
+		b.leftIndicatorWidth = lipgloss.Width(chip) + 1
 	}
 	for i := first; i < end; i++ {
 		col := b.columns[i]
@@ -1049,7 +1090,9 @@ func (b *Board) View() string {
 
 	quickCmdView := b.renderQuickCommand()
 
-	result := b.renderLogo() + "\n" + columnsView
+	logo := b.renderLogo()
+	b.logoHeight = lipgloss.Height(logo)
+	result := logo + "\n" + columnsView
 	if quickCmdView != "" {
 		result += "\n" + quickCmdView
 	}

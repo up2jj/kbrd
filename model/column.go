@@ -133,6 +133,7 @@ type Column struct {
 	list         list.Model
 	colWidth     int
 	previewLines int
+	listYOffset  int
 }
 
 func NewColumn(name, path string, colWidth, previewLines int) *Column {
@@ -225,9 +226,15 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	if leftPad < 0 {
 		leftPad = 0
 	}
+	header := c.renderHeader(isActive, leftPad)
+	listView := c.list.View()
+	c.listYOffset = 1 + lipgloss.Height(header)
+	if c.list.ShowFilter() {
+		c.listYOffset += lipgloss.Height(listView) - c.list.Height()
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		c.renderHeader(isActive, leftPad),
-		c.list.View(),
+		header,
+		listView,
 		c.renderOverflowFooter(),
 	)
 
@@ -270,6 +277,33 @@ func (c *Column) renderOverflowFooter() string {
 
 func (c *Column) IsFiltering() bool {
 	return c.list.SettingFilter()
+}
+
+// HitTest maps a y-coordinate (relative to the top of this column's box) to a
+// visible item index. Returns ok=false when the click lands outside any item
+// (border, header, gap, filter bar, overflow footer, or past the last item).
+func (c *Column) HitTest(yInBox int) (int, bool) {
+	listY := yInBox - c.listYOffset
+	if listY < 0 {
+		return 0, false
+	}
+	d := itemDelegate{}
+	slotH := d.Height() + d.Spacing()
+	viewportIdx := listY / slotH
+	if listY%slotH >= d.Height() {
+		return 0, false
+	}
+	visible := c.list.VisibleItems()
+	start, _ := c.list.Paginator.GetSliceBounds(len(visible))
+	actualIdx := start + viewportIdx
+	if actualIdx < 0 || actualIdx >= len(visible) {
+		return 0, false
+	}
+	return actualIdx, true
+}
+
+func (c *Column) SelectIndex(i int) {
+	c.list.Select(i)
 }
 
 func (c *Column) LoadItems() error {
