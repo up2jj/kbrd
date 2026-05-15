@@ -43,6 +43,32 @@ func TestDiscoverPaths(t *testing.T) {
 	}
 }
 
+func TestDiscoverPaths_SkipsDotAndUnderscoreDirs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, d := range []string{"visible", ".git", ".hidden", "_internal"} {
+		if err := os.Mkdir(filepath.Join(root, d), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := DiscoverPaths(root)
+	if err != nil {
+		t.Fatalf("DiscoverPaths: %v", err)
+	}
+	want := map[string]bool{
+		root:                            true,
+		filepath.Join(root, "visible"): true,
+	}
+	if len(paths) != len(want) {
+		t.Fatalf("got %d paths, want %d: %v", len(paths), len(want), paths)
+	}
+	for _, p := range paths {
+		if !want[p] {
+			t.Errorf("unexpected path %q (should have been skipped)", p)
+		}
+	}
+}
+
 func TestDiscoverPaths_EmptyDir(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

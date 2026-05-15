@@ -78,6 +78,14 @@ type KeyMap struct {
 	ConfigOpenLocal        key.Binding
 	ConfigOpenGlobal       key.Binding
 	ConfigOpenLocalCommands key.Binding
+
+	// Git panel
+	GitPanel        key.Binding
+	GitDiff         key.Binding
+	GitCommit       key.Binding
+	GitSync         key.Binding
+	GitCommitSync   key.Binding
+	GitPanelClose   key.Binding
 }
 
 var Keys = KeyMap{
@@ -156,6 +164,14 @@ var Keys = KeyMap{
 	ConfigOpenLocal:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
 	ConfigOpenGlobal: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
 	ConfigOpenLocalCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "open or create local commands")),
+
+	// Git panel
+	GitPanel:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
+	GitDiff:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
+	GitCommit:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
+	GitSync:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
+	GitCommitSync: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
+	GitPanelClose: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {
@@ -201,7 +217,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Global",
-			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
+			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
 		},
 	}
 }

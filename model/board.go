@@ -57,6 +57,7 @@ type Board struct {
 	configMenuOpen bool
 	peek          Peek
 	switcher      Switcher
+	gitPanel      GitPanel
 	customCmds       CustomCommandMenu
 	commands         []config.Command
 	commandWarnings  []config.CommandLoadWarning
@@ -308,6 +309,27 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case customCommandFinishedMsg:
 		return b.handleCustomCommandFinished(msg)
 
+	case gitPanelCloseMsg:
+		return b.handleGitPanelClose()
+
+	case gitDiffRequestMsg:
+		return b.handleGitDiff()
+
+	case gitCommitRequestMsg:
+		return b.handleGitCommit(msg)
+
+	case gitPostCommitMsg:
+		return b.handleGitPostCommit(msg)
+
+	case gitSyncRequestMsg:
+		return b.handleGitSync()
+
+	case gitSyncStepMsg:
+		return b.handleGitSyncStep(msg)
+
+	case gitRefreshMsg:
+		return b.handleGitRefresh()
+
 	default:
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
 		if len(b.columns) > 0 {
@@ -392,6 +414,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.customCmds.Update(msg)
 	}
 
+	// Handle git panel
+	if b.gitPanel.Active() {
+		return b, b.gitPanel.Update(msg)
+	}
+
 	// Handle quick command
 	if b.quickCmdMode {
 		return b.handleQuickCommandKey(msg)
@@ -422,6 +449,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.openQuickCommand()
 	case key.Matches(msg, Keys.SwitchBoard):
 		return b, b.openSwitcher()
+	case key.Matches(msg, Keys.GitPanel):
+		return b, b.openGitPanel()
 	case key.Matches(msg, Keys.ToggleTheme):
 		b.toggleTheme()
 		return b, nil
@@ -581,7 +610,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1241,6 +1270,9 @@ func (b *Board) View() string {
 	}
 	if b.customCmds.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View())
+	}
+	if b.gitPanel.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.gitPanel.View())
 	}
 	result += "\n" + b.renderStatusBar()
 
