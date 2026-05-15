@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -169,8 +170,168 @@ func GitChangedFiles(repoRoot string) []FileChange {
 		}
 	}
 	files = pairUnstagedMoves(files)
+	files = pairUnstagedRenamesByHash(repoRoot, files)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files
+}
+
+// pairUnstagedRenamesByHash catches in-place renames the basename heuristic
+// misses (e.g. `mv foo.md bar.md` in the same dir). It hashes any remaining
+// ` D` and `??` entries with git's blob hash and pairs identical content.
+// Renames that also modified the file won't pair — that matches git's own
+// 100%-similarity rename detection and keeps the rule trivially explainable.
+func pairUnstagedRenamesByHash(repoRoot string, files []FileChange) []FileChange {
+	type bucket struct {
+		idx []int
+	}
+	var deletedPaths, untrackedPaths []string
+	var deletedIdx, untrackedIdx []int
+	for i, f := range files {
+		switch {
+		case f.Status == "??":
+			untrackedPaths = append(untrackedPaths, f.Path)
+			untrackedIdx = append(untrackedIdx, i)
+		case len(f.Status) == 2 && f.Status[1] == 'D' && f.Status[0] != 'D':
+			deletedPaths = append(deletedPaths, f.Path)
+			deletedIdx = append(deletedIdx, i)
+		}
+	}
+	if len(deletedPaths) == 0 || len(untrackedPaths) == 0 {
+		return files
+	}
+
+	delHashes := indexBlobHashes(repoRoot, deletedPaths)
+	newHashes := workingTreeBlobHashes(repoRoot, untrackedPaths)
+	if len(delHashes) == 0 || len(newHashes) == 0 {
+		return files
+	}
+
+	delByHash := map[string]*bucket{}
+	for k, p := range deletedPaths {
+		h, ok := delHashes[p]
+		if !ok || h == "" {
+			continue
+		}
+		b, exists := delByHash[h]
+		if !exists {
+			b = &bucket{}
+			delByHash[h] = b
+		}
+		b.idx = append(b.idx, deletedIdx[k])
+	}
+	newByHash := map[string]*bucket{}
+	for k, p := range untrackedPaths {
+		h, ok := newHashes[p]
+		if !ok || h == "" {
+			continue
+		}
+		b, exists := newByHash[h]
+		if !exists {
+			b = &bucket{}
+			newByHash[h] = b
+		}
+		b.idx = append(b.idx, untrackedIdx[k])
+	}
+
+	drop := map[int]bool{}
+	var pairs []FileChange
+	for h, db := range delByHash {
+		nb, ok := newByHash[h]
+		if !ok {
+			continue
+		}
+		// Deterministic pairing order so multi-rename results are stable.
+		sort.Slice(db.idx, func(i, j int) bool { return files[db.idx[i]].Path < files[db.idx[j]].Path })
+		sort.Slice(nb.idx, func(i, j int) bool { return files[nb.idx[i]].Path < files[nb.idx[j]].Path })
+		n := len(db.idx)
+		if len(nb.idx) < n {
+			n = len(nb.idx)
+		}
+		for k := 0; k < n; k++ {
+			d := files[db.idx[k]]
+			u := files[nb.idx[k]]
+			drop[db.idx[k]] = true
+			drop[nb.idx[k]] = true
+			pairs = append(pairs, FileChange{
+				Status:   " R",
+				Path:     u.Path,
+				OrigPath: d.Path,
+			})
+		}
+	}
+	if len(drop) == 0 {
+		return files
+	}
+	out := make([]FileChange, 0, len(files)-len(drop)+len(pairs))
+	for i, f := range files {
+		if drop[i] {
+			continue
+		}
+		out = append(out, f)
+	}
+	out = append(out, pairs...)
+	return out
+}
+
+// indexBlobHashes returns the blob SHA recorded in the index for each path.
+// Worktree-side deletes still have an index entry, so this is how we recover
+// the "old" content hash without reading the deleted file.
+func indexBlobHashes(repoRoot string, paths []string) map[string]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"--no-optional-locks", "-C", repoRoot, "ls-files", "--stage", "-z", "--"}, paths...)
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return nil
+	}
+	res := map[string]string{}
+	for _, rec := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if rec == "" {
+			continue
+		}
+		// Format: "<mode> <sha> <stage>\t<path>"
+		tab := strings.IndexByte(rec, '\t')
+		if tab < 0 {
+			continue
+		}
+		header := rec[:tab]
+		path := rec[tab+1:]
+		fields := strings.Fields(header)
+		if len(fields) < 2 {
+			continue
+		}
+		res[path] = fields[1]
+	}
+	return res
+}
+
+// workingTreeBlobHashes hashes each path's worktree contents the way git
+// would (`git hash-object`). One subprocess covers the whole batch.
+func workingTreeBlobHashes(repoRoot string, paths []string) map[string]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	cmd := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "hash-object", "--stdin-paths")
+	var stdin bytes.Buffer
+	for _, p := range paths {
+		stdin.WriteString(filepath.Join(repoRoot, p))
+		stdin.WriteByte('\n')
+	}
+	cmd.Stdin = &stdin
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) != len(paths) {
+		return nil
+	}
+	res := map[string]string{}
+	for i, p := range paths {
+		res[p] = lines[i]
+	}
+	return res
 }
 
 // pairUnstagedMoves recognises kbrd-style file moves: git status reports them

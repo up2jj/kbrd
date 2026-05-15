@@ -314,6 +314,80 @@ func TestGitDiffStats_ReportsMoved(t *testing.T) {
 	}
 }
 
+func TestGitChangedFiles_UnstagedRenameSameDir(t *testing.T) {
+	root := initRepo(t)
+	src := filepath.Join(root, "seed.md")
+	dst := filepath.Join(root, "renamed.md")
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	files := GitChangedFiles(root)
+	if len(files) != 1 {
+		t.Fatalf("same-dir rename: want 1 entry, got %d: %+v", len(files), files)
+	}
+	f := files[0]
+	if f.Status[1] != 'R' {
+		t.Errorf("status = %q, want worktree-side R", f.Status)
+	}
+	if f.Path != "renamed.md" {
+		t.Errorf("Path = %q, want %q", f.Path, "renamed.md")
+	}
+	if f.OrigPath != "seed.md" {
+		t.Errorf("OrigPath = %q, want %q", f.OrigPath, "seed.md")
+	}
+}
+
+func TestGitChangedFiles_UnstagedRenameWithModification(t *testing.T) {
+	root := initRepo(t)
+	// Rename AND modify — content hashes won't match, so we expect the
+	// pre-existing two-row behavior (D + ??), not a synthetic rename.
+	if err := os.Remove(filepath.Join(root, "seed.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "renamed.md"), "seed\nmodified\n")
+
+	files := GitChangedFiles(root)
+	if len(files) != 2 {
+		t.Fatalf("rename+modify: want 2 entries (no false pairing), got %d: %+v", len(files), files)
+	}
+}
+
+func TestGitChangedFiles_MultipleUnstagedRenames(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	run(t, dir, "init", "-b", "main")
+	writeFile(t, filepath.Join(dir, "a.md"), "alpha\n")
+	writeFile(t, filepath.Join(dir, "b.md"), "beta\n")
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "seed")
+
+	if err := os.Rename(filepath.Join(dir, "a.md"), filepath.Join(dir, "x.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "b.md"), filepath.Join(dir, "y.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	files := GitChangedFiles(dir)
+	if len(files) != 2 {
+		t.Fatalf("multi-rename: want 2 entries, got %d: %+v", len(files), files)
+	}
+	pairs := map[string]string{}
+	for _, f := range files {
+		if f.Status[1] != 'R' {
+			t.Errorf("entry %+v: want worktree-side R", f)
+		}
+		pairs[f.OrigPath] = f.Path
+	}
+	if pairs["a.md"] != "x.md" {
+		t.Errorf("a.md should pair with x.md, got %q", pairs["a.md"])
+	}
+	if pairs["b.md"] != "y.md" {
+		t.Errorf("b.md should pair with y.md, got %q", pairs["b.md"])
+	}
+}
+
 func TestGitChangedFiles_PathWithSpaces(t *testing.T) {
 	root := initRepo(t)
 	// Create a file with whitespace in its name; porcelain -z keeps it raw.
