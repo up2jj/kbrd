@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fsnotify/fsnotify"
 
 	"kbrd/config"
 	kbrdfs "kbrd/fs"
@@ -62,10 +63,26 @@ type Board struct {
 	leftIndicatorWidth int
 	logoHeight         int
 
+	gitRepoRoot string
+	gitStats    map[string]kbrdfs.DiffStat
+
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
 	refByMnemonic map[string]itemRef
 	mnemonicMaxLen int
+}
+
+func (b *Board) StatFor(absPath string) (kbrdfs.DiffStat, bool) {
+	s, ok := b.gitStats[absPath]
+	return s, ok
+}
+
+func (b *Board) refreshGitStats() {
+	if b.gitRepoRoot == "" {
+		b.gitStats = nil
+		return
+	}
+	b.gitStats = kbrdfs.GitDiffStats(b.gitRepoRoot)
 }
 
 func NewBoard(cfg config.Config) *Board {
@@ -95,6 +112,8 @@ func (b *Board) Init() tea.Cmd {
 		if err := b.loadColumns(); err != nil {
 			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
+		b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
+		b.refreshGitStats()
 		paths, err := kbrdfs.DiscoverPaths(b.cfg.Path)
 		if err == nil {
 			if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -131,17 +150,26 @@ func (b *Board) watchCmd() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		select {
-		case _, ok := <-b.watcher.Events():
-			if !ok {
-				return nil
-			}
-		case _, ok := <-b.watcher.Errors():
-			if !ok {
-				return nil
+		for {
+			select {
+			case ev, ok := <-b.watcher.Events():
+				if !ok {
+					return nil
+				}
+				// Chmod-only events fire on atime updates (e.g. when git diff
+				// reads tracked files). Ignore them — we only care about real
+				// content changes.
+				if ev.Op == fsnotify.Chmod {
+					continue
+				}
+				return watchMsg{}
+			case _, ok := <-b.watcher.Errors():
+				if !ok {
+					return nil
+				}
+				return watchMsg{}
 			}
 		}
-		return watchMsg{}
 	}
 }
 
@@ -205,6 +233,7 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case watchMsg:
 		b.loadColumns()
+		b.refreshGitStats()
 		return b, b.watchCmd()
 
 	case initBoardRequestMsg:
@@ -884,6 +913,8 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	if err := b.loadColumns(); err != nil {
 		return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
 	}
+	b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
+	b.refreshGitStats()
 
 	if paths, err := kbrdfs.DiscoverPaths(b.cfg.Path); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -1163,7 +1194,7 @@ func (b *Board) View() string {
 	}
 	for i := first; i < end; i++ {
 		col := b.columns[i]
-		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW)))
+		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW, b.StatFor)))
 	}
 	if end < len(b.columns) {
 		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))

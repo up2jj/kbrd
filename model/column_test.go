@@ -483,7 +483,7 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	// Item delegate height is 3 + spacing 1 = 4. Set list height to 12 → 3 items per page.
 	col.SetHeight(12)
 	// Trigger a render so paginator updates its PerPage/page count.
-	_ = col.View(true, func(string) string { return "" }, 2)
+	_ = col.View(true, func(string) string { return "" }, 2, nil)
 
 	footer := col.renderOverflowFooter()
 	if !strings.Contains(footer, "below") {
@@ -496,7 +496,7 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	// Jump to the end and re-render.
 	end := len(col.list.VisibleItems()) - 1
 	col.list.Select(end)
-	_ = col.View(true, func(string) string { return "" }, 2)
+	_ = col.View(true, func(string) string { return "" }, 2, nil)
 
 	footer = col.renderOverflowFooter()
 	if !strings.Contains(footer, "above") {
@@ -511,7 +511,7 @@ func TestColumn_OverflowFooter_BlankWhenAllFit(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{"a": "x", "b": "y"})
 	col.SetHeight(40)
-	_ = col.View(true, func(string) string { return "" }, 2)
+	_ = col.View(true, func(string) string { return "" }, 2, nil)
 
 	footer := col.renderOverflowFooter()
 	if strings.Contains(footer, "above") || strings.Contains(footer, "below") {

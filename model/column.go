@@ -12,6 +12,8 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	kbrdfs "kbrd/fs"
 )
 
 // itemDelegate renders each kanban item inside a bubbles list.
@@ -20,6 +22,7 @@ type itemDelegate struct {
 	mnemonicOf func(name string) string
 	gutterW    int
 	colWidth   int
+	statFor    func(absPath string) (kbrdfs.DiffStat, bool)
 }
 
 func (d itemDelegate) Height() int  { return 3 }
@@ -107,8 +110,15 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 	fmt.Fprintln(w, previewStyle.Render(preview))
 
-	// Line 3 — meta (modified + size)
+	// Line 3 — meta (modified + size + git diff)
 	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
+	if d.statFor != nil {
+		if s, ok := d.statFor(item.FullPath); ok && (s.Added > 0 || s.Deleted > 0) {
+			addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
+			deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
+			meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
+		}
+	}
 	var metaFg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
@@ -211,8 +221,8 @@ func (c *Column) renderHeader(isActive bool, leftPad int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep)
 }
 
-func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int) string {
-	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth})
+func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int, statFor func(absPath string) (kbrdfs.DiffStat, bool)) string {
+	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth, statFor: statFor})
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
 
 	var borderColor lipgloss.Color

@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -52,9 +53,14 @@ func DiscoverPaths(root string) ([]string, error) {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() {
-			paths = append(paths, filepath.Join(root, entry.Name()))
+		if !entry.IsDir() {
+			continue
 		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			continue
+		}
+		paths = append(paths, filepath.Join(root, name))
 	}
 
 	return paths, nil
