@@ -53,6 +53,7 @@ type Board struct {
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
 	helpOpen      bool
+	configMenuOpen bool
 	peek          Peek
 	switcher      Switcher
 	leftIndicatorWidth int
@@ -282,6 +283,25 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	// Handle config menu
+	if b.configMenuOpen {
+		switch {
+		case key.Matches(msg, Keys.Quit):
+			b.configMenuOpen = false
+			b.quitting = true
+			return b, tea.Quit
+		case msg.String() == "esc":
+			b.configMenuOpen = false
+		case key.Matches(msg, Keys.ConfigOpenLocal):
+			b.configMenuOpen = false
+			return b, b.openLocalConfig()
+		case key.Matches(msg, Keys.ConfigOpenGlobal):
+			b.configMenuOpen = false
+			return b, b.openGlobalConfig()
+		}
+		return b, nil
+	}
+
 	// Handle dialog
 	if b.dialog.active {
 		return b, b.dialog.Update(msg)
@@ -337,6 +357,9 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	case key.Matches(msg, Keys.ToggleHelp):
 		b.helpOpen = true
+		return b, nil
+	case key.Matches(msg, Keys.ConfigMenu):
+		b.configMenuOpen = true
 		return b, nil
 	case key.Matches(msg, Keys.QuickCmd):
 		return b, b.openQuickCommand()
@@ -493,7 +516,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if b.helpOpen || b.dialog.active || b.editor.state != editorNone ||
+	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
 		b.peek.Active() || b.switcher.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
@@ -525,6 +548,22 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b *Board) openLocalConfig() tea.Cmd  { return b.openConfig(localConfigPath) }
+func (b *Board) openGlobalConfig() tea.Cmd { return b.openConfig(globalConfigPath) }
+
+func (b *Board) openConfig(resolve func() (string, error)) tea.Cmd {
+	path, err := resolve()
+	if err != nil {
+		return b.notifier.Send(err.Error(), notifyError)
+	}
+	if err := ensureConfigFile(path); err != nil {
+		return b.notifier.Send("write "+path+": "+err.Error(), notifyError)
+	}
+	if err := openFile(path); err != nil {
+		return b.notifier.Send("open: "+err.Error(), notifyError)
+	}
+	return b.notifier.Send("opened "+path, notifySuccess)
+}
 
 func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
@@ -1108,6 +1147,9 @@ func (b *Board) View() string {
 			HasSelectedItem: b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem(),
 		}))
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay)
+	}
+	if b.configMenuOpen {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, RenderConfigCommandsOverlay(configCommandEntries()))
 	}
 	dialogView := b.dialog.View()
 	if dialogView != "" {

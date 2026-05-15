@@ -145,6 +145,18 @@ func TestLoad_MalformedTOML(t *testing.T) {
 	}
 }
 
+func TestTemplate_IsValidGlobalConfig(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	globalDir := t.TempDir()
+	folder := t.TempDir()
+
+	writeFile(t, filepath.Join(globalDir, GlobalConfigFile), string(Template))
+
+	if _, err := loadFrom(globalDir, folder); err != nil {
+		t.Fatalf("Template is not a valid global config: %v", err)
+	}
+}
+
 func TestLoad_MissingFolderPresentGlobal(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	globalDir := t.TempDir()

@@ -110,3 +110,52 @@ func RenderHelpOverlay(maxWidth, maxHeight int, groups []ShortcutGroup) string {
 
 	return box.Render(content)
 }
+
+// RenderConfigCommandsOverlay renders the config commands dialog with paths + existence.
+func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
+	keyColWidth := 0
+	labelColWidth := 0
+	for _, e := range entries {
+		if w := lipgloss.Width(e.Key); w > keyColWidth {
+			keyColWidth = w
+		}
+		if w := lipgloss.Width(e.Label); w > labelColWidth {
+			labelColWidth = w
+		}
+	}
+	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
+	labelCol := lipgloss.NewStyle().Width(labelColWidth + 2).Foreground(lipgloss.Color("#94a3b8"))
+
+	existsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e")).Bold(true)
+	missingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#f59e0b")).Bold(true)
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
+	pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#cbd5e1")).Italic(true)
+
+	rows := []string{helpTitleStyle.Render("Config commands"), ""}
+	for _, e := range entries {
+		var status, path string
+		if e.Err != nil {
+			status = errStyle.Render("error")
+			path = errStyle.Render(e.Err.Error())
+		} else {
+			path = pathStyle.Render(e.Path)
+			if e.Exists {
+				status = existsStyle.Render("exists ")
+			} else {
+				status = missingStyle.Render("missing")
+			}
+		}
+		rows = append(rows,
+			"  "+keyCol.Render(e.Key)+labelCol.Render(e.Label)+status,
+			"  "+keyCol.Render("")+labelCol.Render("")+path,
+		)
+	}
+	rows = append(rows, "", helpDimStyle.Render("esc to go back"))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#a78bfa")).
+		Padding(1, 3)
+
+	return box.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+}

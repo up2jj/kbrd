@@ -71,6 +71,11 @@ type KeyMap struct {
 	// Quick command
 	QuickCmdCancel  key.Binding
 	QuickCmdConfirm key.Binding
+
+	// Config menu
+	ConfigMenu       key.Binding
+	ConfigOpenLocal  key.Binding
+	ConfigOpenGlobal key.Binding
 }
 
 var Keys = KeyMap{
@@ -142,6 +147,11 @@ var Keys = KeyMap{
 	// Quick command
 	QuickCmdCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	QuickCmdConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "run")),
+
+	// Config menu
+	ConfigMenu:       key.NewBinding(key.WithKeys(","), key.WithHelp(",", "config commands")),
+	ConfigOpenLocal:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
+	ConfigOpenGlobal: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {
@@ -186,7 +196,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Global",
-			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.ToggleHelp, Keys.Quit),
+			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
 		},
 	}
 }
