@@ -86,13 +86,34 @@ func (b *Board) handleGitPostCommit(msg gitPostCommitMsg) (tea.Model, tea.Cmd) {
 	}
 	b.refreshGitStats()
 	b.refreshGitPanel()
-	if msg.ThenSync {
-		return b, tea.Batch(
-			b.notifier.Send("committed; syncing…", notifySuccess),
-			func() tea.Msg { return gitSyncRequestMsg{} },
-		)
+	output := strings.TrimSpace(msg.Output)
+	if output == "" {
+		output = "commit succeeded (no output)"
 	}
-	return b, b.notifier.Send("commit ok", notifySuccess)
+	var pending tea.Msg
+	if msg.ThenSync {
+		pending = gitContinueSyncMsg{}
+	}
+	b.gitPanel.ShowOutput("commit", output, pending, b.termWidth, b.termHeight)
+	return b, nil
+}
+
+func (b *Board) handleGitLog() (tea.Model, tea.Cmd) {
+	out, err := exec.Command("git", "--no-optional-locks", "-C", b.gitRepoRoot,
+		"log", "--pretty=format:%h %as %an %s", "--date=short", "-n", "50").CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return b, b.notifier.Send("git log failed: "+detail, notifyError)
+	}
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		text = "(no commits yet)"
+	}
+	b.gitPanel.ShowOutput("log", text, nil, b.termWidth, b.termHeight)
+	return b, nil
 }
 
 func (b *Board) handleGitSync() (tea.Model, tea.Cmd) {

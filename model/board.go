@@ -324,8 +324,14 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitSyncRequestMsg:
 		return b.handleGitSync()
 
+	case gitContinueSyncMsg:
+		return b.handleGitSync()
+
 	case gitSyncStepMsg:
 		return b.handleGitSyncStep(msg)
+
+	case gitLogRequestMsg:
+		return b.handleGitLog()
 
 	case gitRefreshMsg:
 		return b.handleGitRefresh()

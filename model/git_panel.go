@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -18,11 +19,14 @@ type gitPanelMode int
 const (
 	gitPanelList gitPanelMode = iota
 	gitPanelCommitInput
+	gitPanelOutput
 )
 
 type gitPanelCloseMsg struct{}
 type gitDiffRequestMsg struct{}
 type gitSyncRequestMsg struct{}
+type gitContinueSyncMsg struct{}
+type gitLogRequestMsg struct{}
 type gitCommitRequestMsg struct {
 	Message  string
 	ThenSync bool
@@ -30,14 +34,17 @@ type gitCommitRequestMsg struct {
 type gitRefreshMsg struct{}
 
 type GitPanel struct {
-	active   bool
-	mode     gitPanelMode
-	repoRoot string
-	branch   string
-	files    []kbrdfs.FileChange
-	table    table.Model
-	commitIn textinput.Model
-	thenSync bool
+	active        bool
+	mode          gitPanelMode
+	repoRoot      string
+	branch        string
+	files         []kbrdfs.FileChange
+	table         table.Model
+	commitIn      textinput.Model
+	thenSync      bool
+	output        viewport.Model
+	outputTitle   string
+	outputPending tea.Msg
 }
 
 func (p *GitPanel) Active() bool { return p.active }
@@ -124,12 +131,51 @@ func (p *GitPanel) Close() {
 	p.files = nil
 	p.mode = gitPanelList
 	p.thenSync = false
+	p.outputPending = nil
+}
+
+func (p *GitPanel) ShowOutput(title, content string, pending tea.Msg, termW, termH int) {
+	vw := termW - 14
+	if vw < 40 {
+		vw = 40
+	}
+	if vw > 120 {
+		vw = 120
+	}
+	vh := termH - 12
+	if vh < 5 {
+		vh = 5
+	}
+	if vh > 20 {
+		vh = 20
+	}
+	vp := viewport.New(vw, vh)
+	vp.SetContent(content)
+	p.output = vp
+	p.outputTitle = title
+	p.outputPending = pending
+	p.mode = gitPanelOutput
 }
 
 func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil
+	}
+
+	if p.mode == gitPanelOutput {
+		if key.Matches(km, Keys.GitPanelClose) {
+			pending := p.outputPending
+			p.outputPending = nil
+			p.mode = gitPanelList
+			if pending != nil {
+				return func() tea.Msg { return pending }
+			}
+			return nil
+		}
+		var cmd tea.Cmd
+		p.output, cmd = p.output.Update(km)
+		return cmd
 	}
 
 	if p.mode == gitPanelCommitInput {
@@ -157,7 +203,10 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	if key.Matches(km, Keys.GitPanelClose) {
 		return func() tea.Msg { return gitPanelCloseMsg{} }
 	}
-	// When the working tree is clean, only close is active.
+	if key.Matches(km, Keys.GitLog) {
+		return func() tea.Msg { return gitLogRequestMsg{} }
+	}
+	// When the working tree is clean, only close and log are active.
 	if len(p.files) == 0 {
 		return nil
 	}
@@ -191,32 +240,47 @@ func (p *GitPanel) View() string {
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
 	}
-	title := helpTitleStyle.Render("git") + helpSepStyle.Render(" · ") +
-		helpKeyStyle.Render(branchLabel)
-
-	var body string
-	if len(p.files) == 0 {
-		body = helpDimStyle.Render("working tree clean")
-	} else {
-		body = p.table.View()
+	titleText := "git" + " · " + branchLabel
+	if p.mode == gitPanelOutput {
+		titleText = "git · " + p.outputTitle
 	}
+	title := helpTitleStyle.Render(titleText)
 
-	var footer string
-	if p.mode == gitPanelCommitInput {
+	sep := helpSepStyle.Render(" · ")
+
+	var body, footer string
+	switch p.mode {
+	case gitPanelOutput:
+		body = p.output.View()
+		pendingHint := ""
+		if p.outputPending != nil {
+			pendingHint = sep + helpDimStyle.Render("continues on close")
+		}
+		footer = helpKeyStyle.Render("j/k") + " " + helpLabelStyle.Render("scroll") + sep +
+			helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("back") + pendingHint
+	case gitPanelCommitInput:
+		if len(p.files) == 0 {
+			body = helpDimStyle.Render("working tree clean")
+		} else {
+			body = p.table.View()
+		}
 		hint := helpDimStyle.Render("  enter to commit · esc cancel")
 		if p.thenSync {
 			hint = helpDimStyle.Render("  enter to commit + sync · esc cancel")
 		}
 		footer = p.commitIn.View() + hint
-	} else {
-		sep := helpSepStyle.Render(" · ")
+	default: // gitPanelList
 		if len(p.files) == 0 {
-			footer = helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("close")
+			body = helpDimStyle.Render("working tree clean")
+			footer = helpKeyStyle.Render("l") + " " + helpLabelStyle.Render("log") + sep +
+				helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("close")
 		} else {
+			body = p.table.View()
 			footer = helpKeyStyle.Render("d") + " " + helpLabelStyle.Render("diff") + sep +
 				helpKeyStyle.Render("c") + " " + helpLabelStyle.Render("commit") + sep +
 				helpKeyStyle.Render("s") + " " + helpLabelStyle.Render("sync") + sep +
 				helpKeyStyle.Render("S") + " " + helpLabelStyle.Render("commit+sync") + sep +
+				helpKeyStyle.Render("l") + " " + helpLabelStyle.Render("log") + sep +
 				helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("close")
 		}
 	}

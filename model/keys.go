@@ -85,6 +85,7 @@ type KeyMap struct {
 	GitCommit       key.Binding
 	GitSync         key.Binding
 	GitCommitSync   key.Binding
+	GitLog          key.Binding
 	GitPanelClose   key.Binding
 }
 
@@ -171,6 +172,7 @@ var Keys = KeyMap{
 	GitCommit:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
 	GitSync:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
 	GitCommitSync: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
+	GitLog:        key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
 	GitPanelClose: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
 }
 
