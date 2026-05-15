@@ -71,9 +71,9 @@ type Board struct {
 func NewBoard(cfg config.Config) *Board {
 	ti := textinput.New()
 	ti.Prompt = ": "
-	ti.Placeholder = "type command…"
-	ti.CharLimit = 32
-	ti.Width = 30
+	ti.Placeholder = "e.g. e<tag> edit, d<tag> delete, r refresh — enter to run"
+	ti.CharLimit = 64
+	ti.Width = 60
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Italic(true)
@@ -802,6 +802,14 @@ func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd == "" {
 			return b, nil
 		}
+		if len(cmd) >= 2 && isItemCommandAction(cmd[0]) {
+			action := cmd[0]
+			suffix := cmd[1:]
+			if ref, ok := b.refByMnemonic[suffix]; ok {
+				return b, b.dispatchItemCommand(action, ref)
+			}
+			return b, b.notifier.Send("no item: "+suffix, notifyError)
+		}
 		return b, func() tea.Msg {
 			return quickCommandMsg{Command: cmd}
 		}
@@ -814,16 +822,12 @@ func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Item-command fast path: first char is an item action, the rest must match
 	// a mnemonic. Dispatch on unique resolution.
 	if len(buf) >= 1 && isItemCommandAction(buf[0]) {
-		action := buf[0]
 		suffix := buf[1:]
 		if suffix == "" {
 			return b, cmd
 		}
-		if ref, ok := b.refByMnemonic[suffix]; ok {
-			b.quickCmdMode = false
-			b.quickCmdInput.Blur()
-			b.quickCmdInput.SetValue("")
-			return b, b.dispatchItemCommand(action, ref)
+		if _, ok := b.refByMnemonic[suffix]; ok {
+			return b, cmd
 		}
 		for tag := range b.refByMnemonic {
 			if strings.HasPrefix(tag, suffix) {
