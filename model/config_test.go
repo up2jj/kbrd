@@ -84,17 +84,20 @@ func TestConfigCommandEntries(t *testing.T) {
 	}
 
 	entries := configCommandEntries()
-	if len(entries) != 2 {
-		t.Fatalf("entries: got %d want 2", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("entries: got %d want 3", len(entries))
 	}
 
-	local, global := entries[0], entries[1]
+	local, global, localCmds := entries[0], entries[1], entries[2]
 
-	if local.Key != "c" || global.Key != "C" {
-		t.Fatalf("keys: got %q/%q want c/C", local.Key, global.Key)
+	if local.Key != "c" || global.Key != "C" || localCmds.Key != "x" {
+		t.Fatalf("keys: got %q/%q/%q want c/C/x", local.Key, global.Key, localCmds.Key)
 	}
-	if local.Err != nil || global.Err != nil {
-		t.Fatalf("unexpected errors: local=%v global=%v", local.Err, global.Err)
+	if local.Err != nil || global.Err != nil || localCmds.Err != nil {
+		t.Fatalf("unexpected errors: local=%v global=%v localCmds=%v", local.Err, global.Err, localCmds.Err)
+	}
+	if filepath.Base(localCmds.Path) != config.FolderCommandsFile {
+		t.Fatalf("local commands path basename: got %q", filepath.Base(localCmds.Path))
 	}
 	if filepath.Base(local.Path) != config.FolderConfigFile {
 		t.Fatalf("local path basename: got %q", filepath.Base(local.Path))

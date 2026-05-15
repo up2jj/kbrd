@@ -27,11 +27,27 @@ func globalConfigPath() (string, error) {
 }
 
 func ensureConfigFile(path string) error {
+	return ensureFileFromTemplate(path, config.Template)
+}
+
+func localCommandsPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cwd: %w", err)
+	}
+	return filepath.Join(cwd, config.FolderCommandsFile), nil
+}
+
+func ensureCommandsFile(path string) error {
+	return ensureFileFromTemplate(path, config.CommandsTemplate)
+}
+
+func ensureFileFromTemplate(path string, content []byte) error {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, config.Template, 0o644)
+		return os.WriteFile(path, content, 0o644)
 	} else if err != nil {
 		return err
 	}
@@ -55,8 +71,9 @@ func configCommandEntries() []ConfigCommandEntry {
 	entries := []ConfigCommandEntry{
 		{Key: "c", Label: "open or create local config"},
 		{Key: "C", Label: "open or create global config"},
+		{Key: "x", Label: "open or create local commands"},
 	}
-	resolvers := []func() (string, error){localConfigPath, globalConfigPath}
+	resolvers := []func() (string, error){localConfigPath, globalConfigPath, localCommandsPath}
 	for i, resolve := range resolvers {
 		path, err := resolve()
 		if err != nil {

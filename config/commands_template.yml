@@ -1,0 +1,45 @@
+# kbrd custom commands — edit and reload by re-opening the board.
+# Press `x` on an item to open the menu, then the shortcut letter to run.
+#
+# Available template variables:
+#   {{.filePath}}    absolute path to the selected file
+#   {{.fileName}}    base name without .md
+#   {{.fileDir}}     directory containing the file
+#   {{.boardPath}}   board root path
+#   {{.boardName}}   board name from config
+#   {{.columnPath}}  column folder path
+#   {{.columnName}}  column folder name
+#
+# Quote variables to handle paths with spaces.
+
+commands:
+  - name: Edit in nano
+    shortcut: n
+    description: Open file in nano
+    command: nano "{{.filePath}}"
+
+  - name: Edit in vim
+    shortcut: v
+    description: Open file in vim
+    command: vim "{{.filePath}}"
+
+  - name: Word count
+    shortcut: w
+    description: Show wc stats for the file
+    command: wc "{{.filePath}}"; echo; read -n1 -s -r -p "press any key"
+
+  - name: Reveal in Finder
+    shortcut: f
+    description: Open the column folder in Finder
+    command: open "{{.columnPath}}"
+
+  - name: Print info
+    shortcut: i
+    description: Dump all template variables
+    command: |
+      echo "file:   {{.filePath}}"
+      echo "name:   {{.fileName}}"
+      echo "dir:    {{.fileDir}}"
+      echo "board:  {{.boardName}} ({{.boardPath}})"
+      echo "column: {{.columnName}} ({{.columnPath}})"
+      read -n1 -s -r -p "press any key"

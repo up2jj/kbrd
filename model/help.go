@@ -48,6 +48,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			bindingShortcut(Keys.Append),
 			bindingShortcut(Keys.Delete),
 			short(Keys.MoveNext.Help().Key, "move"),
+			bindingShortcut(Keys.CustomCommands),
 			short(Keys.QuickCmd.Help().Key, "cmd"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
 		}

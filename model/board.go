@@ -56,6 +56,9 @@ type Board struct {
 	configMenuOpen bool
 	peek          Peek
 	switcher      Switcher
+	customCmds       CustomCommandMenu
+	commands         []config.Command
+	commandWarnings  []config.CommandLoadWarning
 	leftIndicatorWidth int
 	logoHeight         int
 
@@ -75,7 +78,7 @@ func NewBoard(cfg config.Config) *Board {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Italic(true)
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
-	return &Board{
+	b := &Board{
 		cfg:           cfg,
 		visibleHeight: 20,
 		editor:        NewEditor(),
@@ -83,10 +86,12 @@ func NewBoard(cfg config.Config) *Board {
 		quickCmdInput: ti,
 		theme:         cfg.Theme,
 	}
+	b.loadCommands()
+	return b
 }
 
 func (b *Board) Init() tea.Cmd {
-	return func() tea.Msg {
+	startup := func() tea.Msg {
 		if err := b.loadColumns(); err != nil {
 			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
@@ -101,6 +106,15 @@ func (b *Board) Init() tea.Cmd {
 		}
 		return watchMsg{}
 	}
+	if len(b.commandWarnings) > 0 {
+		first := b.commandWarnings[0]
+		extra := ""
+		if n := len(b.commandWarnings) - 1; n > 0 {
+			extra = fmt.Sprintf(" (+%d more — press x for details)", n)
+		}
+		return tea.Batch(startup, b.notifier.Send("commands: "+first.Message+extra, notifyError))
+	}
+	return startup
 }
 
 func (b *Board) createDefaultColumns() error {
@@ -259,6 +273,12 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchBoardMsg:
 		return b.handleSwitchBoard(msg)
 
+	case runCustomCommandMsg:
+		return b.handleRunCustomCommand(msg)
+
+	case customCommandFinishedMsg:
+		return b.handleCustomCommandFinished(msg)
+
 	default:
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
 		if len(b.columns) > 0 {
@@ -298,6 +318,9 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.ConfigOpenGlobal):
 			b.configMenuOpen = false
 			return b, b.openGlobalConfig()
+		case key.Matches(msg, Keys.ConfigOpenLocalCommands):
+			b.configMenuOpen = false
+			return b, b.openLocalCommands()
 		}
 		return b, nil
 	}
@@ -333,6 +356,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle board switcher
 	if b.switcher.Active() {
 		return b, b.switcher.Update(msg)
+	}
+
+	// Handle custom commands menu
+	if b.customCmds.Active() {
+		return b, b.customCmds.Update(msg)
 	}
 
 	// Handle quick command
@@ -375,6 +403,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
 		}
+	case key.Matches(msg, Keys.CustomCommands):
+		if col.HasSelectedItem() {
+			item := col.SelectedItem()
+			b.loadCommands()
+			b.customCmds.Open(b.commands, b.commandWarnings, b.buildCommandVars(b.selectedCol, item))
+		}
+		return b, nil
 	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
 	case key.Matches(msg, Keys.PrevCol):
@@ -517,7 +552,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -548,15 +583,18 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-func (b *Board) openLocalConfig() tea.Cmd  { return b.openConfig(localConfigPath) }
-func (b *Board) openGlobalConfig() tea.Cmd { return b.openConfig(globalConfigPath) }
+func (b *Board) openLocalConfig() tea.Cmd  { return b.openManagedFile(localConfigPath, ensureConfigFile) }
+func (b *Board) openGlobalConfig() tea.Cmd { return b.openManagedFile(globalConfigPath, ensureConfigFile) }
+func (b *Board) openLocalCommands() tea.Cmd {
+	return b.openManagedFile(localCommandsPath, ensureCommandsFile)
+}
 
-func (b *Board) openConfig(resolve func() (string, error)) tea.Cmd {
+func (b *Board) openManagedFile(resolve func() (string, error), ensure func(string) error) tea.Cmd {
 	path, err := resolve()
 	if err != nil {
 		return b.notifier.Send(err.Error(), notifyError)
 	}
-	if err := ensureConfigFile(path); err != nil {
+	if err := ensure(path); err != nil {
 		return b.notifier.Send("write "+path+": "+err.Error(), notifyError)
 	}
 	if err := openFile(path); err != nil {
@@ -837,6 +875,7 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	b.cfg = newCfg
 	b.theme = newCfg.Theme
 	b.selectedCol = 0
+	b.loadCommands()
 
 	if err := b.loadColumns(); err != nil {
 		return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
@@ -1165,6 +1204,9 @@ func (b *Board) View() string {
 	if b.switcher.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.switcher.View())
 	}
+	if b.customCmds.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View())
+	}
 	result += "\n" + b.renderStatusBar()
 
 	return result
@@ -1240,3 +1282,4 @@ type quickCommandOpenMsg struct{}
 type quickCommandMsg struct {
 	Command string
 }
+

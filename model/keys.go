@@ -32,6 +32,7 @@ type KeyMap struct {
 	MoveFirst    key.Binding
 	RenameItem   key.Binding
 	Delete       key.Binding
+	CustomCommands key.Binding
 
 	// Create
 	New      key.Binding
@@ -73,9 +74,10 @@ type KeyMap struct {
 	QuickCmdConfirm key.Binding
 
 	// Config menu
-	ConfigMenu       key.Binding
-	ConfigOpenLocal  key.Binding
-	ConfigOpenGlobal key.Binding
+	ConfigMenu             key.Binding
+	ConfigOpenLocal        key.Binding
+	ConfigOpenGlobal       key.Binding
+	ConfigOpenLocalCommands key.Binding
 }
 
 var Keys = KeyMap{
@@ -108,6 +110,7 @@ var Keys = KeyMap{
 	MoveFirst:    key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
 	RenameItem:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
 	Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	CustomCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
 
 	// Create
 	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item in current folder")),
@@ -152,6 +155,7 @@ var Keys = KeyMap{
 	ConfigMenu:       key.NewBinding(key.WithKeys(","), key.WithHelp(",", "config commands")),
 	ConfigOpenLocal:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
 	ConfigOpenGlobal: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
+	ConfigOpenLocalCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "open or create local commands")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {
@@ -184,6 +188,7 @@ func ShortcutGroups() []ShortcutGroup {
 				Keys.Peek, Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal,
 				Keys.Copy, Keys.Paste, Keys.OpenExternal, Keys.Pin,
 				Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem, Keys.Delete,
+				Keys.CustomCommands,
 			),
 		},
 		{
