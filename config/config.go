@@ -29,6 +29,7 @@ type Config struct {
 	Theme         string
 	NotifyBackend string
 	BoardName     string
+	GitDiffTool   string
 }
 
 func Load(path string) (Config, error) {
@@ -47,6 +48,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.preview_lines", 3)
 	v.SetDefault("display.theme", "light")
 	v.SetDefault("notify.backend", "auto")
+	v.SetDefault("git.diff_tool", "auto")
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -84,5 +86,6 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		Theme:         v.GetString("display.theme"),
 		NotifyBackend: v.GetString("notify.backend"),
 		BoardName:     v.GetString("board.name"),
+		GitDiffTool:   v.GetString("git.diff_tool"),
 	}, nil
 }

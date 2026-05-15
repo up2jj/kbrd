@@ -1,7 +1,10 @@
 package model
 
 import (
+	"bytes"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,10 +56,68 @@ func (b *Board) refreshGitPanel() {
 }
 
 func (b *Board) handleGitDiff() (tea.Model, tea.Cmd) {
-	c := exec.Command("git", "-C", b.gitRepoRoot, "diff")
-	return b, tea.ExecProcess(c, func(err error) tea.Msg {
-		return gitRefreshMsg{}
-	})
+	tool := resolveDiffTool(b.cfg.GitDiffTool)
+	args := []string{"--no-optional-locks", "-C", b.gitRepoRoot}
+	if tool != "difft" {
+		args = append(args, "-c", "color.ui=always")
+	}
+	args = append(args, "diff")
+	cmd := exec.Command("git", args...)
+	if tool == "difft" {
+		width := b.termWidth - 8
+		if width < 40 {
+			width = 40
+		}
+		cmd.Env = append(os.Environ(),
+			"GIT_EXTERNAL_DIFF=difft",
+			"DFT_COLOR=always",
+			"DFT_DISPLAY=inline",
+			"DFT_WIDTH="+strconv.Itoa(width),
+		)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return b, b.notifier.Send("git diff failed: "+detail, notifyError)
+	}
+	if tool == "diff-so-fancy" {
+		if path, err := exec.LookPath("diff-so-fancy"); err == nil {
+			pc := exec.Command(path)
+			pc.Stdin = bytes.NewReader(out)
+			if pretty, perr := pc.Output(); perr == nil {
+				out = pretty
+			}
+		}
+	}
+	text := strings.TrimRight(string(out), "\n")
+	if strings.TrimSpace(text) == "" {
+		text = "(no unstaged changes)"
+	}
+	b.gitPanel.ShowOutput("diff ("+tool+")", text, nil, b.termWidth, b.termHeight)
+	return b, nil
+}
+
+func resolveDiffTool(pref string) string {
+	switch pref {
+	case "difft", "diff-so-fancy", "git":
+		if pref == "git" {
+			return "git"
+		}
+		if _, err := exec.LookPath(pref); err == nil {
+			return pref
+		}
+		return "git"
+	}
+	if _, err := exec.LookPath("difft"); err == nil {
+		return "difft"
+	}
+	if _, err := exec.LookPath("diff-so-fancy"); err == nil {
+		return "diff-so-fancy"
+	}
+	return "git"
 }
 
 func (b *Board) handleGitCommit(msg gitCommitRequestMsg) (tea.Model, tea.Cmd) {

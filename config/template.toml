@@ -10,3 +10,7 @@
 
 [board]
 # name = ""                 # optional label shown in the board switcher
+
+[git]
+# diff_tool = "auto"        # auto | difft | diff-so-fancy | git
+
