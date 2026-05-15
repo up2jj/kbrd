@@ -93,7 +93,11 @@ func (p *GitPanel) rebuildTable(termW, termH int) {
 		if f.Added > 0 || f.Deleted > 0 {
 			stats = fmt.Sprintf("+%d -%d", f.Added, f.Deleted)
 		}
-		rows = append(rows, table.Row{f.Status, f.Path, stats})
+		display := f.Path
+		if f.OrigPath != "" {
+			display = f.OrigPath + " → " + f.Path
+		}
+		rows = append(rows, table.Row{f.Status, display, stats})
 	}
 	// table.WithHeight subtracts the 2-line header from the viewport, so the
 	// total height we pass must include those 2 lines to show every row.

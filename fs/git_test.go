@@ -128,12 +128,18 @@ func TestGitDiffStats_TracksModifiedFile(t *testing.T) {
 	}
 }
 
-func TestGitDiffStats_IgnoresUntracked(t *testing.T) {
+func TestGitDiffStats_UntrackedHasNoBadge(t *testing.T) {
 	root := initRepo(t)
 	writeFile(t, filepath.Join(root, "new.md"), "fresh\n")
 	stats := GitDiffStats(root)
-	if _, ok := stats[filepath.Join(root, "new.md")]; ok {
-		t.Errorf("GitDiffStats should not list untracked files; got %v", stats)
+	s, ok := stats[filepath.Join(root, "new.md")]
+	if !ok {
+		t.Fatalf("expected untracked entry in stats; got %v", stats)
+	}
+	// Untracked files appear in the map but have no visible badge: zero
+	// counts, not flagged as moved.
+	if s.Added != 0 || s.Deleted != 0 || s.Moved {
+		t.Errorf("untracked stat = %+v, want zero counts and Moved=false", s)
 	}
 }
 
@@ -194,23 +200,117 @@ func TestGitChangedFiles_CleanWorkingTree(t *testing.T) {
 	}
 }
 
-func TestGitChangedFiles_HandlesRename(t *testing.T) {
+func TestGitChangedFiles_HandlesStagedRename(t *testing.T) {
 	root := initRepo(t)
-	// Rename + stage to produce an "R " porcelain entry.
+	// Stage the rename to produce an index-side R entry.
 	run(t, root, "mv", "seed.md", "renamed.md")
 	run(t, root, "add", "-A")
 
 	files := GitChangedFiles(root)
-	// Should produce exactly one entry (the rename) — not two records
-	// from the trailing "old path" porcelain segment.
 	if len(files) != 1 {
 		t.Fatalf("rename: want 1 entry, got %d: %+v", len(files), files)
 	}
-	if files[0].Status[0] != 'R' {
-		t.Errorf("rename status = %q, want leading 'R'", files[0].Status)
+	f := files[0]
+	if f.Status[0] != 'R' {
+		t.Errorf("rename status = %q, want leading 'R'", f.Status)
 	}
-	if files[0].Path != "renamed.md" {
-		t.Errorf("rename path = %q, want %q", files[0].Path, "renamed.md")
+	if f.Path != "renamed.md" {
+		t.Errorf("rename path = %q, want %q", f.Path, "renamed.md")
+	}
+	if f.OrigPath != "seed.md" {
+		t.Errorf("rename OrigPath = %q, want %q", f.OrigPath, "seed.md")
+	}
+	if f.Added != 0 || f.Deleted != 0 {
+		t.Errorf("rename counts = +%d -%d, want zeros", f.Added, f.Deleted)
+	}
+}
+
+func TestGitChangedFiles_UnstagedMove(t *testing.T) {
+	root := initRepo(t)
+	// kbrd's MoveItemTo does os.Rename to a different dir but keeps the
+	// basename. We pair such ` D` + `??` entries into one synthetic R.
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "seed.md")
+	dst := filepath.Join(root, "sub", "seed.md")
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	files := GitChangedFiles(root)
+	if len(files) != 1 {
+		t.Fatalf("unstaged move: want 1 entry, got %d: %+v", len(files), files)
+	}
+	f := files[0]
+	if f.Status[1] != 'R' {
+		t.Errorf("unstaged move status = %q, want worktree-side 'R'", f.Status)
+	}
+	want := filepath.Join("sub", "seed.md")
+	if f.Path != want {
+		t.Errorf("unstaged move path = %q, want %q", f.Path, want)
+	}
+	if f.OrigPath != "seed.md" {
+		t.Errorf("unstaged move OrigPath = %q, want %q", f.OrigPath, "seed.md")
+	}
+}
+
+func TestGitChangedFiles_RenameAcrossDirsWithSpaces(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	run(t, dir, "init", "-b", "main")
+	writeFile(t, filepath.Join(dir, "1. To do", "foo.md"), "x\n")
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "seed")
+	// Unstaged move across dirs that contain spaces — exercises the
+	// porcelain v2 path-with-spaces parsing.
+	src := filepath.Join(dir, "1. To do", "foo.md")
+	dst := filepath.Join(dir, "2. In progress", "foo.md")
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	files := GitChangedFiles(dir)
+	if len(files) != 1 {
+		t.Fatalf("want 1 entry, got %d: %+v", len(files), files)
+	}
+	f := files[0]
+	if f.Status[1] != 'R' {
+		t.Errorf("status = %q, want worktree-side R", f.Status)
+	}
+	wantPath := filepath.Join("2. In progress", "foo.md")
+	wantOrig := filepath.Join("1. To do", "foo.md")
+	if f.Path != wantPath {
+		t.Errorf("Path = %q, want %q", f.Path, wantPath)
+	}
+	if f.OrigPath != wantOrig {
+		t.Errorf("OrigPath = %q, want %q", f.OrigPath, wantOrig)
+	}
+}
+
+func TestGitDiffStats_ReportsMoved(t *testing.T) {
+	root := initRepo(t)
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "seed.md")
+	dst := filepath.Join(root, "sub", "seed.md")
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	stats := GitDiffStats(root)
+	s, ok := stats[dst]
+	if !ok {
+		t.Fatalf("expected entry for moved destination %q in %v", dst, stats)
+	}
+	if !s.Moved {
+		t.Errorf("Moved = false, want true for moved file")
+	}
+	if s.Added != 0 || s.Deleted != 0 {
+		t.Errorf("counts = +%d -%d, want zeros for move", s.Added, s.Deleted)
 	}
 }
 

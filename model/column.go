@@ -113,10 +113,16 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	// Line 3 — meta (modified + size + git diff)
 	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
 	if d.statFor != nil {
-		if s, ok := d.statFor(item.FullPath); ok && (s.Added > 0 || s.Deleted > 0) {
-			addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
-			deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
-			meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
+		if s, ok := d.statFor(item.FullPath); ok {
+			switch {
+			case s.Moved:
+				movedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#a78bfa")).Bold(true)
+				meta += "  ·  " + movedStyle.Render("→ moved")
+			case s.Added > 0 || s.Deleted > 0:
+				addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
+				deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
+				meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
+			}
 		}
 	}
 	var metaFg lipgloss.Color
