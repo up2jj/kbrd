@@ -135,7 +135,7 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	}
 }
 
-func (m *CustomCommandMenu) View() string {
+func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 	title := helpTitleStyle.Render("Custom commands")
 
 	var warnSection string
@@ -190,9 +190,16 @@ func (m *CustomCommandMenu) View() string {
 	parts = append(parts, body, "", footer)
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
+	minInner := 50
+	if termWidth > 0 && termWidth-12 < minInner {
+		minInner = termWidth - 12
+	}
+	if lipgloss.Width(content) < minInner {
+		content = lipgloss.NewStyle().Width(minInner).Render(content)
+	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3b82f6")).
-		Padding(1, 3).
+		Padding(1, 4).
 		Render(content)
 }

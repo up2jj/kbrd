@@ -1275,7 +1275,7 @@ func (b *Board) View() string {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.switcher.View())
 	}
 	if b.customCmds.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View())
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
 	}
 	if b.gitPanel.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.gitPanel.View())

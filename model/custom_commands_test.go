@@ -160,7 +160,7 @@ func TestCustomCommandMenu_EnterOnEmptyMenuJustCloses(t *testing.T) {
 func TestCustomCommandMenu_View_EmptyState(t *testing.T) {
 	var m CustomCommandMenu
 	m.Open(nil, nil, nil)
-	view := m.View()
+	view := m.View(120, 40)
 	if !strings.Contains(view, "no commands defined") {
 		t.Errorf("empty state missing hint, got:\n%s", view)
 	}
@@ -172,7 +172,7 @@ func TestCustomCommandMenu_View_ShowsWarnings(t *testing.T) {
 		{Source: ".kbrd_commands.yml", Message: "parse error: bad yaml"},
 	}
 	m.Open(nil, warnings, nil)
-	view := m.View()
+	view := m.View(120, 40)
 	for _, want := range []string{"load errors", ".kbrd_commands.yml", "parse error: bad yaml"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q, got:\n%s", want, view)
@@ -183,7 +183,7 @@ func TestCustomCommandMenu_View_ShowsWarnings(t *testing.T) {
 func TestCustomCommandMenu_View_ListsCommands(t *testing.T) {
 	var m CustomCommandMenu
 	m.Open(testCommands(), nil, nil)
-	view := m.View()
+	view := m.View(120, 40)
 	for _, want := range []string{"Edit", "Reveal", "Word count", "[e]", "[f]", "[w]"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q, got:\n%s", want, view)
