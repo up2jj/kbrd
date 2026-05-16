@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -154,6 +155,49 @@ func TestTemplate_IsValidGlobalConfig(t *testing.T) {
 
 	if _, err := loadFrom(globalDir, folder); err != nil {
 		t.Fatalf("Template is not a valid global config: %v", err)
+	}
+}
+
+func TestLoad_AutoSyncInterval_Default(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitAutoSyncInterval != 0 {
+		t.Fatalf("default auto_sync_interval: got %v want 0", cfg.GitAutoSyncInterval)
+	}
+}
+
+func TestLoad_AutoSyncInterval_Parsed(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+auto_sync_interval = "5m"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitAutoSyncInterval != 5*time.Minute {
+		t.Fatalf("auto_sync_interval: got %v want 5m", cfg.GitAutoSyncInterval)
+	}
+}
+
+func TestLoad_AutoSyncInterval_Invalid(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+auto_sync_interval = "banana"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitAutoSyncInterval != 0 {
+		t.Fatalf("invalid auto_sync_interval should yield 0, got %v", cfg.GitAutoSyncInterval)
 	}
 }
 

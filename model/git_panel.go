@@ -19,6 +19,7 @@ type gitPanelMode int
 const (
 	gitPanelList gitPanelMode = iota
 	gitPanelCommitInput
+	gitPanelRemoteInput
 	gitPanelOutput
 )
 
@@ -31,6 +32,9 @@ type gitCommitRequestMsg struct {
 	Message  string
 	ThenSync bool
 }
+type gitAddRemoteRequestMsg struct {
+	URL string
+}
 type gitRefreshMsg struct{}
 
 type GitPanel struct {
@@ -38,9 +42,11 @@ type GitPanel struct {
 	mode          gitPanelMode
 	repoRoot      string
 	branch        string
+	hasRemote     bool
 	files         []kbrdfs.FileChange
 	table         table.Model
 	commitIn      textinput.Model
+	remoteIn      textinput.Model
 	thenSync      bool
 	output        viewport.Model
 	outputTitle   string
@@ -49,27 +55,35 @@ type GitPanel struct {
 
 func (p *GitPanel) Active() bool { return p.active }
 
-func (p *GitPanel) Open(repoRoot, branch string, files []kbrdfs.FileChange, termW, termH int) {
+func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.FileChange, termW, termH int) {
 	p.active = true
 	p.mode = gitPanelList
 	p.repoRoot = repoRoot
 	p.branch = branch
+	p.hasRemote = hasRemote
 	p.files = files
 	p.thenSync = false
 	p.rebuildTable(termW, termH)
 
+	p.commitIn = newPanelInput("  msg: ", 200)
+	p.remoteIn = newPanelInput("  url: ", 300)
+	p.remoteIn.Placeholder = "git@github.com:user/repo.git"
+}
+
+func newPanelInput(prompt string, charLimit int) textinput.Model {
 	ti := textinput.New()
-	ti.Prompt = "  msg: "
-	ti.CharLimit = 200
+	ti.Prompt = prompt
+	ti.CharLimit = charLimit
 	ti.Width = 60
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
-	p.commitIn = ti
+	return ti
 }
 
-func (p *GitPanel) Refresh(branch string, files []kbrdfs.FileChange, termW, termH int) {
+func (p *GitPanel) Refresh(branch string, hasRemote bool, files []kbrdfs.FileChange, termW, termH int) {
 	p.branch = branch
+	p.hasRemote = hasRemote
 	p.files = files
 	p.rebuildTable(termW, termH)
 }
@@ -135,6 +149,7 @@ func (p *GitPanel) Close() {
 	p.files = nil
 	p.mode = gitPanelList
 	p.thenSync = false
+	p.hasRemote = false
 	p.outputPending = nil
 }
 
@@ -204,13 +219,36 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 
+	if p.mode == gitPanelRemoteInput {
+		switch {
+		case key.Matches(km, Keys.GitCommitCancel):
+			p.mode = gitPanelList
+			p.remoteIn.Blur()
+			return nil
+		case km.String() == "enter":
+			url := p.remoteIn.Value()
+			p.remoteIn.Blur()
+			p.mode = gitPanelList
+			return func() tea.Msg {
+				return gitAddRemoteRequestMsg{URL: url}
+			}
+		}
+		var cmd tea.Cmd
+		p.remoteIn, cmd = p.remoteIn.Update(km)
+		return cmd
+	}
+
 	if key.Matches(km, Keys.GitPanelClose) {
 		return func() tea.Msg { return gitPanelCloseMsg{} }
 	}
 	if key.Matches(km, Keys.GitLog) {
 		return func() tea.Msg { return gitLogRequestMsg{} }
 	}
-	// When the working tree is clean, only close and log are active.
+	if !p.hasRemote && key.Matches(km, Keys.GitAddRemote) {
+		p.startRemoteInput()
+		return nil
+	}
+	// When the working tree is clean, only close, log, and add-remote are active.
 	if len(p.files) == 0 {
 		return nil
 	}
@@ -221,9 +259,15 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		p.startCommitInput(false)
 		return nil
 	case key.Matches(km, Keys.GitCommitSync):
+		if !p.hasRemote {
+			return nil
+		}
 		p.startCommitInput(true)
 		return nil
 	case key.Matches(km, Keys.GitSync):
+		if !p.hasRemote {
+			return nil
+		}
 		return func() tea.Msg { return gitSyncRequestMsg{} }
 	}
 	var cmd tea.Cmd
@@ -237,6 +281,23 @@ func (p *GitPanel) startCommitInput(thenSync bool) {
 	p.commitIn.SetValue(time.Now().Format("2006-01-02 15:04:05"))
 	p.commitIn.CursorEnd()
 	p.commitIn.Focus()
+}
+
+func joinSep(parts []string, sep string) string {
+	out := ""
+	for i, s := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += s
+	}
+	return out
+}
+
+func (p *GitPanel) startRemoteInput() {
+	p.mode = gitPanelRemoteInput
+	p.remoteIn.SetValue("")
+	p.remoteIn.Focus()
 }
 
 func (p *GitPanel) View() string {
@@ -273,20 +334,36 @@ func (p *GitPanel) View() string {
 			hint = helpDimStyle.Render("  enter to commit + sync · esc cancel")
 		}
 		footer = p.commitIn.View() + hint
-	default: // gitPanelList
+	case gitPanelRemoteInput:
 		if len(p.files) == 0 {
 			body = helpDimStyle.Render("working tree clean")
-			footer = helpKeyStyle.Render("l") + " " + helpLabelStyle.Render("log") + sep +
-				helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("close")
 		} else {
 			body = p.table.View()
-			footer = helpKeyStyle.Render("d") + " " + helpLabelStyle.Render("diff") + sep +
-				helpKeyStyle.Render("c") + " " + helpLabelStyle.Render("commit") + sep +
-				helpKeyStyle.Render("s") + " " + helpLabelStyle.Render("sync") + sep +
-				helpKeyStyle.Render("S") + " " + helpLabelStyle.Render("commit+sync") + sep +
-				helpKeyStyle.Render("l") + " " + helpLabelStyle.Render("log") + sep +
-				helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("close")
 		}
+		hint := helpDimStyle.Render("  enter to add as origin · esc cancel")
+		footer = p.remoteIn.View() + hint
+	default: // gitPanelList
+		parts := []string{}
+		add := func(k, label string) {
+			parts = append(parts, helpKeyStyle.Render(k)+" "+helpLabelStyle.Render(label))
+		}
+		if len(p.files) == 0 {
+			body = helpDimStyle.Render("working tree clean")
+		} else {
+			body = p.table.View()
+			add("d", "diff")
+			add("c", "commit")
+			if p.hasRemote {
+				add("s", "sync")
+				add("S", "commit+sync")
+			}
+		}
+		if !p.hasRemote {
+			add("a", "add remote")
+		}
+		add("l", "log")
+		add("q/esc", "close")
+		footer = joinSep(parts, sep)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)

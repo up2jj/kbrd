@@ -86,6 +86,50 @@ func TestGitRepoRoot_OutsideRepo(t *testing.T) {
 	}
 }
 
+func TestGitHasRemote(t *testing.T) {
+	dir := initRepo(t)
+	if GitHasRemote(dir) {
+		t.Fatalf("expected no remote on fresh repo")
+	}
+	run(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	if !GitHasRemote(dir) {
+		t.Fatalf("expected remote after `remote add`")
+	}
+}
+
+func TestGitHasRemote_NotARepo(t *testing.T) {
+	requireGit(t)
+	if GitHasRemote(t.TempDir()) {
+		t.Fatalf("expected false for non-repo dir")
+	}
+	if GitHasRemote("") {
+		t.Fatalf("expected false for empty repoRoot")
+	}
+}
+
+func TestGitWorkingTreeClean(t *testing.T) {
+	dir := initRepo(t)
+	if !GitWorkingTreeClean(dir) {
+		t.Fatalf("fresh repo should be clean")
+	}
+
+	writeFile(t, filepath.Join(dir, "untracked.md"), "x\n")
+	if GitWorkingTreeClean(dir) {
+		t.Fatalf("expected dirty after adding untracked file")
+	}
+
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "add untracked")
+	if !GitWorkingTreeClean(dir) {
+		t.Fatalf("expected clean after commit")
+	}
+
+	writeFile(t, filepath.Join(dir, "seed.md"), "modified\n")
+	if GitWorkingTreeClean(dir) {
+		t.Fatalf("expected dirty after modifying tracked file")
+	}
+}
+
 func TestGitInit(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()

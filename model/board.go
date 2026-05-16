@@ -67,6 +67,8 @@ type Board struct {
 	gitRepoRoot string
 	gitStats    map[string]kbrdfs.DiffStat
 
+	gitSyncing bool // auto-sync in progress
+
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
 	refByMnemonic map[string]itemRef
@@ -126,15 +128,22 @@ func (b *Board) Init() tea.Cmd {
 		}
 		return watchMsg{}
 	}
+	cmds := []tea.Cmd{startup}
 	if len(b.commandWarnings) > 0 {
 		first := b.commandWarnings[0]
 		extra := ""
 		if n := len(b.commandWarnings) - 1; n > 0 {
 			extra = fmt.Sprintf(" (+%d more — press x for details)", n)
 		}
-		return tea.Batch(startup, b.notifier.Send("commands: "+first.Message+extra, notifyError))
+		cmds = append(cmds, b.notifier.Send("commands: "+first.Message+extra, notifyError))
 	}
-	return startup
+	if c := b.scheduleAutoSync(); c != nil {
+		cmds = append(cmds, c)
+	}
+	if len(cmds) == 1 {
+		return startup
+	}
+	return tea.Batch(cmds...)
 }
 
 func (b *Board) createDefaultColumns() error {
@@ -335,6 +344,15 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitRefreshMsg:
 		return b.handleGitRefresh()
+
+	case gitAddRemoteRequestMsg:
+		return b.handleGitAddRemote(msg)
+
+	case autoSyncTickMsg:
+		return b.handleAutoSyncTick()
+
+	case autoSyncDoneMsg:
+		return b.handleAutoSyncDone(msg)
 
 	default:
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
@@ -1291,6 +1309,10 @@ func (b *Board) renderStatusBar() string {
 		primary = mode + sepDot + boardLabel + sepDot + colLabel + sepDot + colPos + sepDot + count
 	default:
 		primary = helpTitleStyle.Render("⏵ board") + sepDot + helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
+	}
+
+	if b.gitSyncing {
+		primary += sepDot + helpKeyStyle.Render("⟳ syncing")
 	}
 
 	secondary := RenderInlineHints(ContextShortcuts(ctx))

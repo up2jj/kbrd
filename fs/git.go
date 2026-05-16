@@ -52,6 +52,28 @@ func GitInit(dir string) error {
 	return exec.Command("git", "-C", dir, "init").Run()
 }
 
+func GitHasRemote(repoRoot string) bool {
+	if !GitAvailable() || repoRoot == "" {
+		return false
+	}
+	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "remote").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+func GitWorkingTreeClean(repoRoot string) bool {
+	if !GitAvailable() || repoRoot == "" {
+		return false
+	}
+	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "status", "--porcelain").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == ""
+}
+
 func GitCurrentBranch(repoRoot string) string {
 	if !GitAvailable() || repoRoot == "" {
 		return ""

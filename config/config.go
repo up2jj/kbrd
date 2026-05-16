@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -29,7 +30,8 @@ type Config struct {
 	Theme         string
 	NotifyBackend string
 	BoardName     string
-	GitDiffTool   string
+	GitDiffTool         string
+	GitAutoSyncInterval time.Duration
 }
 
 func Load(path string) (Config, error) {
@@ -49,6 +51,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.theme", "light")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
+	v.SetDefault("git.auto_sync_interval", "")
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -79,13 +82,19 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		}
 	}
 
+	autoSync, _ := time.ParseDuration(v.GetString("git.auto_sync_interval"))
+	if autoSync < 0 {
+		autoSync = 0
+	}
+
 	return Config{
-		Path:          folderPath,
-		ColumnWidth:   v.GetInt("display.column_width"),
-		PreviewLines:  v.GetInt("display.preview_lines"),
-		Theme:         v.GetString("display.theme"),
-		NotifyBackend: v.GetString("notify.backend"),
-		BoardName:     v.GetString("board.name"),
-		GitDiffTool:   v.GetString("git.diff_tool"),
+		Path:                folderPath,
+		ColumnWidth:         v.GetInt("display.column_width"),
+		PreviewLines:        v.GetInt("display.preview_lines"),
+		Theme:               v.GetString("display.theme"),
+		NotifyBackend:       v.GetString("notify.backend"),
+		BoardName:           v.GetString("board.name"),
+		GitDiffTool:         v.GetString("git.diff_tool"),
+		GitAutoSyncInterval: autoSync,
 	}, nil
 }

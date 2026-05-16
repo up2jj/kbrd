@@ -13,4 +13,5 @@
 
 [git]
 # diff_tool = "auto"        # auto | difft | diff-so-fancy | git
+# auto_sync_interval = ""   # empty/"0" disables; e.g. "30s", "5m", "1h"
 

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -41,8 +42,9 @@ func (b *Board) openGitPanel() tea.Cmd {
 		initToast = b.notifier.Send("initialized git repo", notifySuccess)
 	}
 	branch := kbrdfs.GitCurrentBranch(b.gitRepoRoot)
+	hasRemote := kbrdfs.GitHasRemote(b.gitRepoRoot)
 	files := kbrdfs.GitChangedFiles(b.gitRepoRoot)
-	b.gitPanel.Open(b.gitRepoRoot, branch, files, b.termWidth, b.termHeight)
+	b.gitPanel.Open(b.gitRepoRoot, branch, hasRemote, files, b.termWidth, b.termHeight)
 	return initToast
 }
 
@@ -51,8 +53,9 @@ func (b *Board) refreshGitPanel() {
 		return
 	}
 	branch := kbrdfs.GitCurrentBranch(b.gitRepoRoot)
+	hasRemote := kbrdfs.GitHasRemote(b.gitRepoRoot)
 	files := kbrdfs.GitChangedFiles(b.gitRepoRoot)
-	b.gitPanel.Refresh(branch, files, b.termWidth, b.termHeight)
+	b.gitPanel.Refresh(branch, hasRemote, files, b.termWidth, b.termHeight)
 }
 
 func (b *Board) handleGitDiff() (tea.Model, tea.Cmd) {
@@ -199,6 +202,94 @@ func (b *Board) handleGitSyncStep(msg gitSyncStepMsg) (tea.Model, tea.Cmd) {
 	b.refreshGitStats()
 	b.refreshGitPanel()
 	return b, b.notifier.Send("sync ok", notifySuccess)
+}
+
+type autoSyncTickMsg struct{}
+
+type autoSyncDoneMsg struct {
+	Stage  string // "pull" or "push"
+	Err    error
+	Output string
+}
+
+func (b *Board) scheduleAutoSync() tea.Cmd {
+	if b.cfg.GitAutoSyncInterval <= 0 {
+		return nil
+	}
+	return tea.Tick(b.cfg.GitAutoSyncInterval, func(time.Time) tea.Msg {
+		return autoSyncTickMsg{}
+	})
+}
+
+func (b *Board) shouldAutoSync() bool {
+	if b.gitSyncing {
+		return false
+	}
+	if !kbrdfs.GitAvailable() || b.gitRepoRoot == "" {
+		return false
+	}
+	if !kbrdfs.GitHasRemote(b.gitRepoRoot) {
+		return false
+	}
+	if !kbrdfs.GitWorkingTreeClean(b.gitRepoRoot) {
+		return false
+	}
+	return true
+}
+
+func (b *Board) handleAutoSyncTick() (tea.Model, tea.Cmd) {
+	reschedule := b.scheduleAutoSync()
+	if !b.shouldAutoSync() {
+		return b, reschedule
+	}
+	b.gitSyncing = true
+	repoRoot := b.gitRepoRoot
+	syncCmd := func() tea.Msg {
+		pullOut, err := exec.Command("git", "-C", repoRoot, "pull", "--ff-only").CombinedOutput()
+		if err != nil {
+			return autoSyncDoneMsg{Stage: "pull", Err: err, Output: string(pullOut)}
+		}
+		pushOut, err := exec.Command("git", "-C", repoRoot, "push").CombinedOutput()
+		if err != nil {
+			return autoSyncDoneMsg{Stage: "push", Err: err, Output: string(pushOut)}
+		}
+		return autoSyncDoneMsg{Stage: "push", Output: string(pushOut)}
+	}
+	if reschedule == nil {
+		return b, syncCmd
+	}
+	return b, tea.Batch(syncCmd, reschedule)
+}
+
+func (b *Board) handleAutoSyncDone(msg autoSyncDoneMsg) (tea.Model, tea.Cmd) {
+	b.gitSyncing = false
+	if msg.Err != nil {
+		detail := strings.TrimSpace(msg.Output)
+		if detail == "" {
+			detail = msg.Err.Error()
+		}
+		return b, b.notifier.Send("auto-sync "+msg.Stage+" failed: "+detail, notifyError)
+	}
+	b.refreshGitStats()
+	b.refreshGitPanel()
+	return b, nil
+}
+
+func (b *Board) handleGitAddRemote(msg gitAddRemoteRequestMsg) (tea.Model, tea.Cmd) {
+	url := strings.TrimSpace(msg.URL)
+	if url == "" {
+		return b, b.notifier.Send("remote URL is empty", notifyError)
+	}
+	out, err := exec.Command("git", "-C", b.gitRepoRoot, "remote", "add", "origin", url).CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return b, b.notifier.Send("git remote add failed: "+detail, notifyError)
+	}
+	b.refreshGitPanel()
+	return b, b.notifier.Send("remote 'origin' added", notifySuccess)
 }
 
 func (b *Board) handleGitRefresh() (tea.Model, tea.Cmd) {
