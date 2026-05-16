@@ -451,6 +451,17 @@ func (c *Column) PrependText(itemName, text string) error {
 	return os.WriteFile(fullPath, append([]byte(text+"\n"), content...), 0644)
 }
 
+func (c *Column) ReplaceFile(itemName, text string) error {
+	fullPath := c.fullPathFor(itemName)
+	if fullPath == "" {
+		return os.ErrNotExist
+	}
+	if len(text) > 0 && text[len(text)-1] != '\n' {
+		text += "\n"
+	}
+	return os.WriteFile(fullPath, []byte(text), 0644)
+}
+
 func (c *Column) JournalText(itemName, text string) error {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	return c.AppendText(itemName, timestamp+" - "+text)

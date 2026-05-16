@@ -122,7 +122,7 @@ var Keys = KeyMap{
 	Prepend:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
 	Journal:      key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "journal entry")),
 	Copy:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-	Paste:        key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "paste")),
+	Paste:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
 	OpenExternal: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
 	Pin:          key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
 	MoveNext:     key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),

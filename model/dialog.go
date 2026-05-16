@@ -17,9 +17,10 @@ const (
 )
 
 type DialogButton struct {
-	Label string
-	Kind  ButtonKind
-	Msg   tea.Msg
+	Label  string
+	Kind   ButtonKind
+	Msg    tea.Msg
+	Hotkey rune
 }
 
 type DialogOptions struct {
@@ -62,6 +63,21 @@ func computeDialogMnemonics(buttons []DialogButton) []int {
 	res := make([]int, len(buttons))
 	for i, b := range buttons {
 		res[i] = -1
+		if b.Hotkey != 0 {
+			hk := unicode.ToLower(b.Hotkey)
+			for j, r := range b.Label {
+				if unicode.ToLower(r) == hk {
+					res[i] = j
+					break
+				}
+			}
+			used[hk] = true
+		}
+	}
+	for i, b := range buttons {
+		if b.Hotkey != 0 {
+			continue
+		}
 		for j, r := range b.Label {
 			lr := unicode.ToLower(r)
 			if !unicode.IsLetter(lr) || used[lr] {
@@ -126,9 +142,20 @@ func (d *Dialog) Update(msg tea.KeyMsg) tea.Cmd {
 		d.Close()
 	default:
 		if len(msg.Runes) == 1 {
-			r := unicode.ToLower(msg.Runes[0])
+			raw := msg.Runes[0]
+			for i, b := range d.buttons {
+				if b.Hotkey != 0 && raw == b.Hotkey {
+					chosen := d.buttons[i]
+					d.Close()
+					if chosen.Msg != nil {
+						return func() tea.Msg { return chosen.Msg }
+					}
+					return nil
+				}
+			}
+			r := unicode.ToLower(raw)
 			for i, idx := range d.mnemonics {
-				if idx < 0 {
+				if idx < 0 || d.buttons[i].Hotkey != 0 {
 					continue
 				}
 				mr := unicode.ToLower([]rune(d.buttons[i].Label)[idx])

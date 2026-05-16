@@ -207,6 +207,38 @@ func TestColumn_PrependText(t *testing.T) {
 	}
 }
 
+func TestColumn_ReplaceFile(t *testing.T) {
+	t.Parallel()
+
+	col := newTestColumn(t, map[string]string{"task": "original\nlines\n"})
+
+	if err := col.ReplaceFile("task", "fresh content"); err != nil {
+		t.Fatalf("ReplaceFile: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(col.Path, "task.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "fresh content\n" {
+		t.Errorf("content = %q, want %q", got, "fresh content\n")
+	}
+
+	if err := col.ReplaceFile("task", "already terminated\n"); err != nil {
+		t.Fatalf("ReplaceFile: %v", err)
+	}
+	got, err = os.ReadFile(filepath.Join(col.Path, "task.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "already terminated\n" {
+		t.Errorf("content = %q, want %q", got, "already terminated\n")
+	}
+
+	if err := col.ReplaceFile("ghost", "x"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("err = %v, want os.ErrNotExist", err)
+	}
+}
+
 func TestColumn_JournalText(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{"log": ""})
