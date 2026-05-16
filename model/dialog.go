@@ -1,32 +1,105 @@
 package model
 
 import (
+	"unicode"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
+type ButtonKind int
+
+const (
+	ButtonDefault ButtonKind = iota
+	ButtonPrimary
+	ButtonDanger
+)
+
 type DialogButton struct {
-	Label   string
-	Primary bool
-	Danger  bool
-	Msg     tea.Msg
+	Label string
+	Kind  ButtonKind
+	Msg   tea.Msg
+}
+
+type DialogOptions struct {
+	Title        string
+	Body         string
+	Buttons      []DialogButton
+	DefaultIndex int
 }
 
 type Dialog struct {
-	active   bool
-	title    string
-	body     string
-	buttons  []DialogButton
-	selected int
+	active    bool
+	title     string
+	body      string
+	buttons   []DialogButton
+	mnemonics []int // rune index into Label for each button, -1 if none
+	selected  int
 }
 
-func (d *Dialog) Open(title, body string, buttons []DialogButton) {
+func (d *Dialog) Open(opts DialogOptions) {
 	d.active = true
-	d.title = title
-	d.body = body
-	d.buttons = buttons
-	d.selected = 0
+	d.title = opts.Title
+	d.body = opts.Body
+	d.buttons = opts.Buttons
+	d.mnemonics = computeDialogMnemonics(opts.Buttons)
+	idx := opts.DefaultIndex
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(opts.Buttons) {
+		idx = len(opts.Buttons) - 1
+	}
+	d.selected = idx
+}
+
+// computeDialogMnemonics assigns one mnemonic letter per button, picking the
+// first unused letter in each label. Returns the rune index of the chosen
+// character, or -1 if no letter could be assigned.
+func computeDialogMnemonics(buttons []DialogButton) []int {
+	used := map[rune]bool{}
+	res := make([]int, len(buttons))
+	for i, b := range buttons {
+		res[i] = -1
+		for j, r := range b.Label {
+			lr := unicode.ToLower(r)
+			if !unicode.IsLetter(lr) || used[lr] {
+				continue
+			}
+			used[lr] = true
+			res[i] = j
+			break
+		}
+	}
+	return res
+}
+
+// OpenConfirm shows a Yes/No dialog. Yes is primary and focused by default.
+func (d *Dialog) OpenConfirm(title, body string, onConfirm tea.Msg) {
+	d.Open(DialogOptions{
+		Title: title,
+		Body:  body,
+		Buttons: []DialogButton{
+			{Label: "Yes", Kind: ButtonPrimary, Msg: onConfirm},
+			{Label: "No"},
+		},
+		DefaultIndex: 0,
+	})
+}
+
+// OpenConfirmDestructive shows a <actionLabel>/Cancel dialog. The action
+// button is danger-styled; focus defaults to the safe Cancel button.
+func (d *Dialog) OpenConfirmDestructive(title, body, actionLabel string, onConfirm tea.Msg) {
+	d.Open(DialogOptions{
+		Title: title,
+		Body:  body,
+		Buttons: []DialogButton{
+			{Label: actionLabel, Kind: ButtonDanger, Msg: onConfirm},
+			{Label: "Cancel", Kind: ButtonPrimary},
+		},
+		DefaultIndex: 1,
+	})
 }
 
 func (d *Dialog) Close() {
@@ -51,8 +124,42 @@ func (d *Dialog) Update(msg tea.KeyMsg) tea.Cmd {
 		}
 	case key.Matches(msg, Keys.DialogCancel):
 		d.Close()
+	default:
+		if len(msg.Runes) == 1 {
+			r := unicode.ToLower(msg.Runes[0])
+			for i, idx := range d.mnemonics {
+				if idx < 0 {
+					continue
+				}
+				mr := unicode.ToLower([]rune(d.buttons[i].Label)[idx])
+				if mr == r {
+					chosen := d.buttons[i]
+					d.Close()
+					if chosen.Msg != nil {
+						return func() tea.Msg { return chosen.Msg }
+					}
+					return nil
+				}
+			}
+		}
 	}
 	return nil
+}
+
+func renderDialogLabel(label string, mIdx int, style lipgloss.Style) string {
+	if mIdx < 0 {
+		return style.Render(label)
+	}
+	runes := []rune(label)
+	before := string(runes[:mIdx])
+	mn := string(runes[mIdx])
+	after := string(runes[mIdx+1:])
+	// Inject raw underline-on / underline-off SGR codes so the outer style's
+	// background and padding survive intact — using a nested lipgloss style
+	// would emit a full reset and clobber the button's bg.
+	const underlineOn = "\x1b[4m"
+	const underlineOff = "\x1b[24m"
+	return style.Render(before + underlineOn + mn + underlineOff + after)
 }
 
 func (d *Dialog) View() string {
@@ -70,18 +177,19 @@ func (d *Dialog) View() string {
 
 	btnViews := make([]string, len(d.buttons))
 	for i, btn := range d.buttons {
+		var style lipgloss.Style
 		if i == d.selected {
-			if btn.Danger {
-				btnViews[i] = activeDanger.Render(btn.Label)
+			if btn.Kind == ButtonDanger {
+				style = activeDanger
 			} else {
-				btnViews[i] = activePrimary.Render(btn.Label)
+				style = activePrimary
 			}
 		} else {
-			btnViews[i] = inactive.Render(btn.Label)
+			style = inactive
 		}
+		btnViews[i] = renderDialogLabel(btn.Label, d.mnemonics[i], style)
 	}
 
-	// interleave buttons with spacing
 	btnRow := btnViews[0]
 	for _, b := range btnViews[1:] {
 		btnRow = lipgloss.JoinHorizontal(lipgloss.Center, btnRow, "   ", b)

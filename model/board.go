@@ -238,15 +238,15 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.watchCmd()
 
 	case initBoardRequestMsg:
-		b.dialog.Open(
-			"Initialize kanban board?",
-			"Create default columns in "+b.cfg.Path+":\n1. TO DO  •  2. IN PROGRESS  •  3. DONE",
-			[]DialogButton{
-				{Label: "Create", Primary: true, Msg: initBoardConfirmMsg{}},
+		b.dialog.Open(DialogOptions{
+			Title: "Initialize kanban board?",
+			Body:  "Create default columns in " + b.cfg.Path + ":\n1. TO DO  •  2. IN PROGRESS  •  3. DONE",
+			Buttons: []DialogButton{
+				{Label: "Create", Kind: ButtonPrimary, Msg: initBoardConfirmMsg{}},
 				{Label: "Quit", Msg: initBoardDeclineMsg{}},
 			},
-		)
-		b.dialog.selected = 0
+			DefaultIndex: 0,
+		})
 		return b, nil
 
 	case initBoardConfirmMsg:
@@ -390,11 +390,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle editor
 	if b.editor.state != editorNone {
 		if msg.String() == "esc" && b.editor.IsDirty() {
-			b.dialog.Open("Discard unsaved changes?", "Your edits will be lost.", []DialogButton{
-				{Label: "Cancel", Primary: true, Msg: nil},
-				{Label: "Discard", Danger: true, Msg: editorDiscardMsg{}},
-			})
-			b.dialog.selected = 0
+			b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
 			return b, nil
 		}
 		cmd, _ := b.editor.Update(msg)
@@ -558,11 +554,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, Keys.Delete):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
-			b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
-				{Label: "Yes", Danger: true, Msg: deleteConfirmMsg{ColIndex: b.selectedCol, FileName: item.Name}},
-				{Label: "No", Primary: true},
-			})
-			b.dialog.selected = 1
+			b.dialog.OpenConfirmDestructive("Delete item?", item.Name+".md", "Yes", deleteConfirmMsg{ColIndex: b.selectedCol, FileName: item.Name})
 		}
 	case key.Matches(msg, Keys.MoveNext):
 		if col.HasSelectedItem() {
@@ -758,11 +750,7 @@ func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, te
 	if _, err := os.Stat(target); err == nil {
 		return b, b.notifier.Send("file already exists: "+newName+".md", notifyError)
 	}
-	b.dialog.Open("Rename item?", msg.OldName+".md → "+newName+".md", []DialogButton{
-		{Label: "Yes", Primary: true, Msg: renameItemConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
-		{Label: "No", Msg: nil},
-	})
-	b.dialog.selected = 0
+	b.dialog.OpenConfirm("Rename item?", msg.OldName+".md → "+newName+".md", renameItemConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName})
 	return b, nil
 }
 
@@ -782,11 +770,7 @@ func (b *Board) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model
 	if _, err := os.Stat(target); err == nil {
 		return b, b.notifier.Send("folder already exists: "+newName, notifyError)
 	}
-	b.dialog.Open("Rename column?", msg.OldName+" → "+newName, []DialogButton{
-		{Label: "Yes", Primary: true, Msg: renameColumnConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName}},
-		{Label: "No", Msg: nil},
-	})
-	b.dialog.selected = 0
+	b.dialog.OpenConfirm("Rename column?", msg.OldName+" → "+newName, renameColumnConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName})
 	return b, nil
 }
 
@@ -1029,11 +1013,7 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		}
 		return b.notifier.Send(item.Name+" "+state, notifySuccess)
 	case 'd':
-		b.dialog.Open("Delete item?", item.Name+".md", []DialogButton{
-			{Label: "Yes", Danger: true, Msg: deleteConfirmMsg{ColIndex: ref.ColIndex, FileName: item.Name}},
-			{Label: "No", Primary: true},
-		})
-		b.dialog.selected = 1
+		b.dialog.OpenConfirmDestructive("Delete item?", item.Name+".md", "Yes", deleteConfirmMsg{ColIndex: ref.ColIndex, FileName: item.Name})
 		return nil
 	case 'm':
 		nextCol := (ref.ColIndex + 1) % len(b.columns)
