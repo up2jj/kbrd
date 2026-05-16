@@ -182,7 +182,12 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 		body = lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	footer := helpDimStyle.Render("shortcut · ↑/↓ select · enter run · esc cancel")
+	footer := RenderInlineHints([]Shortcut{
+		{Keys: "shortcut", Label: "run"},
+		{Keys: "↑/↓", Label: "select"},
+		{Keys: "enter", Label: "run"},
+		{Keys: "esc", Label: "cancel"},
+	})
 	parts := []string{title, ""}
 	if warnSection != "" {
 		parts = append(parts, warnSection, "")
