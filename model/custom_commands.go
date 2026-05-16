@@ -94,7 +94,7 @@ func (m *CustomCommandMenu) Active() bool { return m.active }
 
 func (m *CustomCommandMenu) Update(msg tea.KeyMsg) tea.Cmd {
 	switch {
-	case msg.String() == "esc":
+	case key.Matches(msg, Keys.CustomCommandsClose):
 		m.Close()
 		return nil
 	case key.Matches(msg, Keys.SwitcherPrev):

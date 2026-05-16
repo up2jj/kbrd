@@ -73,11 +73,18 @@ type KeyMap struct {
 	QuickCmdCancel  key.Binding
 	QuickCmdConfirm key.Binding
 
+	// Help overlay
+	HelpClose key.Binding
+
 	// Config menu
-	ConfigMenu             key.Binding
-	ConfigOpenLocal        key.Binding
-	ConfigOpenGlobal       key.Binding
+	ConfigMenu              key.Binding
+	ConfigMenuClose         key.Binding
+	ConfigOpenLocal         key.Binding
+	ConfigOpenGlobal        key.Binding
 	ConfigOpenLocalCommands key.Binding
+
+	// Custom commands menu
+	CustomCommandsClose key.Binding
 
 	// Git panel
 	GitPanel        key.Binding
@@ -87,6 +94,7 @@ type KeyMap struct {
 	GitCommitSync   key.Binding
 	GitLog          key.Binding
 	GitPanelClose   key.Binding
+	GitCommitCancel key.Binding
 }
 
 var Keys = KeyMap{
@@ -151,7 +159,7 @@ var Keys = KeyMap{
 	PeekBottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 
 	// Switcher
-	SwitcherClose:   key.NewBinding(key.WithKeys("esc", "ctrl+p"), key.WithHelp("esc", "cancel")),
+	SwitcherClose:   key.NewBinding(key.WithKeys("esc", "q", "ctrl+p"), key.WithHelp("q/esc", "cancel")),
 	SwitcherPrev:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "previous")),
 	SwitcherNext:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "next")),
 	SwitcherConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
@@ -160,20 +168,28 @@ var Keys = KeyMap{
 	QuickCmdCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	QuickCmdConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "run")),
 
+	// Help overlay
+	HelpClose: key.NewBinding(key.WithKeys("esc", "q", "?"), key.WithHelp("q/esc", "close")),
+
 	// Config menu
-	ConfigMenu:       key.NewBinding(key.WithKeys(","), key.WithHelp(",", "config commands")),
-	ConfigOpenLocal:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
-	ConfigOpenGlobal: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
+	ConfigMenu:              key.NewBinding(key.WithKeys(","), key.WithHelp(",", "config commands")),
+	ConfigMenuClose:         key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	ConfigOpenLocal:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
+	ConfigOpenGlobal:        key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
 	ConfigOpenLocalCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "open or create local commands")),
 
+	// Custom commands menu
+	CustomCommandsClose: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),
+
 	// Git panel
-	GitPanel:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
-	GitDiff:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
-	GitCommit:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
-	GitSync:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
-	GitCommitSync: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
-	GitLog:        key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
-	GitPanelClose: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	GitPanel:        key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
+	GitDiff:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
+	GitCommit:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
+	GitSync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
+	GitCommitSync:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
+	GitLog:          key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
+	GitPanelClose:   key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	GitCommitCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {

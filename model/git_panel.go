@@ -183,13 +183,13 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	if p.mode == gitPanelCommitInput {
-		switch km.String() {
-		case "esc":
+		switch {
+		case key.Matches(km, Keys.GitCommitCancel):
 			p.mode = gitPanelList
 			p.commitIn.Blur()
 			p.thenSync = false
 			return nil
-		case "enter":
+		case km.String() == "enter":
 			msg := p.commitIn.Value()
 			thenSync := p.thenSync
 			p.commitIn.Blur()

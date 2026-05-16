@@ -354,7 +354,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.helpOpen = false
 			b.quitting = true
 			return b, tea.Quit
-		case key.Matches(msg, Keys.ToggleHelp), msg.String() == "esc":
+		case key.Matches(msg, Keys.HelpClose):
 			b.helpOpen = false
 		}
 		return b, nil
@@ -367,7 +367,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.configMenuOpen = false
 			b.quitting = true
 			return b, tea.Quit
-		case msg.String() == "esc":
+		case key.Matches(msg, Keys.ConfigMenuClose):
 			b.configMenuOpen = false
 		case key.Matches(msg, Keys.ConfigOpenLocal):
 			b.configMenuOpen = false
@@ -389,7 +389,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle editor
 	if b.editor.state != editorNone {
-		if msg.String() == "esc" && b.editor.IsDirty() {
+		if key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
 			b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
 			return b, nil
 		}
