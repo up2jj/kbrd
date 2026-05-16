@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -14,17 +15,29 @@ import (
 	kbrdfs "kbrd/fs"
 )
 
-type gitPanelMode int
+type gitPanelFocus int
 
 const (
-	gitPanelList gitPanelMode = iota
-	gitPanelCommitInput
-	gitPanelRemoteInput
-	gitPanelOutput
+	focusFiles gitPanelFocus = iota
+	focusDiff
+)
+
+type gitPanelInput int
+
+const (
+	inputNone gitPanelInput = iota
+	inputCommit
+	inputRemote
+)
+
+type gitPanelRightView int
+
+const (
+	rightDiff gitPanelRightView = iota
+	rightLog
 )
 
 type gitPanelCloseMsg struct{}
-type gitDiffRequestMsg struct{}
 type gitSyncRequestMsg struct{}
 type gitContinueSyncMsg struct{}
 type gitLogRequestMsg struct{}
@@ -36,34 +49,50 @@ type gitAddRemoteRequestMsg struct {
 	URL string
 }
 type gitRefreshMsg struct{}
+type gitDiffForFileMsg struct {
+	Path     string
+	Status   string
+	OrigPath string
+}
 
 type GitPanel struct {
-	active        bool
-	mode          gitPanelMode
-	repoRoot      string
-	branch        string
-	hasRemote     bool
-	files         []kbrdfs.FileChange
-	table         table.Model
-	commitIn      textinput.Model
-	remoteIn      textinput.Model
-	thenSync      bool
-	output        viewport.Model
-	outputTitle   string
-	outputPending tea.Msg
+	active     bool
+	focus      gitPanelFocus
+	input      gitPanelInput
+	rightView  gitPanelRightView
+	repoRoot   string
+	branch     string
+	hasRemote  bool
+	files      []kbrdfs.FileChange
+	table      table.Model
+	commitIn   textinput.Model
+	remoteIn   textinput.Model
+	thenSync   bool
+	right        viewport.Model
+	rightTitle   string
+	rightContent string
+	diffCache    map[string]string
+	lastCursor int
+	termW      int
+	termH      int
 }
 
 func (p *GitPanel) Active() bool { return p.active }
 
 func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.FileChange, termW, termH int) {
 	p.active = true
-	p.mode = gitPanelList
+	p.focus = focusFiles
+	p.input = inputNone
+	p.rightView = rightDiff
 	p.repoRoot = repoRoot
 	p.branch = branch
 	p.hasRemote = hasRemote
 	p.files = files
 	p.thenSync = false
-	p.rebuildTable(termW, termH)
+	p.diffCache = map[string]string{}
+	p.termW = termW
+	p.termH = termH
+	p.rebuild()
 
 	p.commitIn = newPanelInput("  msg: ", 200)
 	p.remoteIn = newPanelInput("  url: ", 300)
@@ -85,21 +114,60 @@ func (p *GitPanel) Refresh(branch string, hasRemote bool, files []kbrdfs.FileCha
 	p.branch = branch
 	p.hasRemote = hasRemote
 	p.files = files
-	p.rebuildTable(termW, termH)
+	p.termW = termW
+	p.termH = termH
+	p.diffCache = map[string]string{}
+	p.rebuild()
 }
 
-func (p *GitPanel) rebuildTable(termW, termH int) {
-	pathW := termW - 24
-	if pathW < 20 {
-		pathW = 20
+// panelDimensions returns inner content sizes: total inner W/H, left pane W, right pane W.
+func (p *GitPanel) dims() (innerW, innerH, leftW, rightW int) {
+	innerW = p.termW - 20
+	if max := 140; innerW > max {
+		innerW = max
 	}
-	if pathW > 80 {
-		pathW = 80
+	if innerW < 60 {
+		innerW = 60
+	}
+	innerH = p.termH - 10
+	if max := 28; innerH > max {
+		innerH = max
+	}
+	if innerH < 10 {
+		innerH = 10
+	}
+	leftW = innerW * 3 / 5
+	if leftW > 60 {
+		leftW = 60
+	}
+	if leftW < 36 {
+		leftW = 36
+	}
+	rightW = innerW - leftW - 3 // 3 chars for separator + padding
+	if rightW < 20 {
+		rightW = 20
+	}
+	return
+}
+
+func (p *GitPanel) rebuild() {
+	_, innerH, leftW, rightW := p.dims()
+	bodyH := innerH - 4 // leave room for title + footer
+	if bodyH < 5 {
+		bodyH = 5
+	}
+
+	// Pane has 2-char border + 2-char inner padding, and the table itself adds
+	// 1-char cell padding on both sides of every column (so 6 chars overhead
+	// for three columns). St=3, +/-=7 → file column = leftW - 4 - 6 - 3 - 7.
+	pathW := leftW - 20
+	if pathW < 10 {
+		pathW = 10
 	}
 	cols := []table.Column{
 		{Title: "St", Width: 3},
 		{Title: "File", Width: pathW},
-		{Title: "+/-", Width: 14},
+		{Title: "+/-", Width: 7},
 	}
 	rows := make([]table.Row, 0, len(p.files))
 	for _, f := range p.files {
@@ -113,21 +181,12 @@ func (p *GitPanel) rebuildTable(termW, termH int) {
 		}
 		rows = append(rows, table.Row{f.Status, display, stats})
 	}
-	// table.WithHeight subtracts the 2-line header from the viewport, so the
-	// total height we pass must include those 2 lines to show every row.
 	const headerLines = 2
-	bodyH := len(rows)
-	if bodyH < 1 {
-		bodyH = 1
-	}
-	if max := termH - 14; max > 0 && bodyH > max {
-		bodyH = max
-	}
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(bodyH+headerLines),
+		table.WithFocused(p.focus == focusFiles),
+		table.WithHeight(bodyH-headerLines),
 	)
 	s := table.DefaultStyles()
 	s.Header = s.Header.
@@ -142,38 +201,88 @@ func (p *GitPanel) rebuildTable(termW, termH int) {
 		Bold(true)
 	t.SetStyles(s)
 	p.table = t
+	p.lastCursor = t.Cursor()
+
+	vp := viewport.New(rightW, bodyH-1) // -1 to make room for the title row
+	vp.SetContent(p.rightContent)
+	if p.rightTitle == "" {
+		p.rightTitle = "diff"
+	}
+	p.right = vp
 }
 
 func (p *GitPanel) Close() {
 	p.active = false
 	p.files = nil
-	p.mode = gitPanelList
+	p.input = inputNone
+	p.focus = focusFiles
+	p.rightView = rightDiff
 	p.thenSync = false
 	p.hasRemote = false
-	p.outputPending = nil
+	p.diffCache = nil
+	p.rightTitle = ""
 }
 
-func (p *GitPanel) ShowOutput(title, content string, pending tea.Msg, termW, termH int) {
-	vw := termW - 14
-	if vw < 40 {
-		vw = 40
+func (p *GitPanel) SetDiffForFile(path, content string) {
+	if p.diffCache == nil {
+		p.diffCache = map[string]string{}
 	}
-	if vw > 120 {
-		vw = 120
+	p.diffCache[path] = content
+	if p.rightView != rightDiff {
+		return
 	}
-	vh := termH - 12
-	if vh < 5 {
-		vh = 5
+	if cur, ok := p.CurrentFile(); !ok || cur.Path != path {
+		return
 	}
-	if vh > 20 {
-		vh = 20
+	p.rightTitle = "diff: " + path
+	p.rightContent = content
+	p.right.SetContent(content)
+	p.right.GotoTop()
+}
+
+func (p *GitPanel) SetLog(content string) {
+	p.rightView = rightLog
+	p.rightTitle = "log"
+	p.rightContent = content
+	p.right.SetContent(content)
+	p.right.GotoTop()
+}
+
+func (p *GitPanel) CurrentFile() (kbrdfs.FileChange, bool) {
+	if len(p.files) == 0 {
+		return kbrdfs.FileChange{}, false
 	}
-	vp := viewport.New(vw, vh)
-	vp.SetContent(content)
-	p.output = vp
-	p.outputTitle = title
-	p.outputPending = pending
-	p.mode = gitPanelOutput
+	idx := p.table.Cursor()
+	if idx < 0 || idx >= len(p.files) {
+		return kbrdfs.FileChange{}, false
+	}
+	return p.files[idx], true
+}
+
+func (p *GitPanel) currentPath() string {
+	if f, ok := p.CurrentFile(); ok {
+		return f.Path
+	}
+	return ""
+}
+
+func (p *GitPanel) RightView() gitPanelRightView { return p.rightView }
+
+func (p *GitPanel) DiffRequestForCurrent() tea.Cmd {
+	f, ok := p.CurrentFile()
+	if !ok {
+		return nil
+	}
+	if cached, hit := p.diffCache[f.Path]; hit {
+		p.rightTitle = "diff: " + f.Path
+		p.rightContent = cached
+		p.right.SetContent(cached)
+		p.right.GotoTop()
+		return nil
+	}
+	return func() tea.Msg {
+		return gitDiffForFileMsg{Path: f.Path, Status: f.Status, OrigPath: f.OrigPath}
+	}
 }
 
 func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
@@ -182,25 +291,11 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	if p.mode == gitPanelOutput {
-		if key.Matches(km, Keys.GitPanelClose) {
-			pending := p.outputPending
-			p.outputPending = nil
-			p.mode = gitPanelList
-			if pending != nil {
-				return func() tea.Msg { return pending }
-			}
-			return nil
-		}
-		var cmd tea.Cmd
-		p.output, cmd = p.output.Update(km)
-		return cmd
-	}
-
-	if p.mode == gitPanelCommitInput {
+	// Active input takes most keys.
+	if p.input == inputCommit {
 		switch {
 		case key.Matches(km, Keys.GitCommitCancel):
-			p.mode = gitPanelList
+			p.input = inputNone
 			p.commitIn.Blur()
 			p.thenSync = false
 			return nil
@@ -208,7 +303,7 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 			msg := p.commitIn.Value()
 			thenSync := p.thenSync
 			p.commitIn.Blur()
-			p.mode = gitPanelList
+			p.input = inputNone
 			p.thenSync = false
 			return func() tea.Msg {
 				return gitCommitRequestMsg{Message: msg, ThenSync: thenSync}
@@ -219,16 +314,16 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 
-	if p.mode == gitPanelRemoteInput {
+	if p.input == inputRemote {
 		switch {
 		case key.Matches(km, Keys.GitCommitCancel):
-			p.mode = gitPanelList
+			p.input = inputNone
 			p.remoteIn.Blur()
 			return nil
 		case km.String() == "enter":
 			url := p.remoteIn.Value()
 			p.remoteIn.Blur()
-			p.mode = gitPanelList
+			p.input = inputNone
 			return func() tea.Msg {
 				return gitAddRemoteRequestMsg{URL: url}
 			}
@@ -238,45 +333,80 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 
+	// No input active.
 	if key.Matches(km, Keys.GitPanelClose) {
 		return func() tea.Msg { return gitPanelCloseMsg{} }
 	}
+	if key.Matches(km, Keys.GitPanelFocusToggle) {
+		p.toggleFocus()
+		return nil
+	}
 	if key.Matches(km, Keys.GitLog) {
 		return func() tea.Msg { return gitLogRequestMsg{} }
+	}
+	if key.Matches(km, Keys.GitDiff) {
+		// `d` shows current file diff (useful when right pane is on log)
+		p.rightView = rightDiff
+		return p.DiffRequestForCurrent()
 	}
 	if !p.hasRemote && key.Matches(km, Keys.GitAddRemote) {
 		p.startRemoteInput()
 		return nil
 	}
-	// When the working tree is clean, only close, log, and add-remote are active.
-	if len(p.files) == 0 {
-		return nil
-	}
-	switch {
-	case key.Matches(km, Keys.GitDiff):
-		return func() tea.Msg { return gitDiffRequestMsg{} }
-	case key.Matches(km, Keys.GitCommit):
-		p.startCommitInput(false)
-		return nil
-	case key.Matches(km, Keys.GitCommitSync):
-		if !p.hasRemote {
+	if len(p.files) > 0 {
+		switch {
+		case key.Matches(km, Keys.GitCommit):
+			p.startCommitInput(false)
 			return nil
-		}
-		p.startCommitInput(true)
-		return nil
-	case key.Matches(km, Keys.GitSync):
-		if !p.hasRemote {
+		case key.Matches(km, Keys.GitCommitSync):
+			if !p.hasRemote {
+				return nil
+			}
+			p.startCommitInput(true)
 			return nil
+		case key.Matches(km, Keys.GitSync):
+			if !p.hasRemote {
+				return nil
+			}
+			return func() tea.Msg { return gitSyncRequestMsg{} }
 		}
-		return func() tea.Msg { return gitSyncRequestMsg{} }
 	}
+
+	if p.focus == focusDiff {
+		var cmd tea.Cmd
+		p.right, cmd = p.right.Update(km)
+		return cmd
+	}
+
+	// focusFiles: delegate to table, then dispatch diff if selection changed.
 	var cmd tea.Cmd
 	p.table, cmd = p.table.Update(km)
+	if c := p.table.Cursor(); c != p.lastCursor {
+		p.lastCursor = c
+		if p.rightView == rightDiff {
+			if dc := p.DiffRequestForCurrent(); dc != nil {
+				if cmd == nil {
+					return dc
+				}
+				return tea.Batch(cmd, dc)
+			}
+		}
+	}
 	return cmd
 }
 
+func (p *GitPanel) toggleFocus() {
+	if p.focus == focusFiles {
+		p.focus = focusDiff
+		p.table.Blur()
+	} else {
+		p.focus = focusFiles
+		p.table.Focus()
+	}
+}
+
 func (p *GitPanel) startCommitInput(thenSync bool) {
-	p.mode = gitPanelCommitInput
+	p.input = inputCommit
 	p.thenSync = thenSync
 	p.commitIn.SetValue(time.Now().Format("2006-01-02 15:04:05"))
 	p.commitIn.CursorEnd()
@@ -295,78 +425,149 @@ func joinSep(parts []string, sep string) string {
 }
 
 func (p *GitPanel) startRemoteInput() {
-	p.mode = gitPanelRemoteInput
+	p.input = inputRemote
 	p.remoteIn.SetValue("")
 	p.remoteIn.Focus()
 }
+
+var (
+	paneActiveStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#3b82f6")).
+			Padding(0, 1)
+	paneIdleStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#334155")).
+			Padding(0, 1)
+)
 
 func (p *GitPanel) View() string {
 	branchLabel := p.branch
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
 	}
-	titleText := "git" + " · " + branchLabel
-	if p.mode == gitPanelOutput {
-		titleText = "git · " + p.outputTitle
-	}
-	title := helpTitleStyle.Render(titleText)
-
+	title := helpTitleStyle.Render("git · " + branchLabel)
 	sep := helpSepStyle.Render(" · ")
 
-	var body, footer string
-	switch p.mode {
-	case gitPanelOutput:
-		body = p.output.View()
-		pendingHint := ""
-		if p.outputPending != nil {
-			pendingHint = sep + helpDimStyle.Render("continues on close")
-		}
-		footer = helpKeyStyle.Render("j/k") + " " + helpLabelStyle.Render("scroll") + sep +
-			helpKeyStyle.Render("q/esc") + " " + helpLabelStyle.Render("back") + pendingHint
-	case gitPanelCommitInput:
-		if len(p.files) == 0 {
-			body = helpDimStyle.Render("working tree clean")
-		} else {
-			body = p.table.View()
-		}
-		hint := helpDimStyle.Render("  enter to commit · esc cancel")
-		if p.thenSync {
-			hint = helpDimStyle.Render("  enter to commit + sync · esc cancel")
-		}
-		footer = p.commitIn.View() + hint
-	case gitPanelRemoteInput:
-		if len(p.files) == 0 {
-			body = helpDimStyle.Render("working tree clean")
-		} else {
-			body = p.table.View()
-		}
-		hint := helpDimStyle.Render("  enter to add as origin · esc cancel")
-		footer = p.remoteIn.View() + hint
-	default: // gitPanelList
-		parts := []string{}
-		add := func(k, label string) {
-			parts = append(parts, helpKeyStyle.Render(k)+" "+helpLabelStyle.Render(label))
-		}
-		if len(p.files) == 0 {
-			body = helpDimStyle.Render("working tree clean")
-		} else {
-			body = p.table.View()
-			add("d", "diff")
-			add("c", "commit")
+	_, _, leftW, rightW := p.dims()
+
+	// Left pane: file table (or "clean" message).
+	var leftBody string
+	if len(p.files) == 0 {
+		leftBody = helpDimStyle.Render("working tree clean")
+	} else {
+		leftBody = p.table.View()
+	}
+	leftStyle := paneIdleStyle
+	if p.focus == focusFiles {
+		leftStyle = paneActiveStyle
+	}
+	leftPane := leftStyle.Width(leftW).Render(leftBody)
+
+	// Right pane: viewport with a title row that includes a scroll indicator.
+	scroll := ""
+	if p.right.TotalLineCount() > p.right.Height {
+		scroll = fmt.Sprintf("%d%%", int(p.right.ScrollPercent()*100))
+	} else if p.right.TotalLineCount() > 0 {
+		scroll = "all"
+	}
+	titleW := rightW - 4 // border 2 + padding 2
+	if titleW < 10 {
+		titleW = 10
+	}
+	leftTitle := p.rightTitle
+	if w := titleW - len(scroll) - 1; w > 0 && len(leftTitle) > w {
+		leftTitle = leftTitle[:w-1] + "…"
+	}
+	pad := titleW - len(leftTitle) - len(scroll)
+	if pad < 1 {
+		pad = 1
+	}
+	rightTitle := helpDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
+	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, p.right.View())
+	rightStyle := paneIdleStyle
+	if p.focus == focusDiff {
+		rightStyle = paneActiveStyle
+	}
+	rightPane := rightStyle.Width(rightW).Render(rightBody)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
+
+	parts := []string{}
+	add := func(k, label string) {
+		parts = append(parts, helpKeyStyle.Render(k)+" "+helpLabelStyle.Render(label))
+	}
+	if p.focus == focusDiff {
+		add("j/k", "scroll")
+		add("ctrl+u/d", "half page")
+		add("g/G", "top/bottom")
+		add("tab", "files")
+		add("q/esc", "close")
+	} else {
+		if len(p.files) > 0 {
+			add("c", "commit all")
 			if p.hasRemote {
 				add("s", "sync")
-				add("S", "commit+sync")
+				add("S", "commit all+sync")
 			}
 		}
 		if !p.hasRemote {
 			add("a", "add remote")
 		}
 		add("l", "log")
+		add("d", "diff")
+		add("tab", "scroll diff")
 		add("q/esc", "close")
-		footer = joinSep(parts, sep)
 	}
+	footer := joinSep(parts, sep)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", row, "", footer)
+	panel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3b82f6")).
+		Padding(1, 2).
+		Render(content)
+
+	if p.input != inputNone {
+		return lipgloss.Place(
+			lipgloss.Width(panel), lipgloss.Height(panel),
+			lipgloss.Center, lipgloss.Center,
+			p.inputDialog(),
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+	return panel
+}
+
+func (p *GitPanel) inputDialog() string {
+	sep := helpSepStyle.Render(" · ")
+	keyLabel := func(k, label string) string {
+		return helpKeyStyle.Render(k) + " " + helpLabelStyle.Render(label)
+	}
+	var title, body, hint string
+	switch p.input {
+	case inputCommit:
+		title = "Commit all"
+		confirmLabel := "commit all"
+		if p.thenSync {
+			title = "Commit all + sync"
+			confirmLabel = "commit all + sync"
+		}
+		body = p.commitIn.View()
+		hint = keyLabel("enter", confirmLabel) + sep + keyLabel("esc", "cancel")
+	case inputRemote:
+		title = "Add remote"
+		body = p.remoteIn.View()
+		hint = keyLabel("enter", "add as origin") + sep + keyLabel("esc", "cancel")
+	}
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f1f5f9"))
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render(title),
+		"",
+		body,
+		"",
+		hint,
+	)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3b82f6")).

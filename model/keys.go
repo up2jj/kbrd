@@ -87,15 +87,16 @@ type KeyMap struct {
 	CustomCommandsClose key.Binding
 
 	// Git panel
-	GitPanel        key.Binding
-	GitDiff         key.Binding
-	GitCommit       key.Binding
-	GitSync         key.Binding
-	GitCommitSync   key.Binding
-	GitLog          key.Binding
-	GitAddRemote    key.Binding
-	GitPanelClose   key.Binding
-	GitCommitCancel key.Binding
+	GitPanel            key.Binding
+	GitDiff             key.Binding
+	GitCommit           key.Binding
+	GitSync             key.Binding
+	GitCommitSync       key.Binding
+	GitLog              key.Binding
+	GitAddRemote        key.Binding
+	GitPanelClose       key.Binding
+	GitCommitCancel     key.Binding
+	GitPanelFocusToggle key.Binding
 }
 
 var Keys = KeyMap{
@@ -191,7 +192,8 @@ var Keys = KeyMap{
 	GitLog:          key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
 	GitAddRemote:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add remote")),
 	GitPanelClose:   key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
-	GitCommitCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	GitCommitCancel:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	GitPanelFocusToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus pane")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {

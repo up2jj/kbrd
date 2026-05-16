@@ -45,7 +45,14 @@ func (b *Board) openGitPanel() tea.Cmd {
 	hasRemote := kbrdfs.GitHasRemote(b.gitRepoRoot)
 	files := kbrdfs.GitChangedFiles(b.gitRepoRoot)
 	b.gitPanel.Open(b.gitRepoRoot, branch, hasRemote, files, b.termWidth, b.termHeight)
-	return initToast
+	diffCmd := b.gitPanel.DiffRequestForCurrent()
+	if initToast == nil {
+		return diffCmd
+	}
+	if diffCmd == nil {
+		return initToast
+	}
+	return tea.Batch(initToast, diffCmd)
 }
 
 func (b *Board) refreshGitPanel() {
@@ -58,13 +65,35 @@ func (b *Board) refreshGitPanel() {
 	b.gitPanel.Refresh(branch, hasRemote, files, b.termWidth, b.termHeight)
 }
 
-func (b *Board) handleGitDiff() (tea.Model, tea.Cmd) {
+func (b *Board) handleGitDiffForFile(msg gitDiffForFileMsg) (tea.Model, tea.Cmd) {
+	text := b.runFileDiff(msg.Path, msg.Status, msg.OrigPath)
+	b.gitPanel.SetDiffForFile(msg.Path, text)
+	return b, nil
+}
+
+func (b *Board) runFileDiff(path, status, origPath string) string {
 	tool := resolveDiffTool(b.cfg.GitDiffTool)
+
+	// Untracked: diff against /dev/null so the new file shows as additions.
+	if status == "??" {
+		return b.runGitDiff(tool, []string{"diff", "--no-index", "--", "/dev/null", path}, "(empty file)")
+	}
+
+	args := []string{"diff", "HEAD", "--"}
+	if origPath != "" {
+		args = append(args, origPath, path)
+	} else {
+		args = append(args, path)
+	}
+	return b.runGitDiff(tool, args, "(no changes)")
+}
+
+func (b *Board) runGitDiff(tool string, diffArgs []string, emptyText string) string {
 	args := []string{"--no-optional-locks", "-C", b.gitRepoRoot}
 	if tool != "difft" {
 		args = append(args, "-c", "color.ui=always")
 	}
-	args = append(args, "diff")
+	args = append(args, diffArgs...)
 	cmd := exec.Command("git", args...)
 	if tool == "difft" {
 		width := b.termWidth - 8
@@ -78,14 +107,7 @@ func (b *Board) handleGitDiff() (tea.Model, tea.Cmd) {
 			"DFT_WIDTH="+strconv.Itoa(width),
 		)
 	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return b, b.notifier.Send("git diff failed: "+detail, notifyError)
-	}
+	out, _ := cmd.CombinedOutput() // diff --no-index exits 1 on differences; ignore status
 	if tool == "diff-so-fancy" {
 		if path, err := exec.LookPath("diff-so-fancy"); err == nil {
 			pc := exec.Command(path)
@@ -97,10 +119,9 @@ func (b *Board) handleGitDiff() (tea.Model, tea.Cmd) {
 	}
 	text := strings.TrimRight(string(out), "\n")
 	if strings.TrimSpace(text) == "" {
-		text = "(no unstaged changes)"
+		text = emptyText
 	}
-	b.gitPanel.ShowOutput("diff ("+tool+")", text, nil, b.termWidth, b.termHeight)
-	return b, nil
+	return text
 }
 
 func resolveDiffTool(pref string) string {
@@ -150,16 +171,14 @@ func (b *Board) handleGitPostCommit(msg gitPostCommitMsg) (tea.Model, tea.Cmd) {
 	}
 	b.refreshGitStats()
 	b.refreshGitPanel()
-	output := strings.TrimSpace(msg.Output)
-	if output == "" {
-		output = "commit succeeded (no output)"
+	cmds := []tea.Cmd{b.notifier.Send("commit ok", notifySuccess)}
+	if c := b.gitPanel.DiffRequestForCurrent(); c != nil {
+		cmds = append(cmds, c)
 	}
-	var pending tea.Msg
 	if msg.ThenSync {
-		pending = gitContinueSyncMsg{}
+		cmds = append(cmds, func() tea.Msg { return gitContinueSyncMsg{} })
 	}
-	b.gitPanel.ShowOutput("commit", output, pending, b.termWidth, b.termHeight)
-	return b, nil
+	return b, tea.Batch(cmds...)
 }
 
 func (b *Board) handleGitLog() (tea.Model, tea.Cmd) {
@@ -176,7 +195,7 @@ func (b *Board) handleGitLog() (tea.Model, tea.Cmd) {
 	if text == "" {
 		text = "(no commits yet)"
 	}
-	b.gitPanel.ShowOutput("log", text, nil, b.termWidth, b.termHeight)
+	b.gitPanel.SetLog(text)
 	return b, nil
 }
 

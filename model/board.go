@@ -321,8 +321,8 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitPanelCloseMsg:
 		return b.handleGitPanelClose()
 
-	case gitDiffRequestMsg:
-		return b.handleGitDiff()
+	case gitDiffForFileMsg:
+		return b.handleGitDiffForFile(msg)
 
 	case gitCommitRequestMsg:
 		return b.handleGitCommit(msg)
