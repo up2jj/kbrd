@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -58,6 +60,63 @@ func (a boardScriptAPI) Notify(msg, level string) {
 		sev = notifyError
 	}
 	a.b.notifier.fire(msg, sev)
+}
+
+// resolve returns path as-is if absolute, otherwise joined against the
+// board root. All kbrd.fs.* methods funnel through here so behavior is
+// consistent and predictable for scripts that pass in short names.
+func (a boardScriptAPI) resolve(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(a.b.cfg.Path, path)
+}
+
+func (a boardScriptAPI) FSRead(path string) (string, error) {
+	data, err := os.ReadFile(a.resolve(path))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (a boardScriptAPI) FSWrite(path, body string) error {
+	return os.WriteFile(a.resolve(path), []byte(body), 0o644)
+}
+
+func (a boardScriptAPI) FSExists(path string) bool {
+	_, err := os.Stat(a.resolve(path))
+	return err == nil
+}
+
+func (a boardScriptAPI) FSMkdir(path string) error {
+	return os.MkdirAll(a.resolve(path), 0o755)
+}
+
+func (a boardScriptAPI) FSGlob(pattern string) ([]string, error) {
+	return filepath.Glob(a.resolve(pattern))
+}
+
+func (a boardScriptAPI) Refresh() error {
+	if err := a.b.loadColumns(); err != nil {
+		return err
+	}
+	a.b.refreshGitStats()
+	return nil
+}
+
+func (a boardScriptAPI) CreateColumn(name string) error {
+	if err := validateRenameName(name); err != nil {
+		return err
+	}
+	dir := filepath.Join(a.b.cfg.Path, name)
+	if _, err := os.Stat(dir); err == nil {
+		return fmt.Errorf("column %q already exists", name)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return a.Refresh()
 }
 
 func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {

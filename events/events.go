@@ -83,11 +83,27 @@ func safeDispatch(s Subscriber, ev Event) {
 // Lua script wants to mutate the board or talk to the user. Methods MUST
 // be safe to invoke from any goroutine — the implementation is responsible
 // for routing onto the UI thread if needed.
+//
+// FS* paths may be absolute or relative; relative paths are resolved
+// against the board root by the implementation.
 type BoardAPI interface {
 	// Notify shows a non-blocking toast. level is one of "info", "success", "error".
 	Notify(msg, level string)
 	// MoveItem moves the item identified by item to the column named toColumn.
 	MoveItem(item ItemRef, toColumn string) error
+
+	// Filesystem primitives.
+	FSRead(path string) (string, error)
+	FSWrite(path, body string) error
+	FSExists(path string) bool
+	FSMkdir(path string) error
+	FSGlob(pattern string) ([]string, error)
+
+	// Refresh re-reads columns and git stats from disk.
+	Refresh() error
+	// CreateColumn creates a new column directory under the board root and
+	// refreshes. Validates name (no separators, not . or ..).
+	CreateColumn(name string) error
 }
 
 // Logger is the structured logging sink the script subsystem writes to.
