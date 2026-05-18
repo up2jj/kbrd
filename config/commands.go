@@ -19,11 +19,26 @@ const (
 	FolderCommandsFile = ".kbrd_commands.yml"
 )
 
+// CommandSource identifies how a command's body is executed.
+// "sh" means a shell template rendered through text/template and run via `sh -c`.
+// "lua" means a Lua callback registered at runtime via the script subsystem.
+type CommandSource string
+
+const (
+	SourceShell CommandSource = "sh"
+	SourceLua   CommandSource = "lua"
+)
+
 type Command struct {
 	Name        string `yaml:"name"`
 	Shortcut    string `yaml:"shortcut"`
 	Description string `yaml:"description"`
 	Template    string `yaml:"command"`
+	// Source is populated by the loader/registrar; never read from YAML.
+	Source CommandSource `yaml:"-"`
+	// LuaRef is opaque to non-script code; the script subsystem uses it to
+	// dispatch back to the registered callback. Empty for shell commands.
+	LuaRef string `yaml:"-"`
 }
 
 type commandsFile struct {
@@ -118,6 +133,7 @@ func readCommandsFile(path string) ([]Command, []CommandLoadWarning, error) {
 			})
 			continue
 		}
+		c.Source = SourceShell
 		out = append(out, c)
 	}
 	return out, warnings, nil

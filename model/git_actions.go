@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kbrd/events"
 	kbrdfs "kbrd/fs"
 )
 
@@ -210,6 +211,7 @@ func (b *Board) handleGitSyncStep(msg gitSyncStepMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil {
 		b.refreshGitStats()
 		b.refreshGitPanel()
+		b.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
 		return b, b.notifier.Send("git "+msg.Stage+" failed: "+msg.Err.Error(), notifyError)
 	}
 	if msg.Stage == "pull" && msg.ThenPush {
@@ -220,6 +222,7 @@ func (b *Board) handleGitSyncStep(msg gitSyncStepMsg) (tea.Model, tea.Cmd) {
 	}
 	b.refreshGitStats()
 	b.refreshGitPanel()
+	b.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
 	return b, b.notifier.Send("sync ok", notifySuccess)
 }
 
@@ -287,10 +290,12 @@ func (b *Board) handleAutoSyncDone(msg autoSyncDoneMsg) (tea.Model, tea.Cmd) {
 		if detail == "" {
 			detail = msg.Err.Error()
 		}
+		b.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: detail})
 		return b, b.notifier.Send("auto-sync "+msg.Stage+" failed: "+detail, notifyError)
 	}
 	b.refreshGitStats()
 	b.refreshGitPanel()
+	b.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
 	return b, nil
 }
 

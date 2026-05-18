@@ -28,8 +28,32 @@ func (b *Board) loadCommands() {
 		b.commandWarnings = []config.CommandLoadWarning{{Source: "commands", Message: err.Error()}}
 		return
 	}
+	// Lua-registered commands come from the script host; they slot into the
+	// same menu and follow the same shortcut-precedence rule as YAML entries
+	// (later wins, mirroring folder-overrides-global).
+	if b.scripts != nil {
+		cmds = mergeWithLuaCommands(cmds, b.scripts.Commands())
+	}
 	b.commands = cmds
 	b.commandWarnings = warnings
+}
+
+// mergeWithLuaCommands returns shell cmds + lua cmds, with lua entries
+// shadowing shell entries that share a shortcut.
+func mergeWithLuaCommands(shell, lua []config.Command) []config.Command {
+	out := make([]config.Command, 0, len(shell)+len(lua))
+	lset := make(map[string]bool, len(lua))
+	for _, c := range lua {
+		lset[c.Shortcut] = true
+	}
+	for _, c := range shell {
+		if lset[c.Shortcut] {
+			continue
+		}
+		out = append(out, c)
+	}
+	out = append(out, lua...)
+	return out
 }
 
 func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
@@ -46,6 +70,12 @@ func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 }
 
 func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.Cmd) {
+	if msg.Cmd.Source == config.SourceLua {
+		err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
+		return b, func() tea.Msg {
+			return customCommandFinishedMsg{Name: msg.Cmd.Name, Err: err}
+		}
+	}
 	rendered, err := msg.Cmd.Render(msg.Vars)
 	if err != nil {
 		return b, b.notifier.Send("template error: "+err.Error(), notifyError)
@@ -165,10 +195,16 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 			if i == m.selected {
 				gutter = gutterSel
 			}
+			source := string(c.Source)
+			if source == "" {
+				source = string(config.SourceShell)
+			}
+			tag := " (" + source + ")"
 			line := "[" + c.Shortcut + "] " + c.Name
 			if c.Description != "" {
 				line += "  —  " + c.Description
 			}
+			line += tag
 			if i == m.selected {
 				rows = append(rows, gutter+" "+selStyle.Render(" "+line+" "))
 				continue
@@ -177,6 +213,7 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 			if c.Description != "" {
 				styled += "  " + descStyle.Render(c.Description)
 			}
+			styled += " " + descStyle.Render("("+source+")")
 			rows = append(rows, gutter+" "+styled)
 		}
 		body = lipgloss.JoinVertical(lipgloss.Left, rows...)

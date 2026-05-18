@@ -15,8 +15,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"kbrd/config"
+	"kbrd/events"
 	kbrdfs "kbrd/fs"
 	"kbrd/recents"
+	"kbrd/script"
 )
 
 const Version = "v0.1.0"
@@ -84,6 +86,9 @@ type Board struct {
 
 	gitSyncing bool // auto-sync in progress
 
+	bus     events.Bus
+	scripts *script.Host
+
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
 	refByMnemonic map[string]itemRef
@@ -121,6 +126,7 @@ func NewBoard(cfg config.Config) *Board {
 		quickCmdInput: ti,
 		theme:         cfg.Theme,
 	}
+	b.initScripting()
 	b.loadCommands()
 	return b
 }
@@ -963,6 +969,7 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	b.cfg = newCfg
 	b.theme = newCfg.Theme
 	b.selectedCol = 0
+	b.initScripting()
 	b.loadCommands()
 
 	if err := b.loadColumns(); err != nil {

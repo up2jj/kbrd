@@ -32,6 +32,17 @@ type Config struct {
 	BoardName     string
 	GitDiffTool         string
 	GitAutoSyncInterval time.Duration
+
+	Scripting ScriptingConfig
+}
+
+// ScriptingConfig controls the embedded Lua scripting subsystem.
+// When Enabled is false, no Lua VM is created and no script files are read.
+type ScriptingConfig struct {
+	Enabled          bool
+	CommandTimeoutMs int
+	HookTimeoutMs    int
+	InstructionLimit int
 }
 
 func Load(path string) (Config, error) {
@@ -52,6 +63,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
 	v.SetDefault("git.auto_sync_interval", "")
+	v.SetDefault("scripting.enabled", true)
+	v.SetDefault("scripting.command_timeout_ms", 2000)
+	v.SetDefault("scripting.hook_timeout_ms", 500)
+	v.SetDefault("scripting.instruction_limit", 10000000)
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -96,5 +111,11 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		BoardName:           v.GetString("board.name"),
 		GitDiffTool:         v.GetString("git.diff_tool"),
 		GitAutoSyncInterval: autoSync,
+		Scripting: ScriptingConfig{
+			Enabled:          v.GetBool("scripting.enabled"),
+			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),
+			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
+			InstructionLimit: v.GetInt("scripting.instruction_limit"),
+		},
 	}, nil
 }
