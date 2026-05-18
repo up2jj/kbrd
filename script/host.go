@@ -53,13 +53,50 @@ type Host struct {
 	L *lua.LState
 
 	commands []luaCommand
-	hooks    map[string][]*lua.LFunction
+	hooks    map[string][]*hookEntry
 
 	pending  map[string]*pendingCoro
 	tokenSeq int
 
 	running  bool
 	deferred []events.Event
+
+	timers        map[string]*timerEntry
+	pendingTimers []TimerSchedule
+
+	// inTimer is set while FireTimer is on the stack — including the
+	// deferred event drain that follows. It blocks scripts from scheduling
+	// new timers from inside a timer callback (or from a hook triggered by
+	// that callback's side effects), which would otherwise let users build
+	// exponentially-growing timer pyramids by mistake.
+	inTimer bool
+}
+
+// timerEntry holds a Lua callback function registered via kbrd.timer.every
+// or kbrd.timer.after. Repeating timers re-enqueue themselves after firing.
+// consecutiveErrors counts back-to-back failures so the host can auto-
+// disable misbehaving timers (see cfg.ErrorThreshold).
+type timerEntry struct {
+	fn                *lua.LFunction
+	interval          time.Duration
+	repeat            bool
+	consecutiveErrors int
+}
+
+// hookEntry wraps a registered hook function with its consecutive-error
+// counter. A failing hook is removed from its event's slice once the
+// counter reaches cfg.ErrorThreshold; the user sees a final "disabled
+// after N errors" notification and the rest of the hooks keep firing.
+type hookEntry struct {
+	fn                *lua.LFunction
+	consecutiveErrors int
+}
+
+// TimerSchedule is returned by PendingTimers and tells the model how long
+// to wait before sending a scriptTimerMsg for Token.
+type TimerSchedule struct {
+	Token    string
+	Duration time.Duration
 }
 
 type luaCommand struct {
@@ -95,8 +132,9 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 		api:     api,
 		logger:  logger,
 		L:       L,
-		hooks:   make(map[string][]*lua.LFunction),
+		hooks:   make(map[string][]*hookEntry),
 		pending: make(map[string]*pendingCoro),
+		timers:  make(map[string]*timerEntry),
 	}
 	h.installAPI()
 
@@ -129,7 +167,9 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 	return h, firstErr
 }
 
-// Close releases the underlying Lua VM.
+// Close releases the underlying Lua VM and drops all registered callbacks.
+// After Close, the host returns nil/no-op for all operations. Safe to call
+// twice. Called by initScripting before re-creating the host on board switch.
 func (h *Host) Close() {
 	if h == nil {
 		return
@@ -138,6 +178,14 @@ func (h *Host) Close() {
 		h.L.Close()
 		h.L = nil
 	}
+	// Drop references so any tea.Ticks still in flight find nothing to do
+	// and the GC can reclaim closures/payloads promptly.
+	h.commands = nil
+	h.hooks = nil
+	h.pending = nil
+	h.timers = nil
+	h.pendingTimers = nil
+	h.deferred = nil
 }
 
 // Commands returns the Lua-registered commands as config.Command values,
@@ -209,6 +257,73 @@ func (h *Host) CancelPending() {
 		return
 	}
 	h.pending = make(map[string]*pendingCoro)
+}
+
+// PendingTimers drains the queue of timer schedules accumulated since the
+// last call. The model is expected to convert each into a tea.Tick that
+// produces a scriptTimerMsg{Token} when the duration elapses.
+func (h *Host) PendingTimers() []TimerSchedule {
+	if h == nil {
+		return nil
+	}
+	out := h.pendingTimers
+	h.pendingTimers = nil
+	return out
+}
+
+// FireTimer is called by the model when a tea.Tick scheduled by an earlier
+// PendingTimers entry fires. It invokes the timer's Lua callback (as a
+// hook — no coroutine, no UI) and, if the timer is repeating, schedules
+// the next tick. Unknown tokens are silently ignored, which is how cancel
+// works: we just drop the timer from the map and any in-flight tick becomes
+// a no-op.
+func (h *Host) FireTimer(token string) error {
+	if h == nil {
+		return nil
+	}
+	e, ok := h.timers[token]
+	if !ok {
+		return nil
+	}
+	// Run as a hook — timers may not use kbrd.ui.* (no coroutine).
+	h.running = true
+	h.inTimer = true
+	defer func() {
+		h.running = false
+		pending := h.deferred
+		h.deferred = nil
+		for _, ev := range pending {
+			h.OnEvent(ev)
+		}
+		// Reset inTimer LAST so the deferred drain above (which fires hook
+		// bodies for any side-effect events) is also blocked from
+		// scheduling new timers.
+		h.inTimer = false
+	}()
+	err := h.invokeHook(e.fn, map[string]interface{}{"token": token})
+	if err != nil {
+		e.consecutiveErrors++
+		h.logger.Log("error", "timer "+token, err.Error())
+		h.api.Notify("timer: "+err.Error(), "error")
+		if h.cfg.ErrorThreshold > 0 && e.consecutiveErrors >= h.cfg.ErrorThreshold {
+			delete(h.timers, token)
+			h.api.Notify(fmt.Sprintf("timer disabled after %d errors", e.consecutiveErrors), "error")
+			return err
+		}
+	} else {
+		e.consecutiveErrors = 0
+	}
+	if e.repeat {
+		// Re-arm. If the timer was cancelled during its own callback (or
+		// auto-disabled above), the map entry is gone and we shouldn't
+		// reschedule.
+		if _, still := h.timers[token]; still {
+			h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: e.interval})
+		}
+	} else {
+		delete(h.timers, token)
+	}
+	return err
 }
 
 // runDuringCall wraps driveResume with the running flag and a deferred-event
@@ -351,12 +466,43 @@ func (h *Host) OnEvent(ev events.Event) {
 		})
 	case events.BoardLoad:
 		h.fireHook("board_load", map[string]interface{}{})
+	case events.BoardRefresh:
+		h.fireHook("board_refresh", map[string]interface{}{"reason": e.Reason})
+	case events.ItemSelect:
+		h.fireHook("item_select", map[string]interface{}{
+			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+			"prev": map[string]interface{}{"column": e.Prev.Column, "name": e.Prev.Name},
+		})
+	case events.ColumnChange:
+		h.fireHook("column_change", map[string]interface{}{
+			"column": e.Column,
+			"prev":   e.Prev,
+		})
+	case events.ItemOpen:
+		h.fireHook("item_open", map[string]interface{}{
+			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+			"kind": e.Kind,
+		})
+	case events.ItemCreated:
+		h.fireHook("item_created", map[string]interface{}{
+			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		})
+	case events.ItemRenamed:
+		h.fireHook("item_renamed", map[string]interface{}{
+			"item":    map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+			"oldName": e.OldName,
+		})
+	case events.ItemDeleted:
+		h.fireHook("item_deleted", map[string]interface{}{
+			"column": e.Column,
+			"name":   e.Name,
+		})
 	}
 }
 
 func (h *Host) fireHook(name string, payload map[string]interface{}) {
-	fns := h.hooks[name]
-	if len(fns) == 0 {
+	entries := h.hooks[name]
+	if len(entries) == 0 {
 		return
 	}
 	// Hooks run via PCall; their bodies may publish events. Mark the host
@@ -365,17 +511,43 @@ func (h *Host) fireHook(name string, payload map[string]interface{}) {
 	h.running = true
 	defer func() {
 		h.running = false
-		// Drain any events queued by hook bodies.
 		pending := h.deferred
 		h.deferred = nil
 		for _, ev := range pending {
 			h.OnEvent(ev)
 		}
 	}()
-	for _, fn := range fns {
-		if err := h.invokeHook(fn, payload); err != nil {
+	// Track which entries to drop after the iteration (we can't mutate the
+	// slice mid-loop and keep behavior obvious). Indices are into entries.
+	var disable []int
+	for i, e := range entries {
+		err := h.invokeHook(e.fn, payload)
+		if err != nil {
+			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+name, err.Error())
 			h.api.Notify("hook "+name+": "+err.Error(), "error")
+			if h.cfg.ErrorThreshold > 0 && e.consecutiveErrors >= h.cfg.ErrorThreshold {
+				disable = append(disable, i)
+			}
+		} else {
+			e.consecutiveErrors = 0
+		}
+	}
+	if len(disable) > 0 {
+		kept := make([]*hookEntry, 0, len(entries)-len(disable))
+		j := 0
+		for i, e := range entries {
+			if j < len(disable) && disable[j] == i {
+				h.api.Notify(fmt.Sprintf("hook %s disabled after %d errors", name, e.consecutiveErrors), "error")
+				j++
+				continue
+			}
+			kept = append(kept, e)
+		}
+		if len(kept) == 0 {
+			delete(h.hooks, name)
+		} else {
+			h.hooks[name] = kept
 		}
 	}
 }

@@ -162,6 +162,11 @@ func (b *Board) Init() tea.Cmd {
 	if c := b.scheduleAutoSync(); c != nil {
 		cmds = append(cmds, c)
 	}
+	// Pick up any timers scheduled at the top level of init.lua, so the
+	// first tick fires without needing a command invocation to drive it.
+	if c := b.collectTimerCmds(); c != nil {
+		cmds = append(cmds, c)
+	}
 	if len(cmds) == 1 {
 		return startup
 	}
@@ -239,7 +244,24 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if b.quitting {
 		return b, nil
 	}
+	prevCol, prevItem := b.snapshotSelection()
+	model, cmd := b.updateInner(msg)
+	// Selection events may fire hooks that schedule timers; collectTimerCmds
+	// must run AFTER emitSelectionChanges so those timers get tea.Ticked.
+	b.emitSelectionChanges(prevCol, prevItem)
+	if tcmd := b.collectTimerCmds(); tcmd != nil {
+		if cmd == nil {
+			cmd = tcmd
+		} else {
+			cmd = tea.Batch(cmd, tcmd)
+		}
+	}
+	return model, cmd
+}
 
+// updateInner is the original Update body. Wrapped by Update so that hooks
+// fired anywhere along the call path get their timer side-effects scheduled.
+func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width
@@ -266,6 +288,7 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case watchMsg:
 		b.loadColumns()
 		b.refreshGitStats()
+		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.watchCmd()
 
 	case initBoardRequestMsg:
@@ -345,6 +368,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptResumeMsg:
 		return b.handleScriptResume(msg)
+
+	case scriptTimerMsg:
+		return b.handleScriptTimer(msg)
 
 	case gitPanelCloseMsg:
 		return b.handleGitPanelClose()
@@ -549,6 +575,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, Keys.Edit):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
+			b.bus.Publish(events.ItemOpen{
+				Item: events.ItemRef{Column: col.Name, Name: item.Name},
+				Kind: "edit",
+			})
 			return b, b.editor.OpenEdit(b.selectedCol, item.Name, item.FullPath)
 		}
 	case key.Matches(msg, Keys.Append):
@@ -587,6 +617,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return b, b.notifier.Send("failed to open: "+err.Error(), notifyError)
 			}
+			b.bus.Publish(events.ItemOpen{
+				Item: events.ItemRef{Column: col.Name, Name: item.Name},
+				Kind: "external",
+			})
 			return b, b.notifier.Send("opened "+item.Name, notifySuccess)
 		}
 	case key.Matches(msg, Keys.Pin):
@@ -769,6 +803,7 @@ func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
 	}
+	b.bus.Publish(events.ItemCreated{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}})
 	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
 }
 
@@ -839,6 +874,10 @@ func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, te
 			break
 		}
 	}
+	b.bus.Publish(events.ItemRenamed{
+		Item:    events.ItemRef{Column: col.Name, Name: msg.NewName},
+		OldName: msg.OldName,
+	})
 	return b, b.notifier.Send("renamed "+msg.OldName+" → "+msg.NewName, notifySuccess)
 }
 
@@ -860,6 +899,7 @@ func (b *Board) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
+	b.bus.Publish(events.ItemDeleted{Column: col.Name, Name: msg.FileName})
 	return b, b.notifier.Send("deleted "+msg.FileName, notifySuccess)
 }
 
@@ -1113,6 +1153,7 @@ func (b *Board) refresh() tea.Cmd {
 		if err := b.loadColumns(); err != nil {
 			return notifyMsg{Message: "failed to refresh: " + err.Error(), Type: notifyError}
 		}
+		b.bus.Publish(events.BoardRefresh{Reason: "refresh"})
 		return notifyMsg{Message: "refreshed", Type: notifySuccess}
 	}
 }

@@ -43,6 +43,10 @@ type ScriptingConfig struct {
 	CommandTimeoutMs int
 	HookTimeoutMs    int
 	InstructionLimit int
+	// ErrorThreshold is the number of consecutive errors that disables a
+	// failing timer or hook. 0 means "never auto-disable" — useful if you
+	// want a periodically-flaky script to keep retrying forever. Default 3.
+	ErrorThreshold int
 }
 
 func Load(path string) (Config, error) {
@@ -67,6 +71,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.command_timeout_ms", 2000)
 	v.SetDefault("scripting.hook_timeout_ms", 500)
 	v.SetDefault("scripting.instruction_limit", 10000000)
+	v.SetDefault("scripting.error_threshold", 3)
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -116,6 +121,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),
 			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
 			InstructionLimit: v.GetInt("scripting.instruction_limit"),
+			ErrorThreshold:   v.GetInt("scripting.error_threshold"),
 		},
 	}, nil
 }

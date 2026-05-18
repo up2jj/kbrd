@@ -47,6 +47,7 @@ enabled            = true     # master switch — false disables the whole subsy
 command_timeout_ms = 2000     # wall-clock budget for kbrd.command callbacks
 hook_timeout_ms    = 500      # stricter budget for event hooks (they fire on hot paths)
 instruction_limit  = 10000000 # backstop against pure-CPU infinite loops
+error_threshold    = 3        # auto-disable a timer/hook after N consecutive errors (0 = never)
 ```
 
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
@@ -81,14 +82,23 @@ end)
 
 Currently emitted events:
 
-| Event           | Payload                                          | Fired at                              |
-| --------------- | ------------------------------------------------ | ------------------------------------- |
-| `git_sync_done` | `{ok, stage, error}`                             | After manual or auto git sync finishes |
-| `item_moved`    | `{item = {column, name}, from, to}`              | After `kbrd.board.move`               |
-| `board_load`    | `{}`                                             | After board's columns first load      |
+| Event           | Payload                                                  | Fired at                                                  |
+| --------------- | -------------------------------------------------------- | --------------------------------------------------------- |
+| `board_load`    | `{}`                                                     | After the board's columns first load                      |
+| `board_refresh` | `{reason}` — `"watcher"` / `"refresh"` / `"command"`     | After columns are reloaded from disk                      |
+| `item_select`   | `{item = {column, name}, prev = {column, name}}`         | Cursor lands on a different item                          |
+| `column_change` | `{column, prev}`                                         | Active column changes (left/right keys, mouse, etc.)      |
+| `item_open`     | `{item, kind}` — kind is `"edit"` / `"external"`         | User opens an item for editing                            |
+| `item_created`  | `{item}`                                                 | After a new item is created                               |
+| `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
+| `item_deleted`  | `{column, name}`                                         | After delete confirmation completes                       |
+| `item_moved`    | `{item, from, to}`                                       | After `kbrd.board.move` succeeds                          |
+| `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
+| `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 
-(More events — `item_select`, `column_change`, `item_open`, etc. — are
-planned but not yet emitted.)
+Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
+command callback) are **deferred** until the script returns, then dispatched
+in order. This prevents re-entering the Lua VM mid-call.
 
 ---
 
@@ -229,6 +239,55 @@ script resumes with the answer. While the UI is open:
 Hooks (`kbrd.on`) **cannot** call `kbrd.ui.*` — they run synchronously
 and have nowhere to yield to. A yield from a hook is dropped silently.
 
+### `kbrd.timer.every(intervalMs, fn)` / `kbrd.timer.after(delayMs, fn)`
+
+Schedule a callback to run repeatedly (`every`) or once (`after`). Returns
+an opaque handle string. The callback receives one argument — a table with
+the timer's `token` (handy if you want to cancel from inside).
+
+```lua
+local h = kbrd.timer.every(30000, function()
+  kbrd.notify("30 seconds passed")
+end)
+
+kbrd.timer.after(2000, function()
+  kbrd.notify("reminder")
+end)
+```
+
+Semantics:
+
+- **Minimum interval: 100 ms.** Smaller values are silently clamped.
+- **No drift correction.** `every` schedules the next tick after the
+  previous callback returns, so a 1 s timer that takes 1.5 s to run fires
+  again 1 s after that — total ~2.5 s.
+- Timers run as **hooks** — they can mutate the board, but cannot open
+  `kbrd.ui.*` (no coroutine context). Use a flag set by the timer and a
+  command for the interactive part if you need that.
+- Subject to the `scripting.hook_timeout_ms` watchdog (default 500 ms).
+- **No nested registration.** A timer callback (and any hook fired by its
+  side effects) cannot call `kbrd.timer.every/after`, `kbrd.command`, or
+  `kbrd.on`. This prevents exponentially-growing timer pyramids, hidden
+  command surface, and other footguns. Each of those calls raises a Lua
+  error — wrap with `pcall` if you genuinely want to attempt it. Repeating
+  timers (`every`) re-arm internally, so they keep firing without needing
+  to call back into Lua.
+- **No UI from a timer.** `kbrd.ui.pick / prompt / confirm` cannot run from
+  a timer body — they rely on a coroutine that timers don't have. Set a
+  flag from the timer and open the UI from a command if you need
+  interaction.
+- **`kbrd.timer.cancel(handle)` is allowed from inside a timer**, so
+  self-cancelling patterns work (`if condition then kbrd.timer.cancel(token) end`).
+
+### `kbrd.timer.cancel(handle)`
+
+Stop a timer. Any tick already in flight becomes a no-op. Safe to call on
+an unknown handle.
+
+```lua
+kbrd.timer.cancel(h)
+```
+
 ### `kbrd.fs.read(path)`
 
 Read a file. Returns the content as a string, or `nil, err`.
@@ -301,8 +360,39 @@ A broken script can never crash kbrd. Every Lua call is wrapped:
   if not ok then kbrd.notify(err, "error") end
   ```
 
+### Auto-disable on consecutive errors
+
+Repeating timers and event hooks fire many times, so a single broken
+callback could spam notifications and waste CPU forever. The host tracks
+each timer's and each hook function's consecutive error count and
+auto-disables it after `scripting.error_threshold` (default 3) errors in
+a row.
+
+- Every error fires a normal `timer: ...` / `hook ...: ...` notification.
+- On the Nth consecutive error, the timer is removed from the timer map
+  (or the hook is removed from its event's subscriber list) and a final
+  notification fires: `timer disabled after 3 errors` /
+  `hook git_sync_done disabled after 3 errors`.
+- A successful run resets the counter — flaky callbacks that mostly
+  succeed keep running indefinitely.
+- Set `scripting.error_threshold = 0` in `config.toml` to disable the
+  auto-disable behavior — useful if you want a known-flaky callback to
+  retry forever (e.g. a network poller you'd rather have keep trying than
+  silently die after a few transient failures).
+- The detailed error (including Lua stack trace) is appended to
+  `~/.cache/kbrd/script.log` regardless.
+
+The same threshold applies to both timers and hooks. Commands are not
+auto-disabled — they only run on explicit user action, so error spam
+isn't a risk.
+
 Detailed errors (stack traces, hook failures) are appended to
 `~/.cache/kbrd/script.log`.
+
+**`os.exit` is disabled.** Calling it from any script raises a Lua error
+rather than terminating kbrd. There's no legitimate use for tearing down
+the process from a config script, and an accidental call would corrupt
+the terminal mid-render.
 
 ---
 
@@ -312,15 +402,12 @@ These are planned but not in the current build:
 
 - `kbrd.shell.run / exec` — capture or take over a shell command
 - `kbrd.git.*` — read-only mirrors of kbrd's git helpers
-- `kbrd.timer.every / after` — scheduled callbacks
-- `kbrd.async` — background work
+- `kbrd.async` — background work without blocking the UI
 - `kbrd.log.*` — structured logging from scripts
 - `kbrd.inspect` — table pretty-printer
 - `kbrd.config.get / all` — read kbrd config from Lua
 - Bundled `require("json")`, `require("re")`, `require("http")`
 - `~/.config/kbrd/lua/?.lua` package path for `require`
-- More events: `item_select`, `column_change`, `item_open`,
-  `item_created/renamed/deleted`, `board_refresh`, etc.
 
 The full Lua standard library that ships with gopher-lua *is* available
 (`string`, `table`, `math`, `io`, `os`), so most things are doable today —
@@ -391,6 +478,32 @@ kbrd.command("X", "Archive (confirmed)", function(ctx)
   if not kbrd.ui.confirm("Archive " .. ctx.fileName .. "?") then return end
   if not kbrd.fs.exists("archive") then kbrd.board.createColumn("archive") end
   kbrd.board.move(ctx, "archive")
+end)
+```
+
+### Periodic stats dump
+
+```lua
+kbrd.timer.every(30000, function()
+  local lines = {}
+  for _, dir in ipairs(kbrd.fs.glob("*")) do
+    local name = dir:match("([^/]+)$")
+    if name and not name:match("^%.") then
+      local items = kbrd.fs.glob(name .. "/*.md")
+      table.insert(lines, name .. ": " .. #items)
+    end
+  end
+  kbrd.fs.write("/tmp/kbdr-stats.txt", table.concat(lines, "\n") .. "\n")
+end)
+```
+
+### Auto-pin on item open
+
+```lua
+kbrd.on("item_open", function(evt)
+  -- pin recently-edited items so they float to the top of the column
+  -- (illustrative — needs kbrd.board.pin which is planned)
+  kbrd.notify("opened: " .. evt.item.name)
 end)
 ```
 

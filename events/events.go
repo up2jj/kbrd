@@ -40,6 +40,63 @@ type BoardLoad struct{}
 
 func (BoardLoad) eventTag() {}
 
+// BoardRefresh fires after columns are reloaded from disk (watcher event,
+// explicit refresh, or after a custom command).
+type BoardRefresh struct {
+	Reason string // "watcher" | "command" | "refresh"
+}
+
+func (BoardRefresh) eventTag() {}
+
+// ItemSelect fires when the cursor lands on a different item than before.
+// Prev is the zero ItemRef on the very first selection.
+type ItemSelect struct {
+	Item ItemRef
+	Prev ItemRef
+}
+
+func (ItemSelect) eventTag() {}
+
+// ColumnChange fires when the active column index changes.
+type ColumnChange struct {
+	Column string
+	Prev   string
+}
+
+func (ColumnChange) eventTag() {}
+
+// ItemOpen fires when the user opens an item for editing (internally or
+// externally). Append/Prepend/Journal also count.
+type ItemOpen struct {
+	Item ItemRef
+	Kind string // "edit" | "append" | "prepend" | "journal" | "external"
+}
+
+func (ItemOpen) eventTag() {}
+
+// ItemCreated fires after Column.CreateItem succeeds.
+type ItemCreated struct {
+	Item ItemRef
+}
+
+func (ItemCreated) eventTag() {}
+
+// ItemRenamed fires after Column.RenameItem succeeds.
+type ItemRenamed struct {
+	Item    ItemRef
+	OldName string
+}
+
+func (ItemRenamed) eventTag() {}
+
+// ItemDeleted fires after a delete confirmation completes.
+type ItemDeleted struct {
+	Column string
+	Name   string
+}
+
+func (ItemDeleted) eventTag() {}
+
 // Subscriber receives events. Implementations must be safe to call from the
 // Bubble Tea goroutine; they should not block. Return errors are logged
 // (via Logger) but never propagate up to the board.

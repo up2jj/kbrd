@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -592,6 +593,442 @@ end)`)
 		t.Fatalf("final resume: %v", err)
 	}
 	if !strings.Contains(api.notifies[0], "got:x,world") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
+func TestTimerSchedule(t *testing.T) {
+	dir := writeInit(t, `
+local handle = kbrd.timer.every(150, function() kbrd.notify("tick", "info") end)
+kbrd.notify("handle:"..handle, "info")
+`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending timer, got %d", len(pending))
+	}
+	if pending[0].Duration != 150*time.Millisecond {
+		t.Fatalf("unexpected duration: %v", pending[0].Duration)
+	}
+	// Notify should already record the handle.
+	if len(api.notifies) != 1 || !strings.HasPrefix(api.notifies[0], "info:handle:co-") {
+		t.Fatalf("expected handle notify, got %v", api.notifies)
+	}
+}
+
+func TestTimerMinClamp(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.after(5, function() end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending timer")
+	}
+	if pending[0].Duration != 100*time.Millisecond {
+		t.Fatalf("expected duration clamped to 100ms, got %v", pending[0].Duration)
+	}
+}
+
+func TestTimerFireOnce(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.after(100, function() kbrd.notify("fired", "info") end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending")
+	}
+	if err := h.FireTimer(pending[0].Token); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "fired") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+	// One-shot — should not reschedule.
+	if rest := h.PendingTimers(); len(rest) != 0 {
+		t.Fatalf("one-shot timer should not reschedule, got %d", len(rest))
+	}
+}
+
+func TestTimerFireEveryReschedules(t *testing.T) {
+	dir := writeInit(t, `
+local n = 0
+kbrd.timer.every(120, function()
+  n = n + 1
+  kbrd.notify("n:"..n, "info")
+end)
+`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending")
+	}
+	token := pending[0].Token
+	_ = h.FireTimer(token)
+	_ = h.FireTimer(token)
+	// Each fire re-arms — drain again.
+	again := h.PendingTimers()
+	if len(again) != 2 {
+		t.Fatalf("every-timer should re-arm; got %d", len(again))
+	}
+	if len(api.notifies) != 2 {
+		t.Fatalf("expected 2 notifies, got %v", api.notifies)
+	}
+}
+
+func TestTimerNestedScheduleRejected(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.after(100, function()
+  local ok, err = pcall(function() kbrd.timer.after(100, function() end) end)
+  kbrd.notify("nested:"..tostring(ok), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(pending))
+	}
+	if err := h.FireTimer(pending[0].Token); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "nested:false") {
+		t.Fatalf("nested schedule should have been rejected: %v", api.notifies)
+	}
+	// No new timer should have been added.
+	if rest := h.PendingTimers(); len(rest) != 0 {
+		t.Fatalf("rejected timer should not be queued, got %v", rest)
+	}
+}
+
+func TestTimerNestedViaHookRejected(t *testing.T) {
+	// Timer body publishes ItemMoved; hook on item_moved tries to schedule.
+	// inTimer flag must still be set during the deferred drain.
+	dir := writeInit(t, `
+kbrd.on("item_moved", function()
+  local ok = pcall(function() kbrd.timer.after(100, function() end) end)
+  kbrd.notify("hook-nested:"..tostring(ok), "info")
+end)
+kbrd.timer.after(100, function()
+  kbrd.board.move({column = "todo", name = "x"}, "done")
+end)`)
+	api := &fakeAPIWithBus{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	api.host = h
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(pending))
+	}
+	_ = h.FireTimer(pending[0].Token)
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "hook-nested:false") {
+		t.Fatalf("hook scheduled from timer side-effect should be rejected: %v", api.notifies)
+	}
+}
+
+func TestTimerRepeatStillWorksDespiteNestedBlock(t *testing.T) {
+	// The host re-arms repeating timers internally (not via Lua), so the
+	// inTimer block must not break that.
+	dir := writeInit(t, `kbrd.timer.every(100, function() kbrd.notify("tick", "info") end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	token := h.PendingTimers()[0].Token
+	_ = h.FireTimer(token)
+	_ = h.FireTimer(token)
+	if len(api.notifies) != 2 {
+		t.Fatalf("expected 2 ticks, got %v", api.notifies)
+	}
+	if rest := h.PendingTimers(); len(rest) != 2 {
+		t.Fatalf("repeats should re-arm; got %d", len(rest))
+	}
+}
+
+func TestTimerAutoDisableAfterErrors(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.every(100, function() error("boom") end)
+`)
+	cfg := defaultCfg()
+	cfg.ErrorThreshold = 3
+	api := &fakeAPI{}
+	h, err := New(cfg, api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	token := h.PendingTimers()[0].Token
+	// Fire three times — each errors, third time we hit the threshold.
+	_ = h.FireTimer(token)
+	_ = h.FireTimer(token)
+	_ = h.FireTimer(token)
+	if _, still := h.timers[token]; still {
+		t.Fatal("timer should be disabled after 3 errors")
+	}
+	// Notifies: 3 error toasts + 1 "disabled after 3 errors".
+	if len(api.notifies) != 4 {
+		t.Fatalf("expected 4 notifies, got %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[3], "disabled after 3 errors") {
+		t.Fatalf("final notify should be the disable message; got %v", api.notifies)
+	}
+	// Further fires are no-ops.
+	_ = h.FireTimer(token)
+	if len(api.notifies) != 4 {
+		t.Fatalf("disabled timer should not fire again, got %v", api.notifies)
+	}
+}
+
+func TestTimerThresholdZeroNeverDisables(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.every(100, function() error("boom") end)`)
+	cfg := defaultCfg()
+	cfg.ErrorThreshold = 0 // "never auto-disable"
+	api := &fakeAPI{}
+	h, err := New(cfg, api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	token := h.PendingTimers()[0].Token
+	for i := 0; i < 10; i++ {
+		_ = h.FireTimer(token)
+	}
+	if _, still := h.timers[token]; !still {
+		t.Fatal("timer should still be registered with threshold=0")
+	}
+	if len(api.notifies) != 10 {
+		t.Fatalf("expected 10 error notifies, got %d", len(api.notifies))
+	}
+}
+
+func TestTimerErrorResetsOnSuccess(t *testing.T) {
+	// First two calls fail, third succeeds — counter should reset, so the
+	// timer isn't disabled even though we hit 2 errors out of 3.
+	dir := writeInit(t, `
+local n = 0
+kbrd.timer.every(100, function()
+  n = n + 1
+  if n < 3 then error("flaky") end
+  kbrd.notify("ok", "info")
+end)`)
+	cfg := defaultCfg()
+	cfg.ErrorThreshold = 3
+	api := &fakeAPI{}
+	h, err := New(cfg, api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	token := h.PendingTimers()[0].Token
+	_ = h.FireTimer(token) // err 1
+	_ = h.FireTimer(token) // err 2
+	_ = h.FireTimer(token) // success — counter resets
+	_ = h.FireTimer(token) // err 1 again, not 3
+	if _, still := h.timers[token]; !still {
+		t.Fatal("counter should have reset on success; timer should still be live")
+	}
+}
+
+func TestHookAutoDisableAfterErrors(t *testing.T) {
+	dir := writeInit(t, `kbrd.on("git_sync_done", function() error("boom") end)`)
+	cfg := defaultCfg()
+	cfg.ErrorThreshold = 2
+	api := &fakeAPI{}
+	h, err := New(cfg, api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	h.OnEvent(events.GitSyncDone{OK: true})
+	h.OnEvent(events.GitSyncDone{OK: true})
+	if len(h.hooks["git_sync_done"]) != 0 {
+		t.Fatalf("hook should be disabled after 2 errors")
+	}
+	// Notifies: 2 error toasts + 1 disabled.
+	if len(api.notifies) != 3 {
+		t.Fatalf("expected 3 notifies, got %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[2], "disabled after 2 errors") {
+		t.Fatalf("final notify should announce disable; got %v", api.notifies)
+	}
+	// Further events for this hook are silent — the hook is gone.
+	h.OnEvent(events.GitSyncDone{OK: true})
+	if len(api.notifies) != 3 {
+		t.Fatalf("disabled hook should not fire; got %v", api.notifies)
+	}
+}
+
+func TestTimerCannotOpenUI(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.after(100, function()
+  local ok, err = pcall(function() kbrd.ui.pick("X", {"a"}) end)
+  kbrd.notify("ui:"..tostring(ok)..":"..tostring(err), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	_ = h.FireTimer(h.PendingTimers()[0].Token)
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "ui:false") {
+		t.Fatalf("ui from timer should be rejected: %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "cannot be used from a timer") {
+		t.Fatalf("error message should mention timer; got %v", api.notifies)
+	}
+}
+
+func TestOsExitDisabled(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("e", "Exit", function()
+  local ok, err = pcall(os.exit, 1)
+  kbrd.notify("exit:"..tostring(ok)..":"..tostring(err), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "exit:false") {
+		t.Fatalf("os.exit should be disabled: %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "disabled in kbrd scripts") {
+		t.Fatalf("error message should mention disabled; got %v", api.notifies)
+	}
+}
+
+func TestTimerCannotRegisterCommand(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.after(100, function()
+  local ok = pcall(function() kbrd.command("x", "X", function() end) end)
+  kbrd.notify("cmd:"..tostring(ok), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	_ = h.FireTimer(h.PendingTimers()[0].Token)
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "cmd:false") {
+		t.Fatalf("command registration from timer should be rejected: %v", api.notifies)
+	}
+	if len(h.Commands()) != 0 {
+		t.Fatal("no command should have been registered")
+	}
+}
+
+func TestTimerCannotRegisterHook(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.after(100, function()
+  local ok = pcall(function() kbrd.on("item_moved", function() end) end)
+  kbrd.notify("hook:"..tostring(ok), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	_ = h.FireTimer(h.PendingTimers()[0].Token)
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "hook:false") {
+		t.Fatalf("hook registration from timer should be rejected: %v", api.notifies)
+	}
+}
+
+func TestTimerCancel(t *testing.T) {
+	dir := writeInit(t, `
+local h = kbrd.timer.every(100, function() kbrd.notify("tick", "info") end)
+kbrd.timer.cancel(h)
+`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending (cancellation is lazy)")
+	}
+	// Firing a cancelled timer is a no-op.
+	if err := h.FireTimer(pending[0].Token); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if len(api.notifies) != 0 {
+		t.Fatalf("cancelled timer should not invoke callback, got %v", api.notifies)
+	}
+}
+
+func TestItemSelectHook(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.on("item_select", function(evt)
+  kbrd.notify("sel:"..evt.item.name.." prev:"..evt.prev.name, "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	h.OnEvent(events.ItemSelect{
+		Item: events.ItemRef{Column: "todo", Name: "a"},
+		Prev: events.ItemRef{Column: "todo", Name: "b"},
+	})
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "sel:a prev:b") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
+func TestItemCreatedHook(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.on("item_created", function(evt) kbrd.notify("created:"..evt.item.name, "info") end)
+kbrd.on("item_deleted", function(evt) kbrd.notify("deleted:"..evt.name, "info") end)
+kbrd.on("board_refresh", function(evt) kbrd.notify("refresh:"..evt.reason, "info") end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	h.OnEvent(events.ItemCreated{Item: events.ItemRef{Column: "todo", Name: "x"}})
+	h.OnEvent(events.ItemDeleted{Column: "todo", Name: "x"})
+	h.OnEvent(events.BoardRefresh{Reason: "watcher"})
+	if len(api.notifies) != 3 {
+		t.Fatalf("expected 3 notifies, got %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "created:x") ||
+		!strings.Contains(api.notifies[1], "deleted:x") ||
+		!strings.Contains(api.notifies[2], "refresh:watcher") {
 		t.Fatalf("unexpected: %v", api.notifies)
 	}
 }

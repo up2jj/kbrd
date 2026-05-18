@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -56,22 +57,71 @@ type boardScriptAPI struct {
 	b *Board
 }
 
+// scriptTimerMsg fires when a tea.Tick scheduled for a Lua timer elapses.
+// The Board routes it back into Host.FireTimer, which invokes the callback
+// and possibly re-schedules.
+type scriptTimerMsg struct {
+	Token string
+}
+
+// collectTimerCmds drains any timer schedules accumulated since the last
+// call (during script init.lua execution, command runs, hook fires, or a
+// just-fired timer that re-armed). Each becomes a tea.Tick that produces
+// scriptTimerMsg{Token} when the duration elapses.
+func (b *Board) collectTimerCmds() tea.Cmd {
+	if b.scripts == nil {
+		return nil
+	}
+	pending := b.scripts.PendingTimers()
+	if len(pending) == 0 {
+		return nil
+	}
+	cmds := make([]tea.Cmd, 0, len(pending))
+	for _, t := range pending {
+		token := t.Token
+		dur := t.Duration
+		cmds = append(cmds, tea.Tick(dur, func(time.Time) tea.Msg {
+			return scriptTimerMsg{Token: token}
+		}))
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleScriptTimer is the dispatch target for scriptTimerMsg. Re-arms any
+// repeating timers via the same collectTimerCmds drain path.
+func (b *Board) handleScriptTimer(msg scriptTimerMsg) (tea.Model, tea.Cmd) {
+	if b.scripts == nil {
+		return b, nil
+	}
+	if err := b.scripts.FireTimer(msg.Token); err != nil {
+		// Already surfaced as a notification by the host; nothing to do.
+		_ = err
+	}
+	return b, b.collectTimerCmds()
+}
+
 // handleScriptResult turns the (req, err) tuple from a Lua command/resume
 // call into a tea.Cmd: open the matching UI on a yield, fire a finished msg
-// on completion or error.
+// on completion or error. Always also drains pending timers, since the script
+// may have scheduled some during execution.
 func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error) tea.Cmd {
+	timerCmd := b.collectTimerCmds()
+	var resultCmd tea.Cmd
 	if err != nil {
-		return func() tea.Msg {
+		resultCmd = func() tea.Msg {
 			return customCommandFinishedMsg{Name: name, Err: err}
 		}
-	}
-	if req == nil {
-		// Coroutine ran to completion.
-		return func() tea.Msg {
+	} else if req == nil {
+		resultCmd = func() tea.Msg {
 			return customCommandFinishedMsg{Name: name, Err: nil}
 		}
+	} else {
+		resultCmd = b.openScriptUI(name, req)
 	}
-	return b.openScriptUI(name, req)
+	if timerCmd == nil {
+		return resultCmd
+	}
+	return tea.Batch(timerCmd, resultCmd)
 }
 
 // openScriptUI installs the appropriate UI state for a yielded UI request.
@@ -178,6 +228,37 @@ func (a boardScriptAPI) CreateColumn(name string) error {
 		return err
 	}
 	return a.Refresh()
+}
+
+// snapshotSelection captures the current (column, item) cursor position so
+// Update can compare against post-update state and publish item_select /
+// column_change events.
+func (b *Board) snapshotSelection() (string, string) {
+	if b.selectedCol < 0 || b.selectedCol >= len(b.columns) {
+		return "", ""
+	}
+	col := b.columns[b.selectedCol]
+	item := ""
+	if col.HasSelectedItem() {
+		item = col.SelectedItem().Name
+	}
+	return col.Name, item
+}
+
+// emitSelectionChanges fires column_change and item_select events when the
+// position has changed since the snapshot taken at the top of Update. No-op
+// if subscribers are absent — bus.Publish on an empty subscriber list is free.
+func (b *Board) emitSelectionChanges(prevCol, prevItem string) {
+	newCol, newItem := b.snapshotSelection()
+	if newCol != prevCol {
+		b.bus.Publish(events.ColumnChange{Column: newCol, Prev: prevCol})
+	}
+	if newItem != prevItem || newCol != prevCol {
+		b.bus.Publish(events.ItemSelect{
+			Item: events.ItemRef{Column: newCol, Name: newItem},
+			Prev: events.ItemRef{Column: prevCol, Name: prevItem},
+		})
+	}
 }
 
 func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {

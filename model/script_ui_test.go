@@ -183,6 +183,27 @@ end)`)
 	}
 }
 
+// Regression: a hook that schedules a timer (e.g. on item_created) must
+// have its pending timer drained by Update, not left dangling in the
+// host's pendingTimers queue.
+func TestHookTimerScheduled(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.on("item_created", function(evt)
+  kbrd.timer.after(150, function() end)
+end)`)
+	// Drain any timers scheduled by init.lua so we measure only the hook's effect.
+	_ = b.collectTimerCmds()
+	_, cmd := b.Update(editorNewMsg{ColIndex: 0, FileName: "fresh"})
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd from create (notify + timer)")
+	}
+	// After Update completes, the host's pendingTimers queue must be empty —
+	// the timer should have been converted into a tea.Tick already.
+	if rest := b.scripts.PendingTimers(); len(rest) != 0 {
+		t.Fatalf("hook-scheduled timer not drained by Update: %v", rest)
+	}
+}
+
 func TestScriptUIRendersView(t *testing.T) {
 	b, _ := makeBoard(t, `kbrd.command("p", "Pick", function() kbrd.ui.pick("Hello", {"a", "b"}) end)`)
 	b.termWidth = 80
