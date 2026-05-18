@@ -288,6 +288,60 @@ an unknown handle.
 kbrd.timer.cancel(h)
 ```
 
+### `kbrd.async.run(shellCmd, fn)`
+
+Run a shell command on a worker goroutine. Returns immediately with an
+opaque handle. When the command finishes, `fn(result)` is called on the
+UI thread. `result` is a table:
+
+```lua
+{
+  out      = "<stdout + stderr combined>",
+  exitCode = 0,           -- nonzero on failure
+  error    = "",          -- non-empty only when the process failed to start
+}
+```
+
+Use this for anything slow enough to make the TUI feel laggy if run
+synchronously: `curl`, `find` on a huge tree, `git log` on a big repo,
+external API calls, etc.
+
+```lua
+kbrd.command("W", "Word count", function(ctx)
+  kbrd.async.run("wc -w " .. string.format("%q", ctx.filePath), function(r)
+    if r.exitCode ~= 0 then return end
+    local n = r.out:match("(%d+)")
+    kbrd.notify(ctx.fileName .. ": " .. n .. " words", "success")
+  end)
+end)
+```
+
+Semantics:
+
+- Multiple async jobs run **in parallel** (each gets its own goroutine).
+- Callbacks always run **sequentially on the UI thread** — same single-
+  threaded execution model as commands, hooks, and timers. No locking
+  needed in callback bodies.
+- Callbacks run as **hooks** — they cannot open `kbrd.ui.*` (no coroutine).
+  Subject to `scripting.hook_timeout_ms` watchdog (default 500 ms).
+- Working directory is the board root, same as YAML shell commands.
+- **Forbidden from inside timer callbacks** (use timers for the "do this
+  later" part, then async for the slow work — chain them via a flag).
+- **Allowed from inside async callbacks** — chained / waterfall async
+  patterns work as expected.
+
+### `kbrd.async.cancel(handle)`
+
+Drops the registered callback. The shell process keeps running (Go can't
+easily signal-kill running subprocesses), but its result is discarded when
+it finishes. Useful for "if the user navigates away, ignore the result".
+
+```lua
+local h = kbrd.async.run("slow-cmd", function(r) ... end)
+-- later:
+kbrd.async.cancel(h)
+```
+
 ### `kbrd.fs.read(path)`
 
 Read a file. Returns the content as a string, or `nil, err`.
@@ -400,9 +454,9 @@ the terminal mid-render.
 
 These are planned but not in the current build:
 
-- `kbrd.shell.run / exec` — capture or take over a shell command
+- `kbrd.shell.run / exec` — synchronous capture / take-over (async via
+  `kbrd.async.run` ships already)
 - `kbrd.git.*` — read-only mirrors of kbrd's git helpers
-- `kbrd.async` — background work without blocking the UI
 - `kbrd.log.*` — structured logging from scripts
 - `kbrd.inspect` — table pretty-printer
 - `kbrd.config.get / all` — read kbrd config from Lua
@@ -478,6 +532,18 @@ kbrd.command("X", "Archive (confirmed)", function(ctx)
   if not kbrd.ui.confirm("Archive " .. ctx.fileName .. "?") then return end
   if not kbrd.fs.exists("archive") then kbrd.board.createColumn("archive") end
   kbrd.board.move(ctx, "archive")
+end)
+```
+
+### Async word count
+
+```lua
+kbrd.command("W", "Word count", function(ctx)
+  kbrd.async.run("wc -w " .. string.format("%q", ctx.filePath), function(r)
+    if r.exitCode ~= 0 then kbrd.notify(r.error, "error"); return end
+    local n = r.out:match("(%d+)")
+    kbrd.notify(ctx.fileName .. ": " .. n .. " words", "success")
+  end)
 end)
 ```
 

@@ -1033,6 +1033,143 @@ kbrd.on("board_refresh", function(evt) kbrd.notify("refresh:"..evt.reason, "info
 	}
 }
 
+func TestAsyncSchedule(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("a", "Async", function()
+  local h = kbrd.async.run("echo hi", function(r) kbrd.notify("got:"..r.out, "info") end)
+  kbrd.notify("handle:"..h, "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	pending := h.PendingAsync()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 async job, got %d", len(pending))
+	}
+	if pending[0].Shell != "echo hi" {
+		t.Fatalf("unexpected shell: %q", pending[0].Shell)
+	}
+	if len(api.notifies) != 1 || !strings.HasPrefix(api.notifies[0], "info:handle:") {
+		t.Fatalf("expected handle notify, got %v", api.notifies)
+	}
+	// Simulate the goroutine finishing.
+	if err := h.FireAsync(pending[0].Token, "hi\n", 0, ""); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if len(api.notifies) != 2 || !strings.Contains(api.notifies[1], "got:hi") {
+		t.Fatalf("callback didn't fire correctly: %v", api.notifies)
+	}
+}
+
+func TestAsyncCancel(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("a", "Cancel", function()
+  local h = kbrd.async.run("echo never", function() kbrd.notify("should not run", "info") end)
+  kbrd.async.cancel(h)
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	pending := h.PendingAsync()
+	// Fire — should be a no-op because the callback was cancelled.
+	if err := h.FireAsync(pending[0].Token, "never", 0, ""); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if len(api.notifies) != 0 {
+		t.Fatalf("cancelled async should not invoke callback: %v", api.notifies)
+	}
+}
+
+func TestAsyncReceivesError(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("a", "Failing", function()
+  kbrd.async.run("false", function(r)
+    kbrd.notify("exit:"..r.exitCode.." err:"..r.error, "info")
+  end)
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	pending := h.PendingAsync()
+	_ = h.FireAsync(pending[0].Token, "", 1, "")
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "exit:1") {
+		t.Fatalf("expected exit:1 notify, got %v", api.notifies)
+	}
+}
+
+func TestAsyncFromTimerRejected(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.after(100, function()
+  local ok = pcall(function()
+    kbrd.async.run("echo nope", function() end)
+  end)
+  kbrd.notify("from-timer:"..tostring(ok), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	token := h.PendingTimers()[0].Token
+	_ = h.FireTimer(token)
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "from-timer:false") {
+		t.Fatalf("async from timer should be rejected: %v", api.notifies)
+	}
+}
+
+func TestAsyncChained(t *testing.T) {
+	// First async schedules a second async from inside its callback —
+	// should work, no nesting restriction for async callbacks.
+	dir := writeInit(t, `
+kbrd.command("a", "Chain", function()
+  kbrd.async.run("step-1", function(r1)
+    kbrd.async.run("step-2", function(r2)
+      kbrd.notify("done:"..r1.out.."/"..r2.out, "info")
+    end)
+  end)
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	_, _ = h.RunCommand(h.Commands()[0].LuaRef, nil)
+	pending := h.PendingAsync()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 first-step pending, got %d", len(pending))
+	}
+	_ = h.FireAsync(pending[0].Token, "A", 0, "")
+	// The callback should have scheduled the second async.
+	pending2 := h.PendingAsync()
+	if len(pending2) != 1 {
+		t.Fatalf("expected 1 second-step pending, got %d", len(pending2))
+	}
+	_ = h.FireAsync(pending2[0].Token, "B", 0, "")
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "done:A/B") {
+		t.Fatalf("chained async failed: %v", api.notifies)
+	}
+}
+
 func TestParseError(t *testing.T) {
 	dir := writeInit(t, `this is not valid lua @@@`)
 	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)

@@ -42,6 +42,11 @@ func (h *Host) installAPI() {
 	timer.RawSetString("cancel", L.NewFunction(h.luaTimerCancel))
 	kbrd.RawSetString("timer", timer)
 
+	async := L.NewTable()
+	async.RawSetString("run", L.NewFunction(h.luaAsyncRun))
+	async.RawSetString("cancel", L.NewFunction(h.luaAsyncCancel))
+	kbrd.RawSetString("async", async)
+
 	L.SetGlobal("kbrd", kbrd)
 
 	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
@@ -182,6 +187,36 @@ func (h *Host) scheduleTimer(L *lua.LState, repeat bool) int {
 	h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: dur})
 	L.Push(lua.LString(token))
 	return 1
+}
+
+// kbrd.async.run(shellCmd, fn) → handle string
+// Runs shellCmd on a worker goroutine; when it finishes, fn(result) is
+// called on the UI thread with `{out, exitCode, error}`.
+//
+// Use this for slow shell calls (curl, large finds, lengthy git ops) that
+// would otherwise freeze the TUI. The script returns immediately — the
+// callback fires whenever the command finishes.
+func (h *Host) luaAsyncRun(L *lua.LState) int {
+	if h.inTimer {
+		L.RaiseError("kbrd.async.run: cannot start async work from inside a timer callback")
+		return 0
+	}
+	cmd := L.CheckString(1)
+	fn := L.CheckFunction(2)
+	token := h.allocToken()
+	h.asyncCallbacks[token] = fn
+	h.pendingAsyncCmds = append(h.pendingAsyncCmds, AsyncCmd{Token: token, Shell: cmd})
+	L.Push(lua.LString(token))
+	return 1
+}
+
+// kbrd.async.cancel(handle)
+// Drops the callback. The shell process keeps running (Go doesn't easily
+// kill subprocesses), but its result is discarded when it finishes.
+func (h *Host) luaAsyncCancel(L *lua.LState) int {
+	token := L.CheckString(1)
+	delete(h.asyncCallbacks, token)
+	return 0
 }
 
 // kbrd._uiGuard(name) — called by the kbrd.ui.* Lua wrappers before yielding.

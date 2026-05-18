@@ -64,6 +64,11 @@ type Host struct {
 	timers        map[string]*timerEntry
 	pendingTimers []TimerSchedule
 
+	// asyncCallbacks holds the Lua callbacks registered via kbrd.async.run;
+	// FireAsync looks them up by token and pops them after invocation.
+	asyncCallbacks   map[string]*lua.LFunction
+	pendingAsyncCmds []AsyncCmd
+
 	// inTimer is set while FireTimer is on the stack — including the
 	// deferred event drain that follows. It blocks scripts from scheduling
 	// new timers from inside a timer callback (or from a hook triggered by
@@ -97,6 +102,15 @@ type hookEntry struct {
 type TimerSchedule struct {
 	Token    string
 	Duration time.Duration
+}
+
+// AsyncCmd describes a piece of background work the model should run on a
+// worker goroutine. For v1 the work is always a shell command — bubble tea
+// already runs each tea.Cmd in its own goroutine, so the only thing this
+// type does is route the result back to the right Lua callback by Token.
+type AsyncCmd struct {
+	Token string
+	Shell string
 }
 
 type luaCommand struct {
@@ -134,7 +148,8 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 		L:       L,
 		hooks:   make(map[string][]*hookEntry),
 		pending: make(map[string]*pendingCoro),
-		timers:  make(map[string]*timerEntry),
+		timers:         make(map[string]*timerEntry),
+		asyncCallbacks: make(map[string]*lua.LFunction),
 	}
 	h.installAPI()
 
@@ -185,6 +200,8 @@ func (h *Host) Close() {
 	h.pending = nil
 	h.timers = nil
 	h.pendingTimers = nil
+	h.asyncCallbacks = nil
+	h.pendingAsyncCmds = nil
 	h.deferred = nil
 }
 
@@ -269,6 +286,54 @@ func (h *Host) PendingTimers() []TimerSchedule {
 	out := h.pendingTimers
 	h.pendingTimers = nil
 	return out
+}
+
+// PendingAsync drains the queue of background work the script asked to be
+// run on a worker goroutine. The model converts each into a tea.Cmd that
+// performs the work and produces a scriptAsyncDoneMsg{Token, ...} when done.
+func (h *Host) PendingAsync() []AsyncCmd {
+	if h == nil {
+		return nil
+	}
+	out := h.pendingAsyncCmds
+	h.pendingAsyncCmds = nil
+	return out
+}
+
+// FireAsync invokes the Lua callback registered for the given token, passing
+// the result of the background work (stdout, exit code, error string). Run
+// as a hook — the callback cannot use kbrd.ui.* (no coroutine context), same
+// rules as timers.
+func (h *Host) FireAsync(token, out string, exitCode int, errStr string) error {
+	if h == nil {
+		return nil
+	}
+	fn, ok := h.asyncCallbacks[token]
+	if !ok {
+		// Cancelled or already fired — silently drop.
+		return nil
+	}
+	delete(h.asyncCallbacks, token)
+
+	h.running = true
+	defer func() {
+		h.running = false
+		pending := h.deferred
+		h.deferred = nil
+		for _, ev := range pending {
+			h.OnEvent(ev)
+		}
+	}()
+	err := h.invokeHook(fn, map[string]interface{}{
+		"out":      out,
+		"exitCode": exitCode,
+		"error":    errStr,
+	})
+	if err != nil {
+		h.logger.Log("error", "async "+token, err.Error())
+		h.api.Notify("async: "+err.Error(), "error")
+	}
+	return err
 }
 
 // FireTimer is called by the model when a tea.Tick scheduled by an earlier

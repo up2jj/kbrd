@@ -162,9 +162,13 @@ func (b *Board) Init() tea.Cmd {
 	if c := b.scheduleAutoSync(); c != nil {
 		cmds = append(cmds, c)
 	}
-	// Pick up any timers scheduled at the top level of init.lua, so the
-	// first tick fires without needing a command invocation to drive it.
+	// Pick up any timers and async work scheduled at the top level of
+	// init.lua, so the first tick / first goroutine fires without needing
+	// a user command to drive it.
 	if c := b.collectTimerCmds(); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := b.collectAsyncCmds(); c != nil {
 		cmds = append(cmds, c)
 	}
 	if len(cmds) == 1 {
@@ -246,17 +250,29 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	prevCol, prevItem := b.snapshotSelection()
 	model, cmd := b.updateInner(msg)
-	// Selection events may fire hooks that schedule timers; collectTimerCmds
-	// must run AFTER emitSelectionChanges so those timers get tea.Ticked.
+	// Selection events may fire hooks that schedule timers or async work;
+	// drain both AFTER emitSelectionChanges so newly-scheduled tea.Cmds
+	// don't get stranded in the Host's pending queues.
 	b.emitSelectionChanges(prevCol, prevItem)
 	if tcmd := b.collectTimerCmds(); tcmd != nil {
-		if cmd == nil {
-			cmd = tcmd
-		} else {
-			cmd = tea.Batch(cmd, tcmd)
-		}
+		cmd = batchCmd(cmd, tcmd)
+	}
+	if acmd := b.collectAsyncCmds(); acmd != nil {
+		cmd = batchCmd(cmd, acmd)
 	}
 	return model, cmd
+}
+
+// batchCmd combines two tea.Cmds, tolerating nil in either slot.
+func batchCmd(a, b tea.Cmd) tea.Cmd {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	default:
+		return tea.Batch(a, b)
+	}
 }
 
 // updateInner is the original Update body. Wrapped by Update so that hooks
@@ -371,6 +387,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptTimerMsg:
 		return b.handleScriptTimer(msg)
+
+	case scriptAsyncDoneMsg:
+		return b.handleScriptAsyncDone(msg)
 
 	case gitPanelCloseMsg:
 		return b.handleGitPanelClose()

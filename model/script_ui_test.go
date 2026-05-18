@@ -204,6 +204,58 @@ end)`)
 	}
 }
 
+// End-to-end async: a Lua command schedules a shell job; pump the resulting
+// tea.Cmd to execute it; the dispatched scriptAsyncDoneMsg invokes the Lua
+// callback. The callback writes to a sentinel file so we can assert it
+// actually fired (more reliable than peeking at the toast notifier).
+func TestScriptAsyncEndToEnd(t *testing.T) {
+	b, dir := makeBoard(t, `
+kbrd.command("a", "Async", function()
+  kbrd.async.run("printf hello", function(r)
+    kbrd.fs.write("CALLED", "out=" .. r.out .. " exit=" .. r.exitCode)
+  end)
+end)`)
+	cmd := b.commands[0]
+	_, c := b.Update(runCustomCommandMsg{Cmd: cmd, Vars: nil})
+	if c == nil {
+		t.Fatal("expected a tea.Cmd carrying the async exec")
+	}
+	// Pump cmds until we get the async-done back, then dispatch it.
+	var asyncMsg scriptAsyncDoneMsg
+	got := false
+	for i := 0; i < 5 && !got; i++ {
+		msg := c()
+		switch m := msg.(type) {
+		case scriptAsyncDoneMsg:
+			asyncMsg = m
+			got = true
+		case tea.BatchMsg:
+			for _, sub := range m {
+				inner := sub()
+				if am, ok := inner.(scriptAsyncDoneMsg); ok {
+					asyncMsg = am
+					got = true
+					break
+				}
+			}
+		}
+	}
+	if !got {
+		t.Fatal("did not receive scriptAsyncDoneMsg")
+	}
+	if asyncMsg.Out != "hello" {
+		t.Fatalf("unexpected output: %q", asyncMsg.Out)
+	}
+	b.Update(asyncMsg)
+	body, err := os.ReadFile(filepath.Join(dir, "CALLED"))
+	if err != nil {
+		t.Fatalf("callback did not run — sentinel file missing: %v", err)
+	}
+	if !strings.Contains(string(body), "out=hello") {
+		t.Fatalf("callback ran but with wrong args: %q", body)
+	}
+}
+
 func TestScriptUIRendersView(t *testing.T) {
 	b, _ := makeBoard(t, `kbrd.command("p", "Pick", function() kbrd.ui.pick("Hello", {"a", "b"}) end)`)
 	b.termWidth = 80

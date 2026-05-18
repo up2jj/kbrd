@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -64,6 +65,29 @@ type scriptTimerMsg struct {
 	Token string
 }
 
+// scriptAsyncDoneMsg carries the result of a backgrounded shell command
+// (kbrd.async.run) back to the host so the Lua callback can be invoked.
+type scriptAsyncDoneMsg struct {
+	Token    string
+	Out      string
+	ExitCode int
+	Err      string
+}
+
+// scriptDebugf appends to /tmp/kbrd-script.log when KBRD_SCRIPT_DEBUG=1.
+// Stays a no-op otherwise so production runs aren't affected.
+func scriptDebugf(format string, args ...interface{}) {
+	if os.Getenv("KBRD_SCRIPT_DEBUG") == "" {
+		return
+	}
+	f, err := os.OpenFile("/tmp/kbrd-script.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s "+format+"\n", append([]interface{}{time.Now().Format("15:04:05.000")}, args...)...)
+}
+
 // collectTimerCmds drains any timer schedules accumulated since the last
 // call (during script init.lua execution, command runs, hook fires, or a
 // just-fired timer that re-armed). Each becomes a tea.Tick that produces
@@ -94,18 +118,84 @@ func (b *Board) handleScriptTimer(msg scriptTimerMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 	if err := b.scripts.FireTimer(msg.Token); err != nil {
-		// Already surfaced as a notification by the host; nothing to do.
 		_ = err
 	}
 	return b, b.collectTimerCmds()
 }
 
+// collectAsyncCmds drains the queue of pending background work and returns
+// a tea.Batch of tea.Cmds that exec each shell command in its own goroutine
+// (Bubble Tea already runs each tea.Cmd in a goroutine), then dispatches
+// scriptAsyncDoneMsg{...} when the command finishes.
+func (b *Board) collectAsyncCmds() tea.Cmd {
+	if b.scripts == nil {
+		return nil
+	}
+	pending := b.scripts.PendingAsync()
+	if len(pending) == 0 {
+		return nil
+	}
+	scriptDebugf("collectAsyncCmds drained=%d", len(pending))
+	dir := b.cfg.Path
+	cmds := make([]tea.Cmd, 0, len(pending))
+	for _, a := range pending {
+		token := a.Token
+		shellCmd := a.Shell
+		cmds = append(cmds, func() tea.Msg {
+			scriptDebugf("async-cmd start token=%s shell=%q", token, shellCmd)
+			c := exec.Command("sh", "-c", shellCmd)
+			c.Dir = dir
+			outBytes, err := c.CombinedOutput()
+			exit := 0
+			errStr := ""
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					exit = exitErr.ExitCode()
+				} else {
+					errStr = err.Error()
+				}
+			}
+			scriptDebugf("async-cmd done token=%s exit=%d errStr=%q outLen=%d", token, exit, errStr, len(outBytes))
+			return scriptAsyncDoneMsg{
+				Token: token, Out: string(outBytes), ExitCode: exit, Err: errStr,
+			}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleScriptAsyncDone routes the async result back into the Lua callback.
+func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cmd) {
+	scriptDebugf("handleScriptAsyncDone token=%s exit=%d err=%q outLen=%d", msg.Token, msg.ExitCode, msg.Err, len(msg.Out))
+	if b.scripts == nil {
+		scriptDebugf("handleScriptAsyncDone: scripts is nil!")
+		return b, nil
+	}
+	if err := b.scripts.FireAsync(msg.Token, msg.Out, msg.ExitCode, msg.Err); err != nil {
+		scriptDebugf("FireAsync returned err: %v", err)
+	}
+	// The callback may itself schedule a timer or another async job — drain
+	// both queues now. The outer Update wrapper would also drain, but doing
+	// it here keeps the code symmetric with handleScriptTimer.
+	tCmd := b.collectTimerCmds()
+	aCmd := b.collectAsyncCmds()
+	switch {
+	case tCmd == nil:
+		return b, aCmd
+	case aCmd == nil:
+		return b, tCmd
+	default:
+		return b, tea.Batch(tCmd, aCmd)
+	}
+}
+
 // handleScriptResult turns the (req, err) tuple from a Lua command/resume
 // call into a tea.Cmd: open the matching UI on a yield, fire a finished msg
-// on completion or error. Always also drains pending timers, since the script
-// may have scheduled some during execution.
+// on completion or error. Also drains pending timer + async work scheduled
+// during execution.
 func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error) tea.Cmd {
 	timerCmd := b.collectTimerCmds()
+	asyncCmd := b.collectAsyncCmds()
 	var resultCmd tea.Cmd
 	if err != nil {
 		resultCmd = func() tea.Msg {
@@ -118,10 +208,24 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 	} else {
 		resultCmd = b.openScriptUI(name, req)
 	}
-	if timerCmd == nil {
-		return resultCmd
+	cmds := make([]tea.Cmd, 0, 3)
+	if timerCmd != nil {
+		cmds = append(cmds, timerCmd)
 	}
-	return tea.Batch(timerCmd, resultCmd)
+	if asyncCmd != nil {
+		cmds = append(cmds, asyncCmd)
+	}
+	if resultCmd != nil {
+		cmds = append(cmds, resultCmd)
+	}
+	switch len(cmds) {
+	case 0:
+		return nil
+	case 1:
+		return cmds[0]
+	default:
+		return tea.Batch(cmds...)
+	}
 }
 
 // openScriptUI installs the appropriate UI state for a yielded UI request.
@@ -166,6 +270,7 @@ func (b *Board) handleScriptResume(msg scriptResumeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a boardScriptAPI) Notify(msg, level string) {
+	scriptDebugf("Notify level=%s msg=%q", level, msg)
 	sev := notifySuccess
 	if level == "error" {
 		sev = notifyError
