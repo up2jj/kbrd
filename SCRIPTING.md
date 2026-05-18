@@ -180,6 +180,55 @@ Create a new column directory under the board root, then refresh. Returns
 kbrd.board.createColumn("archive")
 ```
 
+### `kbrd.ui.pick(title, choices)`
+
+Open a list picker. Blocks the script (via a Lua coroutine) until the user
+chooses or cancels. Returns the chosen string, or `nil` on cancel.
+
+```lua
+local pri = kbrd.ui.pick("Priority?", {"P0", "P1", "P2"})
+if pri == nil then return end   -- user pressed esc
+```
+
+`choices` is a list of strings. Arrow keys / `j`/`k` move; enter confirms;
+esc / `q` cancels.
+
+### `kbrd.ui.prompt(title, default)`
+
+Open a single-line text input. Returns the entered string, or `nil` on cancel.
+`default` is optional; pass `""` (or omit) for an empty box.
+
+```lua
+local name = kbrd.ui.prompt("New name", ctx.fileName)
+if name == nil or name == "" then return end
+```
+
+Enter submits; esc cancels.
+
+### `kbrd.ui.confirm(title)`
+
+Open a yes/no dialog (the same primitive kbrd uses for its own
+delete-confirms). Returns `true` for yes, `false` for no.
+
+```lua
+if not kbrd.ui.confirm("Delete " .. ctx.fileName .. "?") then return end
+```
+
+### How UI calls work (briefly)
+
+UI primitives are blocking from your script's perspective, but they don't
+freeze kbrd. Internally, calling `kbrd.ui.*` suspends your script's
+coroutine, kbrd opens the matching UI, and once the user responds the
+script resumes with the answer. While the UI is open:
+
+- The watchdog timer is paused (waiting for input doesn't count).
+- Other key presses go to the UI, not the board.
+- Multiple `kbrd.ui.*` calls in a row work — the script suspends and
+  resumes once per call.
+
+Hooks (`kbrd.on`) **cannot** call `kbrd.ui.*` — they run synchronously
+and have nowhere to yield to. A yield from a hook is dropped silently.
+
 ### `kbrd.fs.read(path)`
 
 Read a file. Returns the content as a string, or `nil, err`.
@@ -261,7 +310,6 @@ Detailed errors (stack traces, hook failures) are appended to
 
 These are planned but not in the current build:
 
-- `kbrd.ui.pick / prompt / confirm` — interactive UI primitives
 - `kbrd.shell.run / exec` — capture or take over a shell command
 - `kbrd.git.*` — read-only mirrors of kbrd's git helpers
 - `kbrd.timer.every / after` — scheduled callbacks
@@ -312,6 +360,37 @@ kbrd.command("E", "Export", function(ctx)
   if not body then kbrd.notify(err, "error"); return end
   kbrd.fs.write("/tmp/kbrd-export.md", body)
   kbrd.notify("exported to /tmp/kbrd-export.md", "success")
+end)
+```
+
+### Priority picker
+
+```lua
+kbrd.command("P", "Priority", function(ctx)
+  local choice = kbrd.ui.pick("Priority?", {"P0", "P1", "P2"})
+  if choice == nil then return end
+  kbrd.notify(ctx.fileName .. " marked " .. choice, "success")
+end)
+```
+
+### Quick capture with prompt
+
+```lua
+kbrd.command("N", "New (prompted)", function()
+  local name = kbrd.ui.prompt("Item name", "")
+  if name == nil or name == "" then return end
+  kbrd.fs.write("1. TO DO/" .. name .. ".md", "")
+  kbrd.board.refresh()
+end)
+```
+
+### Confirmed archive
+
+```lua
+kbrd.command("X", "Archive (confirmed)", function(ctx)
+  if not kbrd.ui.confirm("Archive " .. ctx.fileName .. "?") then return end
+  if not kbrd.fs.exists("archive") then kbrd.board.createColumn("archive") end
+  kbrd.board.move(ctx, "archive")
 end)
 ```
 

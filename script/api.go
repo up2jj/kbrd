@@ -35,7 +35,28 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("fs", fs)
 
 	L.SetGlobal("kbrd", kbrd)
+
+	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
+	// directly. Yielding from a Go function in gopher-lua is awkward; a Lua
+	// shim is the path of least resistance.
+	if err := L.DoString(uiBootstrap); err != nil {
+		// Should never happen — bootstrap is a constant string.
+		panic("kbrd.ui bootstrap: " + err.Error())
+	}
 }
+
+const uiBootstrap = `
+kbrd.ui = {}
+function kbrd.ui.pick(title, choices)
+  return coroutine.yield({_uiReq = true, kind = "pick", title = title or "", choices = choices or {}})
+end
+function kbrd.ui.prompt(title, default)
+  return coroutine.yield({_uiReq = true, kind = "prompt", title = title or "", default = default or ""})
+end
+function kbrd.ui.confirm(title)
+  return coroutine.yield({_uiReq = true, kind = "confirm", title = title or ""})
+end
+`
 
 // errResult pushes a (nil, errMsg) tuple — the conventional Lua return
 // shape for "operation failed, here's why".

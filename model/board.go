@@ -86,8 +86,9 @@ type Board struct {
 
 	gitSyncing bool // auto-sync in progress
 
-	bus     events.Bus
-	scripts *script.Host
+	bus      events.Bus
+	scripts  *script.Host
+	scriptUI ScriptUI
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
@@ -342,6 +343,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case customCommandFinishedMsg:
 		return b.handleCustomCommandFinished(msg)
 
+	case scriptResumeMsg:
+		return b.handleScriptResume(msg)
+
 	case gitPanelCloseMsg:
 		return b.handleGitPanelClose()
 
@@ -456,6 +460,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle custom commands menu
 	if b.customCmds.Active() {
 		return b, b.customCmds.Update(msg)
+	}
+
+	// Handle script-driven UI (kbrd.ui.pick / prompt). Confirms go through Dialog.
+	if b.scriptUI.Active() {
+		return b, b.scriptUI.Update(msg)
 	}
 
 	// Handle git panel
@@ -650,7 +659,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1337,6 +1346,9 @@ func (b *Board) View() string {
 	}
 	if b.customCmds.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
+	}
+	if b.scriptUI.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
 	}
 	if b.gitPanel.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.gitPanel.View())

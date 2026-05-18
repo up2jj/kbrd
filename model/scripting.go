@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
@@ -52,6 +54,65 @@ func (b *Board) initScripting() {
 // so it never calls back into the host itself.
 type boardScriptAPI struct {
 	b *Board
+}
+
+// handleScriptResult turns the (req, err) tuple from a Lua command/resume
+// call into a tea.Cmd: open the matching UI on a yield, fire a finished msg
+// on completion or error.
+func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error) tea.Cmd {
+	if err != nil {
+		return func() tea.Msg {
+			return customCommandFinishedMsg{Name: name, Err: err}
+		}
+	}
+	if req == nil {
+		// Coroutine ran to completion.
+		return func() tea.Msg {
+			return customCommandFinishedMsg{Name: name, Err: nil}
+		}
+	}
+	return b.openScriptUI(name, req)
+}
+
+// openScriptUI installs the appropriate UI state for a yielded UI request.
+// Confirms reuse the existing Dialog primitive; pick and prompt use ScriptUI.
+func (b *Board) openScriptUI(name string, req *script.UIRequest) tea.Cmd {
+	switch req.Kind {
+	case "pick":
+		b.scriptUI.OpenPicker(name, req.Token, req.Title, req.Choices)
+		return nil
+	case "prompt":
+		b.scriptUI.OpenPrompt(name, req.Token, req.Title, req.Default)
+		return nil
+	case "confirm":
+		title := req.Title
+		if title == "" {
+			title = "Confirm?"
+		}
+		b.dialog.Open(DialogOptions{
+			Title: title,
+			Buttons: []DialogButton{
+				{Label: "Yes", Kind: ButtonPrimary,
+					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: true}},
+				{Label: "No",
+					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: false}},
+			},
+			DefaultIndex: 0,
+		})
+		return nil
+	}
+	// Unknown UI kind — best-effort: resume with nil so the script doesn't hang.
+	return func() tea.Msg {
+		return scriptResumeMsg{Name: name, Token: req.Token, Result: nil}
+	}
+}
+
+// handleScriptResume re-enters a suspended coroutine with the user's answer.
+// If it yields again (chained UI calls), open the next UI; if it finishes,
+// emit a customCommandFinished.
+func (b *Board) handleScriptResume(msg scriptResumeMsg) (tea.Model, tea.Cmd) {
+	req, err := b.scripts.ResumeWith(msg.Token, msg.Result)
+	return b, b.handleScriptResult(msg.Name, req, err)
 }
 
 func (a boardScriptAPI) Notify(msg, level string) {

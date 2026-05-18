@@ -71,10 +71,8 @@ func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 
 func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.Cmd) {
 	if msg.Cmd.Source == config.SourceLua {
-		err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
-		return b, func() tea.Msg {
-			return customCommandFinishedMsg{Name: msg.Cmd.Name, Err: err}
-		}
+		req, err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
+		return b, b.handleScriptResult(msg.Cmd.Name, req, err)
 	}
 	rendered, err := msg.Cmd.Render(msg.Vars)
 	if err != nil {

@@ -155,7 +155,7 @@ func TestCommandRegistration(t *testing.T) {
 		t.Fatalf("unexpected command: %+v", cmds[0])
 	}
 
-	if err := h.RunCommand(cmds[0].LuaRef, map[string]string{"fileName": "foo.md"}); err != nil {
+	if _, err := h.RunCommand(cmds[0].LuaRef, map[string]string{"fileName": "foo.md"}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "ran:foo.md") {
@@ -192,7 +192,7 @@ func TestWatchdogTimeout(t *testing.T) {
 	defer h.Close()
 
 	cmds := h.Commands()
-	err = h.RunCommand(cmds[0].LuaRef, nil)
+	_, err = h.RunCommand(cmds[0].LuaRef, nil)
 	if err == nil {
 		t.Fatal("expected error from watchdog, got nil")
 	}
@@ -212,7 +212,7 @@ end)`)
 	defer h.Close()
 
 	cmds := h.Commands()
-	if err := h.RunCommand(cmds[0].LuaRef, map[string]string{
+	if _, err := h.RunCommand(cmds[0].LuaRef, map[string]string{
 		"fileName":   "task.md",
 		"columnName": "todo",
 	}); err != nil {
@@ -221,6 +221,63 @@ end)`)
 	if len(api.moves) != 1 || api.moves[0] != (move{From: "todo", To: "done", Name: "task.md"}) {
 		t.Fatalf("unexpected moves: %+v", api.moves)
 	}
+}
+
+// Regression: boardScriptAPI.MoveItem (in the real model) publishes an
+// ItemMoved event synchronously, which routes back to Host.OnEvent. If
+// running scripts re-entered the VM, this would deadlock or corrupt the
+// coroutine. We simulate that with a fakeAPI that calls bus.Publish from
+// inside MoveItem and a Lua script that hooks item_moved.
+func TestNoDeadlockOnInScriptEvent(t *testing.T) {
+	dir := writeInit(t, `
+local moves = 0
+kbrd.on("item_moved", function(evt)
+  moves = moves + 1
+  kbrd.notify("hooked:"..evt.to, "info")
+end)
+kbrd.command("m", "Move", function(ctx)
+  kbrd.board.move({column = "todo", name = "x"}, "done")
+  kbrd.notify("after:"..tostring(moves), "info")
+end)
+`)
+	api := &fakeAPIWithBus{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	api.host = h // back-reference so MoveItem can publish events
+
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// Two notifies: "after:0" (hook deferred until script returns), then
+	// "hooked:done" (drained after the script completed).
+	if len(api.notifies) != 2 {
+		t.Fatalf("expected 2 notifies, got %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "after:0") {
+		t.Fatalf("first notify should be after:0 (hook deferred); got %s", api.notifies[0])
+	}
+	if !strings.Contains(api.notifies[1], "hooked:done") {
+		t.Fatalf("second notify should be the drained hook; got %s", api.notifies[1])
+	}
+}
+
+// fakeAPIWithBus is a fakeAPI whose MoveItem publishes an ItemMoved event
+// synchronously through the Host's OnEvent — mirroring how the real
+// boardScriptAPI.MoveItem behaves.
+type fakeAPIWithBus struct {
+	fakeAPI
+	host *Host
+}
+
+func (f *fakeAPIWithBus) MoveItem(item events.ItemRef, toColumn string) error {
+	_ = f.fakeAPI.MoveItem(item, toColumn)
+	if f.host != nil {
+		f.host.OnEvent(events.ItemMoved{Item: item, From: item.Column, To: toColumn})
+	}
+	return nil
 }
 
 func TestBoardMoveError(t *testing.T) {
@@ -236,7 +293,7 @@ end)`)
 	}
 	defer h.Close()
 	cmds := h.Commands()
-	_ = h.RunCommand(cmds[0].LuaRef, nil)
+	_, _ = h.RunCommand(cmds[0].LuaRef, nil)
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "err:nope") {
 		t.Fatalf("expected error notify, got %v", api.notifies)
 	}
@@ -258,7 +315,7 @@ end)`)
 	}
 	defer h.Close()
 
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "got:hello") {
@@ -281,7 +338,7 @@ end)`)
 		t.Fatalf("load: %v", err)
 	}
 	defer h.Close()
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "count:2") {
@@ -308,7 +365,7 @@ end)`)
 		t.Fatalf("load: %v", err)
 	}
 	defer h.Close()
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.columns) != 1 || api.columns[0] != "archive" {
@@ -318,7 +375,7 @@ end)`)
 		t.Fatalf("refresh not called, got %d", api.refreshes)
 	}
 	// Second invocation should not re-create.
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run2: %v", err)
 	}
 	if len(api.columns) != 1 {
@@ -339,7 +396,7 @@ end)`)
 		t.Fatalf("load: %v", err)
 	}
 	defer h.Close()
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.notifies) != 1 || !strings.HasPrefix(api.notifies[0], "error:err:") {
@@ -355,7 +412,7 @@ func TestBoardRefresh(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	defer h.Close()
-	if err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if api.refreshes != 1 {
@@ -380,12 +437,161 @@ end)`)
 		t.Fatalf("load: %v", err)
 	}
 	defer h.Close()
-	if err := h.RunCommand(h.Commands()[0].LuaRef, map[string]string{
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, map[string]string{
 		"absPath": filepath.Join(other, "x.txt"),
 	}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "body:abs") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
+func TestUIPick(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("p", "Pick", function()
+  local choice = kbrd.ui.pick("Priority", {"P0", "P1", "P2"})
+  if choice == nil then kbrd.notify("cancelled", "info"); return end
+  kbrd.notify("chose:"..choice, "success")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if req == nil {
+		t.Fatal("expected UI request, got nil")
+	}
+	if req.Kind != "pick" || req.Title != "Priority" || len(req.Choices) != 3 {
+		t.Fatalf("unexpected req: %+v", req)
+	}
+
+	req2, err := h.ResumeWith(req.Token, "P1")
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if req2 != nil {
+		t.Fatalf("expected completion, got another req: %+v", req2)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "chose:P1") {
+		t.Fatalf("unexpected notifies: %v", api.notifies)
+	}
+}
+
+func TestUIPickCancel(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("p", "Pick", function()
+  local choice = kbrd.ui.pick("Pick", {"a", "b"})
+  if choice == nil then kbrd.notify("cancelled", "info"); return end
+  kbrd.notify("chose:"..choice, "success")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || req == nil {
+		t.Fatalf("expected req, got req=%v err=%v", req, err)
+	}
+	if _, err := h.ResumeWith(req.Token, nil); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "cancelled") {
+		t.Fatalf("expected cancel branch, got %v", api.notifies)
+	}
+}
+
+func TestUIPrompt(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("r", "Rename", function()
+  local name = kbrd.ui.prompt("New name", "default")
+  kbrd.notify("got:"..tostring(name), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || req == nil {
+		t.Fatalf("expected req, got req=%v err=%v", req, err)
+	}
+	if req.Kind != "prompt" || req.Default != "default" {
+		t.Fatalf("unexpected req: %+v", req)
+	}
+	if _, err := h.ResumeWith(req.Token, "hello"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if !strings.Contains(api.notifies[0], "got:hello") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
+func TestUIConfirm(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("c", "Confirm", function()
+  local ok = kbrd.ui.confirm("Sure?")
+  kbrd.notify("answered:"..tostring(ok), "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || req == nil {
+		t.Fatalf("expected req, got req=%v err=%v", req, err)
+	}
+	if req.Kind != "confirm" {
+		t.Fatalf("expected confirm, got %s", req.Kind)
+	}
+	if _, err := h.ResumeWith(req.Token, true); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if !strings.Contains(api.notifies[0], "answered:true") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
+func TestUIChained(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("c", "Chain", function()
+  local a = kbrd.ui.pick("First", {"x", "y"})
+  local b = kbrd.ui.prompt("Second", "")
+  kbrd.notify("got:"..a..","..b, "info")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || req == nil || req.Kind != "pick" {
+		t.Fatalf("expected pick, got req=%+v err=%v", req, err)
+	}
+	req2, err := h.ResumeWith(req.Token, "x")
+	if err != nil || req2 == nil || req2.Kind != "prompt" {
+		t.Fatalf("expected prompt, got req=%+v err=%v", req2, err)
+	}
+	if _, err := h.ResumeWith(req2.Token, "world"); err != nil {
+		t.Fatalf("final resume: %v", err)
+	}
+	if !strings.Contains(api.notifies[0], "got:x,world") {
 		t.Fatalf("unexpected: %v", api.notifies)
 	}
 }
