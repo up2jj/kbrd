@@ -3,12 +3,10 @@ package model
 import (
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 
 	"kbrd/config"
 )
@@ -96,32 +94,22 @@ func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.M
 	return b, b.notifier.Send(msg.Name+" finished", notifySuccess)
 }
 
-// commandMatch is one entry in the (possibly filtered) visible list.
-// MatchedIndexes are rune offsets into the rendered haystack ("name  description").
-type commandMatch struct {
-	Index          int
-	MatchedIndexes []int
-}
-
-type commandSource []config.Command
-
-func (s commandSource) String(i int) string {
-	c := s[i]
-	if c.Description != "" {
-		return c.Name + "  " + c.Description
-	}
-	return c.Name
-}
-func (s commandSource) Len() int { return len(s) }
-
 type CustomCommandMenu struct {
 	active   bool
 	selected int
 	filter   string
 	commands []config.Command
-	matches  []commandMatch
+	matches  []FuzzyMatch
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
+}
+
+func (m *CustomCommandMenu) commandHaystack(i int) string {
+	c := m.commands[i]
+	if c.Description != "" {
+		return c.Name + "  " + c.Description
+	}
+	return c.Name
 }
 
 func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string) {
@@ -147,18 +135,7 @@ func (m *CustomCommandMenu) Close() {
 func (m *CustomCommandMenu) Active() bool { return m.active }
 
 func (m *CustomCommandMenu) recompute() {
-	if m.filter == "" {
-		m.matches = make([]commandMatch, len(m.commands))
-		for i := range m.commands {
-			m.matches[i] = commandMatch{Index: i}
-		}
-	} else {
-		results := fuzzy.FindFrom(m.filter, commandSource(m.commands))
-		m.matches = make([]commandMatch, len(results))
-		for i, r := range results {
-			m.matches[i] = commandMatch{Index: r.Index, MatchedIndexes: r.MatchedIndexes}
-		}
-	}
+	m.matches = filterFuzzy(len(m.commands), m.filter, m.commandHaystack)
 	if m.selected >= len(m.matches) {
 		m.selected = len(m.matches) - 1
 	}
@@ -214,40 +191,6 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	return func() tea.Msg {
 		return runCustomCommandMsg{Cmd: c, Vars: vars}
 	}
-}
-
-// renderHighlighted returns s with the runes at the given indexes wrapped in
-// hi-style and the rest in baseStyle. indexes are sorted ascending.
-func renderHighlighted(s string, indexes []int, baseStyle, hiStyle lipgloss.Style) string {
-	if len(indexes) == 0 {
-		return baseStyle.Render(s)
-	}
-	var b strings.Builder
-	idxSet := make(map[int]bool, len(indexes))
-	for _, i := range indexes {
-		idxSet[i] = true
-	}
-	runes := []rune(s)
-	i := 0
-	for i < len(runes) {
-		if idxSet[i] {
-			// run of matched runes
-			j := i
-			for j < len(runes) && idxSet[j] {
-				j++
-			}
-			b.WriteString(hiStyle.Render(string(runes[i:j])))
-			i = j
-		} else {
-			j := i
-			for j < len(runes) && !idxSet[j] {
-				j++
-			}
-			b.WriteString(baseStyle.Render(string(runes[i:j])))
-			i = j
-		}
-	}
-	return b.String()
 }
 
 func (m *CustomCommandMenu) View(termWidth, termHeight int) string {

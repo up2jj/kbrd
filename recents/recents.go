@@ -16,8 +16,9 @@ const (
 )
 
 type Entry struct {
-	Path string `json:"path"`
-	Name string `json:"name,omitempty"`
+	Path   string `json:"path"`
+	Name   string `json:"name,omitempty"`
+	Pinned bool   `json:"pinned,omitempty"`
 }
 
 type Store struct {
@@ -82,24 +83,69 @@ func (s *Store) Touch(path, name string) {
 		return
 	}
 	np := normalize(path)
+	pinned := false
+	for _, e := range s.Entries {
+		if normalize(e.Path) == np {
+			pinned = e.Pinned
+			break
+		}
+	}
 	next := make([]Entry, 0, len(s.Entries)+1)
-	next = append(next, Entry{Path: np, Name: name})
+	next = append(next, Entry{Path: np, Name: name, Pinned: pinned})
 	for _, e := range s.Entries {
 		if normalize(e.Path) == np {
 			continue
 		}
 		next = append(next, e)
 	}
-	if len(next) > MaxEntries {
-		next = next[:MaxEntries]
+	s.Entries = capUnpinned(next)
+}
+
+// capUnpinned trims unpinned entries past MaxEntries while preserving order
+// and keeping all pinned entries regardless of count.
+func capUnpinned(entries []Entry) []Entry {
+	out := make([]Entry, 0, len(entries))
+	unpinned := 0
+	for _, e := range entries {
+		if e.Pinned {
+			out = append(out, e)
+			continue
+		}
+		if unpinned >= MaxEntries {
+			continue
+		}
+		out = append(out, e)
+		unpinned++
 	}
-	s.Entries = next
+	return out
+}
+
+// SetPinned marks the entry for path as pinned/unpinned. If pinning a path not
+// already present, inserts a new entry at the end so it persists.
+func (s *Store) SetPinned(path, name string, pinned bool) {
+	if path == "" {
+		return
+	}
+	np := normalize(path)
+	for i := range s.Entries {
+		if normalize(s.Entries[i].Path) == np {
+			s.Entries[i].Pinned = pinned
+			return
+		}
+	}
+	if pinned {
+		s.Entries = append(s.Entries, Entry{Path: np, Name: name, Pinned: true})
+	}
 }
 
 func (s *Store) Prune() int {
 	kept := make([]Entry, 0, len(s.Entries))
 	removed := 0
 	for _, e := range s.Entries {
+		if e.Pinned {
+			kept = append(kept, e)
+			continue
+		}
 		info, err := os.Stat(e.Path)
 		if err != nil || !info.IsDir() {
 			removed++

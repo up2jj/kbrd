@@ -64,10 +64,11 @@ type KeyMap struct {
 	PeekBottom   key.Binding
 
 	// Switcher
-	SwitcherClose   key.Binding
-	SwitcherPrev    key.Binding
-	SwitcherNext    key.Binding
-	SwitcherConfirm key.Binding
+	SwitcherClose     key.Binding
+	SwitcherPrev      key.Binding
+	SwitcherNext      key.Binding
+	SwitcherConfirm   key.Binding
+	SwitcherPinToggle key.Binding
 
 	// Quick command
 	QuickCmdCancel  key.Binding
@@ -161,10 +162,11 @@ var Keys = KeyMap{
 	PeekBottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 
 	// Switcher
-	SwitcherClose:   key.NewBinding(key.WithKeys("esc", "q", "ctrl+p"), key.WithHelp("q/esc", "cancel")),
-	SwitcherPrev:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "previous")),
-	SwitcherNext:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "next")),
-	SwitcherConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
+	SwitcherClose:     key.NewBinding(key.WithKeys("esc", "ctrl+p"), key.WithHelp("esc", "cancel")),
+	SwitcherPrev:      key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "previous")),
+	SwitcherNext:      key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
+	SwitcherConfirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
+	SwitcherPinToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pin/unpin")),
 
 	// Quick command
 	QuickCmdCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

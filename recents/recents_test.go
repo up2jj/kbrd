@@ -50,6 +50,66 @@ func TestPrune_RemovesMissingDirs(t *testing.T) {
 	}
 }
 
+func TestSetPinned_InsertsAndToggles(t *testing.T) {
+	s := Store{}
+	s.SetPinned("/a", "A", true)
+	if len(s.Entries) != 1 || !s.Entries[0].Pinned {
+		t.Fatalf("after pin insert: %+v", s.Entries)
+	}
+	s.SetPinned("/a", "A", false)
+	if len(s.Entries) != 1 || s.Entries[0].Pinned {
+		t.Fatalf("after unpin: %+v", s.Entries)
+	}
+	// Unpinning an absent path is a no-op (doesn't insert).
+	s.SetPinned("/missing", "", false)
+	if len(s.Entries) != 1 {
+		t.Fatalf("unpin absent should not insert: %+v", s.Entries)
+	}
+}
+
+func TestTouch_PreservesPinned(t *testing.T) {
+	s := Store{}
+	s.Touch("/a", "A")
+	s.SetPinned("/a", "A", true)
+	s.Touch("/b", "B")
+	s.Touch("/a", "A-new")
+	if s.Entries[0].Path != "/a" || !s.Entries[0].Pinned || s.Entries[0].Name != "A-new" {
+		t.Fatalf("pin not preserved across Touch: %+v", s.Entries[0])
+	}
+}
+
+func TestTouch_CapDoesNotEvictPinned(t *testing.T) {
+	s := Store{}
+	s.SetPinned("/pin", "P", true)
+	for i := 0; i < MaxEntries+5; i++ {
+		s.Touch(filepath.Join("/p", string(rune('a'+i))), "")
+	}
+	// All pinned survive; unpinned capped at MaxEntries.
+	pinned, unpinned := 0, 0
+	for _, e := range s.Entries {
+		if e.Pinned {
+			pinned++
+		} else {
+			unpinned++
+		}
+	}
+	if pinned != 1 || unpinned != MaxEntries {
+		t.Fatalf("pinned=%d unpinned=%d want 1/%d (entries=%+v)", pinned, unpinned, MaxEntries, s.Entries)
+	}
+}
+
+func TestPrune_KeepsPinnedEvenIfMissing(t *testing.T) {
+	gone := t.TempDir()
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	s := Store{Entries: []Entry{{Path: gone, Pinned: true}}}
+	removed := s.Prune()
+	if removed != 0 || len(s.Entries) != 1 {
+		t.Fatalf("pinned missing dir got pruned: removed=%d entries=%+v", removed, s.Entries)
+	}
+}
+
 func TestLoad_MissingFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

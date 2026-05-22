@@ -376,6 +376,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchBoardMsg:
 		return b.handleSwitchBoard(msg)
 
+	case pinBoardMsg:
+		return b.handlePinBoard(msg)
+
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)
 
@@ -1021,6 +1024,20 @@ func (b *Board) openSwitcher() tea.Cmd {
 	activeAbs, _ := filepath.Abs(b.cfg.Path)
 	b.switcher.Open(store.Entries, activeAbs)
 	return nil
+}
+
+func (b *Board) handlePinBoard(msg pinBoardMsg) (tea.Model, tea.Cmd) {
+	store, err := recents.Load()
+	if err != nil {
+		return b, b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+	}
+	store.SetPinned(msg.Path, msg.Name, msg.Pinned)
+	if err := store.Save(); err != nil {
+		return b, b.notifier.Send("failed to save recents: "+err.Error(), notifyError)
+	}
+	activeAbs, _ := filepath.Abs(b.cfg.Path)
+	b.switcher.Open(store.Entries, activeAbs)
+	return b, nil
 }
 
 func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
