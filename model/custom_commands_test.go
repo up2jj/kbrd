@@ -19,9 +19,9 @@ func keySpecial(t tea.KeyType) tea.KeyMsg {
 
 func testCommands() []config.Command {
 	return []config.Command{
-		{Name: "Edit", Shortcut: "e", Description: "edit", Template: "nano"},
-		{Name: "Reveal", Shortcut: "f", Description: "reveal", Template: "open"},
-		{Name: "Word count", Shortcut: "w", Description: "wc", Template: "wc"},
+		{Name: "Edit", ID: "e", Description: "edit", Template: "nano"},
+		{Name: "Reveal", ID: "f", Description: "reveal", Template: "open"},
+		{Name: "Word count", ID: "w", Description: "wc", Template: "wc"},
 	}
 }
 
@@ -112,36 +112,87 @@ func TestCustomCommandMenu_EnterRunsSelected(t *testing.T) {
 	}
 }
 
-func TestCustomCommandMenu_ShortcutKeyRunsCommand(t *testing.T) {
+func TestCustomCommandMenu_FilterNarrowsAndEnterRuns(t *testing.T) {
 	var m CustomCommandMenu
 	m.Open(testCommands(), nil, nil)
 
-	cmd := m.Update(key1('w'))
+	// Typing 'w' should fuzzy-match "Word count" (and possibly "Reveal"
+	// via the 'w' in 'wc' description) — but "Word count" should rank first.
+	m.Update(key1('w'))
+	if m.filter != "w" {
+		t.Fatalf("filter: got %q want %q", m.filter, "w")
+	}
+	if len(m.matches) == 0 {
+		t.Fatal("expected at least one match for 'w'")
+	}
+	// Highlighted (selected=0) match should be Word count.
+	top := m.commands[m.matches[0].Index]
+	if top.Name != "Word count" {
+		t.Errorf("top match: got %q want Word count", top.Name)
+	}
+
+	cmd := m.Update(keySpecial(tea.KeyEnter))
 	if cmd == nil {
-		t.Fatal("shortcut key should emit a tea.Cmd")
+		t.Fatal("enter should emit a tea.Cmd")
 	}
 	if m.Active() {
-		t.Fatal("shortcut key did not close menu")
+		t.Fatal("enter did not close menu")
 	}
 	msg := cmd()
 	run, ok := msg.(runCustomCommandMsg)
 	if !ok {
 		t.Fatalf("msg: got %T want runCustomCommandMsg", msg)
 	}
-	if run.Cmd.Shortcut != "w" {
+	if run.Cmd.ID != "w" {
 		t.Errorf("ran wrong command: %+v", run.Cmd)
 	}
 }
 
-func TestCustomCommandMenu_UnknownKeyIsNoop(t *testing.T) {
+func TestCustomCommandMenu_BackspaceRestores(t *testing.T) {
 	var m CustomCommandMenu
 	m.Open(testCommands(), nil, nil)
-	cmd := m.Update(key1('z'))
-	if cmd != nil {
-		t.Errorf("unknown key should not emit a tea.Cmd, got %v", cmd)
+	all := len(m.matches)
+	m.Update(key1('w'))
+	if len(m.matches) >= all {
+		t.Fatalf("filter did not narrow: %d >= %d", len(m.matches), all)
 	}
-	if !m.Active() {
-		t.Error("unknown key should not close menu")
+	m.Update(keySpecial(tea.KeyBackspace))
+	if m.filter != "" {
+		t.Errorf("backspace did not clear filter: %q", m.filter)
+	}
+	if len(m.matches) != all {
+		t.Errorf("backspace did not restore: got %d want %d", len(m.matches), all)
+	}
+}
+
+func TestCustomCommandMenu_NoMatchEnterCloses(t *testing.T) {
+	var m CustomCommandMenu
+	m.Open(testCommands(), nil, nil)
+	m.Update(key1('z'))
+	m.Update(key1('z'))
+	m.Update(key1('z'))
+	if len(m.matches) != 0 {
+		t.Fatalf("expected zero matches for 'zzz', got %d", len(m.matches))
+	}
+	cmd := m.Update(keySpecial(tea.KeyEnter))
+	if cmd != nil {
+		t.Errorf("enter on empty matches should not emit a tea.Cmd, got %v", cmd)
+	}
+	if m.Active() {
+		t.Error("enter on empty matches should close menu")
+	}
+}
+
+func TestCustomCommandMenu_EmptyFilterShowsAllInOrder(t *testing.T) {
+	var m CustomCommandMenu
+	m.Open(testCommands(), nil, nil)
+	if len(m.matches) != 3 {
+		t.Fatalf("expected 3 matches, got %d", len(m.matches))
+	}
+	for i, want := range []string{"Edit", "Reveal", "Word count"} {
+		if got := m.commands[m.matches[i].Index].Name; got != want {
+			t.Errorf("match[%d]: got %q want %q", i, got, want)
+		}
 	}
 }
 
@@ -184,7 +235,7 @@ func TestCustomCommandMenu_View_ListsCommands(t *testing.T) {
 	var m CustomCommandMenu
 	m.Open(testCommands(), nil, nil)
 	view := m.View(120, 40)
-	for _, want := range []string{"Edit", "Reveal", "Word count", "[e]", "[f]", "[w]"} {
+	for _, want := range []string{"Edit", "Reveal", "Word count"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q, got:\n%s", want, view)
 		}

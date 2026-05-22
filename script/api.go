@@ -19,6 +19,7 @@ func (h *Host) installAPI() {
 
 	kbrd.RawSetString("notify", L.NewFunction(h.luaNotify))
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
+	kbrd.RawSetString("has_command", L.NewFunction(h.luaHasCommand))
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
 
@@ -247,15 +248,15 @@ func (h *Host) luaNotify(L *lua.LState) int {
 	return 0
 }
 
-// kbrd.command(shortcut, name, fn) — short form
-// kbrd.command{ shortcut=, name=, description=, run= } — table form
+// kbrd.command(id, name, fn) — short form
+// kbrd.command{ id=, name=, description=, run= } — table form
 func (h *Host) luaCommand(L *lua.LState) int {
 	if h.inTimer {
 		L.RaiseError("kbrd.command: cannot register commands from inside a timer callback (register from init.lua or a command body)")
 		return 0
 	}
 	var (
-		shortcut    string
+		id          string
 		name        string
 		description string
 		fn          *lua.LFunction
@@ -263,43 +264,54 @@ func (h *Host) luaCommand(L *lua.LState) int {
 
 	if L.GetTop() == 1 && L.Get(1).Type() == lua.LTTable {
 		t := L.CheckTable(1)
-		shortcut = lua.LVAsString(t.RawGetString("shortcut"))
+		id = lua.LVAsString(t.RawGetString("id"))
 		name = lua.LVAsString(t.RawGetString("name"))
 		description = lua.LVAsString(t.RawGetString("description"))
 		if v, ok := t.RawGetString("run").(*lua.LFunction); ok {
 			fn = v
 		}
 	} else {
-		shortcut = L.CheckString(1)
+		id = L.CheckString(1)
 		name = L.CheckString(2)
 		fn = L.CheckFunction(3)
 	}
 
-	if shortcut == "" || name == "" || fn == nil {
-		L.RaiseError("kbrd.command: shortcut, name, and run/fn are required")
-		return 0
-	}
-	if len([]rune(shortcut)) != 1 {
-		L.RaiseError("kbrd.command: shortcut must be a single character")
+	if id == "" || name == "" || fn == nil {
+		L.RaiseError("kbrd.command: id, name, and run/fn are required")
 		return 0
 	}
 
-	ref := fmt.Sprintf("lua:%s", shortcut)
-	// Replace any existing registration with the same shortcut so reloads work.
+	ref := fmt.Sprintf("lua:%s", id)
+	// Replace any existing registration with the same id so reloads work.
 	for i, c := range h.commands {
-		if c.Shortcut == shortcut {
+		if c.ID == id {
 			h.commands[i] = luaCommand{
-				Name: name, Shortcut: shortcut, Description: description,
+				Name: name, ID: id, Description: description,
 				Ref: ref, fn: fn,
 			}
 			return 0
 		}
 	}
 	h.commands = append(h.commands, luaCommand{
-		Name: name, Shortcut: shortcut, Description: description,
+		Name: name, ID: id, Description: description,
 		Ref: ref, fn: fn,
 	})
 	return 0
+}
+
+// kbrd.has_command(id) → bool
+// Returns true if a Lua command with this id is currently registered.
+// Useful in init.lua for guarded re-registration or feature-detection.
+func (h *Host) luaHasCommand(L *lua.LState) int {
+	id := L.CheckString(1)
+	for _, c := range h.commands {
+		if c.ID == id {
+			L.Push(lua.LTrue)
+			return 1
+		}
+	}
+	L.Push(lua.LFalse)
+	return 1
 }
 
 // kbrd.on(event, fn)

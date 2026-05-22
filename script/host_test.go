@@ -152,7 +152,7 @@ func TestCommandRegistration(t *testing.T) {
 	if len(cmds) != 1 {
 		t.Fatalf("expected 1 command, got %d", len(cmds))
 	}
-	if cmds[0].Shortcut != "a" || cmds[0].Name != "Archive" || cmds[0].Source != config.SourceLua {
+	if cmds[0].ID != "a" || cmds[0].Name != "Archive" || cmds[0].Source != config.SourceLua {
 		t.Fatalf("unexpected command: %+v", cmds[0])
 	}
 
@@ -161,6 +161,31 @@ func TestCommandRegistration(t *testing.T) {
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "ran:foo.md") {
 		t.Fatalf("notify not invoked: %v", api.notifies)
+	}
+}
+
+func TestHasCommand(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("archive", "Archive", function() end)
+if kbrd.has_command("archive") then kbrd.notify("yes-archive") end
+if not kbrd.has_command("missing") then kbrd.notify("no-missing") end
+if kbrd.has_command("archive") == false then kbrd.notify("wrong") end
+`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if len(api.notifies) != 2 {
+		t.Fatalf("expected 2 notifies, got %d: %v", len(api.notifies), api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "yes-archive") {
+		t.Errorf("notify[0]: %q", api.notifies[0])
+	}
+	if !strings.Contains(api.notifies[1], "no-missing") {
+		t.Errorf("notify[1]: %q", api.notifies[1])
 	}
 }
 

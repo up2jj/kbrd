@@ -31,7 +31,7 @@ const (
 
 type Command struct {
 	Name        string `yaml:"name"`
-	Shortcut    string `yaml:"shortcut"`
+	ID          string `yaml:"id"`
 	Description string `yaml:"description"`
 	Template    string `yaml:"command"`
 	// Source is populated by the loader/registrar; never read from YAML.
@@ -52,7 +52,7 @@ type CommandLoadWarning struct {
 
 // LoadCommands reads global (~/.config/kbrd/commands.yml) then folder-local
 // (<folderPath>/.kbrd_commands.yml) command definitions and merges them.
-// Folder entries override global entries that share the same Shortcut.
+// Folder entries override global entries that share the same ID.
 // Missing files are not errors. Invalid entries are skipped and reported via
 // the returned warnings slice (non-fatal).
 func LoadCommands(folderPath string) ([]Command, []CommandLoadWarning, error) {
@@ -97,15 +97,15 @@ func detectDuplicates(cmds []Command) []CommandLoadWarning {
 	var warnings []CommandLoadWarning
 	seen := make(map[string]string, len(cmds))
 	for _, c := range cmds {
-		if winner, ok := seen[c.Shortcut]; ok {
+		if winner, ok := seen[c.ID]; ok {
 			warnings = append(warnings, CommandLoadWarning{
 				Source: FolderCommandsFile,
-				Message: fmt.Sprintf("duplicate shortcut %q: %q shadowed by %q",
-					c.Shortcut, c.Name, winner),
+				Message: fmt.Sprintf("duplicate id %q: %q shadowed by %q",
+					c.ID, c.Name, winner),
 			})
 			continue
 		}
-		seen[c.Shortcut] = c.Name
+		seen[c.ID] = c.Name
 	}
 	return warnings
 }
@@ -146,12 +146,8 @@ func validateCommand(c Command) error {
 	if c.Template == "" {
 		return fmt.Errorf("command is required")
 	}
-	if c.Shortcut == "" {
-		return fmt.Errorf("shortcut is required")
-	}
-	r := []rune(c.Shortcut)
-	if len(r) != 1 {
-		return fmt.Errorf("shortcut must be a single character")
+	if c.ID == "" {
+		return fmt.Errorf("id is required")
 	}
 	return nil
 }
@@ -160,10 +156,10 @@ func mergeCommands(global, local []Command) []Command {
 	merged := make([]Command, 0, len(global)+len(local))
 	overridden := make(map[string]bool, len(local))
 	for _, c := range local {
-		overridden[c.Shortcut] = true
+		overridden[c.ID] = true
 	}
 	for _, c := range global {
-		if overridden[c.Shortcut] {
+		if overridden[c.ID] {
 			continue
 		}
 		merged = append(merged, c)

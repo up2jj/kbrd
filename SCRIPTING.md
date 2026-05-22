@@ -134,24 +134,37 @@ to `"info"`). Uses your configured `notify.backend` (osascript / OSC9 / OSC777).
 kbrd.notify("hello", "success")
 ```
 
-### `kbrd.command(shortcut, name, fn)` — short form
-### `kbrd.command{shortcut=, name=, description=, run=}` — table form
+### `kbrd.command(id, name, fn)` — short form
+### `kbrd.command{id=, name=, description=, run=}` — table form
 
-Register a menu entry. `shortcut` is a single character. `name` is what
-shows in the menu. `description` is optional dim text shown after the name.
-`fn` / `run` is called with `ctx`.
+Register a menu entry. `id` is a unique identifier (any non-empty string —
+e.g. `"archive"` or `"word-count"`). `name` is what shows in the menu, and
+is what the fuzzy filter matches against. `description` is optional dim text
+shown after the name. `fn` / `run` is called with `ctx`.
 
 ```lua
-kbrd.command("p", "Priority", function(ctx) ... end)
+kbrd.command("priority", "Priority", function(ctx) ... end)
 
 kbrd.command{
-  shortcut="A", name="Archive", description="Move to archive",
+  id="archive", name="Archive", description="Move to archive",
   run=function(ctx) ... end,
 }
 ```
 
-Re-registering the same shortcut replaces the previous binding (useful when
+Re-registering the same id replaces the previous binding (useful when
 iterating on a script).
+
+### `kbrd.has_command(id)`
+
+Returns `true` if a Lua command with this id is currently registered, `false`
+otherwise. Useful for guarded re-registration or feature-detection. Only sees
+Lua-registered commands — YAML/shell entries are not visible here.
+
+```lua
+if not kbrd.has_command("archive") then
+  kbrd.command("archive", "Archive", function(ctx) ... end)
+end
+```
 
 ### `kbrd.on(event, fn)`
 
@@ -603,7 +616,7 @@ end)
 
 - Errors and panic traces go to `~/.cache/kbrd/script.log`. `tail -f` it
   while developing.
-- Re-registering the same shortcut overrides the previous binding —
+- Re-registering the same id overrides the previous binding —
   iteration is just edit-save-restart.
 - Wrap suspicious lines in `pcall` to see the exact error message:
   ```lua

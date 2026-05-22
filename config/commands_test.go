@@ -25,7 +25,7 @@ func TestLoadCommands_GlobalOnly(t *testing.T) {
 	writeFile(t, filepath.Join(globalDir, GlobalCommandsFile), `
 commands:
   - name: Edit
-    shortcut: e
+    id: edit
     description: edit it
     command: nano {{.filePath}}
 `)
@@ -36,29 +36,29 @@ commands:
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
 	}
-	if len(cmds) != 1 || cmds[0].Shortcut != "e" || cmds[0].Name != "Edit" {
+	if len(cmds) != 1 || cmds[0].ID != "edit" || cmds[0].Name != "Edit" {
 		t.Fatalf("cmds: %+v", cmds)
 	}
 }
 
-func TestLoadCommands_FolderOverridesGlobalByShortcut(t *testing.T) {
+func TestLoadCommands_FolderOverridesGlobalByID(t *testing.T) {
 	globalDir := t.TempDir()
 	folder := t.TempDir()
 	writeFile(t, filepath.Join(globalDir, GlobalCommandsFile), `
 commands:
   - name: Global edit
-    shortcut: e
+    id: edit
     description: global
     command: nano {{.filePath}}
   - name: Global only
-    shortcut: g
+    id: global-only
     description: global only
     command: echo g
 `)
 	writeFile(t, filepath.Join(folder, FolderCommandsFile), `
 commands:
   - name: Folder edit
-    shortcut: e
+    id: edit
     description: folder
     command: vim {{.filePath}}
 `)
@@ -72,15 +72,15 @@ commands:
 	if len(cmds) != 2 {
 		t.Fatalf("cmds: got %d want 2 (%+v)", len(cmds), cmds)
 	}
-	byShortcut := map[string]Command{}
+	byID := map[string]Command{}
 	for _, c := range cmds {
-		byShortcut[c.Shortcut] = c
+		byID[c.ID] = c
 	}
-	if byShortcut["e"].Name != "Folder edit" {
-		t.Errorf("shortcut e: got %q want Folder edit", byShortcut["e"].Name)
+	if byID["edit"].Name != "Folder edit" {
+		t.Errorf("id edit: got %q want Folder edit", byID["edit"].Name)
 	}
-	if byShortcut["g"].Name != "Global only" {
-		t.Errorf("shortcut g: got %q want Global only", byShortcut["g"].Name)
+	if byID["global-only"].Name != "Global only" {
+		t.Errorf("id global-only: got %q want Global only", byID["global-only"].Name)
 	}
 }
 
@@ -90,19 +90,16 @@ func TestLoadCommands_InvalidEntriesWarnAndSkip(t *testing.T) {
 	writeFile(t, filepath.Join(folder, FolderCommandsFile), `
 commands:
   - name: ""
-    shortcut: a
+    id: a
     command: echo a
-  - name: No shortcut
-    shortcut: ""
+  - name: No id
+    id: ""
     command: echo b
-  - name: Multi-rune
-    shortcut: abc
-    command: echo c
   - name: No command
-    shortcut: d
+    id: d
     command: ""
   - name: Good
-    shortcut: g
+    id: good
     description: ok
     command: echo good
 `)
@@ -113,20 +110,20 @@ commands:
 	if len(cmds) != 1 || cmds[0].Name != "Good" {
 		t.Fatalf("cmds: %+v", cmds)
 	}
-	if len(warns) != 4 {
-		t.Fatalf("warnings: got %d want 4 (%+v)", len(warns), warns)
+	if len(warns) != 3 {
+		t.Fatalf("warnings: got %d want 3 (%+v)", len(warns), warns)
 	}
 }
 
-func TestLoadCommands_DuplicateShortcutWithinFolder(t *testing.T) {
+func TestLoadCommands_DuplicateIDWithinFolder(t *testing.T) {
 	folder := t.TempDir()
 	writeFile(t, filepath.Join(folder, FolderCommandsFile), `
 commands:
   - name: First
-    shortcut: x
+    id: x
     command: echo first
   - name: Second
-    shortcut: x
+    id: x
     command: echo second
 `)
 	cmds, warns, err := loadCommandsFrom(t.TempDir(), folder)

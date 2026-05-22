@@ -115,7 +115,7 @@ type AsyncCmd struct {
 
 type luaCommand struct {
 	Name        string
-	Shortcut    string
+	ID          string
 	Description string
 	Ref         string
 	fn          *lua.LFunction
@@ -215,7 +215,7 @@ func (h *Host) Commands() []config.Command {
 	for _, c := range h.commands {
 		out = append(out, config.Command{
 			Name:        c.Name,
-			Shortcut:    c.Shortcut,
+			ID:          c.ID,
 			Description: c.Description,
 			Source:      config.SourceLua,
 			LuaRef:      c.Ref,

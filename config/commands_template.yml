@@ -1,5 +1,5 @@
 # kbrd custom commands — edit and reload by re-opening the board.
-# Press `x` on an item to open the menu, then the shortcut letter to run.
+# Press `x` on an item to open the menu, then fuzzy-search by name.
 #
 # Available template variables:
 #   {{.filePath}}    absolute path to the selected file
@@ -14,27 +14,27 @@
 
 commands:
   - name: Edit in nano
-    shortcut: n
+    id: edit-nano
     description: Open file in nano
     command: nano "{{.filePath}}"
 
   - name: Edit in vim
-    shortcut: v
+    id: edit-vim
     description: Open file in vim
     command: vim "{{.filePath}}"
 
   - name: Word count
-    shortcut: w
+    id: word-count
     description: Show wc stats for the file
     command: wc "{{.filePath}}"; echo; read -n1 -s -r -p "press any key"
 
   - name: Reveal in Finder
-    shortcut: f
+    id: reveal-finder
     description: Open the column folder in Finder
     command: open "{{.columnPath}}"
 
   - name: Print info
-    shortcut: i
+    id: print-info
     description: Dump all template variables
     command: |
       echo "file:   {{.filePath}}"
