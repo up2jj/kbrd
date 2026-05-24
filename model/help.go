@@ -23,12 +23,36 @@ type ShortcutContext struct {
 }
 
 var (
-	helpKeyStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
-	helpLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	helpSepStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
-	helpTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#60a5fa"))
-	helpDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Italic(true)
+	helpKeyStyle      lipgloss.Style
+	helpLabelStyle    lipgloss.Style
+	helpSepStyle      lipgloss.Style
+	helpTitleStyle    lipgloss.Style
+	helpDimStyle      lipgloss.Style
+	helpOverlayBorder lipgloss.Color
+	helpConfigBorder  lipgloss.Color
+	helpRowKey        lipgloss.Color
+	helpRowLabel      lipgloss.Color
+	helpExistsColor   lipgloss.Color
+	helpMissingColor  lipgloss.Color
+	helpErrorColor    lipgloss.Color
+	helpPathColor     lipgloss.Color
 )
+
+func setHelpStyles(p Palette) {
+	helpKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	helpLabelStyle = lipgloss.NewStyle().Foreground(p.FgMuted)
+	helpSepStyle = lipgloss.NewStyle().Foreground(p.FgDim)
+	helpTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	helpDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+	helpOverlayBorder = p.BorderActive
+	helpConfigBorder = p.AccentAlt
+	helpRowKey = p.FgBase
+	helpRowLabel = p.FgMuted
+	helpExistsColor = p.Success
+	helpMissingColor = p.Warning
+	helpErrorColor = p.Danger
+	helpPathColor = p.FgSoft
+}
 
 // GlobalShortcuts returns the full grouped registry, used by the help overlay.
 func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
@@ -84,7 +108,7 @@ func RenderHelpOverlay(maxWidth, maxHeight int, groups []ShortcutGroup) string {
 		}
 	}
 
-	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
+	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(helpRowKey)
 
 	var sections []string
 	for _, g := range groups {
@@ -108,7 +132,7 @@ func RenderHelpOverlay(maxWidth, maxHeight int, groups []ShortcutGroup) string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(helpOverlayBorder).
 		Padding(1, 3)
 
 	return box.Render(content)
@@ -126,13 +150,13 @@ func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
 			labelColWidth = w
 		}
 	}
-	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
-	labelCol := lipgloss.NewStyle().Width(labelColWidth + 2).Foreground(lipgloss.Color("#94a3b8"))
+	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(helpRowKey)
+	labelCol := lipgloss.NewStyle().Width(labelColWidth + 2).Foreground(helpRowLabel)
 
-	existsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e")).Bold(true)
-	missingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#f59e0b")).Bold(true)
-	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
-	pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#cbd5e1")).Italic(true)
+	existsStyle := lipgloss.NewStyle().Foreground(helpExistsColor).Bold(true)
+	missingStyle := lipgloss.NewStyle().Foreground(helpMissingColor).Bold(true)
+	errStyle := lipgloss.NewStyle().Foreground(helpErrorColor)
+	pathStyle := lipgloss.NewStyle().Foreground(helpPathColor).Italic(true)
 
 	rows := []string{helpTitleStyle.Render("Config commands"), ""}
 	for _, e := range entries {
@@ -157,7 +181,7 @@ func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#a78bfa")).
+		BorderForeground(helpConfigBorder).
 		Padding(1, 3)
 
 	return box.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))

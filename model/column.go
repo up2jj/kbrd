@@ -23,6 +23,7 @@ type itemDelegate struct {
 	gutterW    int
 	colWidth   int
 	statFor    func(absPath string) (kbrdfs.DiffStat, bool)
+	palette    Palette
 }
 
 func (d itemDelegate) Height() int  { return 3 }
@@ -47,20 +48,21 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 	// Row palette — every cell on the row shares the same background so the
 	// mnemonic cell visually belongs to the row.
+	p := d.palette
 	var rowBg, mnemFg, nameFg lipgloss.Color
 	hasRowBg := false
 	switch {
 	case isSelected && d.isActive:
-		rowBg = lipgloss.Color("#3b82f6")
-		mnemFg = lipgloss.Color("#fde047")
-		nameFg = lipgloss.Color("#ffffff")
+		rowBg = p.PrimaryStrong
+		mnemFg = p.Highlight
+		nameFg = p.FgOnAccent
 		hasRowBg = true
 	case isSelected:
-		mnemFg = lipgloss.Color("#f59e0b")
-		nameFg = lipgloss.Color("#f1f5f9")
+		mnemFg = p.Warning
+		nameFg = p.FgEmphasis
 	default:
-		mnemFg = lipgloss.Color("#f59e0b")
-		nameFg = lipgloss.Color("#f1f5f9")
+		mnemFg = p.Warning
+		nameFg = p.FgEmphasis
 	}
 
 	pinIcon := ""
@@ -97,12 +99,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	var previewFg, detailBg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
-		previewFg = lipgloss.Color("#bfdbfe")
-		detailBg = lipgloss.Color("#1e3a8a")
+		previewFg = p.FgSelectedPreview
+		detailBg = p.BgSelectedDetail
 	case isSelected:
-		previewFg = lipgloss.Color("#94a3b8")
+		previewFg = p.FgMuted
 	default:
-		previewFg = lipgloss.Color("#64748b")
+		previewFg = p.FgSubtle
 	}
 	previewStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
 	if isSelected && d.isActive {
@@ -116,11 +118,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		if s, ok := d.statFor(item.FullPath); ok {
 			switch {
 			case s.Moved:
-				movedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#a78bfa")).Bold(true)
+				movedStyle := lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true)
 				meta += "  ·  " + movedStyle.Render("→ moved")
 			case s.Added > 0 || s.Deleted > 0:
-				addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
-				deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
+				addedStyle := lipgloss.NewStyle().Foreground(p.Success)
+				deletedStyle := lipgloss.NewStyle().Foreground(p.Danger)
 				meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
 			}
 		}
@@ -128,11 +130,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	var metaFg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
-		metaFg = lipgloss.Color("#93c5fd")
+		metaFg = p.AccentSoft
 	case isSelected:
-		metaFg = lipgloss.Color("#64748b")
+		metaFg = p.FgSubtle
 	default:
-		metaFg = lipgloss.Color("#334155")
+		metaFg = p.BorderMuted
 	}
 	metaStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(metaFg)
 	if isSelected && d.isActive {
@@ -150,10 +152,12 @@ type Column struct {
 	colWidth     int
 	previewLines int
 	listYOffset  int
+	palette      Palette
 }
 
 func NewColumn(name, path string, colWidth, previewLines int) *Column {
-	delegate := itemDelegate{colWidth: colWidth}
+	palette := DarkPalette()
+	delegate := itemDelegate{colWidth: colWidth, palette: palette}
 	l := list.New(nil, delegate, colWidth, 20)
 	l.SetShowTitle(false)
 	l.SetShowFilter(false)
@@ -164,9 +168,9 @@ func NewColumn(name, path string, colWidth, previewLines int) *Column {
 	l.DisableQuitKeybindings()
 	l.Styles.NoItems = lipgloss.NewStyle().
 		PaddingLeft(2).
-		Foreground(lipgloss.Color("#475569"))
+		Foreground(palette.FgDim)
 
-	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, previewLines: previewLines}
+	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, previewLines: previewLines, palette: palette}
 }
 
 func (c *Column) SetHeight(h int) {
@@ -180,15 +184,16 @@ func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
 }
 
 func (c *Column) renderHeader(isActive bool, leftPad int) string {
+	p := c.palette
 	var nameFg, countFg, sepColor lipgloss.Color
 	if isActive {
-		nameFg = lipgloss.Color("#f8fafc")
-		countFg = lipgloss.Color("#60a5fa")
-		sepColor = lipgloss.Color("#3b82f6")
+		nameFg = p.FgStrong
+		countFg = p.Primary
+		sepColor = p.PrimaryStrong
 	} else {
-		nameFg = lipgloss.Color("#94a3b8")
-		countFg = lipgloss.Color("#475569")
-		sepColor = lipgloss.Color("#334155")
+		nameFg = p.FgMuted
+		countFg = p.FgDim
+		sepColor = p.BorderMuted
 	}
 
 	nameLabel := strings.ToUpper(c.Name)
@@ -228,14 +233,15 @@ func (c *Column) renderHeader(isActive bool, leftPad int) string {
 }
 
 func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int, statFor func(absPath string) (kbrdfs.DiffStat, bool)) string {
-	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth, statFor: statFor})
+	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth, statFor: statFor, palette: c.palette})
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
+	c.list.Styles.NoItems = lipgloss.NewStyle().PaddingLeft(2).Foreground(c.palette.FgDim)
 
 	var borderColor lipgloss.Color
 	if isActive {
-		borderColor = lipgloss.Color("#3b82f6")
+		borderColor = c.palette.BorderActive
 	} else {
-		borderColor = lipgloss.Color("#334155")
+		borderColor = c.palette.BorderMuted
 	}
 
 	leftPad := gutterW - 2
@@ -267,7 +273,7 @@ func (c *Column) renderOverflowFooter() string {
 	style := lipgloss.NewStyle().
 		Width(c.colWidth).
 		MaxWidth(c.colWidth).
-		Foreground(lipgloss.Color("#64748b")).
+		Foreground(c.palette.FgSubtle).
 		Italic(true).
 		PaddingLeft(2)
 

@@ -75,6 +75,15 @@ type GitPanel struct {
 	lastCursor int
 	termW      int
 	termH      int
+	palette    Palette
+}
+
+// SetPalette updates the panel's palette and restyles any pre-built inputs
+// so the new colors apply on the next render.
+func (p *GitPanel) SetPalette(pal Palette) {
+	p.palette = pal
+	applyInputPalette(&p.commitIn, pal)
+	applyInputPalette(&p.remoteIn, pal)
 }
 
 func (p *GitPanel) Active() bool { return p.active }
@@ -94,19 +103,17 @@ func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.
 	p.termH = termH
 	p.rebuild()
 
-	p.commitIn = newPanelInput("  msg: ", 200)
-	p.remoteIn = newPanelInput("  url: ", 300)
+	p.commitIn = newPanelInput("  msg: ", 200, p.palette)
+	p.remoteIn = newPanelInput("  url: ", 300, p.palette)
 	p.remoteIn.Placeholder = "git@github.com:user/repo.git"
 }
 
-func newPanelInput(prompt string, charLimit int) textinput.Model {
+func newPanelInput(prompt string, charLimit int, pal Palette) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = prompt
 	ti.CharLimit = charLimit
 	ti.Width = 60
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
+	applyInputPalette(&ti, pal)
 	return ti
 }
 
@@ -191,13 +198,13 @@ func (p *GitPanel) rebuild() {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#334155")).
+		BorderForeground(p.palette.BorderMuted).
 		BorderBottom(true).
 		Bold(true).
-		Foreground(lipgloss.Color("#94a3b8"))
+		Foreground(p.palette.FgMuted)
 	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("#ffffff")).
-		Background(lipgloss.Color("#3b82f6")).
+		Foreground(p.palette.FgOnAccent).
+		Background(p.palette.PrimaryStrong).
 		Bold(true)
 	t.SetStyles(s)
 	p.table = t
@@ -430,18 +437,15 @@ func (p *GitPanel) startRemoteInput() {
 	p.remoteIn.Focus()
 }
 
-var (
-	paneActiveStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#3b82f6")).
-			Padding(0, 1)
-	paneIdleStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#334155")).
-			Padding(0, 1)
-)
-
 func (p *GitPanel) View() string {
+	paneActiveStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(p.palette.BorderActive).
+		Padding(0, 1)
+	paneIdleStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(p.palette.BorderMuted).
+		Padding(0, 1)
 	branchLabel := p.branch
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
@@ -524,7 +528,7 @@ func (p *GitPanel) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", row, "", footer)
 	panel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.palette.BorderActive).
 		Padding(1, 2).
 		Render(content)
 
@@ -560,7 +564,7 @@ func (p *GitPanel) inputDialog() string {
 		body = p.remoteIn.View()
 		hint = keyLabel("enter", "add as origin") + sep + keyLabel("esc", "cancel")
 	}
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f1f5f9"))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.FgEmphasis)
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render(title),
 		"",
@@ -570,7 +574,7 @@ func (p *GitPanel) inputDialog() string {
 	)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.palette.BorderActive).
 		Padding(1, 3).
 		Render(content)
 }

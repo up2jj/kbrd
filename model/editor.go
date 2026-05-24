@@ -49,6 +49,7 @@ type Editor struct {
 	expanded      bool
 	termWidth     int
 	termHeight    int
+	palette       Palette
 }
 
 const (
@@ -140,7 +141,7 @@ func NewEditor() *Editor {
 	ti.Width = 60
 	ti.Placeholder = "filename (without .md)"
 
-	return &Editor{textarea: ta, textinput: ti}
+	return &Editor{textarea: ta, textinput: ti, palette: DarkPalette()}
 }
 
 func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
@@ -416,15 +417,16 @@ func (e *Editor) View() string {
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
+	p := e.palette
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgMuted)
 	dirtyMark := ""
 	if e.IsDirty() {
-		dirtyStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f59e0b"))
+		dirtyStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Warning)
 		dirtyMark = dirtyStyle.Render("● ")
 	}
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.BorderActive).
 		Padding(0, 1)
 
 	var input string

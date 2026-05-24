@@ -36,6 +36,15 @@ type ScriptUI struct {
 	choices  []string
 	selected int
 	input    textinput.Model
+	palette  Palette
+}
+
+// SetPalette updates the UI's palette and restyles the active input.
+func (s *ScriptUI) SetPalette(p Palette) {
+	s.palette = p
+	if s.input.Prompt != "" {
+		applyInputPalette(&s.input, p)
+	}
 }
 
 func (s *ScriptUI) Active() bool { return s.kind != scriptUINone }
@@ -66,9 +75,7 @@ func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
 	ti.Width = 50
 	ti.SetValue(def)
 	ti.Focus()
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
+	applyInputPalette(&ti, s.palette)
 
 	s.kind = scriptUIPrompt
 	s.name = name
@@ -161,7 +168,7 @@ func (s *ScriptUI) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(s.palette.BorderActive).
 		Padding(1, 3).
 		Render(content)
 }
@@ -170,9 +177,10 @@ func (s *ScriptUI) renderChoices() string {
 	if len(s.choices) == 0 {
 		return helpDimStyle.Render("(no choices)")
 	}
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0f172a")).Background(lipgloss.Color("#60a5fa"))
-	gutterSel := lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true).Render("▌")
+	p := s.palette
+	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
 	rows := make([]string, 0, len(s.choices))
 	for i, c := range s.choices {

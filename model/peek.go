@@ -16,6 +16,7 @@ type Peek struct {
 	lines    []string
 	offset   int
 	pageSize int
+	palette  Palette
 }
 
 func (p *Peek) Active() bool { return p.active }
@@ -88,24 +89,24 @@ func peekInnerWidth(termWidth int) int {
 // --- lightweight markdown renderer ---------------------------------------
 
 var (
-	mdH1Style     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#60a5fa"))
-	mdH2Style       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#93c5fd"))
-	mdH3Style       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#cbd5e1"))
-	mdH4Style       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#94a3b8"))
-	mdBoldStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f1f5f9"))
-	mdItalicStyle   = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#cbd5e1"))
-	mdStrikeStyle   = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("#94a3b8"))
-	mdCodeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#fbbf24")).Background(lipgloss.Color("#1f2937"))
-	mdCodeBlock     = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5e7eb")).Background(lipgloss.Color("#111827"))
-	mdCodeLangStyle = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#64748b"))
-	mdQuoteStyle    = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#94a3b8"))
-	mdLinkStyle     = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("#38bdf8"))
-	mdRuleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
-	mdBulletStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
-	mdTaskDone      = lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
-	mdTaskTodo      = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
-	mdTableHeader   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
-	mdTableBorder   = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569"))
+	mdH1Style       lipgloss.Style
+	mdH2Style       lipgloss.Style
+	mdH3Style       lipgloss.Style
+	mdH4Style       lipgloss.Style
+	mdBoldStyle     lipgloss.Style
+	mdItalicStyle   lipgloss.Style
+	mdStrikeStyle   lipgloss.Style
+	mdCodeStyle     lipgloss.Style
+	mdCodeBlock     lipgloss.Style
+	mdCodeLangStyle lipgloss.Style
+	mdQuoteStyle    lipgloss.Style
+	mdLinkStyle     lipgloss.Style
+	mdRuleStyle     lipgloss.Style
+	mdBulletStyle   lipgloss.Style
+	mdTaskDone      lipgloss.Style
+	mdTaskTodo      lipgloss.Style
+	mdTableHeader   lipgloss.Style
+	mdTableBorder   lipgloss.Style
 
 	reBold     = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	reItalic   = regexp.MustCompile(`(^|[^*])\*([^*\n]+)\*`)
@@ -116,6 +117,27 @@ var (
 	reOrdered  = regexp.MustCompile(`^(\d+)\.\s+(.*)$`)
 	reTaskBox  = regexp.MustCompile(`^\[([ xX])\]\s+(.*)$`)
 )
+
+func setMarkdownStyles(p Palette) {
+	mdH1Style = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	mdH2Style = lipgloss.NewStyle().Bold(true).Foreground(p.AccentSoft)
+	mdH3Style = lipgloss.NewStyle().Bold(true).Foreground(p.FgSoft)
+	mdH4Style = lipgloss.NewStyle().Bold(true).Foreground(p.FgMuted)
+	mdBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(p.FgEmphasis)
+	mdItalicStyle = lipgloss.NewStyle().Italic(true).Foreground(p.FgSoft)
+	mdStrikeStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(p.FgMuted)
+	mdCodeStyle = lipgloss.NewStyle().Foreground(p.WarningSoft).Background(p.BgCodeInline)
+	mdCodeBlock = lipgloss.NewStyle().Foreground(p.FgCodeBlock).Background(p.BgCodeBlock)
+	mdCodeLangStyle = lipgloss.NewStyle().Italic(true).Foreground(p.FgSubtle)
+	mdQuoteStyle = lipgloss.NewStyle().Italic(true).Foreground(p.FgMuted)
+	mdLinkStyle = lipgloss.NewStyle().Underline(true).Foreground(p.Link)
+	mdRuleStyle = lipgloss.NewStyle().Foreground(p.FgDim)
+	mdBulletStyle = lipgloss.NewStyle().Foreground(p.Primary)
+	mdTaskDone = lipgloss.NewStyle().Foreground(p.Success)
+	mdTaskTodo = lipgloss.NewStyle().Foreground(p.FgSubtle)
+	mdTableHeader = lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	mdTableBorder = lipgloss.NewStyle().Foreground(p.FgDim)
+}
 
 func renderMarkdown(src string, width int) string {
 	if width < 10 {
@@ -462,7 +484,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 		currentPage = totalPages
 	}
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#60a5fa"))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.Primary)
 	body := strings.Join(visible, "\n")
 	bodyStyle := lipgloss.NewStyle().Width(innerWidth)
 
@@ -490,7 +512,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.palette.BorderActive).
 		Padding(1, 2).
 		Width(outerWidth - 2).
 		Render(content)

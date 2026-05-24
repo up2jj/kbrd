@@ -28,6 +28,7 @@ type Switcher struct {
 	filter     string
 	selected   int
 	activePath string
+	palette    Palette
 }
 
 func (s *Switcher) Open(entries []recents.Entry, activePath string) {
@@ -140,19 +141,20 @@ func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
 func (s *Switcher) View() string {
 	title := helpTitleStyle.Render("Switch board")
 
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
-	pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0f172a")).Background(lipgloss.Color("#60a5fa"))
-	hiStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047")).Bold(true)
-	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fde047")).Background(lipgloss.Color("#60a5fa"))
-	activeMark := lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e")).Bold(true).Render("●")
-	dimMark := lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Render("·")
-	pinMark := lipgloss.NewStyle().Foreground(lipgloss.Color("#fbbf24")).Bold(true).Render("▎")
+	p := s.palette
+	nameStyle := lipgloss.NewStyle().Foreground(p.Highlight)
+	pathStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	hiStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	activeMark := lipgloss.NewStyle().Foreground(p.Success).Bold(true).Render("●")
+	dimMark := lipgloss.NewStyle().Foreground(p.FgDim).Render("·")
+	pinMark := lipgloss.NewStyle().Foreground(p.WarningSoft).Bold(true).Render("▎")
 	pinSpace := " "
-	gutterSel := lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true).Render("▌")
-	missingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444")).Italic(true)
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047")).Bold(true)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+	missingStyle := lipgloss.NewStyle().Foreground(p.Danger).Italic(true)
+	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
 
 	cursor := keyStyle.Render("> ")
 	filterText := s.filter
@@ -253,7 +255,7 @@ func (s *Switcher) View() string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.BorderActive).
 		Padding(1, 3).
 		Render(content)
 }

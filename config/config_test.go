@@ -27,7 +27,7 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFrom: %v", err)
 	}
-	if cfg.ColumnWidth != 32 || cfg.PreviewLines != 3 || cfg.Theme != "light" || cfg.NotifyBackend != "auto" {
+	if cfg.ColumnWidth != 32 || cfg.PreviewLines != 3 || cfg.Theme != "dark" || cfg.NotifyBackend != "auto" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.Path != folder {

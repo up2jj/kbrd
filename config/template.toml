@@ -3,7 +3,7 @@
 [display]
 # column_width  = 32
 # preview_lines = 3
-# theme         = "light"   # "light" | "dark"
+# theme         = "dark"    # "light" | "dark"
 
 [notify]
 # backend = "auto"          # auto | osascript | osc9 | osc777 | none

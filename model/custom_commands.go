@@ -102,6 +102,7 @@ type CustomCommandMenu struct {
 	matches  []FuzzyMatch
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
+	palette  Palette
 }
 
 func (m *CustomCommandMenu) commandHaystack(i int) string {
@@ -196,10 +197,11 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 	title := helpTitleStyle.Render("Custom commands")
 
+	p := m.palette
 	var warnSection string
 	if len(m.warnings) > 0 {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444")).Bold(true)
-		srcStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#f59e0b")).Italic(true)
+		errStyle := lipgloss.NewStyle().Foreground(p.Danger).Bold(true)
+		srcStyle := lipgloss.NewStyle().Foreground(p.Warning).Italic(true)
 		rows := []string{errStyle.Render("load errors:")}
 		for _, w := range m.warnings {
 			rows = append(rows, "  "+srcStyle.Render(w.Source)+" "+errStyle.Render(w.Message))
@@ -207,13 +209,13 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 		warnSection = lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047")).Bold(true)
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0f172a")).Background(lipgloss.Color("#60a5fa"))
-	hiStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047")).Bold(true)
-	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fde047")).Background(lipgloss.Color("#60a5fa"))
-	gutterSel := lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true).Render("▌")
+	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	hiStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
 	cursor := keyStyle.Render("> ")
 	filterText := m.filter
@@ -308,7 +310,7 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(p.BorderActive).
 		Padding(1, 4).
 		Render(content)
 }

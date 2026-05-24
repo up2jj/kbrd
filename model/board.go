@@ -68,6 +68,7 @@ type Board struct {
 	quickCmdMode  bool
 	quickCmdInput textinput.Model
 	theme         string
+	palette       Palette
 	watcher       *kbrdfs.Watcher
 	dialog        Dialog
 	helpOpen      bool
@@ -110,15 +111,13 @@ func (b *Board) refreshGitStats() {
 }
 
 func NewBoard(cfg config.Config) *Board {
+	palette := PaletteFor(cfg.Theme)
 	ti := textinput.New()
 	ti.Prompt = ": "
 	ti.Placeholder = "e.g. e<tag> edit, d<tag> delete, r refresh — enter to run"
 	ti.CharLimit = 64
 	ti.Width = 60
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa")).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#475569")).Italic(true)
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#fde047"))
+	applyInputPalette(&ti, palette)
 	b := &Board{
 		cfg:           cfg,
 		visibleHeight: 20,
@@ -126,10 +125,41 @@ func NewBoard(cfg config.Config) *Board {
 		notifier:      NewNotifier(cfg.NotifyBackend),
 		quickCmdInput: ti,
 		theme:         cfg.Theme,
+		palette:       palette,
 	}
+	b.applyPalette()
 	b.initScripting()
 	b.loadCommands()
 	return b
+}
+
+// applyInputPalette restyles a bubbles textinput using the palette colors.
+// Reused by Board, GitPanel, and ScriptUI which all share the same look.
+func applyInputPalette(ti *textinput.Model, p Palette) {
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(p.FgBase)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(p.Highlight)
+}
+
+// applyPalette propagates the current palette to all sub-models and restyles
+// any pre-built input widgets. Call after b.palette or b.theme changes.
+func (b *Board) applyPalette() {
+	b.palette = PaletteFor(b.theme)
+	applyPackageStyles(b.palette)
+	applyInputPalette(&b.quickCmdInput, b.palette)
+	b.dialog.palette = b.palette
+	b.peek.palette = b.palette
+	b.switcher.palette = b.palette
+	b.gitPanel.SetPalette(b.palette)
+	b.customCmds.palette = b.palette
+	b.scriptUI.SetPalette(b.palette)
+	if b.editor != nil {
+		b.editor.palette = b.palette
+	}
+	for _, c := range b.columns {
+		c.palette = b.palette
+	}
 }
 
 func (b *Board) Init() tea.Cmd {
@@ -228,6 +258,7 @@ func (b *Board) loadColumns() error {
 				continue
 			}
 			col := NewColumn(name, filepath.Join(b.cfg.Path, name), b.cfg.ColumnWidth, b.cfg.PreviewLines)
+			col.palette = b.palette
 			if err := col.LoadItems(); err != nil {
 				continue
 			}
@@ -368,6 +399,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorDiscardMsg:
 		b.editor.Close()
 		b.editor = NewEditor()
+		b.editor.palette = b.palette
 		return b, nil
 
 	case quickCommandMsg:
@@ -490,6 +522,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd, _ := b.editor.Update(msg)
 		if b.editor.state == editorNone {
 			b.editor = NewEditor()
+			b.editor.palette = b.palette
 		}
 		return b, cmd
 	}
@@ -1053,6 +1086,7 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 
 	b.cfg = newCfg
 	b.theme = newCfg.Theme
+	b.applyPalette()
 	b.selectedCol = 0
 	b.initScripting()
 	b.loadCommands()
@@ -1060,6 +1094,7 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	if err := b.loadColumns(); err != nil {
 		return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
 	}
+	b.applyPalette()
 	b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
 	b.refreshGitStats()
 
@@ -1200,6 +1235,7 @@ func (b *Board) toggleTheme() {
 	} else {
 		b.theme = "dark"
 	}
+	b.applyPalette()
 }
 
 func (b *Board) copyToClipboard(content []byte) tea.Cmd {
@@ -1266,11 +1302,11 @@ func (b *Board) pasteToItem(colIdx int, fileName string, mode pasteMode) tea.Cmd
 
 func (b *Board) renderLogo() string {
 	logoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#60a5fa")).
+		Foreground(b.palette.Primary).
 		Italic(true).
 		Bold(true)
 	versionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#64748b")).
+		Foreground(b.palette.FgSubtle).
 		Italic(true)
 	return logoStyle.Render(logoArt) + "  " + versionStyle.Render(Version)
 }
@@ -1340,7 +1376,7 @@ func (b *Board) View() string {
 			h = 24
 		}
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center,
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8")).Render("terminal too small"))
+			lipgloss.NewStyle().Foreground(b.palette.FgMuted).Render("terminal too small"))
 	}
 	if b.termHeight > 0 && b.termHeight < 10 {
 		w := b.termWidth
@@ -1348,7 +1384,7 @@ func (b *Board) View() string {
 			w = 80
 		}
 		return lipgloss.Place(w, b.termHeight, lipgloss.Center, lipgloss.Center,
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8")).Render("terminal too small"))
+			lipgloss.NewStyle().Foreground(b.palette.FgMuted).Render("terminal too small"))
 	}
 
 	b.rebuildMnemonics()
@@ -1364,7 +1400,7 @@ func (b *Board) View() string {
 	rendered := make([]string, 0, count+2)
 
 	indicatorStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#64748b")).
+		Foreground(b.palette.FgSubtle).
 		Bold(true).
 		PaddingTop(1).
 		MarginRight(1)
@@ -1493,7 +1529,7 @@ func (b *Board) renderQuickCommand() string {
 	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3b82f6")).
+		BorderForeground(b.palette.BorderActive).
 		Padding(0, 1)
 	return box.Render(b.quickCmdInput.View())
 }

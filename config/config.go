@@ -63,7 +63,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 
 	v.SetDefault("display.column_width", 32)
 	v.SetDefault("display.preview_lines", 3)
-	v.SetDefault("display.theme", "light")
+	v.SetDefault("display.theme", "dark")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
 	v.SetDefault("git.auto_sync_interval", "")

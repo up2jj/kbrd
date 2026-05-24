@@ -37,6 +37,7 @@ type Dialog struct {
 	buttons   []DialogButton
 	mnemonics []int // rune index into Label for each button, -1 if none
 	selected  int
+	palette   Palette
 }
 
 func (d *Dialog) Open(opts DialogOptions) {
@@ -194,13 +195,14 @@ func (d *Dialog) View() string {
 		return ""
 	}
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f1f5f9"))
-	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
+	p := d.palette
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgEmphasis)
+	bodyStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
 
 	btnBase := lipgloss.NewStyle().Padding(0, 3)
-	activeDanger := btnBase.Bold(true).Background(lipgloss.Color("#ef4444")).Foreground(lipgloss.Color("#ffffff"))
-	activePrimary := btnBase.Bold(true).Background(lipgloss.Color("#3b82f6")).Foreground(lipgloss.Color("#ffffff"))
-	inactive := btnBase.Foreground(lipgloss.Color("#64748b"))
+	activeDanger := btnBase.Bold(true).Background(p.Danger).Foreground(p.FgOnAccent)
+	activePrimary := btnBase.Bold(true).Background(p.PrimaryStrong).Foreground(p.FgOnAccent)
+	inactive := btnBase.Foreground(p.FgSubtle)
 
 	btnViews := make([]string, len(d.buttons))
 	for i, btn := range d.buttons {
@@ -238,7 +240,7 @@ func (d *Dialog) View() string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#475569")).
+		BorderForeground(p.FgDim).
 		Padding(1, 4).
 		Render(content)
 }
