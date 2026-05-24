@@ -74,6 +74,10 @@ type scriptAsyncDoneMsg struct {
 	Err      string
 }
 
+// quitConfirmedMsg is dispatched when the user confirms quitting with unsaved
+// editor changes; it discards the edit and proceeds with shutdown.
+type quitConfirmedMsg struct{}
+
 // scriptDebugf appends to /tmp/kbrd-script.log when KBRD_SCRIPT_DEBUG=1.
 // Stays a no-op otherwise so production runs aren't affected.
 func scriptDebugf(format string, args ...interface{}) {
@@ -136,6 +140,7 @@ func (b *Board) collectAsyncCmds() tea.Cmd {
 		return nil
 	}
 	scriptDebugf("collectAsyncCmds drained=%d", len(pending))
+	b.asyncInflight += len(pending)
 	dir := b.cfg.Path
 	cmds := make([]tea.Cmd, 0, len(pending))
 	for _, a := range pending {
@@ -167,6 +172,9 @@ func (b *Board) collectAsyncCmds() tea.Cmd {
 // handleScriptAsyncDone routes the async result back into the Lua callback.
 func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cmd) {
 	scriptDebugf("handleScriptAsyncDone token=%s exit=%d err=%q outLen=%d", msg.Token, msg.ExitCode, msg.Err, len(msg.Out))
+	if b.asyncInflight > 0 {
+		b.asyncInflight--
+	}
 	if b.scripts == nil {
 		scriptDebugf("handleScriptAsyncDone: scripts is nil!")
 		return b, nil

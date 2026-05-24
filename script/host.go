@@ -193,6 +193,9 @@ func (h *Host) Close() {
 		h.L.Close()
 		h.L = nil
 	}
+	if c, ok := h.logger.(interface{ Close() }); ok {
+		c.Close()
+	}
 	// Drop references so any tea.Ticks still in flight find nothing to do
 	// and the GC can reclaim closures/payloads promptly.
 	h.commands = nil

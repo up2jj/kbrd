@@ -63,6 +63,7 @@ type Board struct {
 	selectedCol     int
 	firstVisibleCol int
 	quitting        bool
+	shuttingDown    bool // waiting for an in-flight git sync before quitting
 	editor        *Editor
 	notifier      *Notifier
 	quickCmdMode  bool
@@ -86,6 +87,8 @@ type Board struct {
 	gitStats    map[string]kbrdfs.DiffStat
 
 	gitSyncing bool // auto-sync in progress
+
+	asyncInflight int // count of kbrd.async.run jobs currently running
 
 	bus      events.Bus
 	scripts  *script.Host
@@ -402,6 +405,12 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.editor.palette = b.palette
 		return b, nil
 
+	case quitConfirmedMsg:
+		b.editor.Close()
+		b.editor = NewEditor()
+		b.editor.palette = b.palette
+		return b.finishShutdown()
+
 	case quickCommandMsg:
 		return b.handleQuickCommand(msg)
 
@@ -472,14 +481,55 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// Close releases resources owned by the Board. Safe to call once after the
+// Bubble Tea program returns. Idempotent.
+func (b *Board) Close() {
+	if b.watcher != nil {
+		_ = b.watcher.Close()
+		b.watcher = nil
+	}
+	if b.scripts != nil {
+		b.scripts.Close()
+		b.scripts = nil
+	}
+}
+
+// beginShutdown is the entry point for every quit trigger. Guards unsaved
+// editor changes before proceeding to finishShutdown.
+func (b *Board) beginShutdown() (tea.Model, tea.Cmd) {
+	if b.editor.IsDirty() {
+		b.dialog.OpenConfirmDestructive(
+			"Quit with unsaved changes?", "Your edits will be lost.",
+			"Quit", quitConfirmedMsg{})
+		return b, nil
+	}
+	return b.finishShutdown()
+}
+
+// finishShutdown defers the actual exit until an in-flight git sync completes,
+// so a push isn't interrupted. A second Ctrl+C while waiting force-quits.
+func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
+	if b.gitSyncing {
+		b.shuttingDown = true
+		return b, nil
+	}
+	b.quitting = true
+	return b, tea.Quit
+}
+
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While waiting for a sync to finish, a second Ctrl+C force-quits.
+	if b.shuttingDown && key.Matches(msg, Keys.Quit) {
+		b.quitting = true
+		return b, tea.Quit
+	}
+
 	// Handle help overlay
 	if b.helpOpen {
 		switch {
 		case key.Matches(msg, Keys.Quit):
 			b.helpOpen = false
-			b.quitting = true
-			return b, tea.Quit
+			return b.beginShutdown()
 		case key.Matches(msg, Keys.HelpClose):
 			b.helpOpen = false
 		}
@@ -491,8 +541,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, Keys.Quit):
 			b.configMenuOpen = false
-			b.quitting = true
-			return b, tea.Quit
+			return b.beginShutdown()
 		case key.Matches(msg, Keys.ConfigMenuClose):
 			b.configMenuOpen = false
 		case key.Matches(msg, Keys.ConfigOpenLocal):
@@ -571,8 +620,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, Keys.Quit):
-		b.quitting = true
-		return b, tea.Quit
+		return b.beginShutdown()
 	case key.Matches(msg, Keys.ToggleHelp):
 		b.helpOpen = true
 		return b, nil
@@ -1499,8 +1547,18 @@ func (b *Board) renderStatusBar() string {
 		primary = helpTitleStyle.Render("⏵ board") + sepDot + helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
 	}
 
-	if b.gitSyncing {
+	if b.shuttingDown {
+		primary += sepDot + helpKeyStyle.Render("⟳ finishing sync…")
+	} else if b.gitSyncing {
 		primary += sepDot + helpKeyStyle.Render("⟳ syncing")
+	}
+
+	if b.asyncInflight > 0 {
+		label := "⟳ 1 running"
+		if b.asyncInflight > 1 {
+			label = fmt.Sprintf("⟳ %d running", b.asyncInflight)
+		}
+		primary += sepDot + helpKeyStyle.Render(label)
 	}
 
 	secondary := RenderInlineHints(ContextShortcuts(ctx))

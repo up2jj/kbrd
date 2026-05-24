@@ -285,6 +285,10 @@ func (b *Board) handleAutoSyncTick() (tea.Model, tea.Cmd) {
 
 func (b *Board) handleAutoSyncDone(msg autoSyncDoneMsg) (tea.Model, tea.Cmd) {
 	b.gitSyncing = false
+	if b.shuttingDown {
+		b.quitting = true
+		return b, tea.Quit
+	}
 	if msg.Err != nil {
 		detail := strings.TrimSpace(msg.Output)
 		if detail == "" {
