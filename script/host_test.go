@@ -662,6 +662,61 @@ func TestTimerMinClamp(t *testing.T) {
 	}
 }
 
+func TestTimerDurationString(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.timer.every("1s", function() end)
+kbrd.timer.after("250ms", function() end)
+`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	pending := h.PendingTimers()
+	if len(pending) != 2 {
+		t.Fatalf("expected 2 pending timers, got %d", len(pending))
+	}
+	if pending[0].Duration != time.Second || !pending[0].Repeat {
+		t.Fatalf("every: got dur=%v repeat=%v", pending[0].Duration, pending[0].Repeat)
+	}
+	if pending[1].Duration != 250*time.Millisecond || pending[1].Repeat {
+		t.Fatalf("after: got dur=%v repeat=%v", pending[1].Duration, pending[1].Repeat)
+	}
+}
+
+func TestTimerInvalidDuration(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.after("not-a-duration", function() end)`)
+	if _, err := New(defaultCfg(), &fakeAPI{}, nil, dir); err == nil {
+		t.Fatalf("expected error for invalid duration string")
+	}
+}
+
+func TestStatusPending(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.status("first")
+kbrd.status("second", "5s")
+`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	got := h.PendingStatus()
+	if len(got) != 2 || got[0].Text != "first" || got[1].Text != "second" {
+		t.Fatalf("unexpected status queue: %v", got)
+	}
+	if got[0].TTL != 0 {
+		t.Fatalf("first should use default TTL (0), got %v", got[0].TTL)
+	}
+	if got[1].TTL != 5*time.Second {
+		t.Fatalf("second TTL: got %v", got[1].TTL)
+	}
+	// Drained — second call returns nothing.
+	if rest := h.PendingStatus(); len(rest) != 0 {
+		t.Fatalf("expected drained queue, got %v", rest)
+	}
+}
+
 func TestTimerFireOnce(t *testing.T) {
 	dir := writeInit(t, `kbrd.timer.after(100, function() kbrd.notify("fired", "info") end)`)
 	api := &fakeAPI{}

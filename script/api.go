@@ -18,6 +18,7 @@ func (h *Host) installAPI() {
 	kbrd := L.NewTable()
 
 	kbrd.RawSetString("notify", L.NewFunction(h.luaNotify))
+	kbrd.RawSetString("status", L.NewFunction(h.luaStatus))
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
 	kbrd.RawSetString("has_command", L.NewFunction(h.luaHasCommand))
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
@@ -160,10 +161,11 @@ func (h *Host) luaBoardCreateColumn(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.timer.every(ms, fn) → handle
-// kbrd.timer.after(ms, fn) → handle
-// Sub-100ms intervals are silently clamped to 100ms — protects against
-// accidental tight loops starving the UI.
+// kbrd.timer.every(interval, fn) → handle
+// kbrd.timer.after(interval, fn) → handle
+// interval is either a number of milliseconds (e.g. 1500) or a Go duration
+// string (e.g. "30s", "5m", "1h30s"). Sub-100ms intervals are silently
+// clamped to 100ms — protects against accidental tight loops starving the UI.
 func (h *Host) luaTimerEvery(L *lua.LState) int  { return h.scheduleTimer(L, true) }
 func (h *Host) luaTimerAfter(L *lua.LState) int  { return h.scheduleTimer(L, false) }
 
@@ -176,16 +178,19 @@ func (h *Host) scheduleTimer(L *lua.LState, repeat bool) int {
 		L.RaiseError("kbrd.timer: cannot schedule a timer from inside a timer callback (use kbrd.timer.every for periodic work)")
 		return 0
 	}
-	ms := L.CheckInt(1)
-	fn := L.CheckFunction(2)
-	const minMs = 100
-	if ms < minMs {
-		ms = minMs
+	dur, err := luaDuration(L.CheckAny(1))
+	if err != nil {
+		L.RaiseError("kbrd.timer: %s", err.Error())
+		return 0
 	}
-	dur := time.Duration(ms) * time.Millisecond
+	fn := L.CheckFunction(2)
+	const minDur = 100 * time.Millisecond
+	if dur < minDur {
+		dur = minDur
+	}
 	token := h.allocToken()
 	h.timers[token] = &timerEntry{fn: fn, interval: dur, repeat: repeat}
-	h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: dur})
+	h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: dur, Repeat: repeat})
 	L.Push(lua.LString(token))
 	return 1
 }
@@ -246,6 +251,45 @@ func (h *Host) luaNotify(L *lua.LState) int {
 	level := L.OptString(2, "info")
 	h.api.Notify(msg, level)
 	return 0
+}
+
+// kbrd.status(msg [, ttl]) — writes a transient message to the in-app status
+// bar. Unlike kbrd.notify (an OS toast), this shows inside kbrd and auto-
+// expires. Safe to call from a timer callback, which makes it the idiomatic
+// way to surface periodic-job activity ("synced 12:00:03"). ttl is optional —
+// a number of milliseconds or a duration string ("5s"); omit it for the
+// default. The model picks the message up from the queue and arms its expiry.
+func (h *Host) luaStatus(L *lua.LState) int {
+	msg := L.CheckString(1)
+	var ttl time.Duration
+	if L.GetTop() >= 2 {
+		d, err := luaDuration(L.CheckAny(2))
+		if err != nil {
+			L.RaiseError("kbrd.status: %s", err.Error())
+			return 0
+		}
+		ttl = d
+	}
+	h.pendingStatus = append(h.pendingStatus, StatusMsg{Text: msg, TTL: ttl})
+	return 0
+}
+
+// luaDuration interprets a Lua value as a time.Duration: a number is taken as
+// milliseconds, a string is parsed via time.ParseDuration. Used by the timer
+// and status APIs so both accept the same forms.
+func luaDuration(v lua.LValue) (time.Duration, error) {
+	switch arg := v.(type) {
+	case lua.LNumber:
+		return time.Duration(int(arg)) * time.Millisecond, nil
+	case lua.LString:
+		d, err := time.ParseDuration(string(arg))
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration %q (use milliseconds or a string like \"30s\")", string(arg))
+		}
+		return d, nil
+	default:
+		return 0, fmt.Errorf("duration must be a number of milliseconds or a duration string")
+	}
 }
 
 // kbrd.command(id, name, fn) — short form

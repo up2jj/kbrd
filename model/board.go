@@ -90,6 +90,9 @@ type Board struct {
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
+	scriptStatus    string // transient kbrd.status message shown in the status bar
+	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks
+
 	bus      events.Bus
 	scripts  *script.Host
 	scriptUI ScriptUI
@@ -294,6 +297,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if acmd := b.collectAsyncCmds(); acmd != nil {
 		cmd = batchCmd(cmd, acmd)
 	}
+	if scmd := b.collectStatusCmd(); scmd != nil {
+		cmd = batchCmd(cmd, scmd)
+	}
 	return model, cmd
 }
 
@@ -431,6 +437,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptTimerMsg:
 		return b.handleScriptTimer(msg)
+
+	case scriptStatusExpireMsg:
+		return b.handleScriptStatusExpire(msg)
 
 	case scriptAsyncDoneMsg:
 		return b.handleScriptAsyncDone(msg)
@@ -1559,6 +1568,10 @@ func (b *Board) renderStatusBar() string {
 			label = fmt.Sprintf("⟳ %d running", b.asyncInflight)
 		}
 		primary += sepDot + helpKeyStyle.Render(label)
+	}
+
+	if b.scriptStatus != "" {
+		primary += sepDot + helpKeyStyle.Render(b.scriptStatus)
 	}
 
 	secondary := RenderInlineHints(ContextShortcuts(ctx))

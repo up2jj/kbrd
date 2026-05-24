@@ -65,6 +65,17 @@ type scriptTimerMsg struct {
 	Token string
 }
 
+// scriptStatusExpireMsg clears a kbrd.status message once its TTL elapses.
+// Seq guards against a stale tick wiping a newer message: the handler only
+// clears when Seq still matches the board's current scriptStatusSeq.
+type scriptStatusExpireMsg struct {
+	Seq int
+}
+
+// scriptStatusTTL is the default lifetime of a kbrd.status message in the
+// status bar; callers can override it with kbrd.status(msg, ttl).
+const scriptStatusTTL = 3 * time.Second
+
 // scriptAsyncDoneMsg carries the result of a backgrounded shell command
 // (kbrd.async.run) back to the host so the Lua callback can be invoked.
 type scriptAsyncDoneMsg struct {
@@ -94,8 +105,9 @@ func scriptDebugf(format string, args ...interface{}) {
 
 // collectTimerCmds drains any timer schedules accumulated since the last
 // call (during script init.lua execution, command runs, hook fires, or a
-// just-fired timer that re-armed). Each becomes a tea.Tick that produces
-// scriptTimerMsg{Token} when the duration elapses.
+// just-fired timer that re-armed). Each becomes a tea.Every (repeating, snaps
+// to wall-clock boundaries so the period doesn't drift) or a tea.Tick
+// (one-shot) that produces scriptTimerMsg{Token} when the duration elapses.
 func (b *Board) collectTimerCmds() tea.Cmd {
 	if b.scripts == nil {
 		return nil
@@ -108,11 +120,48 @@ func (b *Board) collectTimerCmds() tea.Cmd {
 	for _, t := range pending {
 		token := t.Token
 		dur := t.Duration
-		cmds = append(cmds, tea.Tick(dur, func(time.Time) tea.Msg {
-			return scriptTimerMsg{Token: token}
-		}))
+		fn := func(time.Time) tea.Msg { return scriptTimerMsg{Token: token} }
+		if t.Repeat {
+			cmds = append(cmds, tea.Every(dur, fn))
+		} else {
+			cmds = append(cmds, tea.Tick(dur, fn))
+		}
 	}
 	return tea.Batch(cmds...)
+}
+
+// collectStatusCmd drains kbrd.status messages accumulated since the last
+// call, shows the most recent one in the status bar, and returns a tea.Tick
+// that clears it after scriptStatusTTL. The seq counter ensures a later
+// message's expiry doesn't get cut short by an earlier one's stale tick.
+func (b *Board) collectStatusCmd() tea.Cmd {
+	if b.scripts == nil {
+		return nil
+	}
+	pending := b.scripts.PendingStatus()
+	if len(pending) == 0 {
+		return nil
+	}
+	latest := pending[len(pending)-1]
+	b.scriptStatus = latest.Text
+	b.scriptStatusSeq++
+	seq := b.scriptStatusSeq
+	ttl := latest.TTL
+	if ttl <= 0 {
+		ttl = scriptStatusTTL
+	}
+	return tea.Tick(ttl, func(time.Time) tea.Msg {
+		return scriptStatusExpireMsg{Seq: seq}
+	})
+}
+
+// handleScriptStatusExpire clears the status-bar message if no newer one has
+// replaced it since this expiry tick was armed.
+func (b *Board) handleScriptStatusExpire(msg scriptStatusExpireMsg) (tea.Model, tea.Cmd) {
+	if msg.Seq == b.scriptStatusSeq {
+		b.scriptStatus = ""
+	}
+	return b, nil
 }
 
 // handleScriptTimer is the dispatch target for scriptTimerMsg. Re-arms any

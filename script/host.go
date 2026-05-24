@@ -64,6 +64,10 @@ type Host struct {
 	timers        map[string]*timerEntry
 	pendingTimers []TimerSchedule
 
+	// pendingStatus holds messages set via kbrd.status; the model drains them
+	// (PendingStatus), shows the latest in the status bar, and arms an expiry.
+	pendingStatus []StatusMsg
+
 	// asyncCallbacks holds the Lua callbacks registered via kbrd.async.run;
 	// FireAsync looks them up by token and pops them after invocation.
 	asyncCallbacks   map[string]*lua.LFunction
@@ -102,6 +106,9 @@ type hookEntry struct {
 type TimerSchedule struct {
 	Token    string
 	Duration time.Duration
+	// Repeat tells the model to arm a wall-clock-aligned tea.Every (no
+	// cumulative drift) rather than a one-shot tea.Tick.
+	Repeat bool
 }
 
 // AsyncCmd describes a piece of background work the model should run on a
@@ -203,6 +210,7 @@ func (h *Host) Close() {
 	h.pending = nil
 	h.timers = nil
 	h.pendingTimers = nil
+	h.pendingStatus = nil
 	h.asyncCallbacks = nil
 	h.pendingAsyncCmds = nil
 	h.deferred = nil
@@ -280,14 +288,33 @@ func (h *Host) CancelPending() {
 }
 
 // PendingTimers drains the queue of timer schedules accumulated since the
-// last call. The model is expected to convert each into a tea.Tick that
-// produces a scriptTimerMsg{Token} when the duration elapses.
+// last call. The model is expected to convert each into a tea.Tick (one-shot)
+// or tea.Every (repeating) that produces a scriptTimerMsg{Token} when the
+// duration elapses.
 func (h *Host) PendingTimers() []TimerSchedule {
 	if h == nil {
 		return nil
 	}
 	out := h.pendingTimers
 	h.pendingTimers = nil
+	return out
+}
+
+// StatusMsg is a status-bar message set via kbrd.status. TTL is the caller's
+// requested lifetime; a zero TTL means "use the model's default".
+type StatusMsg struct {
+	Text string
+	TTL  time.Duration
+}
+
+// PendingStatus drains status-bar messages set via kbrd.status since the last
+// call. The model shows the latest in the status bar and arms an expiry tick.
+func (h *Host) PendingStatus() []StatusMsg {
+	if h == nil {
+		return nil
+	}
+	out := h.pendingStatus
+	h.pendingStatus = nil
 	return out
 }
 
@@ -386,7 +413,7 @@ func (h *Host) FireTimer(token string) error {
 		// auto-disabled above), the map entry is gone and we shouldn't
 		// reschedule.
 		if _, still := h.timers[token]; still {
-			h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: e.interval})
+			h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: e.interval, Repeat: true})
 		}
 	} else {
 		delete(h.timers, token)
