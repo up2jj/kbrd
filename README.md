@@ -1,6 +1,20 @@
+<div align="center">
+
 # kbrd
 
-A terminal-based, keyboard-driven **Kanban board** for the command line.
+### A terminal-based, keyboard-driven **Kanban board** for the command line
+
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Bubble Tea](https://img.shields.io/badge/TUI-Bubble%20Tea-FF75B7)](https://github.com/charmbracelet/bubbletea)
+[![Lua](https://img.shields.io/badge/Scripting-Lua%205.1-000080?logo=lua&logoColor=white)](./SCRIPTING.md)
+[![MCP](https://img.shields.io/badge/MCP-ready-6E56CF)](https://modelcontextprotocol.io)
+![Version](https://img.shields.io/badge/version-v0.1.0-brightgreen)
+
+*Your board is just a folder. Columns are directories. Cards are Markdown files.*
+
+</div>
+
+---
 
 kbrd stores everything as plain files on disk — there is no database and no lock-in. A
 **board** is a directory, each **column** is a sub-directory, and each **card** is a
@@ -12,7 +26,14 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and friends,
 adds git integration, fuzzy board switching, cross-board search, an embedded Lua scripting
 engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 
-> Version: `v0.1.0` · Requires Go 1.26+
+```
+┌─ Backlog ─────┐  ┌─ In Progress ─┐  ┌─ Done ────────┐
+│ ★ Ship v0.1   │  │   Write docs  │  │   Setup CI    │
+│   Fix watcher │  │   Lua API     │  │   MCP server  │
+│   Theme polish│  │               │  │   Git panel   │
+└───────────────┘  └───────────────┘  └───────────────┘
+  space peek · e edit · m move · g git · f search · ? help
+```
 
 ---
 
@@ -36,40 +57,31 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 
 ## Features
 
-**Board model**
-- Filesystem-backed: directories are columns, `.md` files are cards. No database.
-- Live reload — kbrd watches the board with `fsnotify` and updates as files change on disk.
-- Recent boards are remembered and can be pinned for quick access.
+A quick, scannable rundown of everything kbrd does:
 
-**Cards (items)**
-- Create in the current column (`n`) or the first column (`N`).
-- Peek with rendered Markdown and a scrollable viewport (`space`).
-- Edit inline with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
-- Append (`a`) / prepend (`p`) content, or add a timestamped **journal** entry (`J`).
-- Copy / paste between cards and across sessions (`c` / `v`).
-- Pin important cards to the top of a column (`!`).
-- Move to the next column (`m`) or back to the first column (`M`).
-- Rename (`r`) and delete (`d`, with confirmation).
-
-**Columns**
-- Rename columns (`R`); default columns are created automatically for a new board.
-
-**Search & navigation**
-- **Global search** (`f`) across all recent boards, backed by `ripgrep`.
-- **Board switcher** (`Ctrl+P`) with fuzzy matching, pinning, and board removal.
-
-**Git integration** (`g` opens the panel)
-- View diffs (`difft`, `diff-so-fancy`, or plain `git`), commit, and view the log in-app.
-- Sync = pull + push (`s`); commit and sync in one step (`S`); add a remote (`a`).
-- Optional periodic **auto-sync** and automatic upstream setup on remote add.
-- Optional **README generation** from the board layout before each commit.
-
-**UI**
-- Light / dark **theme** toggle (`t`).
-- Dynamic help overlay (`?`) and an in-app **config menu** (`,`).
-
-**Automation**
-- Built-in **MCP server** exposing board operations to external tools and LLM agents.
+- **Plain-files storage** — directories are columns, `.md` files are cards, zero database.
+- **Live reload** — the board updates instantly when files change on disk (`fsnotify`).
+- **Fully keyboard-driven** — every action has a binding; mouse optional.
+- **Create cards** — in the current column (`n`) or the first column (`N`).
+- **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
+- **Edit inline** — with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
+- **Append / prepend** — add content to existing cards (`a` / `p`).
+- **Journal entries** — append timestamped notes to a card (`J`).
+- **Copy / paste** — move text between cards, persists across sessions (`c` / `v`).
+- **Pin cards** — float important cards to the top of a column (`!`).
+- **Move cards** — to the next column (`m`) or back to the first (`M`).
+- **Rename & delete** — cards (`r` / `d`) and columns (`R`), with confirmation on delete.
+- **Global search** — fuzzy full-text search across all recent boards via `ripgrep` (`f`).
+- **Board switcher** — fuzzy switch, pin favorites, and remove boards (`Ctrl+P`).
+- **Git panel** — diff, commit, log, sync (pull+push), and add remotes in-app (`g`).
+- **Auto-sync** — optional periodic pull/push with automatic upstream setup.
+- **README generation** — optionally regenerate `README.md` from the board before commits.
+- **Themes** — toggle light / dark palettes on the fly (`t`).
+- **Help overlay** — discover every shortcut without leaving the app (`?`).
+- **In-app config menu** — open or scaffold config & command files (`,`).
+- **Custom shell commands** — run templated shell commands against any card (`x`).
+- **Lua scripting** — extend kbrd with commands, event hooks, timers, and async tasks.
+- **Built-in MCP server** — let external tools and LLM agents operate on your boards.
 
 ---
 
