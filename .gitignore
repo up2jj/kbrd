@@ -3,4 +3,6 @@
 
 # Demo artifacts (regenerate with demo/seed.sh + vhs demo/screenshots.tape)
 /demo/sample-board/
+/demo/boards/
+/demo/home/
 /demo/.discard.gif

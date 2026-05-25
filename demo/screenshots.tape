@@ -12,8 +12,10 @@ Set Theme "Catppuccin Mocha"
 # A screenshot is needed for the GIF output VHS always produces; discard it.
 Output demo/.discard.gif
 
-# Enter the sample board (cwd is the board root) and launch kbrd without MCP.
+# Use an isolated HOME (seeded by seed.sh) so the switcher shows only demo
+# boards, then enter the sample board (cwd is the board root) and launch kbrd.
 Hide
+Type "export HOME=$(pwd)/demo/home" Enter
 Type "cd demo/sample-board && ${KBRD:-../../kbrd} --no-mcp" Enter
 Sleep 2s
 Show
@@ -43,17 +45,21 @@ Screenshot docs/screenshots/git-panel.png
 Type "q"
 Sleep 500ms
 
-# 5. Board switcher
-# (Intentionally not captured: the switcher lists your real recent board
-#  paths from ~/.cache/kbrd/recents.json, which we don't want in a committed
-#  screenshot. Uncomment to capture locally if your recents are demo-only.)
-# Ctrl+P
-# Sleep 1s
-# Screenshot docs/screenshots/switcher.png
-# Escape
-# Sleep 500ms
+# 5. Custom commands menu (folder-local .kbrd_commands.yml, run with `x`)
+Type "x"
+Sleep 1s
+Screenshot docs/screenshots/custom-commands.png
+Escape
+Sleep 500ms
 
-# 6. Global search
+# 6. Board switcher (HOME is isolated, so only demo boards are listed)
+Ctrl+P
+Sleep 1s
+Screenshot docs/screenshots/switcher.png
+Escape
+Sleep 500ms
+
+# 7. Global search
 Type "f"
 Sleep 800ms
 Type "search"

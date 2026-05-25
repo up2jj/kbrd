@@ -94,10 +94,18 @@ A quick, scannable rundown of everything kbrd does:
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/search.png" alt="Global search across boards" width="100%"></td>
-    <td width="50%"><img src="docs/screenshots/help.png" alt="Keyboard shortcut help overlay" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/switcher.png" alt="Board switcher" width="100%"></td>
   </tr>
   <tr>
     <td align="center"><em>Fuzzy global search across boards (<code>f</code>)</em></td>
+    <td align="center"><em>Switch, pin, and remove boards (<code>Ctrl+P</code>)</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/custom-commands.png" alt="Custom commands menu" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/help.png" alt="Keyboard shortcut help overlay" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Run templated shell commands on a card (<code>x</code>)</em></td>
     <td align="center"><em>Discover every shortcut with the help overlay (<code>?</code>)</em></td>
   </tr>
 </table>

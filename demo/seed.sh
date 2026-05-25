@@ -74,6 +74,31 @@ Press space to preview a card's rendered Markdown in a scrollable
 viewport.
 EOF
 
+# Folder-local custom commands so the `x` menu has entries to show.
+cat > "$board/.kbrd_commands.yml" <<'EOF'
+# Custom commands for the sample board. Press `x` on a card to run one.
+commands:
+  - name: Edit in vim
+    id: edit-vim
+    description: Open the card in vim
+    command: vim "{{.filePath}}"
+
+  - name: Word count
+    id: word-count
+    description: Show wc stats for the card
+    command: wc "{{.filePath}}"
+
+  - name: Reveal column in Finder
+    id: reveal-finder
+    description: Open the column folder
+    command: open "{{.columnPath}}"
+
+  - name: Copy path to clipboard
+    id: copy-path
+    description: Copy the card's absolute path
+    command: printf '%s' "{{.filePath}}" | pbcopy
+EOF
+
 cd "$board"
 if [ ! -d .git ]; then
   git init -q
@@ -85,5 +110,31 @@ git commit -q -m "Seed sample board" || true
 
 # Leave one uncommitted change so the git panel shows a modified file.
 printf '\n- [ ] Add a screenshot to the README\n' >> "$board/Backlog/Polish the theme palette.md"
+
+# --- Isolated HOME with a clean recents list (for the switcher screenshot) ---
+# kbrd reads recents from os.UserConfigDir(), i.e.
+# $HOME/Library/Application Support/kbrd/recent.json on macOS. We run the
+# capture under demo/home so the switcher shows only these demo boards and
+# never your real recents.
+home="$here/home"
+cache="$home/Library/Application Support/kbrd"
+rm -rf "$home"
+mkdir -p "$cache"
+
+# A few sibling demo boards so the switcher has something to list.
+for b in Personal Work "Open Source"; do
+  mkdir -p "$here/boards/$b/Todo" "$here/boards/$b/Done"
+done
+
+cat > "$cache/recent.json" <<EOF
+{
+  "entries": [
+    { "path": "$board", "name": "Sample Board" },
+    { "path": "$here/boards/Work", "name": "Work", "pinned": true },
+    { "path": "$here/boards/Personal", "name": "Personal" },
+    { "path": "$here/boards/Open Source", "name": "Open Source" }
+  ]
+}
+EOF
 
 echo "$board"
