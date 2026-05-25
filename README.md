@@ -26,20 +26,16 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and friends,
 adds git integration, fuzzy board switching, cross-board search, an embedded Lua scripting
 engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 
-```
-┌─ Backlog ─────┐  ┌─ In Progress ─┐  ┌─ Done ────────┐
-│ ★ Ship v0.1   │  │   Write docs  │  │   Setup CI    │
-│   Fix watcher │  │   Lua API     │  │   MCP server  │
-│   Theme polish│  │               │  │   Git panel   │
-└───────────────┘  └───────────────┘  └───────────────┘
-  space peek · e edit · m move · g git · f search · ? help
-```
+<p align="center">
+  <img src="docs/screenshots/board.png" alt="kbrd board view" width="900">
+</p>
 
 ---
 
 ## Table of contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -82,6 +78,32 @@ A quick, scannable rundown of everything kbrd does:
 - **Custom shell commands** — run templated shell commands against any card (`x`).
 - **Lua scripting** — extend kbrd with commands, event hooks, timers, and async tasks.
 - **Built-in MCP server** — let external tools and LLM agents operate on your boards.
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/peek.png" alt="Markdown peek" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/git-panel.png" alt="Git panel with diff" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Peek a card's rendered Markdown (<code>space</code>)</em></td>
+    <td align="center"><em>Diff, commit, and sync in the git panel (<code>g</code>)</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/search.png" alt="Global search across boards" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/help.png" alt="Keyboard shortcut help overlay" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Fuzzy global search across boards (<code>f</code>)</em></td>
+    <td align="center"><em>Discover every shortcut with the help overlay (<code>?</code>)</em></td>
+  </tr>
+</table>
+
+> Screenshots are generated reproducibly with [VHS](https://github.com/charmbracelet/vhs).
+> See [`demo/`](demo/) — run `demo/seed.sh` then `vhs demo/screenshots.tape`.
 
 ---
 

@@ -1,0 +1,6 @@
+# Built binary
+/kbrd
+
+# Demo artifacts (regenerate with demo/seed.sh + vhs demo/screenshots.tape)
+/demo/sample-board/
+/demo/.discard.gif
