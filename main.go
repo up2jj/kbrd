@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"kbrd/config"
+	"kbrd/mcp"
 	"kbrd/model"
 	"kbrd/recents"
 
@@ -19,6 +21,8 @@ func main() {
 	flags := pflag.NewFlagSet("kbrd", pflag.ExitOnError)
 	initGlobal := flags.Bool("init-config", false, "write a TOML config template to the user config dir and exit")
 	initLocal := flags.Bool("init-local-config", false, "write a TOML config template to the current directory and exit")
+	noMCP := flags.Bool("no-mcp", false, "disable the built-in MCP server")
+	mcpAddr := flags.String("mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
@@ -67,10 +71,29 @@ func main() {
 		_ = store.Save()
 	}
 
+	var mcpCloser io.Closer
+	if !*noMCP && cfg.MCP.Enabled {
+		addr := cfg.MCP.Addr
+		if *mcpAddr != "" {
+			addr = *mcpAddr
+		}
+		mcp.SetVersion(model.Version)
+		if c, err := mcp.Serve(addr); err != nil {
+			// Most likely the port is already bound by another kbrd instance.
+			// That server already serves every board via recents, so just warn.
+			fmt.Fprintf(os.Stderr, "warning: MCP server not started on %s: %v\n", addr, err)
+		} else {
+			mcpCloser = c
+		}
+	}
+
 	m := model.NewBoard(cfg)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	finalModel, runErr := p.Run()
+	if mcpCloser != nil {
+		_ = mcpCloser.Close()
+	}
 	if bd, ok := finalModel.(*model.Board); ok {
 		bd.Close()
 	}

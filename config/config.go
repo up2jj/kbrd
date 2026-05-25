@@ -19,6 +19,8 @@ const (
 	GlobalConfigName = "config"
 	GlobalConfigFile = "config.toml"
 	FolderConfigFile = "kbrd.toml"
+	FolderMCPFile    = ".mcp.json"
+	FolderAgentsFile = "AGENTS.md"
 	AppDirName       = "kbrd"
 )
 
@@ -34,6 +36,15 @@ type Config struct {
 	GitAutoSyncInterval time.Duration
 
 	Scripting ScriptingConfig
+	MCP       MCPConfig
+}
+
+// MCPConfig controls the built-in MCP server, which runs alongside the TUI and
+// exposes board operations to MCP clients over Streamable HTTP. When Enabled is
+// false (or the --no-mcp flag is set) no listener is started.
+type MCPConfig struct {
+	Enabled bool
+	Addr    string
 }
 
 // ScriptingConfig controls the embedded Lua scripting subsystem.
@@ -72,6 +83,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.hook_timeout_ms", 500)
 	v.SetDefault("scripting.instruction_limit", 10000000)
 	v.SetDefault("scripting.error_threshold", 3)
+	v.SetDefault("mcp.enabled", true)
+	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -122,6 +135,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
 			InstructionLimit: v.GetInt("scripting.instruction_limit"),
 			ErrorThreshold:   v.GetInt("scripting.error_threshold"),
+		},
+		MCP: MCPConfig{
+			Enabled: v.GetBool("mcp.enabled"),
+			Addr:    v.GetString("mcp.addr"),
 		},
 	}, nil
 }

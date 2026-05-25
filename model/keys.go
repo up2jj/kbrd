@@ -90,6 +90,8 @@ type KeyMap struct {
 	ConfigOpenLocal         key.Binding
 	ConfigOpenGlobal        key.Binding
 	ConfigOpenLocalCommands key.Binding
+	ConfigCreateLocalMCP    key.Binding
+	ConfigCreateLocalAgents key.Binding
 
 	// Custom commands menu
 	CustomCommandsClose key.Binding
@@ -195,6 +197,8 @@ var Keys = KeyMap{
 	ConfigOpenLocal:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open or create local config")),
 	ConfigOpenGlobal:        key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "open or create global config")),
 	ConfigOpenLocalCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "open or create local commands")),
+	ConfigCreateLocalMCP:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "create local .mcp.json")),
+	ConfigCreateLocalAgents: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "create local AGENTS.md")),
 
 	// Custom commands menu
 	CustomCommandsClose: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),

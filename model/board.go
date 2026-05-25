@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fsnotify/fsnotify"
 
+	"kbrd/board"
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
@@ -253,28 +254,22 @@ func (b *Board) watchCmd() tea.Cmd {
 }
 
 func (b *Board) loadColumns() error {
-	entries, err := os.ReadDir(b.cfg.Path)
+	names, err := board.Columns(b.cfg.Path)
 	if err != nil {
 		return err
 	}
 
 	b.columns = []*Column{}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			name := entry.Name()
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-				continue
-			}
-			col := NewColumn(name, filepath.Join(b.cfg.Path, name), b.cfg.ColumnWidth, b.cfg.PreviewLines)
-			col.palette = b.palette
-			if err := col.LoadItems(); err != nil {
-				continue
-			}
-			if b.visibleHeight > 0 {
-				col.SetHeight(b.visibleHeight)
-			}
-			b.columns = append(b.columns, col)
+	for _, name := range names {
+		col := NewColumn(name, filepath.Join(b.cfg.Path, name), b.cfg.ColumnWidth, b.cfg.PreviewLines)
+		col.palette = b.palette
+		if err := col.LoadItems(); err != nil {
+			continue
 		}
+		if b.visibleHeight > 0 {
+			col.SetHeight(b.visibleHeight)
+		}
+		b.columns = append(b.columns, col)
 	}
 
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
@@ -577,6 +572,12 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.ConfigOpenLocalCommands):
 			b.configMenuOpen = false
 			return b, b.openLocalCommands()
+		case key.Matches(msg, Keys.ConfigCreateLocalMCP):
+			b.configMenuOpen = false
+			return b, b.createLocalMCP()
+		case key.Matches(msg, Keys.ConfigCreateLocalAgents):
+			b.configMenuOpen = false
+			return b, b.createLocalAgents()
 		}
 		return b, nil
 	}
@@ -864,6 +865,23 @@ func (b *Board) openLocalCommands() tea.Cmd {
 	return b.openManagedFile(localCommandsPath, ensureCommandsFile)
 }
 
+// createLocalMCP writes a .mcp.json into the current board directory pointing
+// at kbrd's built-in MCP server, then opens it. The address comes from the
+// active board's config so the file matches the running server.
+func (b *Board) createLocalMCP() tea.Cmd {
+	addr := b.cfg.MCP.Addr
+	resolve := func() (string, error) { return filepath.Join(b.cfg.Path, config.FolderMCPFile), nil }
+	ensure := func(path string) error { return ensureMCPFile(path, addr) }
+	return b.openManagedFile(resolve, ensure)
+}
+
+// createLocalAgents writes an AGENTS.md describing kbrd into the current board
+// directory, then opens it.
+func (b *Board) createLocalAgents() tea.Cmd {
+	resolve := func() (string, error) { return filepath.Join(b.cfg.Path, config.FolderAgentsFile), nil }
+	return b.openManagedFile(resolve, ensureAgentsFile)
+}
+
 func (b *Board) openManagedFile(resolve func() (string, error), ensure func(string) error) tea.Cmd {
 	path, err := resolve()
 	if err != nil {
@@ -942,16 +960,8 @@ func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 }
 
 func validateRenameName(name string) error {
-	if name == "" {
-		return fmt.Errorf("name cannot be empty")
-	}
-	if strings.ContainsAny(name, "/\\") {
-		return fmt.Errorf("name cannot contain path separators")
-	}
-	if name == "." || name == ".." {
-		return fmt.Errorf("invalid name")
-	}
-	return nil
+	_, err := board.SanitizeFolder(name)
+	return err
 }
 
 func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, tea.Cmd) {

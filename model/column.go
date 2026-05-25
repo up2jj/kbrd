@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"kbrd/board"
 	kbrdfs "kbrd/fs"
 )
 
@@ -337,7 +338,7 @@ func (c *Column) LoadItems() error {
 	items := []Item{}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		if board.Hidden(name) {
 			continue
 		}
 		if !entry.IsDir() && strings.HasSuffix(name, ".md") {
@@ -420,14 +421,16 @@ func (c *Column) DeleteItem(itemName string) error {
 	return os.ErrNotExist
 }
 
+// CreateItem creates a new empty <name>.md item in the column. It will not
+// overwrite an existing item (board.CreateItem uses O_EXCL). Returns the new
+// item's filename.
 func (c *Column) CreateItem(name string) (string, error) {
-	filename := name + ".md"
-	fullPath := filepath.Join(c.Path, filename)
-	if _, err := os.Create(fullPath); err != nil {
+	fullPath, err := board.CreateItem(c.Path, name, "")
+	if err != nil {
 		return "", err
 	}
 	c.LoadItems()
-	return filename, nil
+	return filepath.Base(fullPath), nil
 }
 
 func (c *Column) AppendText(itemName, text string) error {

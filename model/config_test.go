@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"kbrd/config"
@@ -84,17 +85,23 @@ func TestConfigCommandEntries(t *testing.T) {
 	}
 
 	entries := configCommandEntries()
-	if len(entries) != 3 {
-		t.Fatalf("entries: got %d want 3", len(entries))
+	if len(entries) != 5 {
+		t.Fatalf("entries: got %d want 5", len(entries))
 	}
 
-	local, global, localCmds := entries[0], entries[1], entries[2]
+	local, global, localCmds, localMCP, localAgents := entries[0], entries[1], entries[2], entries[3], entries[4]
 
-	if local.Key != "c" || global.Key != "C" || localCmds.Key != "x" {
-		t.Fatalf("keys: got %q/%q/%q want c/C/x", local.Key, global.Key, localCmds.Key)
+	if local.Key != "c" || global.Key != "C" || localCmds.Key != "x" || localMCP.Key != "m" || localAgents.Key != "a" {
+		t.Fatalf("keys: got %q/%q/%q/%q/%q want c/C/x/m/a", local.Key, global.Key, localCmds.Key, localMCP.Key, localAgents.Key)
 	}
-	if local.Err != nil || global.Err != nil || localCmds.Err != nil {
-		t.Fatalf("unexpected errors: local=%v global=%v localCmds=%v", local.Err, global.Err, localCmds.Err)
+	if filepath.Base(localMCP.Path) != config.FolderMCPFile {
+		t.Fatalf("local mcp path basename: got %q", filepath.Base(localMCP.Path))
+	}
+	if filepath.Base(localAgents.Path) != config.FolderAgentsFile {
+		t.Fatalf("local agents path basename: got %q", filepath.Base(localAgents.Path))
+	}
+	if local.Err != nil || global.Err != nil || localCmds.Err != nil || localMCP.Err != nil || localAgents.Err != nil {
+		t.Fatalf("unexpected errors: local=%v global=%v localCmds=%v localMCP=%v localAgents=%v", local.Err, global.Err, localCmds.Err, localMCP.Err, localAgents.Err)
 	}
 	if filepath.Base(localCmds.Path) != config.FolderCommandsFile {
 		t.Fatalf("local commands path basename: got %q", filepath.Base(localCmds.Path))
@@ -114,6 +121,33 @@ func TestConfigCommandEntries(t *testing.T) {
 	}
 	if global.Exists {
 		t.Fatal("global.Exists: got true, want false (no file written)")
+	}
+}
+
+func TestEnsureMCPFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, config.FolderMCPFile)
+
+	if err := ensureMCPFile(path, "127.0.0.1:9999"); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"http://127.0.0.1:9999"`) {
+		t.Fatalf("generated .mcp.json missing url: %s", data)
+	}
+
+	// Must not overwrite an existing file.
+	if err := os.WriteFile(path, []byte("custom"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureMCPFile(path, "127.0.0.1:1234"); err != nil {
+		t.Fatalf("ensure existing: %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "custom" {
+		t.Fatalf("existing file was overwritten: %q", data)
 	}
 }
 
