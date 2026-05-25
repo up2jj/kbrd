@@ -34,6 +34,7 @@ type Config struct {
 	BoardName     string
 	GitDiffTool         string
 	GitAutoSyncInterval time.Duration
+	GitGenerateReadme   bool
 
 	Scripting ScriptingConfig
 	MCP       MCPConfig
@@ -78,6 +79,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
 	v.SetDefault("git.auto_sync_interval", "")
+	v.SetDefault("git.generate_readme", false)
 	v.SetDefault("scripting.enabled", true)
 	v.SetDefault("scripting.command_timeout_ms", 2000)
 	v.SetDefault("scripting.hook_timeout_ms", 500)
@@ -129,6 +131,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		BoardName:           v.GetString("board.name"),
 		GitDiffTool:         v.GetString("git.diff_tool"),
 		GitAutoSyncInterval: autoSync,
+		GitGenerateReadme:   v.GetBool("git.generate_readme"),
 		Scripting: ScriptingConfig{
 			Enabled:          v.GetBool("scripting.enabled"),
 			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),

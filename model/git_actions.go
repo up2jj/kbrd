@@ -150,6 +150,11 @@ func (b *Board) handleGitCommit(msg gitCommitRequestMsg) (tea.Model, tea.Cmd) {
 	if commitMsg == "" {
 		return b, b.notifier.Send("commit message is empty", notifyError)
 	}
+	if b.cfg.GitGenerateReadme {
+		if err := b.writeBoardReadme(); err != nil {
+			return b, b.notifier.Send("readme generation failed: "+err.Error(), notifyError)
+		}
+	}
 	if err := exec.Command("git", "-C", b.gitRepoRoot, "add", ".").Run(); err != nil {
 		return b, b.notifier.Send("git add failed: "+err.Error(), notifyError)
 	}
