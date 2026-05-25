@@ -138,6 +138,26 @@ func (s *Store) SetPinned(path, name string, pinned bool) {
 	}
 }
 
+// Remove deletes the entry for path (pinned or not), preserving order. Returns
+// whether an entry was removed.
+func (s *Store) Remove(path string) bool {
+	if path == "" {
+		return false
+	}
+	np := normalize(path)
+	kept := make([]Entry, 0, len(s.Entries))
+	removed := false
+	for _, e := range s.Entries {
+		if normalize(e.Path) == np {
+			removed = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	s.Entries = kept
+	return removed
+}
+
 func (s *Store) Prune() int {
 	kept := make([]Entry, 0, len(s.Entries))
 	removed := 0

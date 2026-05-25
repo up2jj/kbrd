@@ -21,6 +21,10 @@ type pinBoardMsg struct {
 	Pinned bool
 }
 
+type removeBoardMsg struct {
+	Path string
+}
+
 type Switcher struct {
 	active     bool
 	entries    []recents.Entry
@@ -124,8 +128,13 @@ func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
 		if r := []rune(s.filter); len(r) > 0 {
 			s.filter = string(r[:len(r)-1])
 			s.recompute()
+			return nil
 		}
-		return nil
+		if len(s.matches) == 0 {
+			return nil
+		}
+		e := s.entries[s.matches[s.selected].Index]
+		return func() tea.Msg { return removeBoardMsg{Path: e.Path} }
 	case tea.KeyRunes, tea.KeySpace:
 		str := msg.String()
 		if str != "" {
@@ -249,6 +258,7 @@ func (s *Switcher) View() string {
 		{Keys: "↑/↓", Label: "select"},
 		{Keys: "enter", Label: "switch"},
 		{Keys: "tab", Label: "pin/unpin"},
+		{Keys: "bksp", Label: "remove"},
 		{Keys: "esc", Label: "cancel"},
 	})
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", filterLine, "", body, "", footer)

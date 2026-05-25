@@ -67,6 +67,31 @@ func TestSetPinned_InsertsAndToggles(t *testing.T) {
 	}
 }
 
+func TestRemove_DropsEntryPinnedOrNot(t *testing.T) {
+	s := Store{}
+	s.Touch("/a", "A")
+	s.Touch("/b", "B")
+	s.SetPinned("/b", "B", true)
+
+	if !s.Remove("/a") {
+		t.Fatalf("Remove(/a) should report removal")
+	}
+	if len(s.Entries) != 1 || s.Entries[0].Path != "/b" {
+		t.Fatalf("after removing /a: %+v", s.Entries)
+	}
+	// Pinned entries are removable too.
+	if !s.Remove("/b") {
+		t.Fatalf("Remove(/b) should report removal")
+	}
+	if len(s.Entries) != 0 {
+		t.Fatalf("after removing /b: %+v", s.Entries)
+	}
+	// Removing an absent path is a no-op.
+	if s.Remove("/missing") {
+		t.Fatalf("Remove of absent path should report false")
+	}
+}
+
 func TestTouch_PreservesPinned(t *testing.T) {
 	s := Store{}
 	s.Touch("/a", "A")
