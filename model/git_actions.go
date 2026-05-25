@@ -316,6 +316,9 @@ func (b *Board) handleGitAddRemote(msg gitAddRemoteRequestMsg) (tea.Model, tea.C
 		}
 		return b, b.notifier.Send("git remote add failed: "+detail, notifyError)
 	}
+	// Enable auto-upstream so the first `git push` sets tracking automatically
+	// (works even against an empty remote).
+	exec.Command("git", "-C", b.gitRepoRoot, "config", "push.autoSetupRemote", "true").Run()
 	b.refreshGitPanel()
 	return b, b.notifier.Send("remote 'origin' added", notifySuccess)
 }
