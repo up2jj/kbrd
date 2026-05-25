@@ -8,6 +8,7 @@ type KeyMap struct {
 	ToggleHelp   key.Binding
 	QuickCmd     key.Binding
 	SwitchBoard  key.Binding
+	Search       key.Binding
 	ToggleTheme  key.Binding
 	Refresh      key.Binding
 
@@ -70,6 +71,12 @@ type KeyMap struct {
 	SwitcherConfirm   key.Binding
 	SwitcherPinToggle key.Binding
 
+	// Search
+	SearchClose   key.Binding
+	SearchPrev    key.Binding
+	SearchNext    key.Binding
+	SearchConfirm key.Binding
+
 	// Quick command
 	QuickCmdCancel  key.Binding
 	QuickCmdConfirm key.Binding
@@ -106,6 +113,7 @@ var Keys = KeyMap{
 	ToggleHelp:  key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
 	QuickCmd:    key.NewBinding(key.WithKeys("."), key.WithHelp(".", "quick command")),
 	SwitchBoard: key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
+	Search:      key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
 	ToggleTheme: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "toggle theme")),
 	Refresh:     key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
@@ -167,6 +175,12 @@ var Keys = KeyMap{
 	SwitcherNext:      key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
 	SwitcherConfirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
 	SwitcherPinToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pin/unpin")),
+
+	// Search
+	SearchClose:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	SearchPrev:    key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "previous")),
+	SearchNext:    key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
+	SearchConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 
 	// Quick command
 	QuickCmdCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -241,7 +255,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Global",
-			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
+			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
 		},
 	}
 }

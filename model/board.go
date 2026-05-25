@@ -76,6 +76,7 @@ type Board struct {
 	configMenuOpen bool
 	peek          Peek
 	switcher      Switcher
+	search        Search
 	gitPanel      GitPanel
 	customCmds       CustomCommandMenu
 	commands         []config.Command
@@ -157,6 +158,7 @@ func (b *Board) applyPalette() {
 	b.dialog.palette = b.palette
 	b.peek.palette = b.palette
 	b.switcher.palette = b.palette
+	b.search.palette = b.palette
 	b.gitPanel.SetPalette(b.palette)
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
@@ -426,6 +428,16 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pinBoardMsg:
 		return b.handlePinBoard(msg)
 
+	case searchDebounceMsg:
+		return b, b.search.debouncedRun(msg.Seq)
+
+	case searchResultsMsg:
+		b.search.setResults(msg)
+		return b, nil
+
+	case searchSelectMsg:
+		return b.activateFile(msg.BoardPath, msg.FilePath)
+
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)
 
@@ -596,6 +608,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.switcher.Update(msg)
 	}
 
+	// Handle global search
+	if b.search.Active() {
+		return b, b.search.Update(msg)
+	}
+
 	// Handle custom commands menu
 	if b.customCmds.Active() {
 		return b, b.customCmds.Update(msg)
@@ -640,6 +657,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.openQuickCommand()
 	case key.Matches(msg, Keys.SwitchBoard):
 		return b, b.openSwitcher()
+	case key.Matches(msg, Keys.Search):
+		return b, b.openSearch()
 	case key.Matches(msg, Keys.GitPanel):
 		return b, b.openGitPanel()
 	case key.Matches(msg, Keys.ToggleTheme):
@@ -805,7 +824,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1131,9 +1150,21 @@ func (b *Board) handlePinBoard(msg pinBoardMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
-	newCfg, err := config.Load(msg.Path)
+	cmd, err := b.loadBoard(msg.Path)
 	if err != nil {
-		return b, b.notifier.Send("failed to load board: "+err.Error(), notifyError)
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	return b, cmd
+}
+
+// loadBoard switches the board to path: closes the old watcher, reloads config,
+// columns, scripting, git state and a fresh watcher, and records the board in
+// recents. selectedCol is reset to 0. Returns the watch+notify command. Errors
+// are returned without sending a notification so callers can phrase them.
+func (b *Board) loadBoard(path string) (tea.Cmd, error) {
+	newCfg, err := config.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load board: %w", err)
 	}
 
 	if b.watcher != nil {
@@ -1149,7 +1180,7 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	b.loadCommands()
 
 	if err := b.loadColumns(); err != nil {
-		return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
+		return nil, fmt.Errorf("failed to load columns: %w", err)
 	}
 	b.applyPalette()
 	b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
@@ -1169,7 +1200,47 @@ func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	if b.cfg.BoardName != "" {
 		label = "[" + b.cfg.BoardName + "] " + b.cfg.Path
 	}
-	return b, tea.Batch(b.watchCmd(), b.notifier.Send("switched to "+label, notifySuccess))
+	return tea.Batch(b.watchCmd(), b.notifier.Send("switched to "+label, notifySuccess)), nil
+}
+
+// openSearch loads the recents store and opens the global search dialog with
+// every recent board plus the currently open board as search roots.
+func (b *Board) openSearch() tea.Cmd {
+	store, err := recents.Load()
+	if err != nil {
+		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+	}
+	if store.Prune() > 0 {
+		_ = store.Save()
+	}
+
+	activeAbs, _ := filepath.Abs(b.cfg.Path)
+	roots := buildSearchRoots(activeAbs, b.cfg.BoardName, store.Entries)
+	b.search.Open(roots, b.palette)
+	return nil
+}
+
+// activateFile switches to boardPath (if not already active) and selects the
+// column/item containing filePath. Used by the global search dialog.
+func (b *Board) activateFile(boardPath, filePath string) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if !samePath(boardPath, b.cfg.Path) {
+		c, err := b.loadBoard(boardPath)
+		if err != nil {
+			return b, b.notifier.Send(err.Error(), notifyError)
+		}
+		cmd = c
+	}
+
+	if colIdx, itemIdx, ok := locateFile(b.columns, filePath); ok {
+		b.selectedCol = colIdx
+		b.columns[colIdx].SelectIndex(itemIdx)
+		return b, cmd
+	}
+	if cmd != nil {
+		return b, tea.Batch(cmd, b.notifier.Send("opened board; file not in a column", notifySuccess))
+	}
+	return b, b.notifier.Send("file not in a column", notifyError)
 }
 
 func (b *Board) openQuickCommand() tea.Cmd {
@@ -1513,6 +1584,9 @@ func (b *Board) View() string {
 	}
 	if b.switcher.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.switcher.View())
+	}
+	if b.search.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.search.View(w, h))
 	}
 	if b.customCmds.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
