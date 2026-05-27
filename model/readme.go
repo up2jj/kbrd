@@ -94,7 +94,7 @@ func (b *Board) writeBoardReadme() error {
 	if name == "" {
 		name = filepath.Base(b.cfg.Path)
 	}
-	root := b.gitRepoRoot
+	root := b.git.RepoRoot()
 	if root == "" {
 		root = b.cfg.Path
 	}

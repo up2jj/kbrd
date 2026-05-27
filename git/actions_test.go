@@ -1,4 +1,4 @@
-package model
+package git
 
 import (
 	"errors"
@@ -7,8 +7,25 @@ import (
 	"path/filepath"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"kbrd/config"
 )
+
+// stubNotifier satisfies the Notifier interface; it returns non-nil cmds so
+// tests can assert that error paths produce a notification.
+type stubNotifier struct{}
+
+func (stubNotifier) Success(string) tea.Cmd { return func() tea.Msg { return nil } }
+func (stubNotifier) Error(string) tea.Cmd   { return func() tea.Msg { return nil } }
+
+func newTestController(repoRoot string) Controller {
+	return Controller{
+		cfg:      config.Config{},
+		notifier: stubNotifier{},
+		repoRoot: repoRoot,
+	}
+}
 
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
@@ -43,35 +60,27 @@ func initSyncRepo(t *testing.T) string {
 	return dir
 }
 
-func newTestBoard(repoRoot string) *Board {
-	return &Board{
-		cfg:         config.Config{},
-		notifier:    NewNotifier("none"),
-		gitRepoRoot: repoRoot,
-	}
-}
-
 func TestShouldAutoSync_NoRepoRoot(t *testing.T) {
-	b := newTestBoard("")
-	if b.shouldAutoSync() {
-		t.Fatal("expected false when gitRepoRoot is empty")
+	c := newTestController("")
+	if c.shouldAutoSync() {
+		t.Fatal("expected false when repoRoot is empty")
 	}
 }
 
 func TestShouldAutoSync_AlreadySyncing(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
-	b := newTestBoard(dir)
-	b.gitSyncing = true
-	if b.shouldAutoSync() {
-		t.Fatal("expected false when gitSyncing is true")
+	c := newTestController(dir)
+	c.syncing = true
+	if c.shouldAutoSync() {
+		t.Fatal("expected false when syncing is true")
 	}
 }
 
 func TestShouldAutoSync_NoRemote(t *testing.T) {
 	dir := initSyncRepo(t)
-	b := newTestBoard(dir)
-	if b.shouldAutoSync() {
+	c := newTestController(dir)
+	if c.shouldAutoSync() {
 		t.Fatal("expected false when no remote configured")
 	}
 }
@@ -82,8 +91,8 @@ func TestShouldAutoSync_DirtyTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "dirty.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b := newTestBoard(dir)
-	if b.shouldAutoSync() {
+	c := newTestController(dir)
+	if c.shouldAutoSync() {
 		t.Fatal("expected false when working tree is dirty")
 	}
 }
@@ -91,36 +100,51 @@ func TestShouldAutoSync_DirtyTree(t *testing.T) {
 func TestShouldAutoSync_Ready(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
-	b := newTestBoard(dir)
-	if !b.shouldAutoSync() {
+	c := newTestController(dir)
+	if !c.shouldAutoSync() {
 		t.Fatal("expected true when repo has remote and clean tree")
 	}
 }
 
 func TestHandleAutoSyncDone_ClearsFlag_Success(t *testing.T) {
-	b := newTestBoard("")
-	b.gitSyncing = true
-	if _, _ = b.handleAutoSyncDone(autoSyncDoneMsg{Stage: "push"}); b.gitSyncing {
-		t.Fatal("expected gitSyncing cleared after success")
+	c := newTestController("")
+	c.syncing = true
+	if c.handleAutoSyncDone(autoSyncDoneMsg{Stage: "push"}); c.syncing {
+		t.Fatal("expected syncing cleared after success")
 	}
 }
 
 func TestHandleAutoSyncDone_ClearsFlag_Error(t *testing.T) {
-	b := newTestBoard("")
-	b.gitSyncing = true
-	_, cmd := b.handleAutoSyncDone(autoSyncDoneMsg{Stage: "pull", Err: errors.New("boom"), Output: "fail"})
-	if b.gitSyncing {
-		t.Fatal("expected gitSyncing cleared after error")
+	c := newTestController("")
+	c.syncing = true
+	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Stage: "pull", Err: errors.New("boom"), Output: "fail"})
+	if c.syncing {
+		t.Fatal("expected syncing cleared after error")
 	}
 	if cmd == nil {
 		t.Fatal("expected an error notification cmd on failure")
 	}
 }
 
+func TestHandleAutoSyncDone_ShutdownPending_Signals(t *testing.T) {
+	c := newTestController("")
+	c.syncing = true
+	c.shutdownPending = true
+	called := false
+	c.onSyncSettled = func() tea.Cmd { called = true; return tea.Quit }
+	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Stage: "push"})
+	if c.syncing {
+		t.Fatal("expected syncing cleared")
+	}
+	if !called || cmd == nil {
+		t.Fatal("expected OnSyncSettled to be invoked when shutdown pending")
+	}
+}
+
 func TestHandleGitAddRemote_AddsOrigin(t *testing.T) {
 	dir := initSyncRepo(t)
-	b := newTestBoard(dir)
-	_, _ = b.handleGitAddRemote(gitAddRemoteRequestMsg{URL: "https://example.com/x.git"})
+	c := newTestController(dir)
+	_ = c.handleGitAddRemote(gitAddRemoteRequestMsg{URL: "https://example.com/x.git"})
 
 	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
 	if err != nil {
@@ -132,16 +156,16 @@ func TestHandleGitAddRemote_AddsOrigin(t *testing.T) {
 }
 
 func TestHandleGitAddRemote_EmptyURL(t *testing.T) {
-	b := newTestBoard("")
-	_, cmd := b.handleGitAddRemote(gitAddRemoteRequestMsg{URL: "   "})
+	c := newTestController("")
+	cmd := c.handleGitAddRemote(gitAddRemoteRequestMsg{URL: "   "})
 	if cmd == nil {
 		t.Fatal("expected error notification for empty URL")
 	}
 }
 
 func TestScheduleAutoSync_DisabledReturnsNil(t *testing.T) {
-	b := newTestBoard("")
-	if c := b.scheduleAutoSync(); c != nil {
+	c := newTestController("")
+	if cmd := c.scheduleAutoSync(); cmd != nil {
 		t.Fatal("expected nil cmd when interval is zero")
 	}
 }

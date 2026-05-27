@@ -19,6 +19,7 @@ import (
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
+	"kbrd/git"
 	"kbrd/recents"
 	"kbrd/script"
 )
@@ -47,19 +48,17 @@ type watchDebounceMsg struct{ Seq int }
 // boardReloadedMsg carries the result of an off-goroutine full board rescan.
 // Stale results (Seq != b.watchSeq) are discarded.
 type boardReloadedMsg struct {
-	Seq      int
-	columns  []*Column
-	gitStats map[string]kbrdfs.DiffStat
+	Seq     int
+	columns []*Column
 }
 
 // columnReloadedMsg carries the result of an off-goroutine single-column
 // rescan, used when a change is local to one column. Stale results are
 // discarded.
 type columnReloadedMsg struct {
-	Seq      int
-	path     string
-	col      *Column
-	gitStats map[string]kbrdfs.DiffStat
+	Seq  int
+	path string
+	col  *Column
 }
 
 type pasteMode int
@@ -109,17 +108,12 @@ type Board struct {
 	peek          Peek
 	switcher      Switcher
 	search        Search
-	gitPanel      GitPanel
+	git           git.Controller
 	customCmds       CustomCommandMenu
 	commands         []config.Command
 	commandWarnings  []config.CommandLoadWarning
 	leftIndicatorWidth int
 	logoHeight         int
-
-	gitRepoRoot string
-	gitStats    map[string]kbrdfs.DiffStat
-
-	gitSyncing bool // auto-sync in progress
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -142,24 +136,6 @@ type Board struct {
 	mnemonicMaxLen int
 }
 
-func (b *Board) StatFor(absPath string) (kbrdfs.DiffStat, bool) {
-	s, ok := b.gitStats[absPath]
-	return s, ok
-}
-
-func (b *Board) refreshGitStats() {
-	b.gitStats = gitStatsFor(b.gitRepoRoot)
-}
-
-// gitStatsFor computes per-file diff stats for a repo root, or nil when there
-// is no repo. Pure, so it is safe to call inside a tea.Cmd goroutine.
-func gitStatsFor(repoRoot string) map[string]kbrdfs.DiffStat {
-	if repoRoot == "" {
-		return nil
-	}
-	return kbrdfs.GitDiffStats(repoRoot)
-}
-
 func NewBoard(cfg config.Config) *Board {
 	palette := PaletteFor(cfg.Theme)
 	ti := textinput.New()
@@ -177,11 +153,40 @@ func NewBoard(cfg config.Config) *Board {
 		theme:         cfg.Theme,
 		palette:       palette,
 	}
+	b.initGit()
 	b.applyPalette()
 	b.initScripting()
 	b.loadCommands()
 	return b
 }
+
+// initGit (re)builds the git controller for the current b.cfg. Called from
+// NewBoard and on every board switch (loadBoard), mirroring initScripting, so
+// the controller never holds a stale board's config/repo. The injected closures
+// capture b (not cfg), so they read the live config at call time. &b.bus is
+// stable across initScripting's bus reset (same field address). BeforeCommit
+// lets git regenerate the README from board content without git knowing what a
+// board is; OnSyncSettled lets a deferred quit complete once a sync finishes.
+func (b *Board) initGit() {
+	b.git = git.New(git.Deps{
+		Cfg:      b.cfg,
+		Notifier: gitNotifier{b.notifier},
+		Bus:      &b.bus,
+		BeforeCommit: func() error {
+			if b.cfg.GitGenerateReadme {
+				return b.writeBoardReadme()
+			}
+			return nil
+		},
+		OnSyncSettled: func() tea.Cmd { b.quitting = true; return tea.Quit },
+	})
+}
+
+// gitNotifier adapts the board's Notifier to the git package's narrow interface.
+type gitNotifier struct{ n *Notifier }
+
+func (g gitNotifier) Success(msg string) tea.Cmd { return g.n.Send(msg, notifySuccess) }
+func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Send(msg, notifyError) }
 
 // applyInputPalette restyles a bubbles textinput using the palette colors.
 // Reused by Board, GitPanel, and ScriptUI which all share the same look.
@@ -202,7 +207,7 @@ func (b *Board) applyPalette() {
 	b.peek.palette = b.palette
 	b.switcher.palette = b.palette
 	b.search.palette = b.palette
-	b.gitPanel.SetPalette(b.palette)
+	b.git.SetPalette(b.palette)
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
 	if b.editor != nil {
@@ -218,8 +223,7 @@ func (b *Board) Init() tea.Cmd {
 		if err := b.loadColumns(); err != nil {
 			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
-		b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
-		b.refreshGitStats()
+		b.git.Detect()
 		paths, err := kbrdfs.DiscoverPaths(b.cfg.Path)
 		if err == nil {
 			if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -240,7 +244,7 @@ func (b *Board) Init() tea.Cmd {
 		}
 		cmds = append(cmds, b.notifier.Send("commands: "+first.Message+extra, notifyError))
 	}
-	if c := b.scheduleAutoSync(); c != nil {
+	if c := b.git.StartAutoSync(); c != nil {
 		cmds = append(cmds, c)
 	}
 	// Pick up any timers and async work scheduled at the top level of
@@ -401,13 +405,12 @@ func (b *Board) singleDirtyColumn(dirty map[string]struct{}) string {
 func (b *Board) reloadCmd(seq int) tea.Cmd {
 	cfg := b.cfg
 	palette := b.palette
-	repoRoot := b.gitRepoRoot
 	return func() tea.Msg {
 		columns, err := buildColumns(cfg, palette)
 		if err != nil {
 			return nil // leave the board as-is, matching the old silent path
 		}
-		return boardReloadedMsg{Seq: seq, columns: columns, gitStats: gitStatsFor(repoRoot)}
+		return boardReloadedMsg{Seq: seq, columns: columns}
 	}
 }
 
@@ -417,14 +420,13 @@ func (b *Board) reloadCmd(seq int) tea.Cmd {
 func (b *Board) reloadColumnCmd(seq int, colPath string) tea.Cmd {
 	cfg := b.cfg
 	palette := b.palette
-	repoRoot := b.gitRepoRoot
 	name := filepath.Base(colPath)
 	return func() tea.Msg {
 		col := buildColumn(colPath, name, cfg, palette)
 		if col == nil {
 			return nil
 		}
-		return columnReloadedMsg{Seq: seq, path: colPath, col: col, gitStats: gitStatsFor(repoRoot)}
+		return columnReloadedMsg{Seq: seq, path: colPath, col: col}
 	}
 }
 
@@ -484,6 +486,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
+		b.git.SetSize(msg.Width, msg.Height)
 		b.visibleHeight = msg.Height - 11
 		if b.visibleHeight < 1 {
 			b.visibleHeight = 1
@@ -531,9 +534,8 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, nil // stale — a newer change is already queued
 		}
 		b.applyReloadedColumns(msg.columns)
-		b.gitStats = msg.gitStats
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-		return b, nil
+		return b, b.git.RefreshStats()
 
 	case columnReloadedMsg:
 		if msg.Seq != b.watchSeq {
@@ -555,9 +557,8 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		msg.col.palette = b.palette
 		b.columns[idx] = msg.col
-		b.gitStats = msg.gitStats
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-		return b, nil
+		return b, b.git.RefreshStats()
 
 	case initBoardRequestMsg:
 		b.dialog.Open(DialogOptions{
@@ -669,41 +670,11 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scriptAsyncDoneMsg:
 		return b.handleScriptAsyncDone(msg)
 
-	case gitPanelCloseMsg:
-		return b.handleGitPanelClose()
-
-	case gitDiffForFileMsg:
-		return b.handleGitDiffForFile(msg)
-
-	case gitCommitRequestMsg:
-		return b.handleGitCommit(msg)
-
-	case gitPostCommitMsg:
-		return b.handleGitPostCommit(msg)
-
-	case gitSyncRequestMsg:
-		return b.handleGitSync()
-
-	case gitContinueSyncMsg:
-		return b.handleGitSync()
-
-	case gitSyncStepMsg:
-		return b.handleGitSyncStep(msg)
-
-	case gitLogRequestMsg:
-		return b.handleGitLog()
-
-	case gitRefreshMsg:
-		return b.handleGitRefresh()
-
-	case gitAddRemoteRequestMsg:
-		return b.handleGitAddRemote(msg)
-
-	case autoSyncTickMsg:
-		return b.handleAutoSyncTick()
-
-	case autoSyncDoneMsg:
-		return b.handleAutoSyncDone(msg)
+	case git.Msg:
+		// All git orchestration lives in the git package; route opaquely. Git
+		// signals a deferred-quit completion itself via OnSyncSettled, so there
+		// is no shutdown bookkeeping here.
+		return b, b.git.Update(msg)
 
 	default:
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
@@ -743,7 +714,7 @@ func (b *Board) beginShutdown() (tea.Model, tea.Cmd) {
 // finishShutdown defers the actual exit until an in-flight git sync completes,
 // so a push isn't interrupted. A second Ctrl+C while waiting force-quits.
 func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
-	if b.gitSyncing {
+	if b.git.RequestShutdown() {
 		b.shuttingDown = true
 		return b, nil
 	}
@@ -843,8 +814,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle git panel
-	if b.gitPanel.Active() {
-		return b, b.gitPanel.Update(msg)
+	if b.git.Active() {
+		return b, b.git.HandleKey(msg)
 	}
 
 	// Handle quick command
@@ -879,7 +850,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, Keys.Search):
 		return b, b.openSearch()
 	case key.Matches(msg, Keys.GitPanel):
-		return b, b.openGitPanel()
+		return b, b.git.Open()
 	case key.Matches(msg, Keys.ToggleTheme):
 		b.toggleTheme()
 		return b, nil
@@ -1043,7 +1014,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.gitPanel.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.git.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1416,6 +1387,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 
 	b.cfg = newCfg
 	b.theme = newCfg.Theme
+	b.initGit()
 	b.applyPalette()
 	b.selectedCol = 0
 	b.initScripting()
@@ -1425,8 +1397,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 		return nil, fmt.Errorf("failed to load columns: %w", err)
 	}
 	b.applyPalette()
-	b.gitRepoRoot = kbrdfs.GitRepoRoot(b.cfg.Path)
-	b.refreshGitStats()
+	b.git.Detect()
 
 	if paths, err := kbrdfs.DiscoverPaths(b.cfg.Path); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -1782,7 +1753,7 @@ func (b *Board) View() string {
 	}
 	for i := first; i < end; i++ {
 		col := b.columns[i]
-		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW, b.StatFor)))
+		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW, b.git.StatFor)))
 	}
 	if end < len(b.columns) {
 		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))
@@ -1836,8 +1807,8 @@ func (b *Board) View() string {
 	if b.scriptUI.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
 	}
-	if b.gitPanel.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.gitPanel.View())
+	if b.git.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.git.View())
 	}
 	result += "\n" + b.renderStatusBar()
 
@@ -1874,7 +1845,7 @@ func (b *Board) renderStatusBar() string {
 
 	if b.shuttingDown {
 		primary += sepDot + helpKeyStyle.Render("⟳ finishing sync…")
-	} else if b.gitSyncing {
+	} else if b.git.Syncing() {
 		primary += sepDot + helpKeyStyle.Render("⟳ syncing")
 	}
 

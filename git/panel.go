@@ -1,4 +1,4 @@
-package model
+package git
 
 import (
 	"fmt"
@@ -13,7 +13,50 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	kbrdfs "kbrd/fs"
+	"kbrd/theme"
 )
+
+// panelKeys are the git panel's in-panel bindings. The panel-open binding ("g")
+// stays in the host's global keymap; these are internal to the panel.
+var panelKeys = struct {
+	Commit, CommitSync, CommitCancel, Sync, Log, Diff, AddRemote, Close, FocusToggle key.Binding
+}{
+	Diff:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
+	Commit:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
+	Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
+	CommitSync:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
+	Log:          key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
+	AddRemote:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add remote")),
+	Close:        key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	CommitCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	FocusToggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus pane")),
+}
+
+// Git-local copies of the host's help-row styles, rebuilt from the palette on
+// SetPalette. Kept here so the git package does not depend on the host's styles.
+var (
+	gitTitleStyle lipgloss.Style
+	gitSepStyle   lipgloss.Style
+	gitKeyStyle   lipgloss.Style
+	gitLabelStyle lipgloss.Style
+	gitDimStyle   lipgloss.Style
+)
+
+func setGitStyles(p theme.Palette) {
+	gitKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	gitLabelStyle = lipgloss.NewStyle().Foreground(p.FgMuted)
+	gitSepStyle = lipgloss.NewStyle().Foreground(p.FgDim)
+	gitTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	gitDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+}
+
+// applyInputPalette restyles a bubbles textinput using the palette colors.
+func applyInputPalette(ti *textinput.Model, p theme.Palette) {
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(p.FgBase)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(p.Highlight)
+}
 
 type gitPanelFocus int
 
@@ -37,19 +80,22 @@ const (
 	rightLog
 )
 
-type gitPanelCloseMsg struct{}
-type gitSyncRequestMsg struct{}
-type gitContinueSyncMsg struct{}
-type gitLogRequestMsg struct{}
+type gitPanelCloseMsg struct{ gitMsg }
+type gitSyncRequestMsg struct{ gitMsg }
+type gitContinueSyncMsg struct{ gitMsg }
+type gitLogRequestMsg struct{ gitMsg }
 type gitCommitRequestMsg struct {
+	gitMsg
 	Message  string
 	ThenSync bool
 }
 type gitAddRemoteRequestMsg struct {
+	gitMsg
 	URL string
 }
-type gitRefreshMsg struct{}
+type gitRefreshMsg struct{ gitMsg }
 type gitDiffForFileMsg struct {
+	gitMsg
 	Path     string
 	Status   string
 	OrigPath string
@@ -75,12 +121,12 @@ type GitPanel struct {
 	lastCursor int
 	termW      int
 	termH      int
-	palette    Palette
+	palette    theme.Palette
 }
 
 // SetPalette updates the panel's palette and restyles any pre-built inputs
 // so the new colors apply on the next render.
-func (p *GitPanel) SetPalette(pal Palette) {
+func (p *GitPanel) SetPalette(pal theme.Palette) {
 	p.palette = pal
 	applyInputPalette(&p.commitIn, pal)
 	applyInputPalette(&p.remoteIn, pal)
@@ -108,7 +154,7 @@ func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.
 	p.remoteIn.Placeholder = "git@github.com:user/repo.git"
 }
 
-func newPanelInput(prompt string, charLimit int, pal Palette) textinput.Model {
+func newPanelInput(prompt string, charLimit int, pal theme.Palette) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = prompt
 	ti.CharLimit = charLimit
@@ -127,7 +173,7 @@ func (p *GitPanel) Refresh(branch string, hasRemote bool, files []kbrdfs.FileCha
 	p.rebuild()
 }
 
-// panelDimensions returns inner content sizes: total inner W/H, left pane W, right pane W.
+// dims returns inner content sizes: total inner W/H, left pane W, right pane W.
 func (p *GitPanel) dims() (innerW, innerH, leftW, rightW int) {
 	innerW = p.termW - 20
 	if max := 140; innerW > max {
@@ -301,7 +347,7 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	// Active input takes most keys.
 	if p.input == inputCommit {
 		switch {
-		case key.Matches(km, Keys.GitCommitCancel):
+		case key.Matches(km, panelKeys.CommitCancel):
 			p.input = inputNone
 			p.commitIn.Blur()
 			p.thenSync = false
@@ -323,7 +369,7 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 
 	if p.input == inputRemote {
 		switch {
-		case key.Matches(km, Keys.GitCommitCancel):
+		case key.Matches(km, panelKeys.CommitCancel):
 			p.input = inputNone
 			p.remoteIn.Blur()
 			return nil
@@ -341,37 +387,37 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	// No input active.
-	if key.Matches(km, Keys.GitPanelClose) {
+	if key.Matches(km, panelKeys.Close) {
 		return func() tea.Msg { return gitPanelCloseMsg{} }
 	}
-	if key.Matches(km, Keys.GitPanelFocusToggle) {
+	if key.Matches(km, panelKeys.FocusToggle) {
 		p.toggleFocus()
 		return nil
 	}
-	if key.Matches(km, Keys.GitLog) {
+	if key.Matches(km, panelKeys.Log) {
 		return func() tea.Msg { return gitLogRequestMsg{} }
 	}
-	if key.Matches(km, Keys.GitDiff) {
+	if key.Matches(km, panelKeys.Diff) {
 		// `d` shows current file diff (useful when right pane is on log)
 		p.rightView = rightDiff
 		return p.DiffRequestForCurrent()
 	}
-	if !p.hasRemote && key.Matches(km, Keys.GitAddRemote) {
+	if !p.hasRemote && key.Matches(km, panelKeys.AddRemote) {
 		p.startRemoteInput()
 		return nil
 	}
 	if len(p.files) > 0 {
 		switch {
-		case key.Matches(km, Keys.GitCommit):
+		case key.Matches(km, panelKeys.Commit):
 			p.startCommitInput(false)
 			return nil
-		case key.Matches(km, Keys.GitCommitSync):
+		case key.Matches(km, panelKeys.CommitSync):
 			if !p.hasRemote {
 				return nil
 			}
 			p.startCommitInput(true)
 			return nil
-		case key.Matches(km, Keys.GitSync):
+		case key.Matches(km, panelKeys.Sync):
 			if !p.hasRemote {
 				return nil
 			}
@@ -450,15 +496,15 @@ func (p *GitPanel) View() string {
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
 	}
-	title := helpTitleStyle.Render("git · " + branchLabel)
-	sep := helpSepStyle.Render(" · ")
+	title := gitTitleStyle.Render("git · " + branchLabel)
+	sep := gitSepStyle.Render(" · ")
 
 	_, _, leftW, rightW := p.dims()
 
 	// Left pane: file table (or "clean" message).
 	var leftBody string
 	if len(p.files) == 0 {
-		leftBody = helpDimStyle.Render("working tree clean")
+		leftBody = gitDimStyle.Render("working tree clean")
 	} else {
 		leftBody = p.table.View()
 	}
@@ -487,7 +533,7 @@ func (p *GitPanel) View() string {
 	if pad < 1 {
 		pad = 1
 	}
-	rightTitle := helpDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
+	rightTitle := gitDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
 	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, p.right.View())
 	rightStyle := paneIdleStyle
 	if p.focus == focusDiff {
@@ -499,7 +545,7 @@ func (p *GitPanel) View() string {
 
 	parts := []string{}
 	add := func(k, label string) {
-		parts = append(parts, helpKeyStyle.Render(k)+" "+helpLabelStyle.Render(label))
+		parts = append(parts, gitKeyStyle.Render(k)+" "+gitLabelStyle.Render(label))
 	}
 	if p.focus == focusDiff {
 		add("j/k", "scroll")
@@ -544,9 +590,9 @@ func (p *GitPanel) View() string {
 }
 
 func (p *GitPanel) inputDialog() string {
-	sep := helpSepStyle.Render(" · ")
+	sep := gitSepStyle.Render(" · ")
 	keyLabel := func(k, label string) string {
-		return helpKeyStyle.Render(k) + " " + helpLabelStyle.Render(label)
+		return gitKeyStyle.Render(k) + " " + gitLabelStyle.Render(label)
 	}
 	var title, body, hint string
 	switch p.input {

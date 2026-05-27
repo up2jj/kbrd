@@ -96,17 +96,8 @@ type KeyMap struct {
 	// Custom commands menu
 	CustomCommandsClose key.Binding
 
-	// Git panel
-	GitPanel            key.Binding
-	GitDiff             key.Binding
-	GitCommit           key.Binding
-	GitSync             key.Binding
-	GitCommitSync       key.Binding
-	GitLog              key.Binding
-	GitAddRemote        key.Binding
-	GitPanelClose       key.Binding
-	GitCommitCancel     key.Binding
-	GitPanelFocusToggle key.Binding
+	// Git panel (open binding only; in-panel bindings live in the git package)
+	GitPanel key.Binding
 }
 
 var Keys = KeyMap{
@@ -203,17 +194,8 @@ var Keys = KeyMap{
 	// Custom commands menu
 	CustomCommandsClose: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),
 
-	// Git panel
-	GitPanel:        key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
-	GitDiff:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
-	GitCommit:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
-	GitSync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
-	GitCommitSync:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
-	GitLog:          key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
-	GitAddRemote:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add remote")),
-	GitPanelClose:   key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
-	GitCommitCancel:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
-	GitPanelFocusToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus pane")),
+	// Git panel (open binding only; in-panel bindings live in the git package)
+	GitPanel: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {

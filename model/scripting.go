@@ -377,7 +377,7 @@ func (a boardScriptAPI) Refresh() error {
 	if err := a.b.loadColumns(); err != nil {
 		return err
 	}
-	a.b.refreshGitStats()
+	a.b.git.RefreshStatsNow()
 	return nil
 }
 
