@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
@@ -29,7 +30,37 @@ const logoArt = `  __   __           __
 /  '_/ _ \/ __// _  /
 \_,_/_.__/_/   \_,_/`
 
-type watchMsg struct{}
+// watchStartMsg is emitted once after Init's startup load completes. Columns
+// and git stats are already populated; this just publishes the initial refresh
+// and arms the watcher loop on the UI goroutine.
+type watchStartMsg struct{}
+
+// watchEventMsg carries a single fsnotify event out of the watcher loop. Path
+// is ev.Name (empty for watcher errors, which force a full reload). Like
+// search's typing events, these are debounced before any disk work runs.
+type watchEventMsg struct{ Path string }
+
+// watchDebounceMsg fires after the watcher debounce window. The board runs the
+// reload only if Seq still matches b.watchSeq (no newer event has arrived).
+type watchDebounceMsg struct{ Seq int }
+
+// boardReloadedMsg carries the result of an off-goroutine full board rescan.
+// Stale results (Seq != b.watchSeq) are discarded.
+type boardReloadedMsg struct {
+	Seq      int
+	columns  []*Column
+	gitStats map[string]kbrdfs.DiffStat
+}
+
+// columnReloadedMsg carries the result of an off-goroutine single-column
+// rescan, used when a change is local to one column. Stale results are
+// discarded.
+type columnReloadedMsg struct {
+	Seq      int
+	path     string
+	col      *Column
+	gitStats map[string]kbrdfs.DiffStat
+}
 
 type pasteMode int
 
@@ -99,6 +130,12 @@ type Board struct {
 	scripts  *script.Host
 	scriptUI ScriptUI
 
+	// watch debounce state — every raw fsnotify event bumps watchSeq and
+	// records its path in watchDirty; a debounce tick that still matches
+	// watchSeq triggers one coalesced reload (mirrors search's Seq guard).
+	watchSeq   int
+	watchDirty map[string]struct{}
+
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef map[itemRef]string
 	refByMnemonic map[string]itemRef
@@ -111,11 +148,16 @@ func (b *Board) StatFor(absPath string) (kbrdfs.DiffStat, bool) {
 }
 
 func (b *Board) refreshGitStats() {
-	if b.gitRepoRoot == "" {
-		b.gitStats = nil
-		return
+	b.gitStats = gitStatsFor(b.gitRepoRoot)
+}
+
+// gitStatsFor computes per-file diff stats for a repo root, or nil when there
+// is no repo. Pure, so it is safe to call inside a tea.Cmd goroutine.
+func gitStatsFor(repoRoot string) map[string]kbrdfs.DiffStat {
+	if repoRoot == "" {
+		return nil
 	}
-	b.gitStats = kbrdfs.GitDiffStats(b.gitRepoRoot)
+	return kbrdfs.GitDiffStats(repoRoot)
 }
 
 func NewBoard(cfg config.Config) *Board {
@@ -187,7 +229,7 @@ func (b *Board) Init() tea.Cmd {
 		if len(b.columns) == 0 {
 			return initBoardRequestMsg{}
 		}
-		return watchMsg{}
+		return watchStartMsg{}
 	}
 	cmds := []tea.Cmd{startup}
 	if len(b.commandWarnings) > 0 {
@@ -242,40 +284,163 @@ func (b *Board) watchCmd() tea.Cmd {
 				if ev.Op == fsnotify.Chmod {
 					continue
 				}
-				return watchMsg{}
+				return watchEventMsg{Path: ev.Name}
 			case _, ok := <-b.watcher.Errors():
 				if !ok {
 					return nil
 				}
-				return watchMsg{}
+				return watchEventMsg{Path: ""}
 			}
 		}
 	}
 }
 
+// buildColumns reads the board's columns and items from disk and returns fresh
+// Column values. It takes everything by value and writes no Board state, so it
+// is safe to run inside a tea.Cmd goroutine. Height and selection are applied
+// by the caller on the UI goroutine.
+func buildColumns(cfg config.Config, palette Palette) ([]*Column, error) {
+	names, err := board.Columns(cfg.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	columns := make([]*Column, 0, len(names))
+	for _, name := range names {
+		col := buildColumn(filepath.Join(cfg.Path, name), name, cfg, palette)
+		if col == nil {
+			continue
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
+// buildColumn loads a single column's items from disk, returning nil if the
+// directory cannot be read. Safe to call off the UI goroutine.
+func buildColumn(path, name string, cfg config.Config, palette Palette) *Column {
+	col := NewColumn(name, path, cfg.ColumnWidth, cfg.PreviewLines)
+	col.palette = palette
+	if err := col.LoadItems(); err != nil {
+		return nil
+	}
+	return col
+}
+
+// loadColumns rebuilds b.columns synchronously. Used during startup and board
+// init, where it runs in Init's own goroutine before the Update loop starts.
+// Watcher-driven reloads use the async tea.Cmd path instead.
 func (b *Board) loadColumns() error {
-	names, err := board.Columns(b.cfg.Path)
+	columns, err := buildColumns(b.cfg, b.palette)
 	if err != nil {
 		return err
 	}
-
-	b.columns = []*Column{}
-	for _, name := range names {
-		col := NewColumn(name, filepath.Join(b.cfg.Path, name), b.cfg.ColumnWidth, b.cfg.PreviewLines)
-		col.palette = b.palette
-		if err := col.LoadItems(); err != nil {
-			continue
-		}
+	for _, col := range columns {
 		if b.visibleHeight > 0 {
 			col.SetHeight(b.visibleHeight)
 		}
-		b.columns = append(b.columns, col)
 	}
-
+	b.columns = columns
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
 		b.selectedCol = len(b.columns) - 1
 	}
 	return nil
+}
+
+// debouncedReload runs when a watcher debounce tick fires. It drops stale ticks
+// (a newer event has since bumped watchSeq) and otherwise launches one async
+// reload, scoped to a single column when every changed path lives in it.
+func (b *Board) debouncedReload(seq int) tea.Cmd {
+	if seq != b.watchSeq {
+		return nil // stale — a newer event scheduled a later tick
+	}
+	dirty := b.watchDirty
+	b.watchDirty = nil
+	if colPath := b.singleDirtyColumn(dirty); colPath != "" {
+		return b.reloadColumnCmd(seq, colPath)
+	}
+	return b.reloadCmd(seq)
+}
+
+// singleDirtyColumn returns the path of the column that contains every changed
+// path, or "" when the change spans multiple columns, touches the board root
+// (a column added/removed), or came from a watcher error. "" means full reload.
+func (b *Board) singleDirtyColumn(dirty map[string]struct{}) string {
+	if len(dirty) == 0 {
+		return ""
+	}
+	match := ""
+	for p := range dirty {
+		if p == "" {
+			return "" // watcher error → full reload
+		}
+		dir := filepath.Dir(p)
+		found := ""
+		for _, col := range b.columns {
+			if samePath(col.Path, dir) {
+				found = col.Path
+				break
+			}
+		}
+		if found == "" {
+			return "" // not inside a known column (root-level change)
+		}
+		switch {
+		case match == "":
+			match = found
+		case !samePath(match, found):
+			return "" // spans multiple columns
+		}
+	}
+	return match
+}
+
+// reloadCmd builds a full board rescan off the UI goroutine. It captures config
+// and palette by value so it touches no Board state; the result is applied by
+// the boardReloadedMsg handler.
+func (b *Board) reloadCmd(seq int) tea.Cmd {
+	cfg := b.cfg
+	palette := b.palette
+	repoRoot := b.gitRepoRoot
+	return func() tea.Msg {
+		columns, err := buildColumns(cfg, palette)
+		if err != nil {
+			return nil // leave the board as-is, matching the old silent path
+		}
+		return boardReloadedMsg{Seq: seq, columns: columns, gitStats: gitStatsFor(repoRoot)}
+	}
+}
+
+// reloadColumnCmd rebuilds a single column off the UI goroutine. Git stats are
+// board-wide, so they are refreshed too (a single edit can change one file's
+// diff). Result is applied by the columnReloadedMsg handler.
+func (b *Board) reloadColumnCmd(seq int, colPath string) tea.Cmd {
+	cfg := b.cfg
+	palette := b.palette
+	repoRoot := b.gitRepoRoot
+	name := filepath.Base(colPath)
+	return func() tea.Msg {
+		col := buildColumn(colPath, name, cfg, palette)
+		if col == nil {
+			return nil
+		}
+		return columnReloadedMsg{Seq: seq, path: colPath, col: col, gitStats: gitStatsFor(repoRoot)}
+	}
+}
+
+// applyReloadedColumns swaps in freshly built columns on the UI goroutine,
+// re-applying height and palette and clamping the column selection.
+func (b *Board) applyReloadedColumns(columns []*Column) {
+	for _, col := range columns {
+		if b.visibleHeight > 0 {
+			col.SetHeight(b.visibleHeight)
+		}
+		col.palette = b.palette
+	}
+	b.columns = columns
+	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
+		b.selectedCol = len(b.columns) - 1
+	}
 }
 
 func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -338,11 +503,61 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
 
-	case watchMsg:
-		b.loadColumns()
-		b.refreshGitStats()
-		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
+	case watchStartMsg:
+		b.bus.Publish(events.BoardRefresh{Reason: "startup"})
 		return b, b.watchCmd()
+
+	case watchEventMsg:
+		// Coalesce a storm of events into one reload: bump the generation,
+		// record the changed path, and schedule a debounce tick. Only the
+		// final tick will survive the Seq guard. Re-arm the watcher so it
+		// keeps listening.
+		b.watchSeq++
+		if b.watchDirty == nil {
+			b.watchDirty = map[string]struct{}{}
+		}
+		b.watchDirty[msg.Path] = struct{}{}
+		seq := b.watchSeq
+		debounce := tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
+			return watchDebounceMsg{Seq: seq}
+		})
+		return b, tea.Batch(debounce, b.watchCmd())
+
+	case watchDebounceMsg:
+		return b, b.debouncedReload(msg.Seq)
+
+	case boardReloadedMsg:
+		if msg.Seq != b.watchSeq {
+			return b, nil // stale — a newer change is already queued
+		}
+		b.applyReloadedColumns(msg.columns)
+		b.gitStats = msg.gitStats
+		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
+		return b, nil
+
+	case columnReloadedMsg:
+		if msg.Seq != b.watchSeq {
+			return b, nil // stale
+		}
+		idx := -1
+		for i, col := range b.columns {
+			if samePath(col.Path, msg.path) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			// Column vanished since the event — fall back to a full reload.
+			return b, b.reloadCmd(b.watchSeq)
+		}
+		if b.visibleHeight > 0 {
+			msg.col.SetHeight(b.visibleHeight)
+		}
+		msg.col.palette = b.palette
+		b.columns[idx] = msg.col
+		b.gitStats = msg.gitStats
+		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
+		return b, nil
 
 	case initBoardRequestMsg:
 		b.dialog.Open(DialogOptions{
