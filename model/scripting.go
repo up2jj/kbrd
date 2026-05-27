@@ -1,9 +1,9 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
+	"kbrd/shellcmd"
 )
 
 // initScripting creates the Lua host (if enabled and init files exist) and
@@ -191,27 +192,29 @@ func (b *Board) collectAsyncCmds() tea.Cmd {
 	scriptDebugf("collectAsyncCmds drained=%d", len(pending))
 	b.asyncInflight += len(pending)
 	dir := b.cfg.Path
+	timeoutMs := b.cfg.Scripting.CommandTimeoutMs
 	cmds := make([]tea.Cmd, 0, len(pending))
 	for _, a := range pending {
 		token := a.Token
 		shellCmd := a.Shell
 		cmds = append(cmds, func() tea.Msg {
 			scriptDebugf("async-cmd start token=%s shell=%q", token, shellCmd)
-			c := exec.Command("sh", "-c", shellCmd)
-			c.Dir = dir
-			outBytes, err := c.CombinedOutput()
-			exit := 0
+			ctx := context.Background()
+			if timeoutMs > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+				defer cancel()
+			}
+			res, err := shellcmd.Run(ctx, dir, shellCmd)
 			errStr := ""
 			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					exit = exitErr.ExitCode()
-				} else {
-					errStr = err.Error()
-				}
+				// Includes shellcmd.ErrTimeout, so a hung command no longer
+				// pins asyncInflight forever.
+				errStr = err.Error()
 			}
-			scriptDebugf("async-cmd done token=%s exit=%d errStr=%q outLen=%d", token, exit, errStr, len(outBytes))
+			scriptDebugf("async-cmd done token=%s exit=%d errStr=%q outLen=%d", token, res.ExitCode, errStr, len(res.Output))
 			return scriptAsyncDoneMsg{
-				Token: token, Out: string(outBytes), ExitCode: exit, Err: errStr,
+				Token: token, Out: res.Output, ExitCode: res.ExitCode, Err: errStr,
 			}
 		})
 	}

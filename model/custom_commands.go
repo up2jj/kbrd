@@ -1,14 +1,13 @@
 package model
 
 import (
-	"os/exec"
-	"path/filepath"
-
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"kbrd/board"
 	"kbrd/config"
+	"kbrd/shellcmd"
 )
 
 type runCustomCommandMsg struct {
@@ -58,15 +57,14 @@ func mergeWithLuaCommands(shell, lua []config.Command) []config.Command {
 
 func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 	col := b.columns[colIdx]
-	return map[string]string{
-		"filePath":   item.FullPath,
-		"fileName":   item.Name,
-		"fileDir":    filepath.Dir(item.FullPath),
-		"boardPath":  b.cfg.Path,
-		"boardName":  b.cfg.BoardName,
-		"columnPath": col.Path,
-		"columnName": col.Name,
-	}
+	return board.VarContext{
+		BoardPath:  b.cfg.Path,
+		BoardName:  b.cfg.BoardName,
+		ColumnPath: col.Path,
+		ColumnName: col.Name,
+		FilePath:   item.FullPath,
+		FileName:   item.Name,
+	}.Vars()
 }
 
 func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.Cmd) {
@@ -78,8 +76,7 @@ func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.
 	if err != nil {
 		return b, b.notifier.Send("template error: "+err.Error(), notifyError)
 	}
-	c := exec.Command("sh", "-c", rendered)
-	c.Dir = b.cfg.Path
+	c := shellcmd.Command(b.cfg.Path, rendered)
 	name := msg.Cmd.Name
 	return b, tea.ExecProcess(c, func(err error) tea.Msg {
 		return customCommandFinishedMsg{Name: name, Err: err}

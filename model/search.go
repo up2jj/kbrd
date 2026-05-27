@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"kbrd/board"
 	"kbrd/recents"
 )
 
@@ -319,15 +319,11 @@ func runRipgrep(seq int, query string, roots []recents.Entry) tea.Cmd {
 func columnPaths(roots []recents.Entry) []string {
 	var dirs []string
 	for _, e := range roots {
-		entries, err := os.ReadDir(e.Path)
+		cols, err := board.Columns(e.Path)
 		if err != nil {
 			continue
 		}
-		for _, d := range entries {
-			name := d.Name()
-			if !d.IsDir() || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-				continue
-			}
+		for _, name := range cols {
 			dirs = append(dirs, filepath.Join(e.Path, name))
 		}
 	}

@@ -2,9 +2,9 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 
 	"kbrd/board"
 	"kbrd/config"
+	"kbrd/shellcmd"
 )
 
 // commandTimeout caps how long a custom command may run. Commands run with
@@ -108,22 +109,18 @@ func runCustomCommand(ctx context.Context, _ *mcp.CallToolRequest, in RunCommand
 
 	runCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	c := exec.CommandContext(runCtx, "sh", "-c", rendered)
-	c.Dir = ref.Path
-	c.Stdin = nil // /dev/null: non-interactive
-	output, runErr := c.CombinedOutput()
-
-	out := RunCommandOutput{Command: cmd.ID, Output: string(output)}
+	res, runErr := shellcmd.Run(runCtx, ref.Path, rendered)
 	if runErr != nil {
-		if runCtx.Err() == context.DeadlineExceeded {
+		if errors.Is(runErr, shellcmd.ErrTimeout) {
 			return nil, RunCommandOutput{}, fmt.Errorf("command %q timed out after %s", in.Command, commandTimeout)
 		}
-		if ee, ok := runErr.(*exec.ExitError); ok {
-			// Non-zero exit is a command result, not a tool failure: report it.
-			out.ExitCode = ee.ExitCode()
-			return textf("%s exited %d\n%s", cmd.Name, out.ExitCode, out.Output), out, nil
-		}
 		return nil, RunCommandOutput{}, fmt.Errorf("run %q: %w", in.Command, runErr)
+	}
+
+	out := RunCommandOutput{Command: cmd.ID, Output: res.Output, ExitCode: res.ExitCode}
+	if res.ExitCode != 0 {
+		// Non-zero exit is a command result, not a tool failure: report it.
+		return textf("%s exited %d\n%s", cmd.Name, out.ExitCode, out.Output), out, nil
 	}
 	return textf("%s finished\n%s", cmd.Name, out.Output), out, nil
 }
@@ -132,20 +129,17 @@ func runCustomCommand(ctx context.Context, _ *mcp.CallToolRequest, in RunCommand
 // model.Board.buildCommandVars but headlessly. Column variables are added when
 // a folder (or item) is in play; file variables when an item is given.
 func commandVars(ref board.Ref, folder, item string) (map[string]string, error) {
-	vars := map[string]string{
-		"boardPath": ref.Path,
-		"boardName": ref.Name,
-	}
+	vc := board.VarContext{BoardPath: ref.Path, BoardName: ref.Name}
 	if folder == "" && item == "" {
-		return vars, nil
+		return vc.Vars(), nil
 	}
 
 	colPath, err := board.ResolveColumn(ref.Path, folder, false)
 	if err != nil {
 		return nil, err
 	}
-	vars["columnPath"] = colPath
-	vars["columnName"] = filepath.Base(colPath)
+	vc.ColumnPath = colPath
+	vc.ColumnName = filepath.Base(colPath)
 
 	if item != "" {
 		clean, err := board.SanitizeName(item)
@@ -156,9 +150,8 @@ func commandVars(ref board.Ref, folder, item string) (map[string]string, error) 
 		if _, err := os.Stat(fp); err != nil {
 			return nil, fmt.Errorf("item %q not found in folder %q", item, filepath.Base(colPath))
 		}
-		vars["filePath"] = fp
-		vars["fileName"] = clean
-		vars["fileDir"] = filepath.Dir(fp)
+		vc.FilePath = fp
+		vc.FileName = clean
 	}
-	return vars, nil
+	return vc.Vars(), nil
 }

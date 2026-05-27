@@ -45,6 +45,39 @@ func Hidden(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
+// VarContext holds the resolved pieces a custom-command template can reference.
+// It is the single source of truth for the variable names shared by the TUI
+// (package model) and the headless MCP server (package mcp); both build their
+// template map through VarContext.Vars so the names cannot drift apart.
+//
+// Optional groups are omitted when empty so a template that needs filePath
+// fails cleanly (missingkey=error) when no item is in context.
+type VarContext struct {
+	BoardPath, BoardName   string
+	ColumnPath, ColumnName string // omitted when ColumnPath == ""
+	FilePath, FileName     string // omitted when FilePath == ""
+}
+
+// Vars renders the canonical template variable map: boardPath/boardName always;
+// columnPath/columnName when a column is in context; filePath/fileName/fileDir
+// when an item is. fileDir is derived from filePath (always its directory).
+func (v VarContext) Vars() map[string]string {
+	m := map[string]string{
+		"boardPath": v.BoardPath,
+		"boardName": v.BoardName,
+	}
+	if v.ColumnPath != "" {
+		m["columnPath"] = v.ColumnPath
+		m["columnName"] = v.ColumnName
+	}
+	if v.FilePath != "" {
+		m["filePath"] = v.FilePath
+		m["fileName"] = v.FileName
+		m["fileDir"] = filepath.Dir(v.FilePath)
+	}
+	return m
+}
+
 // ListBoards returns the boards known from the recents store. Paths are not
 // required to still exist on disk; callers may filter on existence.
 func ListBoards() ([]Ref, error) {
