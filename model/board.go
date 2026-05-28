@@ -24,7 +24,7 @@ import (
 	"kbrd/script"
 )
 
-const Version = "v0.1.0"
+var Version = "dev"
 
 const logoArt = `  __   __           __
  / /__/ /  ____ ___/ /
