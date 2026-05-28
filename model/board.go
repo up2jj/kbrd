@@ -431,14 +431,33 @@ func (b *Board) reloadColumnCmd(seq int, colPath string) tea.Cmd {
 	}
 }
 
+// selectionByPath captures each column's currently selected item name keyed by
+// column path, so a reload can restore the cursor after swapping in fresh
+// columns (whose list index defaults to 0). Columns with no selection are
+// omitted.
+func (b *Board) selectionByPath() map[string]string {
+	sel := make(map[string]string, len(b.columns))
+	for _, col := range b.columns {
+		if col.HasSelectedItem() {
+			sel[col.Path] = col.SelectedItem().Name
+		}
+	}
+	return sel
+}
+
 // applyReloadedColumns swaps in freshly built columns on the UI goroutine,
-// re-applying height and palette and clamping the column selection.
+// re-applying height and palette, restoring each column's selected item, and
+// clamping the column selection.
 func (b *Board) applyReloadedColumns(columns []*Column) {
+	prevSel := b.selectionByPath()
 	for _, col := range columns {
 		if b.visibleHeight > 0 {
 			col.SetHeight(b.visibleHeight)
 		}
 		col.palette = b.palette
+		if name, ok := prevSel[col.Path]; ok {
+			col.SelectByName(name)
+		}
 	}
 	b.columns = columns
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
@@ -553,10 +572,17 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Column vanished since the event — fall back to a full reload.
 			return b, b.reloadCmd(b.watchSeq)
 		}
+		prevName := ""
+		if b.columns[idx].HasSelectedItem() {
+			prevName = b.columns[idx].SelectedItem().Name
+		}
 		if b.visibleHeight > 0 {
 			msg.col.SetHeight(b.visibleHeight)
 		}
 		msg.col.palette = b.palette
+		if prevName != "" {
+			msg.col.SelectByName(prevName)
+		}
 		b.columns[idx] = msg.col
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.git.RefreshStats()

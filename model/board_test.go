@@ -266,3 +266,37 @@ func TestBoard_MWithoutSelectionDoesNothing(t *testing.T) {
 		t.Errorf("selectedCol = %d, want 1 (unchanged)", b.selectedCol)
 	}
 }
+
+func TestBoard_ReloadPreservesSelection(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[0], "alpha")
+	writeColItem(t, b.columns[0], "beta")
+	writeColItem(t, b.columns[0], "gamma")
+	b.columns[0].SelectByName("beta")
+
+	fresh, err := buildColumns(b.cfg, b.palette)
+	if err != nil {
+		t.Fatalf("buildColumns: %v", err)
+	}
+	b.applyReloadedColumns(fresh)
+
+	if got := b.columns[0].SelectedItem(); got == nil || got.Name != "beta" {
+		t.Fatalf("selection after reload = %v, want beta", got)
+	}
+}
+
+func TestBoard_ColumnReloadPreservesSelection(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[1], "one")
+	writeColItem(t, b.columns[1], "two")
+	b.columns[1].SelectByName("two")
+
+	fresh := buildColumn(b.columns[1].Path, b.columns[1].Name, b.cfg, b.palette)
+	b.Update(columnReloadedMsg{Seq: b.watchSeq, path: b.columns[1].Path, col: fresh})
+
+	if got := b.columns[1].SelectedItem(); got == nil || got.Name != "two" {
+		t.Fatalf("selection after column reload = %v, want two", got)
+	}
+}
