@@ -8,6 +8,11 @@ default:
 build:
     go build -o kbrd ./
 
+# Install kbrd into $GOBIN (or $GOPATH/bin, i.e. ~/go/bin) so it's on your PATH.
+install:
+    go install ./
+    @echo "installed kbrd to $(go env GOBIN GOPATH | awk 'NR==1{b=$0} NR==2{p=$0} END{print (b!="" ? b : p"/bin")"/kbrd"}')"
+
 # Run the test suite.
 test:
     go test ./...
