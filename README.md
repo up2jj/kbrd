@@ -117,19 +117,30 @@ A quick, scannable rundown of everything kbrd does:
 
 ## Installation
 
+### Homebrew (macOS)
+
 ```bash
-git clone <repo-url> kbrd
+brew install up2jj/tap/kbrd
+```
+
+This installs a prebuilt binary onto your `PATH`. Upgrade later with `brew upgrade kbrd`.
+
+### From source
+
+Requires Go **1.26+**:
+
+```bash
+git clone https://github.com/up2jj/kbrd.git
 cd kbrd
 go build -o kbrd ./
 ```
 
-**Requirements**
-- Go **1.26+** (to build).
+Move the resulting `kbrd` binary somewhere on your `PATH`. See [Development](#development) for the test/build workflow.
+
+**Runtime dependencies**
 - `git` — for the git panel and sync features.
 - Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for global search.
 - Optional: [`difft`](https://github.com/Wilfred/difftastic) or `diff-so-fancy` — nicer diffs (falls back to `git`).
-
-Move the resulting `kbrd` binary somewhere on your `PATH` if you like.
 
 ---
 
@@ -446,6 +457,21 @@ Toggle between light and dark palettes with `t`, or set a default with `display.
 go build -o kbrd ./   # build
 go test ./...         # run the test suite
 ```
+
+Common tasks are wrapped in a [`justfile`](justfile) (install with `brew install just`):
+
+```bash
+just              # list all recipes
+just build        # build ./kbrd
+just test         # run the test suite
+just snapshot     # build a local release into ./dist (no publish)
+just check        # validate the GoReleaser config
+just release 0.2.0  # tag v0.2.0 and push, triggering the release workflow
+```
+
+Releases are automated with [GoReleaser](https://goreleaser.com) (see [`.goreleaser.yaml`](.goreleaser.yaml)).
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the macOS binaries,
+publishes a GitHub Release, and updates the Homebrew cask in `up2jj/homebrew-tap`.
 
 The TUI lives in `model/`, keybindings are declared in `model/keys.go`, configuration in
 `config/`, and the Lua API in `script/` (documented in `SCRIPTING.md`).
