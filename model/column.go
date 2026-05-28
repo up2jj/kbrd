@@ -329,6 +329,16 @@ func (c *Column) SelectIndex(i int) {
 	c.list.Select(i)
 }
 
+// SelectByName selects the item with the given name, if present.
+func (c *Column) SelectByName(name string) {
+	for i, item := range c.Items {
+		if item.Name == name {
+			c.list.Select(i)
+			return
+		}
+	}
+}
+
 func (c *Column) LoadItems() error {
 	entries, err := os.ReadDir(c.Path)
 	if err != nil {
@@ -403,6 +413,9 @@ func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
 	}
 
 	destPath := filepath.Join(destCol.Path, filepath.Base(srcPath))
+	if _, err := os.Stat(destPath); err == nil {
+		return os.ErrExist
+	}
 	if err := os.Rename(srcPath, destPath); err != nil {
 		return err
 	}

@@ -421,6 +421,38 @@ func TestColumn_MoveItemTo(t *testing.T) {
 			t.Errorf("err = %v, want os.ErrNotExist", err)
 		}
 	})
+
+	t.Run("name collision refuses without overwriting", func(t *testing.T) {
+		src := newTestColumn(t, map[string]string{"task": "src payload"})
+		dst := newTestColumn(t, map[string]string{"task": "dst payload"})
+		if err := src.MoveItemTo(dst, "task"); !errors.Is(err, os.ErrExist) {
+			t.Errorf("err = %v, want os.ErrExist", err)
+		}
+		// Both files must remain untouched.
+		if got, err := os.ReadFile(filepath.Join(src.Path, "task.md")); err != nil || string(got) != "src payload" {
+			t.Errorf("src task.md = %q, %v; want %q", got, err, "src payload")
+		}
+		if got, err := os.ReadFile(filepath.Join(dst.Path, "task.md")); err != nil || string(got) != "dst payload" {
+			t.Errorf("dst task.md = %q, %v; want %q", got, err, "dst payload")
+		}
+	})
+}
+
+func TestColumn_SelectByName(t *testing.T) {
+	t.Parallel()
+
+	col := newTestColumn(t, map[string]string{"alpha": "a", "bravo": "b", "charlie": "c"})
+
+	col.SelectByName("bravo")
+	if sel := col.SelectedItem(); sel == nil || sel.Name != "bravo" {
+		t.Errorf("SelectedItem = %+v, want bravo", sel)
+	}
+
+	// Unknown name leaves the current selection unchanged.
+	col.SelectByName("missing")
+	if sel := col.SelectedItem(); sel == nil || sel.Name != "bravo" {
+		t.Errorf("SelectedItem after missing = %+v, want bravo", sel)
+	}
 }
 
 func TestColumn_FullPathFor(t *testing.T) {

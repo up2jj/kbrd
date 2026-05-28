@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -967,9 +968,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			nextCol := (b.selectedCol + 1) % len(b.columns)
 			if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
+				if errors.Is(err, os.ErrExist) {
+					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
+				}
 				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
 			}
 			b.selectedCol = nextCol
+			b.columns[nextCol].SelectByName(item.Name)
 		}
 	case key.Matches(msg, Keys.MoveFirst):
 		if col.HasSelectedItem() {
@@ -981,9 +986,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			item := col.SelectedItem()
 			if err := col.MoveItemTo(b.columns[0], item.Name); err != nil {
+				if errors.Is(err, os.ErrExist) {
+					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
+				}
 				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
 			}
 			b.selectedCol = 0
+			b.columns[0].SelectByName(item.Name)
 		}
 	case key.Matches(msg, Keys.Peek):
 		if col.HasSelectedItem() {
