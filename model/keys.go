@@ -4,13 +4,13 @@ import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
 	// Global
-	Quit         key.Binding
-	ToggleHelp   key.Binding
-	QuickCmd     key.Binding
-	SwitchBoard  key.Binding
-	Search       key.Binding
-	ToggleTheme  key.Binding
-	Refresh      key.Binding
+	Quit        key.Binding
+	ToggleHelp  key.Binding
+	QuickCmd    key.Binding
+	SwitchBoard key.Binding
+	Search      key.Binding
+	ToggleTheme key.Binding
+	Refresh     key.Binding
 
 	// Navigation
 	PrevCol  key.Binding
@@ -20,19 +20,19 @@ type KeyMap struct {
 	Filter   key.Binding
 
 	// Item actions
-	Peek         key.Binding
-	Edit         key.Binding
-	Append       key.Binding
-	Prepend      key.Binding
-	Journal      key.Binding
-	Copy         key.Binding
-	Paste        key.Binding
-	OpenExternal key.Binding
-	Pin          key.Binding
-	MoveNext     key.Binding
-	MoveFirst    key.Binding
-	RenameItem   key.Binding
-	Delete       key.Binding
+	Peek           key.Binding
+	Edit           key.Binding
+	Append         key.Binding
+	Prepend        key.Binding
+	Journal        key.Binding
+	Copy           key.Binding
+	Paste          key.Binding
+	OpenExternal   key.Binding
+	Pin            key.Binding
+	MoveNext       key.Binding
+	MoveFirst      key.Binding
+	RenameItem     key.Binding
+	Delete         key.Binding
 	CustomCommands key.Binding
 
 	// Create
@@ -118,19 +118,19 @@ var Keys = KeyMap{
 	Filter:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 
 	// Item actions
-	Peek:         key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
-	Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
-	Append:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
-	Prepend:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
-	Journal:      key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "journal entry")),
-	Copy:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-	Paste:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
-	OpenExternal: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
-	Pin:          key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
-	MoveNext:     key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),
-	MoveFirst:    key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
-	RenameItem:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
-	Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Peek:           key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
+	Edit:           key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	Append:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
+	Prepend:        key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
+	Journal:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "journal entry")),
+	Copy:           key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	Paste:          key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
+	OpenExternal:   key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
+	Pin:            key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
+	MoveNext:       key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),
+	MoveFirst:      key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
+	RenameItem:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
+	Delete:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 	CustomCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
 
 	// Create

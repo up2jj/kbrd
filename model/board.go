@@ -86,32 +86,32 @@ type itemRef struct {
 }
 
 type Board struct {
-	cfg           config.Config
-	columns       []*Column
-	visibleHeight int
-	termWidth     int
-	termHeight    int
-	selectedCol     int
-	firstVisibleCol int
-	quitting        bool
-	shuttingDown    bool // waiting for an in-flight git sync before quitting
-	editor        *Editor
-	notifier      *Notifier
-	quickCmdMode  bool
-	quickCmdInput textinput.Model
-	theme         string
-	palette       Palette
-	watcher       *kbrdfs.Watcher
-	dialog        Dialog
-	helpOpen      bool
-	configMenuOpen bool
-	peek          Peek
-	switcher      Switcher
-	search        Search
-	git           git.Controller
-	customCmds       CustomCommandMenu
-	commands         []config.Command
-	commandWarnings  []config.CommandLoadWarning
+	cfg                config.Config
+	columns            []*Column
+	visibleHeight      int
+	termWidth          int
+	termHeight         int
+	selectedCol        int
+	firstVisibleCol    int
+	quitting           bool
+	shuttingDown       bool // waiting for an in-flight git sync before quitting
+	editor             *Editor
+	notifier           *Notifier
+	quickCmdMode       bool
+	quickCmdInput      textinput.Model
+	theme              string
+	palette            Palette
+	watcher            *kbrdfs.Watcher
+	dialog             Dialog
+	helpOpen           bool
+	configMenuOpen     bool
+	peek               Peek
+	switcher           Switcher
+	search             Search
+	git                git.Controller
+	customCmds         CustomCommandMenu
+	commands           []config.Command
+	commandWarnings    []config.CommandLoadWarning
 	leftIndicatorWidth int
 	logoHeight         int
 
@@ -131,8 +131,8 @@ type Board struct {
 	watchDirty map[string]struct{}
 
 	// mnemonic state — rebuilt whenever the visible item set changes
-	mnemonicByRef map[itemRef]string
-	refByMnemonic map[string]itemRef
+	mnemonicByRef  map[itemRef]string
+	refByMnemonic  map[string]itemRef
 	mnemonicMaxLen int
 }
 
@@ -1045,8 +1045,12 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-func (b *Board) openLocalConfig() tea.Cmd  { return b.openManagedFile(localConfigPath, ensureConfigFile) }
-func (b *Board) openGlobalConfig() tea.Cmd { return b.openManagedFile(globalConfigPath, ensureConfigFile) }
+func (b *Board) openLocalConfig() tea.Cmd {
+	return b.openManagedFile(localConfigPath, ensureConfigFile)
+}
+func (b *Board) openGlobalConfig() tea.Cmd {
+	return b.openManagedFile(globalConfigPath, ensureConfigFile)
+}
 func (b *Board) openLocalCommands() tea.Cmd {
 	return b.openManagedFile(localCommandsPath, ensureCommandsFile)
 }
@@ -1461,7 +1465,6 @@ func (b *Board) openQuickCommand() tea.Cmd {
 	b.quickCmdInput.SetValue("")
 	return b.quickCmdInput.Focus()
 }
-
 
 // dispatchItemCommand runs a single-character item command against an arbitrary
 // item identified by ref, regardless of which column is currently selected.
@@ -1903,4 +1906,3 @@ type quickCommandOpenMsg struct{}
 type quickCommandMsg struct {
 	Command string
 }
-

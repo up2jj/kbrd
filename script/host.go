@@ -149,12 +149,12 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
 	h := &Host{
-		cfg:     cfg,
-		api:     api,
-		logger:  logger,
-		L:       L,
-		hooks:   make(map[string][]*hookEntry),
-		pending: make(map[string]*pendingCoro),
+		cfg:            cfg,
+		api:            api,
+		logger:         logger,
+		L:              L,
+		hooks:          make(map[string][]*hookEntry),
+		pending:        make(map[string]*pendingCoro),
 		timers:         make(map[string]*timerEntry),
 		asyncCallbacks: make(map[string]*lua.LFunction),
 	}

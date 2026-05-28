@@ -27,11 +27,11 @@ const (
 type Config struct {
 	Path string
 
-	ColumnWidth   int
-	PreviewLines  int
-	Theme         string
-	NotifyBackend string
-	BoardName     string
+	ColumnWidth         int
+	PreviewLines        int
+	Theme               string
+	NotifyBackend       string
+	BoardName           string
 	GitDiffTool         string
 	GitAutoSyncInterval time.Duration
 	GitGenerateReadme   bool

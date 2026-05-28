@@ -166,8 +166,8 @@ func (h *Host) luaBoardCreateColumn(L *lua.LState) int {
 // interval is either a number of milliseconds (e.g. 1500) or a Go duration
 // string (e.g. "30s", "5m", "1h30s"). Sub-100ms intervals are silently
 // clamped to 100ms — protects against accidental tight loops starving the UI.
-func (h *Host) luaTimerEvery(L *lua.LState) int  { return h.scheduleTimer(L, true) }
-func (h *Host) luaTimerAfter(L *lua.LState) int  { return h.scheduleTimer(L, false) }
+func (h *Host) luaTimerEvery(L *lua.LState) int { return h.scheduleTimer(L, true) }
+func (h *Host) luaTimerAfter(L *lua.LState) int { return h.scheduleTimer(L, false) }
 
 func (h *Host) scheduleTimer(L *lua.LState, repeat bool) int {
 	if h.inTimer {
@@ -372,7 +372,8 @@ func (h *Host) luaOn(L *lua.LState) int {
 
 // kbrd.board.move(item, columnName)
 // item: table with .column and .name (matches ctx.item) or a string filename
-//       (in which case columnName must already be provided)
+//
+//	(in which case columnName must already be provided)
 func (h *Host) luaBoardMove(L *lua.LState) int {
 	itemArg := L.Get(1)
 	col := L.CheckString(2)

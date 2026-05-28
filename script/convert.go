@@ -10,6 +10,7 @@ import (
 //   - string / int / bool / float64
 //   - map[string]string and map[string]interface{}
 //   - []interface{} and []string
+//
 // Anything else is stringified.
 func toLValue(L *lua.LState, v interface{}) lua.LValue {
 	switch x := v.(type) {

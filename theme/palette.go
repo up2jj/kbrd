@@ -26,10 +26,10 @@ type Palette struct {
 
 	// Primary accent + companions
 	Primary           lipgloss.Color // main accent (titles, prompts, gutter)
-	PrimaryStrong    lipgloss.Color // filled selection bg, active border
-	AccentSoft       lipgloss.Color // h2, meta when selected
+	PrimaryStrong     lipgloss.Color // filled selection bg, active border
+	AccentSoft        lipgloss.Color // h2, meta when selected
 	FgSelectedPreview lipgloss.Color // preview text when row is selected+active
-	BgSelectedDetail lipgloss.Color // detail bg when row is selected+active
+	BgSelectedDetail  lipgloss.Color // detail bg when row is selected+active
 	Link              lipgloss.Color // markdown link
 	AccentAlt         lipgloss.Color // secondary accent (moved item, special border)
 

@@ -25,10 +25,10 @@ func DarkPalette() Palette {
 		BorderMuted:  "#334155",
 
 		Primary:           "#60a5fa",
-		PrimaryStrong:    "#3b82f6",
-		AccentSoft:       "#93c5fd",
+		PrimaryStrong:     "#3b82f6",
+		AccentSoft:        "#93c5fd",
 		FgSelectedPreview: "#bfdbfe",
-		BgSelectedDetail: "#1e3a8a",
+		BgSelectedDetail:  "#1e3a8a",
 		Link:              "#38bdf8",
 		AccentAlt:         "#a78bfa",
 
@@ -62,10 +62,10 @@ func LightPalette() Palette {
 		BorderMuted:  "#cbd5e1", // slate-300
 
 		Primary:           "#2563eb", // blue-600
-		PrimaryStrong:    "#1d4ed8", // blue-700
-		AccentSoft:       "#3b82f6", // blue-500
+		PrimaryStrong:     "#1d4ed8", // blue-700
+		AccentSoft:        "#3b82f6", // blue-500
 		FgSelectedPreview: "#1e3a8a", // blue-900
-		BgSelectedDetail: "#dbeafe", // blue-100
+		BgSelectedDetail:  "#dbeafe", // blue-100
 		Link:              "#0284c7", // sky-600
 		AccentAlt:         "#7c3aed", // violet-600
 

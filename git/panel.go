@@ -102,26 +102,26 @@ type gitDiffForFileMsg struct {
 }
 
 type GitPanel struct {
-	active     bool
-	focus      gitPanelFocus
-	input      gitPanelInput
-	rightView  gitPanelRightView
-	repoRoot   string
-	branch     string
-	hasRemote  bool
-	files      []kbrdfs.FileChange
-	table      table.Model
-	commitIn   textinput.Model
-	remoteIn   textinput.Model
-	thenSync   bool
+	active       bool
+	focus        gitPanelFocus
+	input        gitPanelInput
+	rightView    gitPanelRightView
+	repoRoot     string
+	branch       string
+	hasRemote    bool
+	files        []kbrdfs.FileChange
+	table        table.Model
+	commitIn     textinput.Model
+	remoteIn     textinput.Model
+	thenSync     bool
 	right        viewport.Model
 	rightTitle   string
 	rightContent string
 	diffCache    map[string]string
-	lastCursor int
-	termW      int
-	termH      int
-	palette    theme.Palette
+	lastCursor   int
+	termW        int
+	termH        int
+	palette      theme.Palette
 }
 
 // SetPalette updates the panel's palette and restyles any pre-built inputs

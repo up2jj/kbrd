@@ -26,9 +26,9 @@ func TestDiscoverPaths(t *testing.T) {
 	}
 
 	want := map[string]bool{
-		root:                              true,
-		filepath.Join(root, "alpha"):      true,
-		filepath.Join(root, "bravo"):      true,
+		root:                         true,
+		filepath.Join(root, "alpha"): true,
+		filepath.Join(root, "bravo"): true,
 	}
 	if len(paths) != len(want) {
 		t.Fatalf("got %d paths, want %d: %v", len(paths), len(want), paths)
@@ -56,7 +56,7 @@ func TestDiscoverPaths_SkipsDotAndUnderscoreDirs(t *testing.T) {
 		t.Fatalf("DiscoverPaths: %v", err)
 	}
 	want := map[string]bool{
-		root:                            true,
+		root:                           true,
 		filepath.Join(root, "visible"): true,
 	}
 	if len(paths) != len(want) {
