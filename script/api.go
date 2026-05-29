@@ -49,6 +49,12 @@ func (h *Host) installAPI() {
 	async.RawSetString("cancel", L.NewFunction(h.luaAsyncCancel))
 	kbrd.RawSetString("async", async)
 
+	cell := L.NewTable()
+	cell.RawSetString("set", L.NewFunction(h.luaCellSet))
+	cell.RawSetString("clear", L.NewFunction(h.luaCellClear))
+	cell.RawSetString("clear_all", L.NewFunction(h.luaCellClearAll))
+	kbrd.RawSetString("cell", cell)
+
 	L.SetGlobal("kbrd", kbrd)
 
 	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
@@ -222,6 +228,34 @@ func (h *Host) luaAsyncRun(L *lua.LState) int {
 func (h *Host) luaAsyncCancel(L *lua.LState) int {
 	token := L.CheckString(1)
 	delete(h.asyncCallbacks, token)
+	return 0
+}
+
+// kbrd.cell.set(id, opts) — add or replace a header cell. opts is a table:
+//   { text = "...", fg = "#rrggbb", bg = "#rrggbb", bold = true }
+// Safe to call from timer callbacks: a kbrd.timer.every body that re-sets a cell
+// each tick is the supported way to animate (flicker, ticking values, etc.).
+func (h *Host) luaCellSet(L *lua.LState) int {
+	id := L.CheckInt(1)
+	t := L.CheckTable(2)
+	h.api.CellSet(id, events.CellOpts{
+		Text: lua.LVAsString(t.RawGetString("text")),
+		FG:   lua.LVAsString(t.RawGetString("fg")),
+		BG:   lua.LVAsString(t.RawGetString("bg")),
+		Bold: lua.LVAsBool(t.RawGetString("bold")),
+	})
+	return 0
+}
+
+// kbrd.cell.clear(id) — remove a single header cell.
+func (h *Host) luaCellClear(L *lua.LState) int {
+	h.api.CellClear(L.CheckInt(1))
+	return 0
+}
+
+// kbrd.cell.clear_all() — remove every script-set cell (built-ins are kept).
+func (h *Host) luaCellClearAll(L *lua.LState) int {
+	h.api.CellClearAll()
 	return 0
 }
 

@@ -27,11 +27,6 @@ import (
 
 var Version = "dev"
 
-const logoArt = `  __   __           __
- / /__/ /  ____ ___/ /
-/  '_/ _ \/ __// _  /
-\_,_/_.__/_/   \_,_/`
-
 // watchStartMsg is emitted once after Init's startup load completes. Columns
 // and git stats are already populated; this just publishes the initial refresh
 // and arms the watcher loop on the UI goroutine.
@@ -115,6 +110,7 @@ type Board struct {
 	commandWarnings    []config.CommandLoadWarning
 	leftIndicatorWidth int
 	logoHeight         int
+	cells              CellBar
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -154,6 +150,7 @@ func NewBoard(cfg config.Config) *Board {
 		theme:         cfg.Theme,
 		palette:       palette,
 	}
+	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.initGit()
 	b.applyPalette()
 	b.initScripting()
@@ -1680,14 +1677,87 @@ func (b *Board) pasteToItem(colIdx int, fileName string, mode pasteMode) tea.Cmd
 }
 
 func (b *Board) renderLogo() string {
-	logoStyle := lipgloss.NewStyle().
+	name := lipgloss.NewStyle().
 		Foreground(b.palette.Primary).
-		Italic(true).
-		Bold(true)
-	versionStyle := lipgloss.NewStyle().
+		Bold(true).
+		Render("kbrd")
+	version := lipgloss.NewStyle().
 		Foreground(b.palette.FgSubtle).
-		Italic(true)
-	return logoStyle.Render(logoArt) + "  " + versionStyle.Render(Version)
+		Italic(true).
+		Render(Version)
+	board := lipgloss.NewStyle().
+		Foreground(b.palette.FgMuted).
+		Render(b.boardLabel())
+	// ⌨️ is a wide (2-cell) emoji; keep it as a literal prefix and let lipgloss
+	// measure widths downstream rather than counting runes by hand.
+	return "⌨️  " + name + "  " + version + "  " + board
+}
+
+// updateBuiltinCells recomputes the internal (negative-id) cells from current
+// board state on every render. They are cheap to derive and event-free, so
+// deriving them here keeps the strip always-accurate without any host ticker.
+// Script-set cells (positive ids) are untouched. Ids are ordered so the
+// persistent metrics (count, git) sit to the right and the transient activity
+// indicators (sync, jobs, kbrd.status) flow in to their left as they appear.
+func (b *Board) updateBuiltinCells() {
+	// Transient activity indicators — set while active, cleared otherwise.
+	switch {
+	case b.shuttingDown:
+		b.setActivityCell(-5, "⟳ finishing sync…")
+	case b.git.Syncing():
+		b.setActivityCell(-5, "⟳ syncing")
+	default:
+		b.cells.Clear(-5)
+	}
+
+	if b.asyncInflight > 0 {
+		label := "⟳ 1 running"
+		if b.asyncInflight > 1 {
+			label = "⟳ " + strconv.Itoa(b.asyncInflight) + " running"
+		}
+		b.setActivityCell(-4, label)
+	} else {
+		b.cells.Clear(-4)
+	}
+
+	if b.scriptStatus != "" {
+		b.cells.SetInternal(Cell{ID: -3, Text: b.scriptStatus, FG: string(b.palette.FgMuted)})
+	} else {
+		b.cells.Clear(-3)
+	}
+
+	total := 0
+	for _, c := range b.columns {
+		total += c.TotalCount()
+	}
+	b.cells.SetInternal(Cell{
+		ID:   -2,
+		Text: strconv.Itoa(total) + " items",
+		FG:   string(b.palette.FgMuted),
+	})
+
+	if b.git.RepoRoot() != "" {
+		if dirty := b.git.DirtyCount(); dirty > 0 {
+			b.cells.SetInternal(Cell{
+				ID:   -1,
+				Text: "● " + strconv.Itoa(dirty),
+				FG:   string(b.palette.Warning),
+			})
+		} else {
+			b.cells.SetInternal(Cell{
+				ID:   -1,
+				Text: "✓ clean",
+				FG:   string(b.palette.Success),
+			})
+		}
+	} else {
+		b.cells.Clear(-1)
+	}
+}
+
+// setActivityCell sets a transient activity indicator cell in the accent color.
+func (b *Board) setActivityCell(id int, text string) {
+	b.cells.SetInternal(Cell{ID: id, Text: text, FG: string(b.palette.AccentSoft)})
 }
 
 // slotWidth is the rendered width of one column cell on the row:
@@ -1800,18 +1870,44 @@ func (b *Board) View() string {
 
 	quickCmdView := b.renderQuickCommand()
 
-	logo := b.renderLogo()
-	b.logoHeight = lipgloss.Height(logo)
-	result := logo + "\n" + columnsView
-	if quickCmdView != "" {
-		result += "\n" + quickCmdView
-	}
 	w, h := b.termWidth, b.termHeight
 	if w == 0 {
 		w = 80
 	}
 	if h == 0 {
 		h = 24
+	}
+
+	// Header row: logo on the left, cells strip right-aligned on the same line.
+	b.updateBuiltinCells()
+	logo := b.renderLogo()
+	header := logo
+	if !b.cells.Empty() {
+		avail := w - lipgloss.Width(logo) - 2
+		if strip := b.cells.render(avail); lipgloss.Width(strip) > 0 {
+			pad := w - lipgloss.Width(logo) - lipgloss.Width(strip)
+			if pad < 1 {
+				pad = 1
+			}
+			header = logo + strings.Repeat(" ", pad) + strip
+		}
+	}
+	// Tint the whole header line with a subtle surface background, padded to the
+	// full terminal width, and underline it with a muted rule to separate the
+	// header from the columns. Chips with their own bg keep it; bare text and
+	// the gap inherit the tint. The rule adds a row, which lipgloss.Height picks
+	// up so logoHeight (and thus mouse hit-testing) stays correct.
+	header = lipgloss.NewStyle().
+		Background(b.palette.BgCodeInline).
+		Width(w).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(b.palette.BorderMuted).
+		Render(header)
+	b.logoHeight = lipgloss.Height(header)
+	result := header + "\n" + columnsView
+	if quickCmdView != "" {
+		result += "\n" + quickCmdView
 	}
 	if b.helpOpen {
 		overlay := RenderHelpOverlay(w, h, GlobalShortcuts(ShortcutContext{
@@ -1860,49 +1956,13 @@ func (b *Board) renderStatusBar() string {
 	}
 
 	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode}
-	var primary string
-	hasSelected := b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
-	ctx.HasSelectedItem = hasSelected
+	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
 
-	sepDot := helpSepStyle.Render(" · ")
-
-	switch {
-	case b.quickCmdMode:
-		primary = helpTitleStyle.Render("⏵ command")
-	case b.selectedCol < len(b.columns):
-		col := b.columns[b.selectedCol]
-		mode := helpTitleStyle.Render("⏵ board")
-		boardLabel := helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
-		colLabel := helpLabelStyle.Render("column: ") + helpKeyStyle.Render(col.Name)
-		colPos := helpLabelStyle.Render("col ") + helpKeyStyle.Render(fmt.Sprintf("%d/%d", b.selectedCol+1, len(b.columns)))
-		count := helpLabelStyle.Render(itemCountLabel(col.TotalCount()))
-		primary = mode + sepDot + boardLabel + sepDot + colLabel + sepDot + colPos + sepDot + count
-	default:
-		primary = helpTitleStyle.Render("⏵ board") + sepDot + helpLabelStyle.Render("board: ") + helpKeyStyle.Render(b.boardLabel())
-	}
-
-	if b.shuttingDown {
-		primary += sepDot + helpKeyStyle.Render("⟳ finishing sync…")
-	} else if b.git.Syncing() {
-		primary += sepDot + helpKeyStyle.Render("⟳ syncing")
-	}
-
-	if b.asyncInflight > 0 {
-		label := "⟳ 1 running"
-		if b.asyncInflight > 1 {
-			label = fmt.Sprintf("⟳ %d running", b.asyncInflight)
-		}
-		primary += sepDot + helpKeyStyle.Render(label)
-	}
-
-	if b.scriptStatus != "" {
-		primary += sepDot + helpKeyStyle.Render(b.scriptStatus)
-	}
-
+	// The board/column info and the transient activity indicators (git sync,
+	// background jobs, kbrd.status) now live in the header cells, so the bottom
+	// bar is just the keyboard hints.
 	secondary := RenderInlineHints(ContextShortcuts(ctx))
-
-	lineStyle := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
-	return lineStyle.Render(primary) + "\n" + lineStyle.Render(secondary)
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(secondary)
 }
 
 func (b *Board) boardLabel() string {
@@ -1910,13 +1970,6 @@ func (b *Board) boardLabel() string {
 		return "[" + b.cfg.BoardName + "] " + filepath.Base(b.cfg.Path)
 	}
 	return filepath.Base(b.cfg.Path)
-}
-
-func itemCountLabel(n int) string {
-	if n == 1 {
-		return "1 item"
-	}
-	return strconv.Itoa(n) + " items"
 }
 
 func (b *Board) renderQuickCommand() string {

@@ -104,6 +104,10 @@ func (c *Controller) RequestShutdown() bool {
 	return true
 }
 
+// DirtyCount returns the number of files with uncommitted changes, for the
+// header git-status cell. Zero means a clean working tree (or no repo).
+func (c *Controller) DirtyCount() int { return len(c.stats) }
+
 // StatFor returns the diff stat for an absolute path, for render-time badges.
 func (c *Controller) StatFor(abs string) (kbrdfs.DiffStat, bool) {
 	s, ok := c.stats[abs]

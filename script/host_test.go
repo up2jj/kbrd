@@ -24,6 +24,14 @@ type fakeAPI struct {
 	moveErr   error
 	refreshes int
 	columns   []string
+	cellSets  []cellSet
+	cellClear []int
+	cellWipes int
+}
+
+type cellSet struct {
+	ID   int
+	Opts events.CellOpts
 }
 
 type move struct {
@@ -97,6 +105,24 @@ func (f *fakeAPI) CreateColumn(name string) error {
 	f.columns = append(f.columns, name)
 	f.mu.Unlock()
 	return f.Refresh()
+}
+
+func (f *fakeAPI) CellSet(id int, opts events.CellOpts) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cellSets = append(f.cellSets, cellSet{ID: id, Opts: opts})
+}
+
+func (f *fakeAPI) CellClear(id int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cellClear = append(f.cellClear, id)
+}
+
+func (f *fakeAPI) CellClearAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cellWipes++
 }
 
 func writeInit(t *testing.T, body string) string {
@@ -443,6 +469,36 @@ func TestBoardRefresh(t *testing.T) {
 	}
 	if api.refreshes != 1 {
 		t.Fatalf("expected 1 refresh, got %d", api.refreshes)
+	}
+}
+
+func TestCellAPI(t *testing.T) {
+	dir := writeInit(t, `kbrd.command("c", "Cells", function()
+  kbrd.cell.set(1, {text = "hi", fg = "#7fd962", bold = true})
+  kbrd.cell.clear(2)
+  kbrd.cell.clear_all()
+end)`)
+	api := &fakeAPI{root: dir}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.cellSets) != 1 || api.cellSets[0].ID != 1 {
+		t.Fatalf("expected one cell set with id 1, got %+v", api.cellSets)
+	}
+	got := api.cellSets[0].Opts
+	if got.Text != "hi" || got.FG != "#7fd962" || !got.Bold {
+		t.Fatalf("unexpected opts: %+v", got)
+	}
+	if len(api.cellClear) != 1 || api.cellClear[0] != 2 {
+		t.Fatalf("expected clear of id 2, got %v", api.cellClear)
+	}
+	if api.cellWipes != 1 {
+		t.Fatalf("expected 1 clear_all, got %d", api.cellWipes)
 	}
 }
 

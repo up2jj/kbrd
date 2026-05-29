@@ -373,6 +373,39 @@ local h = kbrd.async.run("slow-cmd", function(r) ... end)
 kbrd.async.cancel(h)
 ```
 
+### `kbrd.cell.set(id, opts)`
+
+Add or replace a **header cell** — a small chip shown on the same row as the
+`kbrd` logo, right-aligned. Cells are content-only (the `id` is just a handle
+you use to update or clear the chip; it is not displayed). Chips render in
+ascending `id` order. `opts` is a table:
+
+| field  | type    | meaning                                  |
+| ------ | ------- | ---------------------------------------- |
+| `text` | string  | chip content                             |
+| `fg`   | string  | foreground color, `"#rrggbb"` (optional) |
+| `bg`   | string  | background color, `"#rrggbb"` (optional) |
+| `bold` | boolean | bold text (optional)                     |
+
+```lua
+kbrd.cell.set(1, {text = "ready", fg = "#7fd962", bold = true})
+```
+
+Calling `set` again with the same `id` replaces the chip — this is the
+supported way to animate a cell (see the clock and flicker recipes). It is
+safe to call from a `kbrd.timer.every` callback.
+
+Negative ids are reserved for kbrd's built-in cells (item count, git status),
+so use positive ids for your own.
+
+### `kbrd.cell.clear(id)`
+
+Remove a single header cell. No-op if the id isn't set.
+
+### `kbrd.cell.clear_all()`
+
+Remove every cell **your scripts** set. Built-in cells (negative ids) are kept.
+
 ### `kbrd.fs.read(path)`
 
 Read a file. Returns the content as a string, or `nil, err`.
@@ -591,6 +624,34 @@ kbrd.timer.every(30000, function()
     end
   end
   kbrd.fs.write("/tmp/kbdr-stats.txt", table.concat(lines, "\n") .. "\n")
+end)
+```
+
+### Live clock cell
+
+A header cell that updates every second. kbrd ships no built-in clock — this
+recipe is the recommended way to get one, keeping all animation timer-driven.
+
+```lua
+kbrd.timer.every(1000, function()
+  kbrd.cell.set(10, {text = os.date("%H:%M:%S"), fg = "#94a3b8"})
+end)
+```
+
+### Flicker / alert cell
+
+Toggle a cell's color on a timer to draw attention.
+
+```lua
+local on = false
+kbrd.timer.every(400, function()
+  on = not on
+  kbrd.cell.set(20, {
+    text = "ALERT",
+    bold = true,
+    bg = on and "#ff0000" or "#330000",
+    fg = "#ffffff",
+  })
 end)
 ```
 

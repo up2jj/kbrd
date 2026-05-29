@@ -161,6 +161,21 @@ type BoardAPI interface {
 	// CreateColumn creates a new column directory under the board root and
 	// refreshes. Validates name (no separators, not . or ..).
 	CreateColumn(name string) error
+
+	// CellSet adds or replaces a header cell identified by id. CellClear removes
+	// one; CellClearAll removes every script-set cell (built-ins are kept).
+	CellSet(id int, opts CellOpts)
+	CellClear(id int)
+	CellClearAll()
+}
+
+// CellOpts is the appearance/content of a header cell set from a script.
+// FG/BG are "#rrggbb" hex strings (or "" for the terminal default).
+type CellOpts struct {
+	Text string
+	FG   string
+	BG   string
+	Bold bool
 }
 
 // Logger is the structured logging sink the script subsystem writes to.

@@ -452,3 +452,15 @@ func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {
 	})
 	return nil
 }
+
+// CellSet/CellClear/CellClearAll mutate the header cell registry directly. Like
+// the other boardScriptAPI methods they run on the Bubble Tea goroutine and
+// never call back into the host, so direct map mutation is safe. The next
+// render picks up the change (a timer callback that calls CellSet thus animates).
+func (a boardScriptAPI) CellSet(id int, o events.CellOpts) {
+	a.b.cells.Set(Cell{ID: id, Text: o.Text, FG: o.FG, BG: o.BG, Bold: o.Bold})
+}
+
+func (a boardScriptAPI) CellClear(id int) { a.b.cells.Clear(id) }
+
+func (a boardScriptAPI) CellClearAll() { a.b.cells.ClearAll() }
