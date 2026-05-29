@@ -222,7 +222,7 @@ func (b *Board) Init() tea.Cmd {
 			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
 		b.git.Detect()
-		paths, err := kbrdfs.DiscoverPaths(b.cfg.Path)
+		paths, err := board.DiscoverPaths(b.cfg.Path)
 		if err == nil {
 			if w, err := kbrdfs.NewWatcher(paths); err == nil {
 				b.watcher = w
@@ -1435,7 +1435,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	b.applyPalette()
 	b.git.Detect()
 
-	if paths, err := kbrdfs.DiscoverPaths(b.cfg.Path); err == nil {
+	if paths, err := board.DiscoverPaths(b.cfg.Path); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
 			b.watcher = w
 		}

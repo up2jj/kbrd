@@ -1,10 +1,6 @@
 package fs
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -42,26 +38,4 @@ func (w *Watcher) Errors() <-chan error {
 
 func (w *Watcher) Close() error {
 	return w.watcher.Close()
-}
-
-func DiscoverPaths(root string) ([]string, error) {
-	paths := []string{root}
-
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-			continue
-		}
-		paths = append(paths, filepath.Join(root, name))
-	}
-
-	return paths, nil
 }

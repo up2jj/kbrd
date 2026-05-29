@@ -340,23 +340,17 @@ func (c *Column) SelectByName(name string) {
 }
 
 func (c *Column) LoadItems() error {
-	entries, err := os.ReadDir(c.Path)
+	names, err := board.Items(c.Path)
 	if err != nil {
 		return err
 	}
 
 	items := []Item{}
-	for _, entry := range entries {
-		name := entry.Name()
-		if board.Hidden(name) {
-			continue
-		}
-		if !entry.IsDir() && strings.HasSuffix(name, ".md") {
-			fullPath := filepath.Join(c.Path, name)
-			item, err := NewItem(fullPath, c.previewLines)
-			if err == nil {
-				items = append(items, item)
-			}
+	for _, name := range names {
+		fullPath := filepath.Join(c.Path, name+".md")
+		item, err := NewItem(fullPath, c.previewLines)
+		if err == nil {
+			items = append(items, item)
 		}
 	}
 
