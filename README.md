@@ -332,6 +332,12 @@ addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 kbrd is extensible at three levels: simple **shell commands**, full **Lua scripting**, and
 an **MCP server** for external tools.
 
+> **⚠️ Security:** A board is just a folder, and opening one **runs any folder-local
+> `.kbrd.lua` and `.kbrd_commands.yml` it contains** — automatically, with no prompt.
+> Cloning or syncing a board authored by someone else executes their code with your
+> privileges. Only open boards you trust, or disable scripting for untrusted ones. See
+> **[SECURITY.md](./SECURITY.md)** for the trust model and mitigations.
+
 ### Custom shell commands
 
 Define shell commands that run against the selected card, column, or board. Press `x` on a
@@ -408,7 +414,9 @@ with `--no-mcp`). Its scope covers boards in your recents plus any folder-local 
 | `run_custom_command` | Run a shell custom command with full context |
 
 Create a local `AGENTS.md` (config menu → `a`) to give agents orientation about a board,
-and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration.
+and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. Note that a
+folder-local `.mcp.json` can point the MCP server at external processes, so it carries the
+same trust caveat as folder-local scripts — see **[SECURITY.md](./SECURITY.md)**.
 
 > Note: the MCP server sees **shell** custom commands only — Lua-registered commands are
 > not visible to or runnable via MCP.

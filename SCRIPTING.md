@@ -19,6 +19,13 @@ Create one of these files and kbrd will load it at boot:
 | `~/.config/kbrd/init.lua`           | Global (all boards) |
 | `<board>/.kbrd.lua`                 | Folder-local        |
 
+> **⚠️ Security & trust:** A folder-local `.kbrd.lua` is **executed automatically when
+> you open that board** — no prompt. It runs with the full Lua stdlib, can shell out via
+> `kbrd.async.run`, and `kbrd.fs.*` is **not** sandboxed to the board root. Opening a
+> board you cloned or synced runs its author's code as you. Review `.kbrd.lua` in boards
+> you didn't write, or set `[scripting] enabled = false`. See
+> **[SECURITY.md](./SECURITY.md)** for the full trust model.
+
 Minimal example:
 
 ```lua
