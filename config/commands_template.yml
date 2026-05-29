@@ -9,6 +9,7 @@
 #   {{.boardName}}   board name from config
 #   {{.columnPath}}  column folder path
 #   {{.columnName}}  column folder name
+#   {{env "VAR"}}    value of environment variable VAR ("" if unset)
 #
 # Quote variables to handle paths with spaces.
 
@@ -32,6 +33,11 @@ commands:
     id: reveal-finder
     description: Open the column folder in Finder
     command: open "{{.columnPath}}"
+
+  - name: Open in $EDITOR
+    id: edit-editor
+    description: Open the file in your configured editor
+    command: '{{env "EDITOR"}} "{{.filePath}}"'
 
   - name: Print info
     id: print-info

@@ -370,8 +370,13 @@ commands:
 | `{{.boardName}}` | Board name from config |
 | `{{.columnPath}}` | Column folder path |
 | `{{.columnName}}` | Column folder name |
+| `{{env "VAR"}}` | Value of environment variable `VAR` (empty string if unset) |
 
 Quote variables to handle paths with spaces. Reload by re-opening the board.
+
+The rendered command also runs in a shell, so plain `$VAR` works too — use `{{env "VAR"}}` only
+when you need kbrd to substitute the value *before* the shell sees it (e.g. to build the command
+itself rather than have the shell expand it).
 
 ### Lua scripting
 

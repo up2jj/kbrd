@@ -60,6 +60,17 @@ error_threshold    = 3        # auto-disable a timer/hook after N consecutive er
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
 Equivalent to compiling kbrd without scripting.
 
+### Environment variables
+
+Scripts inherit kbrd's environment, and there are three ways to read it:
+
+- **Lua:** the standard library is available, so `os.getenv("HOME")` works directly
+  (including inside `kbrd.async.run` callbacks).
+- **Shell commands run by a script** (`kbrd.async.run`) and **YAML shell commands** execute via
+  `sh -c`, so plain `$VAR` expands normally.
+- **YAML command templates** can substitute a value before the shell runs with `{{env "VAR"}}`
+  (empty string if unset).
+
 ---
 
 ## Two ways to plug in

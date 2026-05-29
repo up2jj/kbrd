@@ -170,7 +170,10 @@ func mergeCommands(global, local []Command) []Command {
 
 // Render expands the command's template against the provided variables.
 func (c Command) Render(vars map[string]string) (string, error) {
-	tmpl, err := template.New("cmd").Option("missingkey=error").Parse(c.Template)
+	tmpl, err := template.New("cmd").
+		Funcs(template.FuncMap{"env": os.Getenv}).
+		Option("missingkey=error").
+		Parse(c.Template)
 	if err != nil {
 		return "", err
 	}

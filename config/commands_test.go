@@ -179,6 +179,29 @@ func TestCommand_Render_AllVariables(t *testing.T) {
 	}
 }
 
+func TestCommand_Render_Env(t *testing.T) {
+	t.Setenv("KBRD_TEST_VAR", "hi")
+	c := Command{Template: `{{env "KBRD_TEST_VAR"}}`}
+	out, err := c.Render(map[string]string{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if out != "hi" {
+		t.Errorf("got %q want %q", out, "hi")
+	}
+}
+
+func TestCommand_Render_EnvUnset(t *testing.T) {
+	c := Command{Template: `[{{env "KBRD_DEFINITELY_UNSET"}}]`}
+	out, err := c.Render(map[string]string{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if out != "[]" {
+		t.Errorf("got %q want %q", out, "[]")
+	}
+}
+
 func TestCommand_Render_MissingVariableIsError(t *testing.T) {
 	c := Command{Template: `hello {{.unknownVar}}`}
 	_, err := c.Render(map[string]string{"filePath": "x"})
