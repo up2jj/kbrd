@@ -110,9 +110,6 @@ A quick, scannable rundown of everything kbrd does:
   </tr>
 </table>
 
-> Screenshots are generated reproducibly with [VHS](https://github.com/charmbracelet/vhs).
-> See [`demo/`](demo/) — run `demo/seed.sh` then `vhs demo/screenshots.tape`.
-
 ---
 
 ## Installation

@@ -64,3 +64,8 @@ release version:
     git tag -a "$tag" -m "Release $tag"
     git push origin "$tag"
     echo "Pushed $tag — the release workflow will now build and publish it."
+
+# Seed demo data and capture all README screenshots with VHS (requires vhs installed).
+screenshots:
+    demo/seed.sh
+    vhs demo/screenshots.tape
