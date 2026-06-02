@@ -3,6 +3,7 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,6 +102,25 @@ func TestNewItem(t *testing.T) {
 		_, err := NewItem(filepath.Join(dir, "nope.md"), 3)
 		if err == nil {
 			t.Fatal("expected error for missing file")
+		}
+	})
+
+	t.Run("large trailing body does not affect preview", func(t *testing.T) {
+		// Bounded read: only the first previewLines lines are scanned, so a huge
+		// tail must neither change Preview nor cause an error. Size still reflects
+		// the full file (from Stat).
+		body := strings.Repeat("filler line\n", 100000)
+		content := "head one\nhead two\n" + body
+		path := writeFile(t, dir, "big.md", content)
+		item, err := NewItem(path, 2)
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if len(item.Preview) != 2 || item.Preview[0] != "head one" || item.Preview[1] != "head two" {
+			t.Errorf("Preview = %v, want [head one head two]", item.Preview)
+		}
+		if item.Size != int64(len(content)) {
+			t.Errorf("Size = %d, want %d (full file)", item.Size, len(content))
 		}
 	})
 }

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -31,16 +32,7 @@ func NewItem(fullPath string, previewLines int) (Item, error) {
 		name = strings.TrimPrefix(name, pinPrefix)
 	}
 
-	preview := []string{}
-	content, err := os.ReadFile(fullPath)
-	if err == nil {
-		lines := strings.Split(string(content), "\n")
-		for i := 0; i < len(lines) && i < previewLines; i++ {
-			if lines[i] != "" {
-				preview = append(preview, lines[i])
-			}
-		}
-	}
+	preview, _ := readPreview(fullPath, previewLines)
 
 	return Item{
 		Name:     name,
@@ -98,17 +90,33 @@ func (i *Item) Refresh(previewLines int) error {
 	i.Size = info.Size()
 	i.Modified = info.ModTime()
 
-	content, err := os.ReadFile(i.FullPath)
-	if err == nil {
-		lines := strings.Split(string(content), "\n")
-		i.Preview = []string{}
-		for j := 0; j < len(lines) && j < previewLines; j++ {
-			if lines[j] != "" {
-				i.Preview = append(i.Preview, lines[j])
-			}
-		}
+	if preview, err := readPreview(i.FullPath, previewLines); err == nil {
+		i.Preview = preview
 	}
 	return nil
+}
+
+// readPreview returns the non-empty lines among the first previewLines lines of
+// the file. It reads only that prefix — never the file's tail — so preview cost
+// is bounded regardless of file size. The default 64 KB scanner line cap is
+// raised so a pathological single-line file degrades gracefully instead of
+// erroring (matching the old whole-file ReadFile behaviour).
+func readPreview(path string, previewLines int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	preview := []string{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for i := 0; i < previewLines && sc.Scan(); i++ {
+		if line := sc.Text(); line != "" {
+			preview = append(preview, line)
+		}
+	}
+	return preview, nil
 }
 
 func SortItems(items []Item) []Item {
