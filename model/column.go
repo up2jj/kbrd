@@ -340,6 +340,22 @@ func (c *Column) SelectByName(name string) {
 }
 
 func (c *Column) LoadItems() error {
+	return c.loadItems(c.itemsByPath())
+}
+
+// itemsByPath snapshots the column's current items into a reload cache keyed by
+// FullPath.
+func (c *Column) itemsByPath() itemCache {
+	cache := make(itemCache, len(c.Items))
+	for _, it := range c.Items {
+		cache[it.FullPath] = it
+	}
+	return cache
+}
+
+// loadItems rebuilds the column from disk, reusing any unchanged item from the
+// cache so its file is never re-read. cache may be nil for a cold load.
+func (c *Column) loadItems(cache itemCache) error {
 	names, err := board.Items(c.Path)
 	if err != nil {
 		return err
@@ -348,8 +364,15 @@ func (c *Column) LoadItems() error {
 	items := []Item{}
 	for _, name := range names {
 		fullPath := filepath.Join(c.Path, name+".md")
-		item, err := NewItem(fullPath, c.previewLines)
-		if err == nil {
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue
+		}
+		if old, ok := cache.reuse(fullPath, info); ok {
+			items = append(items, old)
+			continue
+		}
+		if item, err := NewItem(fullPath, c.previewLines); err == nil {
 			items = append(items, item)
 		}
 	}

@@ -275,7 +275,7 @@ func TestBoard_ReloadPreservesSelection(t *testing.T) {
 	writeColItem(t, b.columns[0], "gamma")
 	b.columns[0].SelectByName("beta")
 
-	fresh, err := buildColumns(b.cfg, b.palette)
+	fresh, err := buildColumns(b.cfg, b.palette, b.itemsByPath())
 	if err != nil {
 		t.Fatalf("buildColumns: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestBoard_ColumnReloadPreservesSelection(t *testing.T) {
 	writeColItem(t, b.columns[1], "two")
 	b.columns[1].SelectByName("two")
 
-	fresh := buildColumn(b.columns[1].Path, b.columns[1].Name, b.cfg, b.palette)
+	fresh := buildColumn(b.columns[1].Path, b.columns[1].Name, b.cfg, b.palette, b.itemsByPath())
 	b.Update(columnReloadedMsg{Seq: b.watchSeq, path: b.columns[1].Path, col: fresh})
 
 	if got := b.columns[1].SelectedItem(); got == nil || got.Name != "two" {

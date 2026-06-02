@@ -44,6 +44,24 @@ func NewItem(fullPath string, previewLines int) (Item, error) {
 	}, nil
 }
 
+// itemCache holds previously loaded items keyed by absolute path. A reload
+// consults it via reuse so files whose size and mtime are unchanged skip the
+// re-read entirely (see Column.loadItems).
+type itemCache map[string]Item
+
+// reuse returns the cached item for path when its size and mtime match info,
+// reporting false when the file is absent from the cache or has changed and so
+// must be re-read. The (mtime, size) key is the standard make/rsync heuristic:
+// any write bumps mtime, so a stale hit would need a same-size, same-mtime edit,
+// which writes do not produce.
+func (c itemCache) reuse(path string, info os.FileInfo) (Item, bool) {
+	old, ok := c[path]
+	if !ok || old.Size != info.Size() || !old.Modified.Equal(info.ModTime()) {
+		return Item{}, false
+	}
+	return old, true
+}
+
 func (i Item) FilterValue() string { return i.Name }
 
 func (i Item) HumanSize() string {

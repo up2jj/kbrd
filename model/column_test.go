@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestColumn creates a column rooted at a temporary directory with the
@@ -67,6 +68,60 @@ func TestColumn_LoadItems(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("Items[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestColumn_LoadItems_ReusesUnchangedFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "alpha.md")
+	bPath := filepath.Join(dir, "bravo.md")
+	if err := os.WriteFile(aPath, []byte("aaa"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, []byte("bbb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	col := NewColumn("c", dir, 32, 3)
+	if err := col.LoadItems(); err != nil {
+		t.Fatalf("LoadItems: %v", err)
+	}
+
+	aInfo, err := os.Stat(aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rewrite alpha with different content but the SAME size, then restore its
+	// original mtime. The (mtime, size) cache must treat it as unchanged and
+	// reuse the prior item — so its preview keeps the OLD content, proving the
+	// file was not re-read.
+	if err := os.WriteFile(aPath, []byte("ZZZ"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(aPath, aInfo.ModTime(), aInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Genuinely change bravo: different size and a bumped mtime.
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(bPath, []byte("brand new bravo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := col.LoadItems(); err != nil {
+		t.Fatalf("LoadItems (reload): %v", err)
+	}
+
+	byName := map[string]Item{}
+	for _, it := range col.Items {
+		byName[it.Name] = it
+	}
+	if got := byName["alpha"].Preview; len(got) != 1 || got[0] != "aaa" {
+		t.Errorf("alpha preview = %v, want [aaa] (cached, not re-read)", got)
+	}
+	if got := byName["bravo"].Preview; len(got) != 1 || got[0] != "brand new bravo" {
+		t.Errorf("bravo preview = %v, want [brand new bravo] (re-read)", got)
 	}
 }
 

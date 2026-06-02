@@ -301,7 +301,7 @@ func (b *Board) watchCmd() tea.Cmd {
 // Column values. It takes everything by value and writes no Board state, so it
 // is safe to run inside a tea.Cmd goroutine. Height and selection are applied
 // by the caller on the UI goroutine.
-func buildColumns(cfg config.Config, palette Palette) ([]*Column, error) {
+func buildColumns(cfg config.Config, palette Palette, cache itemCache) ([]*Column, error) {
 	names, err := board.Columns(cfg.Path)
 	if err != nil {
 		return nil, err
@@ -309,7 +309,7 @@ func buildColumns(cfg config.Config, palette Palette) ([]*Column, error) {
 
 	columns := make([]*Column, 0, len(names))
 	for _, name := range names {
-		col := buildColumn(filepath.Join(cfg.Path, name), name, cfg, palette)
+		col := buildColumn(filepath.Join(cfg.Path, name), name, cfg, palette, cache)
 		if col == nil {
 			continue
 		}
@@ -319,11 +319,13 @@ func buildColumns(cfg config.Config, palette Palette) ([]*Column, error) {
 }
 
 // buildColumn loads a single column's items from disk, returning nil if the
-// directory cannot be read. Safe to call off the UI goroutine.
-func buildColumn(path, name string, cfg config.Config, palette Palette) *Column {
+// directory cannot be read. Safe to call off the UI goroutine. cache lets
+// unchanged files skip re-reads (see Column.loadItems); it may be nil for a
+// cold load.
+func buildColumn(path, name string, cfg config.Config, palette Palette, cache itemCache) *Column {
 	col := NewColumn(name, path, cfg.ColumnWidth, cfg.PreviewLines)
 	col.palette = palette
-	if err := col.LoadItems(); err != nil {
+	if err := col.loadItems(cache); err != nil {
 		return nil
 	}
 	return col
@@ -333,7 +335,7 @@ func buildColumn(path, name string, cfg config.Config, palette Palette) *Column 
 // init, where it runs in Init's own goroutine before the Update loop starts.
 // Watcher-driven reloads use the async tea.Cmd path instead.
 func (b *Board) loadColumns() error {
-	columns, err := buildColumns(b.cfg, b.palette)
+	columns, err := buildColumns(b.cfg, b.palette, b.itemsByPath())
 	if err != nil {
 		return err
 	}
@@ -403,8 +405,12 @@ func (b *Board) singleDirtyColumn(dirty map[string]struct{}) string {
 func (b *Board) reloadCmd(seq int) tea.Cmd {
 	cfg := b.cfg
 	palette := b.palette
+	// Snapshot current items by value on the UI goroutine; the closure only
+	// reads it. Preview slices are shared but only ever reassigned (never
+	// mutated in place) by NewItem/Refresh, so the concurrent read is safe.
+	cache := b.itemsByPath()
 	return func() tea.Msg {
-		columns, err := buildColumns(cfg, palette)
+		columns, err := buildColumns(cfg, palette, cache)
 		if err != nil {
 			return nil // leave the board as-is, matching the old silent path
 		}
@@ -419,13 +425,27 @@ func (b *Board) reloadColumnCmd(seq int, colPath string) tea.Cmd {
 	cfg := b.cfg
 	palette := b.palette
 	name := filepath.Base(colPath)
+	cache := b.itemsByPath()
 	return func() tea.Msg {
-		col := buildColumn(colPath, name, cfg, palette)
+		col := buildColumn(colPath, name, cfg, palette, cache)
 		if col == nil {
 			return nil
 		}
 		return columnReloadedMsg{Seq: seq, path: colPath, col: col}
 	}
+}
+
+// itemsByPath snapshots every column's items into a reload cache keyed by
+// FullPath (unique across columns), so a rebuild can skip re-reading unchanged
+// files.
+func (b *Board) itemsByPath() itemCache {
+	cache := make(itemCache)
+	for _, col := range b.columns {
+		for _, it := range col.Items {
+			cache[it.FullPath] = it
+		}
+	}
+	return cache
 }
 
 // selectionByPath captures each column's currently selected item name keyed by
