@@ -30,15 +30,29 @@ type searchSelectMsg struct {
 	FilePath  string
 }
 
-// searchDebounceMsg fires after the typing debounce. The board runs ripgrep
-// only if Seq still matches the dialog's current generation.
+// searchMsg marks search-internal async messages so the host can route them
+// opaquely (`case searchMsg: return b, b.search.Update(msg)`) without naming
+// the concrete types — the same pattern git uses with git.Msg. Note that
+// searchSelectMsg is deliberately NOT a searchMsg: it is search's output to the
+// host (switch board + select file), not internal plumbing.
+type searchMsg interface{ isSearchMsg() }
+
+// searchMsgBase is embedded in every search-internal message to satisfy searchMsg.
+type searchMsgBase struct{}
+
+func (searchMsgBase) isSearchMsg() {}
+
+// searchDebounceMsg fires after the typing debounce. Search runs ripgrep only
+// if Seq still matches the dialog's current generation.
 type searchDebounceMsg struct {
+	searchMsgBase
 	Seq int
 }
 
 // searchResultsMsg carries ripgrep output back to the dialog. Stale results
 // (Seq behind the dialog) are discarded.
 type searchResultsMsg struct {
+	searchMsgBase
 	Seq     int
 	Results []searchResult
 	Err     string
@@ -215,7 +229,19 @@ func groupByFile(results []searchResult) []fileGroup {
 	return groups
 }
 
-func (s *Search) Update(msg tea.KeyMsg) tea.Cmd {
+// Update routes a search-internal async message to its handler. Keystrokes go
+// through HandleKey instead.
+func (s *Search) Update(m searchMsg) tea.Cmd {
+	switch msg := m.(type) {
+	case searchDebounceMsg:
+		return s.debouncedRun(msg.Seq)
+	case searchResultsMsg:
+		s.setResults(msg)
+	}
+	return nil
+}
+
+func (s *Search) HandleKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SearchClose):
 		s.Close()

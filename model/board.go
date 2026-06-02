@@ -666,12 +666,10 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case removeBoardMsg:
 		return b.handleRemoveBoard(msg)
 
-	case searchDebounceMsg:
-		return b, b.search.debouncedRun(msg.Seq)
-
-	case searchResultsMsg:
-		b.search.setResults(msg)
-		return b, nil
+	case searchMsg:
+		// Search owns its async lifecycle (debounce + ripgrep); route opaquely,
+		// the same way git.Msg is handled below.
+		return b, b.search.Update(msg)
 
 	case searchSelectMsg:
 		return b.activateFile(msg.BoardPath, msg.FilePath)
@@ -824,7 +822,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle global search
 	if b.search.Active() {
-		return b, b.search.Update(msg)
+		return b, b.search.HandleKey(msg)
 	}
 
 	// Handle custom commands menu
