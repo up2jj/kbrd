@@ -232,7 +232,9 @@ func (h *Host) luaAsyncCancel(L *lua.LState) int {
 }
 
 // kbrd.cell.set(id, opts) — add or replace a header cell. opts is a table:
-//   { text = "...", fg = "#rrggbb", bg = "#rrggbb", bold = true }
+//
+//	{ text = "...", fg = "#rrggbb", bg = "#rrggbb", bold = true }
+//
 // Safe to call from timer callbacks: a kbrd.timer.every body that re-sets a cell
 // each tick is the supported way to animate (flicker, ticking values, etc.).
 func (h *Host) luaCellSet(L *lua.LState) int {
