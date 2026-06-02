@@ -23,7 +23,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("plain file", func(t *testing.T) {
 		path := writeFile(t, dir, "task.md", "first line\nsecond line\n")
-		item, err := NewItem(path, 3)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("pinned file", func(t *testing.T) {
 		path := writeFile(t, dir, "p_urgent.md", "do me first")
-		item, err := NewItem(path, 3)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -60,7 +60,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("empty file", func(t *testing.T) {
 		path := writeFile(t, dir, "empty.md", "")
-		item, err := NewItem(path, 3)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -72,7 +72,7 @@ func TestNewItem(t *testing.T) {
 	t.Run("preview capped at 3 non-empty lines from first 3 lines", func(t *testing.T) {
 		// Loop reads i=0..2 only, skipping empty entries within that window.
 		path := writeFile(t, dir, "many.md", "one\ntwo\nthree\nfour\nfive\n")
-		item, err := NewItem(path, 3)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -89,7 +89,7 @@ func TestNewItem(t *testing.T) {
 
 	t.Run("blank lines within first 3 are skipped", func(t *testing.T) {
 		path := writeFile(t, dir, "blanks.md", "\n\nthird\nfourth\n")
-		item, err := NewItem(path, 3)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -99,7 +99,7 @@ func TestNewItem(t *testing.T) {
 	})
 
 	t.Run("missing file returns error", func(t *testing.T) {
-		_, err := NewItem(filepath.Join(dir, "nope.md"), 3)
+		_, err := NewItem(filepath.Join(dir, "nope.md"), ItemOptions{PreviewLines: 3})
 		if err == nil {
 			t.Fatal("expected error for missing file")
 		}
@@ -112,7 +112,7 @@ func TestNewItem(t *testing.T) {
 		body := strings.Repeat("filler line\n", 100000)
 		content := "head one\nhead two\n" + body
 		path := writeFile(t, dir, "big.md", content)
-		item, err := NewItem(path, 2)
+		item, err := NewItem(path, ItemOptions{PreviewLines: 2})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
 		}
@@ -121,6 +121,78 @@ func TestNewItem(t *testing.T) {
 		}
 		if item.Size != int64(len(content)) {
 			t.Errorf("Size = %d, want %d (full file)", item.Size, len(content))
+		}
+	})
+}
+
+func TestNewItem_Title(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("heading off uses filename", func(t *testing.T) {
+		path := writeFile(t, dir, "notes.md", "# Real Title\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "notes" {
+			t.Errorf("Title = %q, want %q", item.Title, "notes")
+		}
+		if len(item.Preview) == 0 || item.Preview[0] != "# Real Title" {
+			t.Errorf("Preview = %v, want heading line retained", item.Preview)
+		}
+	})
+
+	t.Run("heading on uses first H1 and drops it from preview", func(t *testing.T) {
+		path := writeFile(t, dir, "topic.md", "# Real Title\nbody one\nbody two\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3, TitleFromHeading: true})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "Real Title" {
+			t.Errorf("Title = %q, want %q", item.Title, "Real Title")
+		}
+		want := []string{"body one", "body two"}
+		if len(item.Preview) != len(want) || item.Preview[0] != want[0] || item.Preview[1] != want[1] {
+			t.Errorf("Preview = %v, want %v", item.Preview, want)
+		}
+	})
+
+	t.Run("heading on falls back to filename without H1", func(t *testing.T) {
+		path := writeFile(t, dir, "plain.md", "just text\nmore\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3, TitleFromHeading: true})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "plain" {
+			t.Errorf("Title = %q, want %q", item.Title, "plain")
+		}
+		if len(item.Preview) == 0 || item.Preview[0] != "just text" {
+			t.Errorf("Preview = %v, want body retained", item.Preview)
+		}
+	})
+
+	t.Run("h2 is not treated as a title", func(t *testing.T) {
+		path := writeFile(t, dir, "sub.md", "## Section\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3, TitleFromHeading: true})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "sub" {
+			t.Errorf("Title = %q, want %q (## is not H1)", item.Title, "sub")
+		}
+	})
+
+	t.Run("heading after YAML frontmatter", func(t *testing.T) {
+		path := writeFile(t, dir, "fm.md", "---\ntags: [a, b]\n---\n# From Heading\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3, TitleFromHeading: true})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "From Heading" {
+			t.Errorf("Title = %q, want %q", item.Title, "From Heading")
+		}
+		if len(item.Preview) == 0 || item.Preview[0] != "body" {
+			t.Errorf("Preview = %v, want [body]", item.Preview)
 		}
 	})
 }
@@ -197,7 +269,7 @@ func TestItem_Refresh(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := writeFile(t, dir, "r.md", "old\n")
-	item, err := NewItem(path, 3)
+	item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 	if err != nil {
 		t.Fatalf("NewItem: %v", err)
 	}
@@ -210,7 +282,7 @@ func TestItem_Refresh(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if err := item.Refresh(3); err != nil {
+	if err := item.Refresh(ItemOptions{PreviewLines: 3}); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 	if item.Size != int64(len(newContent)) {
@@ -227,7 +299,7 @@ func TestItem_Refresh(t *testing.T) {
 func TestItem_Refresh_MissingFile(t *testing.T) {
 	t.Parallel()
 	it := Item{FullPath: filepath.Join(t.TempDir(), "ghost.md")}
-	if err := it.Refresh(3); err == nil {
+	if err := it.Refresh(ItemOptions{PreviewLines: 3}); err == nil {
 		t.Fatal("expected error for missing file")
 	}
 }

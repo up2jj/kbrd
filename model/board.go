@@ -323,7 +323,10 @@ func buildColumns(cfg config.Config, palette Palette, cache itemCache) ([]*Colum
 // unchanged files skip re-reads (see Column.loadItems); it may be nil for a
 // cold load.
 func buildColumn(path, name string, cfg config.Config, palette Palette, cache itemCache) *Column {
-	col := NewColumn(name, path, cfg.ColumnWidth, cfg.PreviewLines)
+	col := NewColumn(name, path, cfg.ColumnWidth, ItemOptions{
+		PreviewLines:     cfg.PreviewLines,
+		TitleFromHeading: cfg.TitleFromHeading,
+	})
 	col.palette = palette
 	if err := col.loadItems(cache); err != nil {
 		return nil
@@ -1042,7 +1045,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return b, b.notifier.Send("failed to peek: "+err.Error(), notifyError)
 			}
-			return b, b.peek.Open(item.Name, string(content), b.termWidth)
+			return b, b.peek.Open(item.Title, string(content), b.termWidth)
 		}
 		return b, nil
 	case key.Matches(msg, Keys.Filter):

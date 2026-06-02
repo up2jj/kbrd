@@ -29,6 +29,7 @@ type Config struct {
 
 	ColumnWidth         int
 	PreviewLines        int
+	TitleFromHeading    bool
 	Theme               string
 	NotifyBackend       string
 	BoardName           string
@@ -75,6 +76,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 
 	v.SetDefault("display.column_width", 32)
 	v.SetDefault("display.preview_lines", 3)
+	v.SetDefault("display.title_from_heading", false)
 	v.SetDefault("display.theme", "dark")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
@@ -126,6 +128,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		Path:                folderPath,
 		ColumnWidth:         v.GetInt("display.column_width"),
 		PreviewLines:        v.GetInt("display.preview_lines"),
+		TitleFromHeading:    v.GetBool("display.title_from_heading"),
 		Theme:               v.GetString("display.theme"),
 		NotifyBackend:       v.GetString("notify.backend"),
 		BoardName:           v.GetString("board.name"),

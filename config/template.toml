@@ -3,6 +3,7 @@
 [display]
 # column_width  = 32
 # preview_lines = 3
+# title_from_heading = false # use the first "# " heading as the card title
 # theme         = "dark"    # "light" | "dark"
 
 [notify]

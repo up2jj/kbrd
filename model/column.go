@@ -90,7 +90,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			gutterText = ">"
 		}
 	}
-	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(pinIcon+item.Name))
+	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(pinIcon+item.Title))
 
 	// Line 2 — preview
 	preview := "—"
@@ -146,17 +146,17 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 // Column represents one kanban column backed by a directory.
 type Column struct {
-	Name         string
-	Path         string
-	Items        []Item // unfiltered master list (used by file operations)
-	list         list.Model
-	colWidth     int
-	previewLines int
-	listYOffset  int
-	palette      Palette
+	Name        string
+	Path        string
+	Items       []Item // unfiltered master list (used by file operations)
+	list        list.Model
+	colWidth    int
+	itemOpts    ItemOptions
+	listYOffset int
+	palette     Palette
 }
 
-func NewColumn(name, path string, colWidth, previewLines int) *Column {
+func NewColumn(name, path string, colWidth int, itemOpts ItemOptions) *Column {
 	palette := DarkPalette()
 	delegate := itemDelegate{colWidth: colWidth, palette: palette}
 	l := list.New(nil, delegate, colWidth, 20)
@@ -171,7 +171,7 @@ func NewColumn(name, path string, colWidth, previewLines int) *Column {
 		PaddingLeft(2).
 		Foreground(palette.FgDim)
 
-	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, previewLines: previewLines, palette: palette}
+	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, itemOpts: itemOpts, palette: palette}
 }
 
 func (c *Column) SetHeight(h int) {
@@ -372,7 +372,7 @@ func (c *Column) loadItems(cache itemCache) error {
 			items = append(items, old)
 			continue
 		}
-		if item, err := NewItem(fullPath, c.previewLines); err == nil {
+		if item, err := NewItem(fullPath, c.itemOpts); err == nil {
 			items = append(items, item)
 		}
 	}

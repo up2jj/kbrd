@@ -300,6 +300,7 @@ Generate templates with `--init-config` / `--init-local-config`, or from the con
 [display]
 column_width  = 32          # width of each column
 preview_lines = 3           # lines shown in a card preview
+title_from_heading = false  # use the first "# " heading as the card title
 theme         = "dark"      # "light" | "dark"
 
 [notify]
