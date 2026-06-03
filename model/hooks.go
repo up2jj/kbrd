@@ -168,6 +168,11 @@ func (r *hookRunner) hookVars(ev events.Event) (string, map[string]string) {
 	case events.ItemDeleted:
 		// The file is gone; fileName/filePath still resolve to where it was.
 		return events.NameItemDeleted, itemVars(e.Column, e.Name)
+	case events.ColumnCreated:
+		v := boardVars()
+		v["columnName"] = e.Name
+		v["columnPath"] = filepath.Join(r.boardPath, e.Name)
+		return events.NameColumnCreated, v
 	case events.GitSyncDone:
 		v := boardVars()
 		v["ok"] = strconv.FormatBool(e.OK)

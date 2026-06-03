@@ -22,16 +22,17 @@ type Event interface{ eventTag() }
 // truth for the wire names — both script/ and the model's hook runner reference
 // these instead of repeating literals.
 const (
-	NameBoardLoad    = "board_load"
-	NameBoardRefresh = "board_refresh"
-	NameItemSelect   = "item_select"
-	NameColumnChange = "column_change"
-	NameItemOpen     = "item_open"
-	NameItemCreated  = "item_created"
-	NameItemRenamed  = "item_renamed"
-	NameItemDeleted  = "item_deleted"
-	NameItemMoved    = "item_moved"
-	NameGitSyncDone  = "git_sync_done"
+	NameBoardLoad     = "board_load"
+	NameBoardRefresh  = "board_refresh"
+	NameItemSelect    = "item_select"
+	NameColumnChange  = "column_change"
+	NameItemOpen      = "item_open"
+	NameItemCreated   = "item_created"
+	NameItemRenamed   = "item_renamed"
+	NameItemDeleted   = "item_deleted"
+	NameItemMoved     = "item_moved"
+	NameColumnCreated = "column_created"
+	NameGitSyncDone   = "git_sync_done"
 )
 
 // actionEvents is the set of low-frequency "action" events that declarative
@@ -40,13 +41,14 @@ const (
 // per-watcher-tick event would back up the serial hook queue. Those remain
 // Lua-only via kbrd.on, where the user can add their own throttling.
 var actionEvents = map[string]bool{
-	NameBoardLoad:   true,
-	NameItemOpen:    true,
-	NameItemCreated: true,
-	NameItemRenamed: true,
-	NameItemDeleted: true,
-	NameItemMoved:   true,
-	NameGitSyncDone: true,
+	NameBoardLoad:     true,
+	NameItemOpen:      true,
+	NameItemCreated:   true,
+	NameItemRenamed:   true,
+	NameItemDeleted:   true,
+	NameItemMoved:     true,
+	NameColumnCreated: true,
+	NameGitSyncDone:   true,
 }
 
 // IsHookable reports whether a declarative YAML hook may bind to the given event
@@ -133,6 +135,13 @@ type ItemDeleted struct {
 
 func (ItemDeleted) eventTag() {}
 
+// ColumnCreated fires after a new column directory is created.
+type ColumnCreated struct {
+	Name string
+}
+
+func (ColumnCreated) eventTag() {}
+
 // Subscriber receives events. Implementations must be safe to call from the
 // Bubble Tea goroutine; they should not block. Return errors are logged
 // (via Logger) but never propagate up to the board.
@@ -177,6 +186,14 @@ func safeDispatch(s Subscriber, ev Event) {
 // be safe to invoke from any goroutine — the implementation is responsible
 // for routing onto the UI thread if needed.
 //
+// Keep this narrow. The mutation methods intentionally mirror the user-facing
+// board actions (move/create/rename/delete an item, create a column) and route
+// through the model's centralized mutators so every entry point publishes the
+// same events. Adding a method here widens the script↔model contract and forces
+// a matching change in the implementation and its test doubles — so add one
+// only for a genuine board mutation that should also fire events, not for
+// incidental conveniences (those belong behind FS* or a script-side helper).
+//
 // FS* paths may be absolute or relative; relative paths are resolved
 // against the board root by the implementation.
 type BoardAPI interface {
@@ -184,6 +201,12 @@ type BoardAPI interface {
 	Notify(msg, level string)
 	// MoveItem moves the item identified by item to the column named toColumn.
 	MoveItem(item ItemRef, toColumn string) error
+	// CreateItem creates a new (empty) item named name in the named column.
+	CreateItem(column, name string) error
+	// RenameItem renames the item identified by item to newName (same column).
+	RenameItem(item ItemRef, newName string) error
+	// DeleteItem deletes the item identified by item.
+	DeleteItem(item ItemRef) error
 
 	// Filesystem primitives.
 	FSRead(path string) (string, error)

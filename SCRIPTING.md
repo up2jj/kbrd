@@ -111,6 +111,7 @@ Currently emitted events:
 | `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
 | `item_deleted`  | `{column, name}`                                         | After delete confirmation completes                       |
 | `item_moved`    | `{item, from, to}`                                       | After a move (`m` / `M` keys or `kbrd.board.move`)        |
+| `column_created`| `{name}`                                                 | After `kbrd.board.createColumn` succeeds                  |
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 
@@ -158,6 +159,7 @@ extras. Only these low-frequency **action** events can be hooked from YAML:
 | `item_moved`    | `{{.fromColumn}}` `{{.toColumn}}`        |
 | `item_renamed`  | `{{.oldName}}`                           |
 | `item_deleted`  | — (`fileName`/`filePath` point to where it was) |
+| `column_created`| `{{.columnName}}` `{{.columnPath}}`      |
 | `git_sync_done` | `{{.ok}}` `{{.stage}}` `{{.error}}`      |
 | `board_load`    | —                                        |
 
@@ -250,10 +252,34 @@ local ok, err = kbrd.board.move(ctx, "done")
 if not ok then kbrd.notify(err, "error") end
 ```
 
+### `kbrd.board.create(column, name)`
+
+Create a new (empty) item named `name` in the named column. Returns `true`
+or `nil, err`. Fires `item_created`.
+
+```lua
+kbrd.board.create("1. TO DO", "follow up")
+```
+
+### `kbrd.board.rename(item, newName)`
+
+Rename an item (same column). `item` may be the `ctx` table or an explicit
+`{column=, name=}` table — same as `move`. Returns `true` or `nil, err`.
+Fires `item_renamed`.
+
+### `kbrd.board.delete(item)`
+
+Delete an item. `item` may be the `ctx` table or `{column=, name=}`. Returns
+`true` or `nil, err`. Fires `item_deleted`.
+
+```lua
+local ok, err = kbrd.board.delete(ctx)
+```
+
 ### `kbrd.board.refresh()`
 
 Re-read columns and git stats from disk. Synchronous. Returns `true` or
-`nil, err`.
+`nil, err`. Fires `board_refresh` (`reason = "command"`).
 
 You rarely need to call this manually — `createColumn` already refreshes
 internally, and the file watcher picks up external changes. Useful after
@@ -263,7 +289,7 @@ batch shell operations.
 
 Create a new column directory under the board root, then refresh. Returns
 `true` or `nil, err`. The name must be non-empty, must not contain `/` or
-`\`, and must not already exist.
+`\`, and must not already exist. Fires `column_created`.
 
 ```lua
 kbrd.board.createColumn("archive")
