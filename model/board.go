@@ -120,6 +120,7 @@ type Board struct {
 	bus      events.Bus
 	scripts  *script.Host
 	scriptUI ScriptUI
+	hooks    *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// watch debounce state — every raw fsnotify event bumps watchSeq and
 	// records its path in watchDirty; a debounce tick that still matches
@@ -155,6 +156,7 @@ func NewBoard(cfg config.Config) *Board {
 	b.applyPalette()
 	b.initScripting()
 	b.loadCommands()
+	b.initHooks()
 	return b
 }
 
@@ -501,6 +503,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if acmd := b.collectAsyncCmds(); acmd != nil {
 		cmd = batchCmd(cmd, acmd)
 	}
+	if hcmd := b.collectHookCmd(); hcmd != nil {
+		cmd = batchCmd(cmd, hcmd)
+	}
 	if scmd := b.collectStatusCmd(); scmd != nil {
 		cmd = batchCmd(cmd, scmd)
 	}
@@ -714,6 +719,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptAsyncDoneMsg:
 		return b.handleScriptAsyncDone(msg)
+
+	case hookDoneMsg:
+		return b.handleHookDone(msg)
 
 	case git.Msg:
 		// All git orchestration lives in the git package; route opaquely. Git
@@ -1011,6 +1019,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			nextCol := (b.selectedCol + 1) % len(b.columns)
+			fromName, toName := col.Name, b.columns[nextCol].Name
 			if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
 				if errors.Is(err, os.ErrExist) {
 					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
@@ -1019,6 +1028,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = nextCol
 			b.columns[nextCol].SelectByName(item.Name)
+			b.bus.Publish(events.ItemMoved{
+				Item: events.ItemRef{Column: fromName, Name: item.Name},
+				From: fromName,
+				To:   toName,
+			})
 		}
 	case key.Matches(msg, Keys.MoveFirst):
 		if col.HasSelectedItem() {
@@ -1029,6 +1043,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			item := col.SelectedItem()
+			fromName, toName := col.Name, b.columns[0].Name
 			if err := col.MoveItemTo(b.columns[0], item.Name); err != nil {
 				if errors.Is(err, os.ErrExist) {
 					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
@@ -1037,6 +1052,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			b.selectedCol = 0
 			b.columns[0].SelectByName(item.Name)
+			b.bus.Publish(events.ItemMoved{
+				Item: events.ItemRef{Column: fromName, Name: item.Name},
+				From: fromName,
+				To:   toName,
+			})
 		}
 	case key.Matches(msg, Keys.Peek):
 		if col.HasSelectedItem() {
@@ -1449,6 +1469,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	b.selectedCol = 0
 	b.initScripting()
 	b.loadCommands()
+	b.initHooks()
 
 	if err := b.loadColumns(); err != nil {
 		return nil, fmt.Errorf("failed to load columns: %w", err)
@@ -1577,10 +1598,16 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		return nil
 	case 'm':
 		nextCol := (ref.ColIndex + 1) % len(b.columns)
+		fromName, toName := col.Name, b.columns[nextCol].Name
 		if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
 			return b.notifier.Send("failed to move: "+err.Error(), notifyError)
 		}
-		return b.notifier.Send("moved "+item.Name+" → "+b.columns[nextCol].Name, notifySuccess)
+		b.bus.Publish(events.ItemMoved{
+			Item: events.ItemRef{Column: fromName, Name: item.Name},
+			From: fromName,
+			To:   toName,
+		})
+		return b.notifier.Send("moved "+item.Name+" → "+toName, notifySuccess)
 	}
 	return b.notifier.Send("unknown command: "+string(action), notifyError)
 }
@@ -1739,6 +1766,16 @@ func (b *Board) updateBuiltinCells() {
 		b.setActivityCell(-4, label)
 	} else {
 		b.cells.Clear(-4)
+	}
+
+	if b.hooks.busy() {
+		label := "⚙ hooks"
+		if n := b.hooks.pending(); n > 1 {
+			label = "⚙ hooks " + strconv.Itoa(n)
+		}
+		b.setActivityCell(-6, label)
+	} else {
+		b.cells.Clear(-6)
 	}
 
 	if b.scriptStatus != "" {

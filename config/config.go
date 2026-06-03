@@ -38,7 +38,17 @@ type Config struct {
 	GitGenerateReadme   bool
 
 	Scripting ScriptingConfig
+	Hooks     HooksConfig
 	MCP       MCPConfig
+}
+
+// HooksConfig controls declarative YAML event hooks (hooks.yml /
+// .kbrd_hooks.yml). These run independently of the Lua scripting subsystem, so
+// they work even when scripting is disabled. TimeoutMs bounds each individual
+// hook command; the runner executes hooks one at a time, in order.
+type HooksConfig struct {
+	Enabled   bool
+	TimeoutMs int
 }
 
 // MCPConfig controls the built-in MCP server, which runs alongside the TUI and
@@ -87,6 +97,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.hook_timeout_ms", 500)
 	v.SetDefault("scripting.instruction_limit", 10000000)
 	v.SetDefault("scripting.error_threshold", 3)
+	v.SetDefault("hooks.enabled", true)
+	v.SetDefault("hooks.timeout_ms", 2000)
 	v.SetDefault("mcp.enabled", true)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 
@@ -141,6 +153,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
 			InstructionLimit: v.GetInt("scripting.instruction_limit"),
 			ErrorThreshold:   v.GetInt("scripting.error_threshold"),
+		},
+		Hooks: HooksConfig{
+			Enabled:   v.GetBool("hooks.enabled"),
+			TimeoutMs: v.GetInt("hooks.timeout_ms"),
 		},
 		MCP: MCPConfig{
 			Enabled: v.GetBool("mcp.enabled"),

@@ -110,13 +110,61 @@ Currently emitted events:
 | `item_created`  | `{item}`                                                 | After a new item is created                               |
 | `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
 | `item_deleted`  | `{column, name}`                                         | After delete confirmation completes                       |
-| `item_moved`    | `{item, from, to}`                                       | After `kbrd.board.move` succeeds                          |
+| `item_moved`    | `{item, from, to}`                                       | After a move (`m` / `M` keys or `kbrd.board.move`)        |
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 
 Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
 command callback) are **deferred** until the script returns, then dispatched
 in order. This prevents re-entering the Lua VM mid-call.
+
+---
+
+## Declarative hooks (no Lua) — `hooks.yml`
+
+If all you want is to **run a shell command when something happens**, you don't
+need Lua. Declarative hooks live in YAML, in the same format and locations as
+custom commands:
+
+- Global: `~/.config/kbrd/hooks.yml`
+- Folder-local: `<board>/.kbrd_hooks.yml` (overrides global entries by `id`)
+
+```yaml
+hooks:
+  - name: Stage moved card
+    id: stage-on-move
+    event: item_moved
+    command: git -C "{{.boardPath}}" add "{{.toColumn}}/{{.fileName}}.md"
+```
+
+How they behave:
+
+- **After-only.** Hooks observe a completed operation; they cannot cancel it.
+- **Synchronous and ordered.** Hooks run one at a time, in the order listed,
+  through a single queue — a hook always finishes before the next starts. A
+  `⚙ hooks` indicator shows in the header while they run. Each hook is bounded
+  by `hooks.timeout_ms` (default 2000); a non-zero exit or timeout is reported
+  and the chain continues.
+- **Lua-independent.** Hooks work even with `scripting.enabled = false`.
+
+Variables are the same shared set as custom commands (`{{.boardPath}}`,
+`{{.fileName}}`, `{{.columnName}}`, …, and `{{env "VAR"}}`), plus per-event
+extras. Only these low-frequency **action** events can be hooked from YAML:
+
+| Event           | Extra variables                          |
+| --------------- | ---------------------------------------- |
+| `item_created`  | —                                        |
+| `item_open`     | `{{.kind}}`                              |
+| `item_moved`    | `{{.fromColumn}}` `{{.toColumn}}`        |
+| `item_renamed`  | `{{.oldName}}`                           |
+| `item_deleted`  | — (`fileName`/`filePath` point to where it was) |
+| `git_sync_done` | `{{.ok}}` `{{.stage}}` `{{.error}}`      |
+| `board_load`    | —                                        |
+
+The high-frequency events (`item_select`, `column_change`, `board_refresh`)
+are **Lua-only**: they fire per keystroke / per watcher tick, so a slow shell
+hook would back up the serial queue. Use `kbrd.on(...)` for those — Lua runs
+hook logic inline (time-boxed) and you can add your own throttling.
 
 ---
 

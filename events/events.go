@@ -17,6 +17,42 @@ type ItemRef struct {
 // Event is the closed sum type published on the Bus.
 type Event interface{ eventTag() }
 
+// Event name constants are the string identifiers used by the scripting layer
+// (Lua kbrd.on) and by declarative YAML hooks. They are the single source of
+// truth for the wire names — both script/ and the model's hook runner reference
+// these instead of repeating literals.
+const (
+	NameBoardLoad    = "board_load"
+	NameBoardRefresh = "board_refresh"
+	NameItemSelect   = "item_select"
+	NameColumnChange = "column_change"
+	NameItemOpen     = "item_open"
+	NameItemCreated  = "item_created"
+	NameItemRenamed  = "item_renamed"
+	NameItemDeleted  = "item_deleted"
+	NameItemMoved    = "item_moved"
+	NameGitSyncDone  = "git_sync_done"
+)
+
+// actionEvents is the set of low-frequency "action" events that declarative
+// YAML hooks may bind to. The high-frequency events (item_select, column_change,
+// board_refresh) are deliberately excluded: a slow hook on a per-keystroke or
+// per-watcher-tick event would back up the serial hook queue. Those remain
+// Lua-only via kbrd.on, where the user can add their own throttling.
+var actionEvents = map[string]bool{
+	NameBoardLoad:   true,
+	NameItemOpen:    true,
+	NameItemCreated: true,
+	NameItemRenamed: true,
+	NameItemDeleted: true,
+	NameItemMoved:   true,
+	NameGitSyncDone: true,
+}
+
+// IsHookable reports whether a declarative YAML hook may bind to the given event
+// name. See actionEvents for the rationale behind the allowed set.
+func IsHookable(name string) bool { return actionEvents[name] }
+
 // GitSyncDone fires after a git sync attempt (auto or manual) finishes.
 type GitSyncDone struct {
 	OK    bool
