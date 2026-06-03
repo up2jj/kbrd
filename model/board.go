@@ -120,6 +120,7 @@ type Board struct {
 	bus      events.Bus
 	scripts  *script.Host
 	scriptUI ScriptUI
+	hooks    *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// watch debounce state — every raw fsnotify event bumps watchSeq and
 	// records its path in watchDirty; a debounce tick that still matches
@@ -155,6 +156,7 @@ func NewBoard(cfg config.Config) *Board {
 	b.applyPalette()
 	b.initScripting()
 	b.loadCommands()
+	b.initHooks()
 	return b
 }
 
@@ -501,6 +503,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if acmd := b.collectAsyncCmds(); acmd != nil {
 		cmd = batchCmd(cmd, acmd)
 	}
+	if hcmd := b.collectHookCmd(); hcmd != nil {
+		cmd = batchCmd(cmd, hcmd)
+	}
 	if scmd := b.collectStatusCmd(); scmd != nil {
 		cmd = batchCmd(cmd, scmd)
 	}
@@ -714,6 +719,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptAsyncDoneMsg:
 		return b.handleScriptAsyncDone(msg)
+
+	case hookDoneMsg:
+		return b.handleHookDone(msg)
 
 	case git.Msg:
 		// All git orchestration lives in the git package; route opaquely. Git
@@ -1011,7 +1019,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
 			nextCol := (b.selectedCol + 1) % len(b.columns)
-			if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
+			if err := b.moveItem(col, b.columns[nextCol], item.Name); err != nil {
 				if errors.Is(err, os.ErrExist) {
 					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
 				}
@@ -1029,7 +1037,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			item := col.SelectedItem()
-			if err := col.MoveItemTo(b.columns[0], item.Name); err != nil {
+			if err := b.moveItem(col, b.columns[0], item.Name); err != nil {
 				if errors.Is(err, os.ErrExist) {
 					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
 				}
@@ -1194,11 +1202,9 @@ func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 	if msg.FileName == "" {
 		return b, b.notifier.Send("filename cannot be empty", notifyError)
 	}
-	_, err := col.CreateItem(msg.FileName)
-	if err != nil {
+	if _, err := b.createItem(col, msg.FileName); err != nil {
 		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
 	}
-	b.bus.Publish(events.ItemCreated{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}})
 	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
 }
 
@@ -1252,7 +1258,7 @@ func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, te
 		return b, b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[msg.ColIndex]
-	if err := col.RenameItem(msg.OldName, msg.NewName); err != nil {
+	if err := b.renameItem(col, msg.OldName, msg.NewName); err != nil {
 		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
 	}
 	for i, it := range col.Items {
@@ -1261,10 +1267,6 @@ func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, te
 			break
 		}
 	}
-	b.bus.Publish(events.ItemRenamed{
-		Item:    events.ItemRef{Column: col.Name, Name: msg.NewName},
-		OldName: msg.OldName,
-	})
 	return b, b.notifier.Send("renamed "+msg.OldName+" → "+msg.NewName, notifySuccess)
 }
 
@@ -1281,12 +1283,10 @@ func (b *Board) handleRenameColumnConfirm(msg renameColumnConfirmMsg) (tea.Model
 
 func (b *Board) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
-	err := col.DeleteItem(msg.FileName)
-	if err != nil {
+	if err := b.deleteItem(col, msg.FileName); err != nil {
 		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
 	}
 	col.LoadItems()
-	b.bus.Publish(events.ItemDeleted{Column: col.Name, Name: msg.FileName})
 	return b, b.notifier.Send("deleted "+msg.FileName, notifySuccess)
 }
 
@@ -1449,6 +1449,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	b.selectedCol = 0
 	b.initScripting()
 	b.loadCommands()
+	b.initHooks()
 
 	if err := b.loadColumns(); err != nil {
 		return nil, fmt.Errorf("failed to load columns: %w", err)
@@ -1577,10 +1578,11 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		return nil
 	case 'm':
 		nextCol := (ref.ColIndex + 1) % len(b.columns)
-		if err := col.MoveItemTo(b.columns[nextCol], item.Name); err != nil {
+		toName := b.columns[nextCol].Name
+		if err := b.moveItem(col, b.columns[nextCol], item.Name); err != nil {
 			return b.notifier.Send("failed to move: "+err.Error(), notifyError)
 		}
-		return b.notifier.Send("moved "+item.Name+" → "+b.columns[nextCol].Name, notifySuccess)
+		return b.notifier.Send("moved "+item.Name+" → "+toName, notifySuccess)
 	}
 	return b.notifier.Send("unknown command: "+string(action), notifyError)
 }
@@ -1739,6 +1741,16 @@ func (b *Board) updateBuiltinCells() {
 		b.setActivityCell(-4, label)
 	} else {
 		b.cells.Clear(-4)
+	}
+
+	if b.hooks.busy() {
+		label := "⚙ hooks"
+		if n := b.hooks.pending(); n > 1 {
+			label = "⚙ hooks " + strconv.Itoa(n)
+		}
+		b.setActivityCell(-6, label)
+	} else {
+		b.cells.Clear(-6)
 	}
 
 	if b.scriptStatus != "" {

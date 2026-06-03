@@ -378,6 +378,7 @@ func (a boardScriptAPI) Refresh() error {
 		return err
 	}
 	a.b.git.RefreshStatsNow()
+	a.b.bus.Publish(events.BoardRefresh{Reason: "command"})
 	return nil
 }
 
@@ -392,7 +393,11 @@ func (a boardScriptAPI) CreateColumn(name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return a.Refresh()
+	if err := a.Refresh(); err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ColumnCreated{Name: name})
+	return nil
 }
 
 // snapshotSelection captures the current (column, item) cursor position so
@@ -426,31 +431,52 @@ func (b *Board) emitSelectionChanges(prevCol, prevItem string) {
 	}
 }
 
-func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {
-	var src, dst *Column
+// column finds a loaded column by name, or nil.
+func (a boardScriptAPI) column(name string) *Column {
 	for _, c := range a.b.columns {
-		if c.Name == item.Column {
-			src = c
-		}
-		if c.Name == toColumn {
-			dst = c
+		if c.Name == name {
+			return c
 		}
 	}
+	return nil
+}
+
+func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {
+	src := a.column(item.Column)
 	if src == nil {
 		return fmt.Errorf("source column %q not found", item.Column)
 	}
+	dst := a.column(toColumn)
 	if dst == nil {
 		return fmt.Errorf("destination column %q not found", toColumn)
 	}
-	if err := src.MoveItemTo(dst, item.Name); err != nil {
-		return err
+	// Centralized helper performs the move AND publishes ItemMoved.
+	return a.b.moveItem(src, dst, item.Name)
+}
+
+func (a boardScriptAPI) CreateItem(column, name string) error {
+	col := a.column(column)
+	if col == nil {
+		return fmt.Errorf("column %q not found", column)
 	}
-	a.b.bus.Publish(events.ItemMoved{
-		Item: item,
-		From: item.Column,
-		To:   toColumn,
-	})
-	return nil
+	_, err := a.b.createItem(col, name)
+	return err
+}
+
+func (a boardScriptAPI) RenameItem(item events.ItemRef, newName string) error {
+	col := a.column(item.Column)
+	if col == nil {
+		return fmt.Errorf("column %q not found", item.Column)
+	}
+	return a.b.renameItem(col, item.Name, newName)
+}
+
+func (a boardScriptAPI) DeleteItem(item events.ItemRef) error {
+	col := a.column(item.Column)
+	if col == nil {
+		return fmt.Errorf("column %q not found", item.Column)
+	}
+	return a.b.deleteItem(col, item.Name)
 }
 
 // CellSet/CellClear/CellClearAll mutate the header cell registry directly. Like

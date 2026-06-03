@@ -1,0 +1,31 @@
+# kbrd hooks — run a shell command when a board operation happens.
+# Edit and reload by re-opening the board.
+#
+# Hooks run AFTER the operation (they observe, they cannot cancel it), one at a
+# time in the order listed, each bounded by a timeout. A "⚙ hooks" indicator
+# shows in the header while they run.
+#
+# Only these "action" events can be hooked from YAML (high-frequency events like
+# item_select / column_change / board_refresh are Lua-only via kbrd.on):
+#   item_created   {{.fileName}} {{.columnName}} (+ paths)
+#   item_open      adds {{.kind}}        ("edit"/"append"/"prepend"/"journal"/"external")
+#   item_moved     {{.fileName}} {{.fromColumn}} {{.toColumn}}
+#   item_renamed   {{.fileName}} (new) {{.oldName}} {{.columnName}}
+#   item_deleted   {{.fileName}} {{.columnName}}  (path points to where it was)
+#   git_sync_done  {{.ok}} {{.stage}} {{.error}}
+#   board_load     (board only)
+#
+# Always available: {{.boardPath}} {{.boardName}}. {{env "VAR"}} reads an env var.
+# Quote variables to handle paths with spaces.
+
+hooks:
+  - name: Stage moved card
+    id: stage-on-move
+    description: git add the card after it moves columns
+    event: item_moved
+    command: git -C "{{.boardPath}}" add "{{.toColumn}}/{{.fileName}}.md"
+
+  # - name: Notify on create
+  #   id: notify-create
+  #   event: item_created
+  #   command: notify-send "kbrd" "new card {{.fileName}}"

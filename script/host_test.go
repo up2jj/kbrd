@@ -22,6 +22,9 @@ type fakeAPI struct {
 	notifies  []string
 	moves     []move
 	moveErr   error
+	creates   []string
+	renames   []string
+	deletes   []string
 	refreshes int
 	columns   []string
 	cellSets  []cellSet
@@ -49,6 +52,27 @@ func (f *fakeAPI) MoveItem(item events.ItemRef, toColumn string) error {
 	defer f.mu.Unlock()
 	f.moves = append(f.moves, move{From: item.Column, To: toColumn, Name: item.Name})
 	return f.moveErr
+}
+
+func (f *fakeAPI) CreateItem(column, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.creates = append(f.creates, column+"/"+name)
+	return nil
+}
+
+func (f *fakeAPI) RenameItem(item events.ItemRef, newName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.renames = append(f.renames, item.Column+"/"+item.Name+"->"+newName)
+	return nil
+}
+
+func (f *fakeAPI) DeleteItem(item events.ItemRef) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes = append(f.deletes, item.Column+"/"+item.Name)
+	return nil
 }
 
 func (f *fakeAPI) resolve(p string) string {
@@ -272,6 +296,35 @@ end)`)
 	}
 	if len(api.moves) != 1 || api.moves[0] != (move{From: "todo", To: "done", Name: "task.md"}) {
 		t.Fatalf("unexpected moves: %+v", api.moves)
+	}
+}
+
+func TestBoardCreateRenameDelete(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("c", "CRD", function(ctx)
+  kbrd.board.create(ctx.columnName, "fresh")
+  kbrd.board.rename({column = ctx.columnName, name = "fresh"}, "renamed")
+  kbrd.board.delete({column = ctx.columnName, name = "renamed"})
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	cmds := h.Commands()
+	if _, err := h.RunCommand(cmds[0].LuaRef, map[string]string{"columnName": "todo"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.creates) != 1 || api.creates[0] != "todo/fresh" {
+		t.Errorf("creates: %+v", api.creates)
+	}
+	if len(api.renames) != 1 || api.renames[0] != "todo/fresh->renamed" {
+		t.Errorf("renames: %+v", api.renames)
+	}
+	if len(api.deletes) != 1 || api.deletes[0] != "todo/renamed" {
+		t.Errorf("deletes: %+v", api.deletes)
 	}
 }
 

@@ -17,6 +17,10 @@
 # auto_sync_interval = ""   # empty/"0" disables; e.g. "30s", "5m", "1h"
 # generate_readme = false   # regenerate README.md from the board before each commit
 
+[hooks]
+# enabled    = true         # declarative YAML event hooks (hooks.yml / .kbrd_hooks.yml)
+# timeout_ms = 2000         # per-hook command timeout; hooks run one at a time, in order
+
 [mcp]
 # enabled = true            # built-in MCP server (also disable with --no-mcp)
 # addr    = "127.0.0.1:7777" # Streamable HTTP listen address

@@ -26,6 +26,9 @@ func (h *Host) installAPI() {
 
 	board := L.NewTable()
 	board.RawSetString("move", L.NewFunction(h.luaBoardMove))
+	board.RawSetString("create", L.NewFunction(h.luaBoardCreate))
+	board.RawSetString("rename", L.NewFunction(h.luaBoardRename))
+	board.RawSetString("delete", L.NewFunction(h.luaBoardDelete))
 	board.RawSetString("refresh", L.NewFunction(h.luaBoardRefresh))
 	board.RawSetString("createColumn", L.NewFunction(h.luaBoardCreateColumn))
 	kbrd.RawSetString("board", board)
@@ -443,6 +446,72 @@ func (h *Host) luaBoardMove(L *lua.LState) int {
 	}
 
 	if err := h.api.MoveItem(events.ItemRef{Column: srcCol, Name: name}, col); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// luaItemRef extracts {column, name} from a Lua value that is either an explicit
+// {column=, name=} table or a ctx table ({columnName=, fileName=}). Mirrors the
+// item-parsing in kbrd.board.move so callers can pass ctx.item directly.
+func luaItemRef(L *lua.LState, fn string, v lua.LValue) events.ItemRef {
+	t, ok := v.(*lua.LTable)
+	if !ok {
+		L.RaiseError("%s: first argument must be ctx.item (table)", fn)
+		return events.ItemRef{}
+	}
+	col := lua.LVAsString(t.RawGetString("column"))
+	if col == "" {
+		col = lua.LVAsString(t.RawGetString("columnName"))
+	}
+	name := lua.LVAsString(t.RawGetString("name"))
+	if name == "" {
+		name = lua.LVAsString(t.RawGetString("fileName"))
+	}
+	return events.ItemRef{Column: col, Name: name}
+}
+
+// kbrd.board.create(column, name) → true | nil, err
+func (h *Host) luaBoardCreate(L *lua.LState) int {
+	column := L.CheckString(1)
+	name := L.CheckString(2)
+	if err := h.api.CreateItem(column, name); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.board.rename(item, newName) → true | nil, err
+func (h *Host) luaBoardRename(L *lua.LState) int {
+	ref := luaItemRef(L, "kbrd.board.rename", L.Get(1))
+	newName := L.CheckString(2)
+	if ref.Name == "" {
+		L.RaiseError("kbrd.board.rename: item.name is empty")
+		return 0
+	}
+	if err := h.api.RenameItem(ref, newName); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.board.delete(item) → true | nil, err
+func (h *Host) luaBoardDelete(L *lua.LState) int {
+	ref := luaItemRef(L, "kbrd.board.delete", L.Get(1))
+	if ref.Name == "" {
+		L.RaiseError("kbrd.board.delete: item.name is empty")
+		return 0
+	}
+	if err := h.api.DeleteItem(ref); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2

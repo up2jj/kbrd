@@ -170,10 +170,18 @@ func mergeCommands(global, local []Command) []Command {
 
 // Render expands the command's template against the provided variables.
 func (c Command) Render(vars map[string]string) (string, error) {
-	tmpl, err := template.New("cmd").
+	return renderTemplate(c.Template, vars)
+}
+
+// renderTemplate is the shared text/template expansion used by both custom
+// commands and declarative hooks: it exposes the {{env "VAR"}} func and treats
+// a reference to a missing variable as an error (so a template that needs an
+// item fails cleanly when none is in context).
+func renderTemplate(tmplStr string, vars map[string]string) (string, error) {
+	tmpl, err := template.New("tmpl").
 		Funcs(template.FuncMap{"env": os.Getenv}).
 		Option("missingkey=error").
-		Parse(c.Template)
+		Parse(tmplStr)
 	if err != nil {
 		return "", err
 	}

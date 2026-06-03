@@ -110,13 +110,63 @@ Currently emitted events:
 | `item_created`  | `{item}`                                                 | After a new item is created                               |
 | `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
 | `item_deleted`  | `{column, name}`                                         | After delete confirmation completes                       |
-| `item_moved`    | `{item, from, to}`                                       | After `kbrd.board.move` succeeds                          |
+| `item_moved`    | `{item, from, to}`                                       | After a move (`m` / `M` keys or `kbrd.board.move`)        |
+| `column_created`| `{name}`                                                 | After `kbrd.board.createColumn` succeeds                  |
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 
 Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
 command callback) are **deferred** until the script returns, then dispatched
 in order. This prevents re-entering the Lua VM mid-call.
+
+---
+
+## Declarative hooks (no Lua) — `hooks.yml`
+
+If all you want is to **run a shell command when something happens**, you don't
+need Lua. Declarative hooks live in YAML, in the same format and locations as
+custom commands:
+
+- Global: `~/.config/kbrd/hooks.yml`
+- Folder-local: `<board>/.kbrd_hooks.yml` (overrides global entries by `id`)
+
+```yaml
+hooks:
+  - name: Stage moved card
+    id: stage-on-move
+    event: item_moved
+    command: git -C "{{.boardPath}}" add "{{.toColumn}}/{{.fileName}}.md"
+```
+
+How they behave:
+
+- **After-only.** Hooks observe a completed operation; they cannot cancel it.
+- **Synchronous and ordered.** Hooks run one at a time, in the order listed,
+  through a single queue — a hook always finishes before the next starts. A
+  `⚙ hooks` indicator shows in the header while they run. Each hook is bounded
+  by `hooks.timeout_ms` (default 2000); a non-zero exit or timeout is reported
+  and the chain continues.
+- **Lua-independent.** Hooks work even with `scripting.enabled = false`.
+
+Variables are the same shared set as custom commands (`{{.boardPath}}`,
+`{{.fileName}}`, `{{.columnName}}`, …, and `{{env "VAR"}}`), plus per-event
+extras. Only these low-frequency **action** events can be hooked from YAML:
+
+| Event           | Extra variables                          |
+| --------------- | ---------------------------------------- |
+| `item_created`  | —                                        |
+| `item_open`     | `{{.kind}}`                              |
+| `item_moved`    | `{{.fromColumn}}` `{{.toColumn}}`        |
+| `item_renamed`  | `{{.oldName}}`                           |
+| `item_deleted`  | — (`fileName`/`filePath` point to where it was) |
+| `column_created`| `{{.columnName}}` `{{.columnPath}}`      |
+| `git_sync_done` | `{{.ok}}` `{{.stage}}` `{{.error}}`      |
+| `board_load`    | —                                        |
+
+The high-frequency events (`item_select`, `column_change`, `board_refresh`)
+are **Lua-only**: they fire per keystroke / per watcher tick, so a slow shell
+hook would back up the serial queue. Use `kbrd.on(...)` for those — Lua runs
+hook logic inline (time-boxed) and you can add your own throttling.
 
 ---
 
@@ -202,10 +252,34 @@ local ok, err = kbrd.board.move(ctx, "done")
 if not ok then kbrd.notify(err, "error") end
 ```
 
+### `kbrd.board.create(column, name)`
+
+Create a new (empty) item named `name` in the named column. Returns `true`
+or `nil, err`. Fires `item_created`.
+
+```lua
+kbrd.board.create("1. TO DO", "follow up")
+```
+
+### `kbrd.board.rename(item, newName)`
+
+Rename an item (same column). `item` may be the `ctx` table or an explicit
+`{column=, name=}` table — same as `move`. Returns `true` or `nil, err`.
+Fires `item_renamed`.
+
+### `kbrd.board.delete(item)`
+
+Delete an item. `item` may be the `ctx` table or `{column=, name=}`. Returns
+`true` or `nil, err`. Fires `item_deleted`.
+
+```lua
+local ok, err = kbrd.board.delete(ctx)
+```
+
 ### `kbrd.board.refresh()`
 
 Re-read columns and git stats from disk. Synchronous. Returns `true` or
-`nil, err`.
+`nil, err`. Fires `board_refresh` (`reason = "command"`).
 
 You rarely need to call this manually — `createColumn` already refreshes
 internally, and the file watcher picks up external changes. Useful after
@@ -215,7 +289,7 @@ batch shell operations.
 
 Create a new column directory under the board root, then refresh. Returns
 `true` or `nil, err`. The name must be non-empty, must not contain `/` or
-`\`, and must not already exist.
+`\`, and must not already exist. Fires `column_created`.
 
 ```lua
 kbrd.board.createColumn("archive")

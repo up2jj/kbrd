@@ -548,47 +548,47 @@ func (h *Host) OnEvent(ev events.Event) {
 	}
 	switch e := ev.(type) {
 	case events.GitSyncDone:
-		h.fireHook("git_sync_done", map[string]interface{}{
+		h.fireHook(events.NameGitSyncDone, map[string]interface{}{
 			"ok":    e.OK,
 			"stage": e.Stage,
 			"error": e.Err,
 		})
 	case events.ItemMoved:
-		h.fireHook("item_moved", map[string]interface{}{
+		h.fireHook(events.NameItemMoved, map[string]interface{}{
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 			"from": e.From,
 			"to":   e.To,
 		})
 	case events.BoardLoad:
-		h.fireHook("board_load", map[string]interface{}{})
+		h.fireHook(events.NameBoardLoad, map[string]interface{}{})
 	case events.BoardRefresh:
-		h.fireHook("board_refresh", map[string]interface{}{"reason": e.Reason})
+		h.fireHook(events.NameBoardRefresh, map[string]interface{}{"reason": e.Reason})
 	case events.ItemSelect:
-		h.fireHook("item_select", map[string]interface{}{
+		h.fireHook(events.NameItemSelect, map[string]interface{}{
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 			"prev": map[string]interface{}{"column": e.Prev.Column, "name": e.Prev.Name},
 		})
 	case events.ColumnChange:
-		h.fireHook("column_change", map[string]interface{}{
+		h.fireHook(events.NameColumnChange, map[string]interface{}{
 			"column": e.Column,
 			"prev":   e.Prev,
 		})
 	case events.ItemOpen:
-		h.fireHook("item_open", map[string]interface{}{
+		h.fireHook(events.NameItemOpen, map[string]interface{}{
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 			"kind": e.Kind,
 		})
 	case events.ItemCreated:
-		h.fireHook("item_created", map[string]interface{}{
+		h.fireHook(events.NameItemCreated, map[string]interface{}{
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 		})
 	case events.ItemRenamed:
-		h.fireHook("item_renamed", map[string]interface{}{
+		h.fireHook(events.NameItemRenamed, map[string]interface{}{
 			"item":    map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 			"oldName": e.OldName,
 		})
 	case events.ItemDeleted:
-		h.fireHook("item_deleted", map[string]interface{}{
+		h.fireHook(events.NameItemDeleted, map[string]interface{}{
 			"column": e.Column,
 			"name":   e.Name,
 		})
