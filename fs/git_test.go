@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -138,6 +139,33 @@ func TestGitInit(t *testing.T) {
 	}
 	if GitRepoRoot(dir) == "" {
 		t.Fatalf("expected %q to be a repo after GitInit", dir)
+	}
+}
+
+func TestGitClone(t *testing.T) {
+	src := initRepo(t)
+	dst := filepath.Join(t.TempDir(), "clone")
+	if err := GitClone(src, dst); err != nil {
+		t.Fatalf("GitClone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "seed.md")); err != nil {
+		t.Errorf("expected seed.md in clone: %v", err)
+	}
+	if GitRepoRoot(dst) == "" {
+		t.Errorf("expected clone destination to be a repo")
+	}
+}
+
+func TestGitClone_BadSource(t *testing.T) {
+	requireGit(t)
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	dst := filepath.Join(t.TempDir(), "clone")
+	err := GitClone(missing, dst)
+	if err == nil {
+		t.Fatal("expected error cloning a nonexistent source")
+	}
+	if !strings.Contains(err.Error(), "git clone failed") {
+		t.Errorf("error = %q, want it to mention 'git clone failed'", err)
 	}
 }
 

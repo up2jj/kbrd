@@ -154,16 +154,22 @@ On first run kbrd sets up default columns. Press `?` at any time for the full sh
 overlay. To scaffold configuration files:
 
 ```bash
-./kbrd --init-config         # write the global config template to ~/.config/kbrd/
-./kbrd --init-local-config   # write a kbrd.toml template into the current directory
+./kbrd init            # write a kbrd.toml template into the current directory
+./kbrd init --global   # write the global config template to ~/.config/kbrd/
 ```
 
-**Command-line flags**
+**Commands**
+
+| Command | Description |
+| --- | --- |
+| `kbrd` | Open the current directory as a board (default). |
+| `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
+| `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
+
+**Flags**
 
 | Flag | Description |
 | --- | --- |
-| `--init-config` | Write the global config template to `~/.config/kbrd/` and exit. |
-| `--init-local-config` | Write a `kbrd.toml` template into the current directory and exit. |
 | `--mcp` | Start the built-in MCP server for this run (off by default). |
 | `--mcp-addr <addr>` | Override the MCP listen address (default `127.0.0.1:7777`). |
 
@@ -295,7 +301,7 @@ kbrd reads two TOML files, with the folder-local one overriding the global one:
 - **Global:** `~/.config/kbrd/config.toml`
 - **Folder-local:** `<board>/kbrd.toml`
 
-Generate templates with `--init-config` / `--init-local-config`, or from the config menu (`,`).
+Generate templates with `kbrd init` / `kbrd init --global`, or from the config menu (`,`).
 
 ```toml
 [display]

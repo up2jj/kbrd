@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -50,6 +51,22 @@ func GitRepoRoot(dir string) string {
 
 func GitInit(dir string) error {
 	return exec.Command("git", "-C", dir, "init").Run()
+}
+
+// GitClone clones url into dir, surfacing git's combined output on failure.
+func GitClone(url, dir string) error {
+	if !GitAvailable() {
+		return fmt.Errorf("git not found on PATH")
+	}
+	out, err := exec.Command("git", "clone", url, dir).CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("git clone failed: %s", detail)
+	}
+	return nil
 }
 
 func GitHasRemote(repoRoot string) bool {

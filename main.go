@@ -7,64 +7,135 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"kbrd/config"
+	fsutil "kbrd/fs"
 	"kbrd/mcp"
 	"kbrd/model"
 	"kbrd/recents"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 )
 
 // cliFlags holds the parsed command-line options.
 type cliFlags struct {
-	initGlobal bool
-	initLocal  bool
-	mcp        bool   // start the built-in MCP server
-	mcpAddr    string // address override; does not by itself enable the server
+	mcp     bool   // start the built-in MCP server
+	mcpAddr string // address override; does not by itself enable the server
 }
 
 func main() {
-	flags := parseFlags(os.Args[1:])
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		fatal("cannot determine working directory: %v", err)
-	}
-
-	// Template scaffolding subcommands write and exit; they never open a board.
-	switch {
-	case flags.initGlobal:
-		if err := writeGlobalTemplate(); err != nil {
-			fatal("%v", err)
-		}
-		return
-	case flags.initLocal:
-		if err := writeLocalTemplate(cwd); err != nil {
-			fatal("%v", err)
-		}
-		return
-	}
-
-	if err := runBoard(cwd, flags); err != nil {
-		fatal("%v", err)
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-// parseFlags parses argv into cliFlags. pflag.ExitOnError handles parse errors.
-func parseFlags(args []string) cliFlags {
-	fs := pflag.NewFlagSet("kbrd", pflag.ExitOnError)
-	var f cliFlags
-	fs.BoolVar(&f.initGlobal, "init-config", false, "write a TOML config template to the user config dir and exit")
-	fs.BoolVar(&f.initLocal, "init-local-config", false, "write a TOML config template to the current directory and exit")
-	fs.BoolVar(&f.mcp, "mcp", false, "start the built-in MCP server")
-	fs.StringVar(&f.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
-	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+// newRootCmd builds the kbrd command tree. The root, run with no subcommand,
+// opens the board in the current directory.
+func newRootCmd() *cobra.Command {
+	var flags cliFlags
+
+	root := &cobra.Command{
+		Use:           "kbrd",
+		Short:         "Keyboard-driven, file-based Kanban board for the terminal",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("cannot determine working directory: %w", err)
+			}
+			return runBoard(cwd, flags)
+		},
 	}
-	return f
+
+	// Persistent so subcommands that open a board (e.g. clone) honor them too.
+	root.PersistentFlags().BoolVar(&flags.mcp, "mcp", false, "start the built-in MCP server")
+	root.PersistentFlags().StringVar(&flags.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
+
+	root.AddCommand(newInitCmd(), newCloneCmd(&flags))
+	return root
+}
+
+// newInitCmd builds `kbrd init`, which scaffolds a config template — a local
+// kbrd.toml in the current directory by default, or the user config dir with
+// --global.
+func newInitCmd() *cobra.Command {
+	var global bool
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Write a config template (local kbrd.toml by default)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if global {
+				return writeGlobalTemplate()
+			}
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("cannot determine working directory: %w", err)
+			}
+			return writeLocalTemplate(cwd)
+		},
+	}
+	cmd.Flags().BoolVar(&global, "global", false, "write to the user config dir instead of the current directory")
+	return cmd
+}
+
+// newCloneCmd builds `kbrd clone <repo-url> [dir]`, which git-clones a board
+// repo and, unless --no-open is set, opens it in the TUI.
+func newCloneCmd(flags *cliFlags) *cobra.Command {
+	var noOpen bool
+	cmd := &cobra.Command{
+		Use:   "clone <repo-url> [dir]",
+		Short: "Clone a board repository and open it",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := ""
+			if len(args) == 2 {
+				dir = args[1]
+			}
+			abs, err := runClone(args[0], dir)
+			if err != nil {
+				return err
+			}
+			if noOpen {
+				return nil
+			}
+			return runBoard(abs, *flags)
+		},
+	}
+	cmd.Flags().BoolVar(&noOpen, "no-open", false, "clone only; do not open the board")
+	return cmd
+}
+
+// runClone clones url into dir (derived from the URL when empty), registers the
+// result in recents, and returns the absolute path to the cloned board.
+func runClone(url, dir string) (string, error) {
+	if dir == "" { // derive from URL: foo/bar.git -> bar
+		dir = strings.TrimSuffix(filepath.Base(url), ".git")
+	}
+	if dir == "" || dir == "." || dir == "/" {
+		return "", fmt.Errorf("cannot determine target directory from %q; pass an explicit dir", url)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(abs); err == nil {
+		return "", fmt.Errorf("target directory already exists: %s", abs)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("cannot access target: %w", err)
+	}
+	if err := fsutil.GitClone(url, abs); err != nil {
+		return "", err
+	}
+	store, _ := recents.Load()
+	store.Touch(abs, "") // basename label, matching runBoard
+	_ = store.Save()
+	fmt.Printf("cloned %s into %s\n", url, abs)
+	return abs, nil
 }
 
 // runBoard validates the working directory, loads config, brings up the optional
@@ -123,12 +194,6 @@ func startMCP(cfg config.Config, flags cliFlags) (io.Closer, model.MCPStatus) {
 		return nil, model.MCPFailed
 	}
 	return c, model.MCPRunning
-}
-
-// fatal prints an error to stderr and exits with status 1.
-func fatal(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
-	os.Exit(1)
 }
 
 func writeGlobalTemplate() error {
