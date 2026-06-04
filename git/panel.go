@@ -19,9 +19,11 @@ import (
 // panelKeys are the git panel's in-panel bindings. The panel-open binding ("g")
 // stays in the host's global keymap; these are internal to the panel.
 var panelKeys = struct {
-	Commit, CommitSync, CommitCancel, Sync, Log, Diff, AddRemote, Close, FocusToggle key.Binding
+	Commit, CommitSync, CommitCancel, Sync, Log, Diff, AddRemote, Close, FocusToggle, FocusLeft, FocusRight key.Binding
 }{
 	Diff:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
+	FocusLeft:    key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "files")),
+	FocusRight:   key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "diff")),
 	Commit:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
 	Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
 	CommitSync:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
@@ -234,12 +236,16 @@ func (p *GitPanel) rebuild() {
 		}
 		rows = append(rows, table.Row{f.Status, display, stats})
 	}
-	const headerLines = 2
+	// Both panes must render bodyH content lines so their boxes line up. The
+	// right pane is a 1-line title over a (bodyH-1)-line viewport = bodyH lines.
+	// For the table: WithHeight is applied before SetStyles adds the header's
+	// bottom border, so the rendered header ends up 2 lines while WithHeight only
+	// accounted for 1 — hence bodyH-1 here yields a bodyH-line table.View().
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithRows(rows),
 		table.WithFocused(p.focus == focusFiles),
-		table.WithHeight(bodyH-headerLines),
+		table.WithHeight(bodyH-1),
 	)
 	s := table.DefaultStyles()
 	s.Header = s.Header.
@@ -256,7 +262,14 @@ func (p *GitPanel) rebuild() {
 	p.table = t
 	p.lastCursor = t.Cursor()
 
-	vp := viewport.New(rightW, bodyH-1) // -1 to make room for the title row
+	// The pane's Padding(0,1) leaves rightW-2 usable columns; reserve 1 more for
+	// the scrollbar. Sizing the viewport any wider makes its space-padded lines
+	// overflow the content area and wrap, doubling the pane's height.
+	vpW := rightW - 3
+	if vpW < 10 {
+		vpW = 10
+	}
+	vp := viewport.New(vpW, bodyH-1) // -1 to make room for the title row
 	vp.SetContent(p.rightContent)
 	if p.rightTitle == "" {
 		p.rightTitle = "diff"
@@ -394,6 +407,14 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		p.toggleFocus()
 		return nil
 	}
+	if key.Matches(km, panelKeys.FocusLeft) && p.focus == focusDiff {
+		p.toggleFocus()
+		return nil
+	}
+	if key.Matches(km, panelKeys.FocusRight) && p.focus == focusFiles {
+		p.toggleFocus()
+		return nil
+	}
 	if key.Matches(km, panelKeys.Log) {
 		return func() tea.Msg { return gitLogRequestMsg{} }
 	}
@@ -483,6 +504,55 @@ func (p *GitPanel) startRemoteInput() {
 	p.remoteIn.Focus()
 }
 
+// renderScrollbar returns a height-line vertical bar: a dim track with a bright
+// thumb whose size and position reflect the diff viewport's scroll state. When
+// the content fits entirely, it returns a plain dim track so the pane width
+// stays stable. The thumb is drawn as a background fill rather than a block
+// glyph so it forms one solid bar — block glyphs (█) leave font-dependent gaps
+// between cells.
+func (p *GitPanel) renderScrollbar(height int) string {
+	if height < 1 {
+		return ""
+	}
+	track := lipgloss.NewStyle().Foreground(p.palette.FgDim).Render("│")
+
+	total := p.right.TotalLineCount()
+	if total <= height || total == 0 {
+		lines := make([]string, height)
+		for i := range lines {
+			lines[i] = track
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	thumbN := height * height / total
+	if thumbN < 1 {
+		thumbN = 1
+	}
+	if thumbN > height {
+		thumbN = height
+	}
+	// Round to nearest cell: (x*2+1)/2 with integer math.
+	pos := int((float64(height-thumbN)*p.right.ScrollPercent())*2+1) / 2
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > height-thumbN {
+		pos = height - thumbN
+	}
+
+	thumb := lipgloss.NewStyle().Background(p.palette.Primary).Render(" ")
+	lines := make([]string, height)
+	for i := range lines {
+		if i >= pos && i < pos+thumbN {
+			lines[i] = thumb
+		} else {
+			lines[i] = track
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (p *GitPanel) View() string {
 	paneActiveStyle := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
@@ -534,7 +604,9 @@ func (p *GitPanel) View() string {
 		pad = 1
 	}
 	rightTitle := gitDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
-	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, p.right.View())
+	bar := p.renderScrollbar(p.right.Height)
+	diffWithBar := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), bar)
+	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, diffWithBar)
 	rightStyle := paneIdleStyle
 	if p.focus == focusDiff {
 		rightStyle = paneActiveStyle
@@ -551,7 +623,7 @@ func (p *GitPanel) View() string {
 		add("j/k", "scroll")
 		add("ctrl+u/d", "half page")
 		add("g/G", "top/bottom")
-		add("tab", "files")
+		add("←/tab", "files")
 		add("q/esc", "close")
 	} else {
 		if len(p.files) > 0 {
@@ -566,7 +638,7 @@ func (p *GitPanel) View() string {
 		}
 		add("l", "log")
 		add("d", "diff")
-		add("tab", "scroll diff")
+		add("→/tab", "scroll diff")
 		add("q/esc", "close")
 	}
 	footer := joinSep(parts, sep)
