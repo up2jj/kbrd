@@ -1056,6 +1056,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.selectedCol >= len(b.columns) {
 			b.selectedCol = 0
 		}
+	case key.Matches(msg, Keys.JumpCol):
+		idx := int(msg.Runes[0] - '1') // '1' -> 0 ... '9' -> 8
+		if idx >= 0 && idx < len(b.columns) {
+			b.selectedCol = idx
+		}
 	case key.Matches(msg, Keys.PanLeft):
 		if b.firstVisibleCol > 0 {
 			b.firstVisibleCol--
