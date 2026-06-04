@@ -111,6 +111,7 @@ type Board struct {
 	leftIndicatorWidth int
 	logoHeight         int
 	cells              CellBar
+	mcpStatus          MCPStatus // drives the header MCP chip (off / running / failed-to-bind)
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -159,6 +160,20 @@ func NewBoard(cfg config.Config) *Board {
 	b.initHooks()
 	return b
 }
+
+// MCPStatus is the built-in MCP server's state as reflected in the header chip.
+type MCPStatus int
+
+const (
+	MCPOff     MCPStatus = iota // not requested (no --mcp and config disabled)
+	MCPRunning                  // listener bound and serving
+	MCPFailed                   // requested but the listener could not bind (e.g. port in use)
+)
+
+// SetMCPStatus records the MCP server's outcome so the header strip can show a
+// truthful chip. Called from main once startMCP has reported back, before the
+// program loop starts.
+func (b *Board) SetMCPStatus(s MCPStatus) { b.mcpStatus = s }
 
 // initGit (re)builds the git controller for the current b.cfg. Called from
 // NewBoard and on every board switch (loadBoard), mirroring initScripting, so
@@ -1757,6 +1772,19 @@ func (b *Board) updateBuiltinCells() {
 		b.cells.SetInternal(Cell{ID: -3, Text: b.scriptStatus, FG: string(b.palette.FgMuted)})
 	} else {
 		b.cells.Clear(-3)
+	}
+
+	// Persistent MCP indicator: filled+green when bound, danger when requested
+	// but the bind failed (e.g. the port is already in use), hollow+muted when
+	// off. Leftmost (most negative) id so it survives header truncation alongside
+	// the other built-ins.
+	switch b.mcpStatus {
+	case MCPRunning:
+		b.cells.SetInternal(Cell{ID: -7, Text: "◆ mcp", FG: string(b.palette.Success)})
+	case MCPFailed:
+		b.cells.SetInternal(Cell{ID: -7, Text: "✕ mcp", FG: string(b.palette.Danger)})
+	default:
+		b.cells.SetInternal(Cell{ID: -7, Text: "◇ mcp", FG: string(b.palette.FgMuted)})
 	}
 
 	total := 0

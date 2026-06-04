@@ -163,7 +163,7 @@ overlay. To scaffold configuration files:
 | --- | --- |
 | `--init-config` | Write the global config template to `~/.config/kbrd/` and exit. |
 | `--init-local-config` | Write a `kbrd.toml` template into the current directory and exit. |
-| `--no-mcp` | Disable the built-in MCP server for this run. |
+| `--mcp` | Start the built-in MCP server for this run (off by default). |
 | `--mcp-addr <addr>` | Override the MCP listen address (default `127.0.0.1:7777`). |
 
 ---
@@ -322,7 +322,7 @@ instruction_limit  = 10000000 # CPU backstop per script run
 error_threshold    = 3        # auto-disable a failing hook/timer after N errors (0 = never)
 
 [mcp]
-enabled = true              # built-in MCP server (also disable with --no-mcp)
+enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
 addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 ```
 
@@ -403,10 +403,14 @@ Scripting can be disabled and tuned via the `[scripting]` config section. See
 
 ### MCP server
 
-kbrd runs a built-in [Model Context Protocol](https://modelcontextprotocol.io) server over
+kbrd can run a built-in [Model Context Protocol](https://modelcontextprotocol.io) server over
 Streamable HTTP, letting external tools and LLM agents operate on your boards headlessly.
-It listens on `127.0.0.1:7777` by default (configure via `[mcp]` or `--mcp-addr`; disable
-with `--no-mcp`). Its scope covers boards in your recents plus any folder-local `.mcp.json`.
+It is **off by default** — start it with `--mcp` for a single run, or set `enabled = true` in
+the `[mcp]` config section to opt a board in permanently. It listens on `127.0.0.1:7777`
+(override with `--mcp-addr` or `[mcp].addr`). The header strip shows its state: `◆ mcp`
+(green) when running, `✕ mcp` (red) when it was requested but couldn't bind — e.g. the port
+is already in use — and `◇ mcp` (muted) when off. Its scope covers boards in your recents
+plus any folder-local `.mcp.json`.
 
 **Tools exposed**
 

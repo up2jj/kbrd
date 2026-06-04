@@ -52,8 +52,8 @@ type HooksConfig struct {
 }
 
 // MCPConfig controls the built-in MCP server, which runs alongside the TUI and
-// exposes board operations to MCP clients over Streamable HTTP. When Enabled is
-// false (or the --no-mcp flag is set) no listener is started.
+// exposes board operations to MCP clients over Streamable HTTP. It is opt-in: a
+// listener is started only when the --mcp flag is passed or Enabled is set true.
 type MCPConfig struct {
 	Enabled bool
 	Addr    string
@@ -99,7 +99,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.error_threshold", 3)
 	v.SetDefault("hooks.enabled", true)
 	v.SetDefault("hooks.timeout_ms", 2000)
-	v.SetDefault("mcp.enabled", true)
+	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")

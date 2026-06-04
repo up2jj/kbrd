@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -80,6 +82,22 @@ func Serve(addr string) (io.Closer, error) {
 		_ = httpSrv.Serve(ln)
 	}()
 	return closer{srv: httpSrv}, nil
+}
+
+// Start brings up the MCP server on addr and returns the closer plus whether
+// the listener actually bound. It owns the version handshake and the
+// bind-failure warning so callers (main) stay thin. A bind error — most often
+// the port is already held by another kbrd instance, which already serves every
+// board via recents — is warned about and reported as running=false, never
+// fatal. A nil closer is safe to ignore; callers should still guard Close.
+func Start(version, addr string) (io.Closer, bool) {
+	SetVersion(version)
+	c, err := Serve(addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: MCP server not started on %s: %v\n", addr, err)
+		return nil, false
+	}
+	return c, true
 }
 
 // Run starts the server on addr and blocks until ctx is cancelled. Useful for
