@@ -343,7 +343,7 @@ an **MCP server** for external tools.
 ### Custom shell commands
 
 Define shell commands that run against the selected card, column, or board. Press `x` on a
-card to open the menu and fuzzy-search by name.
+card to open the menu and fuzzy-search by name ([example](./examples/commands/commands.yml)).
 
 - **Global:** `~/.config/kbrd/commands.yml`
 - **Folder-local:** `<board>/.kbrd_commands.yml` (overrides global commands with the same `id`)

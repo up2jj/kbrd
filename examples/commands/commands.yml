@@ -1,0 +1,39 @@
+# Custom shell commands example — run against the selected card, column, or board.
+# Press `x` on a card to open the menu, then fuzzy-search by name.
+#
+# Quote variables to handle paths with spaces. Reload by re-opening the board.
+# See the README in this folder for the full template-variable list.
+
+commands:
+  - name: Edit in nano
+    id: edit-nano
+    description: Open file in nano
+    command: nano "{{.filePath}}"
+
+  - name: Edit in vim
+    id: edit-vim
+    description: Open file in vim
+    command: vim "{{.filePath}}"
+
+  # `read -n1` pauses so you can see the output before the TUI redraws.
+  - name: Word count
+    id: word-count
+    description: Show wc stats for the file
+    command: wc "{{.filePath}}"; echo; read -n1 -s -r -p "press any key"
+
+  - name: Reveal in Finder
+    id: reveal-finder
+    description: Open the column folder in Finder
+    command: open "{{.columnPath}}"
+
+  # Dump every template variable — handy for discovering what's available.
+  - name: Print info
+    id: print-info
+    description: Dump all template variables
+    command: |
+      echo "file:   {{.filePath}}"
+      echo "name:   {{.fileName}}"
+      echo "dir:    {{.fileDir}}"
+      echo "board:  {{.boardName}} ({{.boardPath}})"
+      echo "column: {{.columnName}} ({{.columnPath}})"
+      read -n1 -s -r -p "press any key"

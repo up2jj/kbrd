@@ -1,0 +1,64 @@
+# Declarative hooks example — run a shell command when a board operation happens.
+# Effects land in .kbrd_hooks.log (board root) so they are easy to verify; one
+# hook also pops a macOS notification.
+#
+# Watch the "⚙ hooks" chip in the header while these run. They execute one at a
+# time, in the order listed below (per-hook timeout is hooks.timeout_ms = 2000).
+#
+#   tail -f "<board>/.kbrd_hooks.log"
+#
+# NOTE: command values use a YAML literal block scalar (|-) so colons, quotes and
+# template braces are taken verbatim — a plain "command: echo a: b" would be
+# misread by YAML as a mapping.
+
+hooks:
+  # --- item_created: three hooks fire in order, proving serial execution ---
+  - name: Log create
+    id: log-create
+    event: item_created
+    command: |-
+      echo "$(date '+%H:%M:%S') created '{{.fileName}}' in '{{.columnName}}'" >> "{{.boardPath}}/.kbrd_hooks.log"
+
+  - name: Slow step (watch the indicator)
+    id: slow-step
+    event: item_created
+    command: sleep 1
+
+  - name: After slow step
+    id: after-slow
+    event: item_created
+    command: |-
+      echo "$(date '+%H:%M:%S')   ^ marker AFTER the 1s sleep — ordering works" >> "{{.boardPath}}/.kbrd_hooks.log"
+
+  # --- item_moved: two hooks — a log line and a desktop notification ---
+  - name: Log move
+    id: log-move
+    event: item_moved
+    command: |-
+      echo "$(date '+%H:%M:%S') moved '{{.fileName}}': '{{.fromColumn}}' -> '{{.toColumn}}'" >> "{{.boardPath}}/.kbrd_hooks.log"
+
+  # macOS only. On Linux swap osascript for: notify-send "kbrd hook" "..."
+  - name: Notify on move
+    id: notify-move
+    event: item_moved
+    command: |-
+      osascript -e 'display notification "{{.fileName}} — {{.fromColumn}} → {{.toColumn}}" with title "kbrd hook"'
+
+  # --- the remaining action events ---
+  - name: Log rename
+    id: log-rename
+    event: item_renamed
+    command: |-
+      echo "$(date '+%H:%M:%S') renamed '{{.oldName}}' -> '{{.fileName}}'" >> "{{.boardPath}}/.kbrd_hooks.log"
+
+  - name: Log delete
+    id: log-delete
+    event: item_deleted
+    command: |-
+      echo "$(date '+%H:%M:%S') deleted '{{.fileName}}' from '{{.columnName}}'" >> "{{.boardPath}}/.kbrd_hooks.log"
+
+  - name: Log open
+    id: log-open
+    event: item_open
+    command: |-
+      echo "$(date '+%H:%M:%S') opened '{{.fileName}}' ({{.kind}})" >> "{{.boardPath}}/.kbrd_hooks.log"

@@ -138,6 +138,10 @@ hooks:
     command: git -C "{{.boardPath}}" add "{{.toColumn}}/{{.fileName}}.md"
 ```
 
+See **[examples/hooks/](./examples/hooks/hooks.yml)** (and its
+[README](./examples/hooks/README.md)) for a fuller set: per-event logging, a
+serial-execution ordering demo, and a desktop notification on move.
+
 How they behave:
 
 - **After-only.** Hooks observe a completed operation; they cannot cancel it.
