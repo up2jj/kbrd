@@ -5,6 +5,10 @@ project_name: kbrd
 before:
   hooks:
     - go mod tidy
+    - mkdir -p completions
+    - sh -c 'go run . completion bash > completions/kbrd.bash'
+    - sh -c 'go run . completion zsh  > completions/kbrd.zsh'
+    - sh -c 'go run . completion fish > completions/kbrd.fish'
 
 builds:
   - id: kbrd
@@ -24,6 +28,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+      - completions/*
 
 checksum:
   name_template: "checksums.txt"
@@ -42,6 +47,10 @@ changelog:
 homebrew_casks:
   - name: kbrd
     binaries: [kbrd]
+    completions:
+      bash: completions/kbrd.bash
+      zsh: completions/kbrd.zsh
+      fish: completions/kbrd.fish
     homepage: "https://github.com/up2jj/kbrd"
     description: "Terminal-based, keyboard-driven Kanban board"
     repository:

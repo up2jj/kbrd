@@ -4,6 +4,9 @@
 # GoReleaser build output
 /dist/
 
+# Generated shell completions (built during release)
+/completions/
+
 # Demo artifacts (regenerate with demo/seed.sh + vhs demo/screenshots.tape)
 /demo/sample-board/
 /demo/boards/
