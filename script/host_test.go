@@ -17,24 +17,32 @@ import (
 // spinning up a real Board. FS ops are routed to a real tempdir so they
 // exercise the same os/filepath plumbing the production implementation does.
 type fakeAPI struct {
-	mu        sync.Mutex
-	root      string
-	notifies  []string
-	moves     []move
-	moveErr   error
-	creates   []string
-	renames   []string
-	deletes   []string
-	refreshes int
-	columns   []string
-	cellSets  []cellSet
-	cellClear []int
-	cellWipes int
+	mu         sync.Mutex
+	root       string
+	notifies   []string
+	moves      []move
+	moveErr    error
+	creates    []string
+	renames    []string
+	deletes    []string
+	refreshes  int
+	columns    []string
+	cellSets   []cellSet
+	cellClear  []int
+	cellWipes  int
+	vcolSets   []vcolSet
+	vcolClears []string
+	vcolWipes  int
 }
 
 type cellSet struct {
 	ID   int
 	Opts events.CellOpts
+}
+
+type vcolSet struct {
+	ID   string
+	Spec events.VirtualColumnSpec
 }
 
 type move struct {
@@ -149,6 +157,24 @@ func (f *fakeAPI) CellClearAll() {
 	f.cellWipes++
 }
 
+func (f *fakeAPI) VirtualColumnSet(id string, spec events.VirtualColumnSpec) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.vcolSets = append(f.vcolSets, vcolSet{ID: id, Spec: spec})
+}
+
+func (f *fakeAPI) VirtualColumnClear(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.vcolClears = append(f.vcolClears, id)
+}
+
+func (f *fakeAPI) VirtualColumnClearAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.vcolWipes++
+}
+
 func writeInit(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -211,6 +237,64 @@ func TestCommandRegistration(t *testing.T) {
 	}
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "ran:foo.md") {
 		t.Fatalf("notify not invoked: %v", api.notifies)
+	}
+}
+
+func TestVirtualColumnSet(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.column.set("tasks", {
+  name = "Tasks",
+  empty = "none",
+  items = {
+    { separator = true, title = "Group" },
+    { id = "t1", title = "first", meta = "src", data = { path = "/a.md", line = 3 } },
+  },
+  commands = {
+    { id = "done", name = "Mark done", key = "c", default = true,
+      run = function(ctx) kbrd.notify("done:"..ctx.title..":"..ctx.data.path) end },
+  },
+})`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if len(api.vcolSets) != 1 {
+		t.Fatalf("expected 1 VirtualColumnSet, got %d", len(api.vcolSets))
+	}
+	set := api.vcolSets[0]
+	if set.ID != "tasks" || set.Spec.Name != "Tasks" || set.Spec.Empty != "none" {
+		t.Fatalf("unexpected spec: %+v", set)
+	}
+	if len(set.Spec.Items) != 2 || !set.Spec.Items[0].Separator || set.Spec.Items[1].ID != "t1" {
+		t.Fatalf("items not parsed: %+v", set.Spec.Items)
+	}
+	if set.Spec.Items[1].Data["path"] != "/a.md" {
+		t.Fatalf("data not parsed: %+v", set.Spec.Items[1].Data)
+	}
+	if len(set.Spec.Commands) != 1 || set.Spec.Commands[0].Ref != "vcol:tasks:done" || !set.Spec.Commands[0].Default {
+		t.Fatalf("commands not parsed: %+v", set.Spec.Commands)
+	}
+
+	// Dispatch the column command with a structured ctx — ctx.data round-trips.
+	ref := set.Spec.Commands[0].Ref
+	if _, err := h.RunVirtualCommand(ref, map[string]interface{}{
+		"title": "first",
+		"data":  map[string]interface{}{"path": "/a.md"},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "done:first:/a.md") {
+		t.Fatalf("virtual command did not run with data: %v", api.notifies)
+	}
+
+	// Clearing drops the run closure so the ref no longer resolves.
+	h.clearVcolFns("tasks")
+	_, err = h.RunVirtualCommand(ref, map[string]interface{}{"data": map[string]interface{}{"path": "/a.md"}})
+	if err == nil || !strings.Contains(err.Error(), "unknown lua command") {
+		t.Fatalf("expected unknown-command error after clear, got %v", err)
 	}
 }
 

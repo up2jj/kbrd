@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/board"
+	"kbrd/events"
 	kbrdfs "kbrd/fs"
 )
 
@@ -37,6 +38,15 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 	isSelected := index == m.Index()
+
+	if item.Separator {
+		d.renderSeparator(w, item)
+		return
+	}
+	if item.Virtual {
+		d.renderVirtual(w, item, isSelected)
+		return
+	}
 
 	gutterW := d.gutterW
 	if gutterW < 2 {
@@ -144,6 +154,112 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, metaStyle.Render(meta))
 }
 
+// renderSeparator draws an inert grouping row: a centered label flanked by rule
+// glyphs, vertically padded to fill the fixed 3-row item slot.
+func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
+	p := d.palette
+	fg := p.FgMuted
+	if item.Accent != "" {
+		fg = lipgloss.Color(item.Accent)
+	}
+	label := strings.TrimSpace(item.Title)
+	var line string
+	if label != "" {
+		label = " " + strings.ToUpper(label) + " "
+	}
+	dashes := d.colWidth - lipgloss.Width(label) - 2
+	if dashes < 0 {
+		dashes = 0
+	}
+	left := dashes / 2
+	right := dashes - left
+	line = strings.Repeat("─", left) + label + strings.Repeat("─", right)
+	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
+	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
+	fmt.Fprintln(w, blank)
+	fmt.Fprintln(w, style.Render(line))
+	fmt.Fprint(w, blank)
+}
+
+// renderVirtual draws a script-supplied item in the fixed 3-row frame: icon +
+// title (line 1, tinted by Accent), preview (line 2), and the script-provided
+// Meta string (line 3) in place of the filesystem-only mtime/size/diff line.
+func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
+	p := d.palette
+	gutterW := d.gutterW
+	if gutterW < 2 {
+		gutterW = 2
+	}
+	mnemonic := ""
+	if d.mnemonicOf != nil {
+		mnemonic = d.mnemonicOf(item.Name)
+	}
+
+	var rowBg, mnemFg, nameFg lipgloss.Color
+	hasRowBg := false
+	switch {
+	case isSelected && d.isActive:
+		rowBg = p.PrimaryStrong
+		mnemFg = p.Highlight
+		nameFg = p.FgOnAccent
+		hasRowBg = true
+	default:
+		mnemFg = p.Warning
+		nameFg = p.FgEmphasis
+	}
+	if item.Accent != "" && !hasRowBg {
+		nameFg = lipgloss.Color(item.Accent)
+	}
+
+	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
+	restWidth := d.colWidth - gutterW
+	if restWidth < 1 {
+		restWidth = 1
+	}
+	restStyle := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Width(restWidth).MaxWidth(restWidth)
+	if hasRowBg {
+		gutterStyle = gutterStyle.Background(rowBg)
+		restStyle = restStyle.Background(rowBg)
+	}
+	gutterText := mnemonic
+	if gutterText == "" && isSelected && d.isActive {
+		gutterText = ">"
+	}
+	title := item.Title
+	if item.Icon != "" {
+		title = item.Icon + " " + title
+	}
+	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(title))
+
+	preview := "—"
+	if len(item.Preview) > 0 {
+		preview = item.Preview[0]
+	}
+	var previewFg, detailBg lipgloss.Color
+	switch {
+	case isSelected && d.isActive:
+		previewFg = p.FgSelectedPreview
+		detailBg = p.BgSelectedDetail
+	default:
+		previewFg = p.FgSubtle
+	}
+	previewStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
+	if isSelected && d.isActive {
+		previewStyle = previewStyle.Background(detailBg)
+	}
+	fmt.Fprintln(w, previewStyle.Render(preview))
+
+	metaFg := p.BorderMuted
+	if isSelected && d.isActive {
+		metaFg = p.AccentSoft
+	}
+	metaStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(metaFg)
+	if isSelected && d.isActive {
+		metaStyle = metaStyle.Background(detailBg)
+	}
+	fmt.Fprint(w, metaStyle.Render(item.Meta))
+}
+
 // Column represents one kanban column backed by a directory.
 type Column struct {
 	Name        string
@@ -154,6 +270,26 @@ type Column struct {
 	itemOpts    ItemOptions
 	listYOffset int
 	palette     Palette
+
+	// Virtual-column state. A virtual column has no filesystem backing: its
+	// Items are pushed by a script via kbrd.column.set, file moves into/out of
+	// it are rejected, and its actions come from colCmds rather than the
+	// built-in mutation keys. Zero for ordinary filesystem columns.
+	Virtual    bool
+	VID        string       // Lua-facing id (stable key for set/clear)
+	colCmds    []VirtualCmd // column-scoped commands (B)
+	defaultCmd string       // id of the Enter/default command (optional)
+	emptyText  string       // placeholder shown when there are no items
+}
+
+// VirtualCmd is a column-scoped command surfaced in the X menu / status hints
+// for a virtual column. Ref is the host dispatch handle.
+type VirtualCmd struct {
+	ID      string
+	Name    string
+	Key     string
+	Default bool
+	Ref     string
 }
 
 func NewColumn(name, path string, colWidth int, itemOpts ItemOptions) *Column {
@@ -172,6 +308,104 @@ func NewColumn(name, path string, colWidth int, itemOpts ItemOptions) *Column {
 		Foreground(palette.FgDim)
 
 	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, itemOpts: itemOpts, palette: palette}
+}
+
+// NewVirtualColumn builds an empty script-backed column. It reuses NewColumn's
+// list setup, then flips the virtual flag and clears the filesystem Path.
+func NewVirtualColumn(vid, name string, colWidth int, palette Palette) *Column {
+	c := NewColumn(name, "", colWidth, ItemOptions{})
+	c.Virtual = true
+	c.VID = vid
+	c.palette = palette
+	c.list.SetDelegate(itemDelegate{colWidth: colWidth, palette: palette})
+	return c
+}
+
+// ApplyVirtualSpec replaces the column's items and column-scoped commands from a
+// script push (kbrd.column.set). Items are shown in the order given (no
+// SortItems). The cursor is preserved by item id when the selected item still
+// exists, else clamped to its old index.
+func (c *Column) ApplyVirtualSpec(spec events.VirtualColumnSpec) {
+	if spec.Name != "" {
+		c.Name = spec.Name
+	}
+	c.emptyText = spec.Empty
+
+	c.colCmds = c.colCmds[:0]
+	c.defaultCmd = ""
+	for _, vc := range spec.Commands {
+		c.colCmds = append(c.colCmds, VirtualCmd{
+			ID: vc.ID, Name: vc.Name, Key: vc.Key, Default: vc.Default, Ref: vc.Ref,
+		})
+		if vc.Default && c.defaultCmd == "" {
+			c.defaultCmd = vc.ID
+		}
+	}
+
+	prevName, prevIdx := "", c.list.Index()
+	if sel := c.SelectedItem(); sel != nil {
+		prevName = sel.Name
+	}
+
+	items := make([]Item, 0, len(spec.Items))
+	for _, vi := range spec.Items {
+		items = append(items, virtualItemToItem(vi))
+	}
+	c.Items = items // virtual columns control their own order
+
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	c.list.SetItems(listItems)
+	c.restoreVirtualCursor(prevName, prevIdx)
+}
+
+// restoreVirtualCursor re-selects the item named prevName after a re-push; if it
+// is gone, it clamps to the previous index position (bounded by the new length).
+func (c *Column) restoreVirtualCursor(prevName string, prevIdx int) {
+	if prevName != "" {
+		for i, it := range c.Items {
+			if it.Name == prevName {
+				c.list.Select(i)
+				return
+			}
+		}
+	}
+	if n := len(c.Items); n > 0 {
+		if prevIdx >= n {
+			prevIdx = n - 1
+		}
+		if prevIdx < 0 {
+			prevIdx = 0
+		}
+		c.list.Select(prevIdx)
+	}
+}
+
+// virtualItemToItem converts a script-pushed VirtualItem into a model Item. The
+// id (else title) becomes Name so the existing name-keyed selection works.
+func virtualItemToItem(vi events.VirtualItem) Item {
+	name := vi.ID
+	if name == "" {
+		name = vi.Title
+	}
+	var preview []string
+	if vi.Preview != "" {
+		preview = []string{vi.Preview}
+	}
+	return Item{
+		Name:      name,
+		Title:     vi.Title,
+		Preview:   preview,
+		FullPath:  vi.Path,
+		Virtual:   true,
+		Separator: vi.Separator,
+		Meta:      vi.Meta,
+		Icon:      vi.Icon,
+		Accent:    vi.Accent,
+		Data:      vi.Data,
+	}
 }
 
 func (c *Column) SetHeight(h int) {
@@ -198,6 +432,12 @@ func (c *Column) renderHeader(isActive bool, leftPad int) string {
 	}
 
 	nameLabel := strings.ToUpper(c.Name)
+	if c.Virtual {
+		// ◇ is the primary "virtual" marker; tint the name with a soft accent in
+		// both states so it stays a gentle hint, not a selected-looking highlight.
+		nameLabel = "◇ " + nameLabel
+		nameFg = c.palette.AccentSoft
+	}
 	countLabel := strconv.Itoa(c.TotalCount())
 	filtered := c.list.IsFiltered() && !c.list.SettingFilter()
 	if filtered {
@@ -238,11 +478,17 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
 	c.list.Styles.NoItems = lipgloss.NewStyle().PaddingLeft(2).Foreground(c.palette.FgDim)
 
-	var borderColor lipgloss.Color
+	// Virtual columns signal "virtual" via the double-border shape (and the ◇
+	// header glyph), not a high-contrast color — so the border color follows the
+	// same focused/unfocused scheme as ordinary columns and an unfocused virtual
+	// column doesn't read as selected.
+	border := lipgloss.RoundedBorder()
+	if c.Virtual {
+		border = lipgloss.DoubleBorder()
+	}
+	borderColor := c.palette.BorderMuted
 	if isActive {
 		borderColor = c.palette.BorderActive
-	} else {
-		borderColor = c.palette.BorderMuted
 	}
 
 	leftPad := gutterW - 2
@@ -251,6 +497,13 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	}
 	header := c.renderHeader(isActive, leftPad)
 	listView := c.list.View()
+	if c.Virtual && len(c.Items) == 0 && c.emptyText != "" {
+		listView = lipgloss.NewStyle().
+			PaddingLeft(2).
+			Width(c.colWidth).
+			Foreground(c.palette.FgDim).
+			Render(c.emptyText)
+	}
 	c.listYOffset = 1 + lipgloss.Height(header)
 	if c.list.ShowFilter() {
 		c.listYOffset += lipgloss.Height(listView) - c.list.Height()
@@ -262,7 +515,7 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	)
 
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(border).
 		BorderForeground(borderColor).
 		Render(content)
 }

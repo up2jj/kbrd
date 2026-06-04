@@ -226,6 +226,48 @@ type BoardAPI interface {
 	CellSet(id int, opts CellOpts)
 	CellClear(id int)
 	CellClearAll()
+
+	// VirtualColumnSet creates or replaces a script-supplied (virtual) column
+	// identified by id. VirtualColumnClear removes one; VirtualColumnClearAll
+	// removes every virtual column. Virtual columns hold script-pushed items and
+	// have no filesystem backing — file moves into them are rejected.
+	VirtualColumnSet(id string, spec VirtualColumnSpec)
+	VirtualColumnClear(id string)
+	VirtualColumnClearAll()
+}
+
+// VirtualItem is one entry a script pushes into a virtual column via
+// kbrd.column.set. All fields except Title are optional. Separator marks an
+// inert grouping row (only Title/Accent apply). Data is an opaque payload that
+// round-trips back into a command's ctx so the producing script can act on it.
+type VirtualItem struct {
+	ID        string
+	Title     string
+	Preview   string
+	Meta      string
+	Icon      string
+	Accent    string
+	Path      string
+	Separator bool
+	Data      map[string]interface{}
+}
+
+// VirtualCommand is a column-scoped command (B) declared inside kbrd.column.set.
+// Ref is the opaque dispatch handle the host resolves back to the Lua run fn.
+type VirtualCommand struct {
+	ID      string
+	Name    string
+	Key     string
+	Default bool
+	Ref     string
+}
+
+// VirtualColumnSpec is the full payload of a kbrd.column.set call.
+type VirtualColumnSpec struct {
+	Name     string
+	Empty    string
+	Items    []VirtualItem
+	Commands []VirtualCommand
 }
 
 // CellOpts is the appearance/content of a header cell set from a script.

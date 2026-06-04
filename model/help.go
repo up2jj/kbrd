@@ -20,6 +20,10 @@ type ShortcutContext struct {
 	HasSelectedItem bool
 	QuickCmdMode    bool
 	Filtering       bool
+	// Virtual is set when the focused column is a virtual (script) column;
+	// VirtualCmds holds its declared command key/label hints to surface inline.
+	Virtual     bool
+	VirtualCmds []Shortcut
 }
 
 var (
@@ -64,6 +68,16 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	short := func(keys, label string) Shortcut { return Shortcut{Keys: keys, Label: label} }
 	if ctx.QuickCmdMode {
 		return []Shortcut{bindingShortcut(Keys.QuickCmdCancel)}
+	}
+	if ctx.Virtual {
+		out := []Shortcut{short("enter", "default")}
+		out = append(out, ctx.VirtualCmds...)
+		out = append(out,
+			bindingShortcut(Keys.CustomCommands),
+			short(Keys.QuickCmd.Help().Key, "cmd"),
+			short(Keys.ToggleHelp.Help().Key, "more"),
+		)
+		return out
 	}
 	if ctx.HasSelectedItem {
 		return []Shortcut{

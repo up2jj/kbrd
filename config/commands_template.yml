@@ -12,6 +12,13 @@
 #   {{env "VAR"}}    value of environment variable VAR ("" if unset)
 #
 # Quote variables to handle paths with spaces.
+#
+# Optional `scope:` controls where a command appears:
+#   files   (default) filesystem columns only
+#   virtual           script-supplied "virtual" columns only
+#   all               both
+# On a virtual item {{.filePath}} is the item's source file (when it has one);
+# {{.columnPath}} is not available there.
 
 commands:
   - name: Edit in nano

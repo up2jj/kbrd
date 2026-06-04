@@ -222,6 +222,26 @@ kbrd.command{
 Re-registering the same id replaces the previous binding (useful when
 iterating on a script).
 
+**`scope`** (optional) controls which columns the command appears on:
+
+| `scope`     | shown on                                  |
+| ----------- | ----------------------------------------- |
+| `"files"`   | filesystem columns only — **the default** |
+| `"virtual"` | [virtual columns](#kbrdcolumnsetid-spec--virtual-columns) only |
+| `"all"`     | both                                       |
+
+The default keeps file-assuming commands (which read `ctx.filePath` or call
+`kbrd.board.move`) off fileless virtual columns. Set `scope = "all"` for a
+command that works on any item via the shared `ctx.path`:
+
+```lua
+kbrd.command{ id="reveal", name="Reveal", scope="all",
+  run=function(ctx) kbrd.async.run("open -R "..ctx.path) end }
+```
+
+The same `scope:` key works in YAML command files (`commands.yml` /
+`.kbrd_commands.yml`).
+
 ### `kbrd.has_command(id)`
 
 Returns `true` if a Lua command with this id is currently registered, `false`
@@ -479,6 +499,65 @@ Remove a single header cell. No-op if the id isn't set.
 ### `kbrd.cell.clear_all()`
 
 Remove every cell **your scripts** set. Built-in cells (negative ids) are kept.
+
+### `kbrd.column.set(id, spec)` — virtual columns
+
+A **virtual column** is a column whose items come from your script instead of a
+filesystem directory. It renders to the right of the real columns (with a
+distinct double border and a `◇` marker), `tab`/`shift+tab` navigate into it like
+any column, but **files can't be moved into or out of it** — it's a read-only
+view. Use it to show a cross-cutting list, e.g. every open task across all your
+boards.
+
+`kbrd.column.set` creates or replaces a virtual column. It's idempotent and safe
+to call from a `board_load` hook, an `kbrd.async.run` callback, or a command body
+— call it again to refresh the contents.
+
+```lua
+kbrd.column.set("tasks", {
+  name  = "Tasks",            -- header label (defaults to the id)
+  empty = "no open tasks",    -- placeholder shown while there are no items
+  items = {
+    { separator = true, title = "Work" },          -- inert grouping row
+    { id    = "t1",                                 -- stable key (cursor survives a re-push)
+      title = "ship release notes",                 -- line 1
+      preview = "due friday",                       -- line 2
+      meta  = "work-board",                         -- line 3 (replaces mtime/size)
+      icon  = "☐",                                  -- glyph before the title
+      accent = "#e0af68",                           -- title/icon color (hex)
+      path  = "/abs/path/notes.md",                 -- optional backing file → ctx.path
+      data  = { line = 12, board = "work" },        -- opaque payload → ctx.data
+    },
+  },
+  commands = {                                       -- column-scoped actions (the X menu / hint bar)
+    { id = "open", name = "Open source", key = "o", default = true,
+      run = function(ctx) ... end },                 -- default=true → bound to Enter
+  },
+})
+```
+
+Item fields are all optional except `title`. `separator = true` makes an inert
+grouping row (only `title`/`accent` apply — no actions, no quick-jump tag, hidden
+from the filter). `id` is the stable cursor key across re-pushes; it falls back
+to `title`.
+
+**Actions.** Virtual items have no built-in mutation keys. Instead:
+
+- Column-scoped `commands` appear first in the **X** menu and (if they set `key`)
+  in the bottom hint bar. The one with `default = true` also runs on **Enter**
+  (otherwise Enter opens `path`, if set).
+- A command's `run(ctx)` receives the item payload: `ctx.data` (your table),
+  `ctx.path`/`ctx.filePath`, `ctx.title`, `ctx.columnName`, `ctx.vid`.
+- Global `kbrd.command` / YAML commands appear too **only if** they opt in with
+  `scope = "virtual"` or `scope = "all"` (see `scope` below).
+
+The command does whatever it does (typically writing the *source* file via
+`kbrd.fs.write(ctx.data.path, …)`); to reflect the change, call `kbrd.column.set`
+again. The cursor is preserved by `id`.
+
+### `kbrd.column.clear(id)` / `kbrd.column.clear_all()`
+
+Remove one virtual column, or all of them.
 
 ### `kbrd.fs.read(path)`
 
@@ -747,6 +826,35 @@ kbrd.on("git_sync_done", function(evt)
     kbrd.notify("sync failed (" .. evt.stage .. "): " .. evt.error, "error")
   end
 end)
+```
+
+### Virtual column — open tasks, with "mark complete"
+
+A virtual **Tasks** column built from open `- [ ]` checkboxes, with `complete`
+and `edit` commands that rewrite the source file. `rg` runs with the active board
+as its working directory, so `.` scans the current board; use `~/boards` to go
+cross-board.
+
+It stays in sync by hooking two events — `board_load` (open / board switch) and
+`board_refresh` (the file watcher fires this whenever a `.md` file is added or
+edited) — so newly added tasks appear without a manual refresh. (`kbrd.async.run`
+can't be called from a timer, so events are how you get periodic-feeling updates.)
+
+The full, ready-to-use script lives in
+**[examples/tasks/tasks.lua](./examples/tasks/tasks.lua)** (see its
+[README](./examples/tasks/README.md) for install + caveats). The shape is:
+
+```lua
+local function refresh()
+  kbrd.async.run([[rg --line-number --no-heading -e '^\s*- \[ *\]\s' . --glob '*.md']],
+    function(r)
+      -- …parse `path:line:text` rows into items…
+      kbrd.column.set("tasks", { name = "Tasks", items = items, commands = { … } })
+    end)
+end
+
+kbrd.on("board_load", refresh)     -- open / board switch
+kbrd.on("board_refresh", refresh)  -- file watcher: added / edited / completed tasks
 ```
 
 ### Count items in each column on board load

@@ -1,6 +1,16 @@
 package model
 
-import "kbrd/events"
+import (
+	"errors"
+
+	"kbrd/events"
+)
+
+// errVirtualColumn is returned when a mutation targets a virtual (script-owned,
+// fileless) column, where item create/move/rename/delete have no meaning. The
+// guards live here, at the centralized mutators, so every entry point — key
+// handlers, the Lua kbrd.board.* API, MCP — is covered.
+var errVirtualColumn = errors.New("virtual columns are read-only")
 
 // This file holds the canonical board-mutation primitives. Each performs the
 // filesystem change via the Column method AND publishes the corresponding
@@ -13,6 +23,9 @@ import "kbrd/events"
 // reload) — callers own that. All run on the Bubble Tea goroutine.
 
 func (b *Board) createItem(col *Column, name string) (string, error) {
+	if col.Virtual {
+		return "", errVirtualColumn
+	}
 	path, err := col.CreateItem(name)
 	if err != nil {
 		return "", err
@@ -22,6 +35,9 @@ func (b *Board) createItem(col *Column, name string) (string, error) {
 }
 
 func (b *Board) renameItem(col *Column, oldName, newName string) error {
+	if col.Virtual {
+		return errVirtualColumn
+	}
 	if err := col.RenameItem(oldName, newName); err != nil {
 		return err
 	}
@@ -33,6 +49,9 @@ func (b *Board) renameItem(col *Column, oldName, newName string) error {
 }
 
 func (b *Board) deleteItem(col *Column, name string) error {
+	if col.Virtual {
+		return errVirtualColumn
+	}
 	if err := col.DeleteItem(name); err != nil {
 		return err
 	}
@@ -41,6 +60,9 @@ func (b *Board) deleteItem(col *Column, name string) error {
 }
 
 func (b *Board) moveItem(src, dst *Column, name string) error {
+	if src.Virtual || dst.Virtual {
+		return errVirtualColumn
+	}
 	if err := src.MoveItemTo(dst, name); err != nil {
 		return err
 	}

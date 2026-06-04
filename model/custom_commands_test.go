@@ -30,7 +30,7 @@ func TestCustomCommandMenu_OpenClose(t *testing.T) {
 	if m.Active() {
 		t.Fatal("new menu must not be active")
 	}
-	m.Open(testCommands(), nil, map[string]string{"filePath": "/x"})
+	m.Open(testCommands(), nil, map[string]string{"filePath": "/x"}, nil)
 	if !m.Active() {
 		t.Fatal("Open did not activate")
 	}
@@ -48,7 +48,7 @@ func TestCustomCommandMenu_OpenClose(t *testing.T) {
 
 func TestCustomCommandMenu_Esc(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 	cmd := m.Update(keySpecial(tea.KeyEsc))
 	if cmd != nil {
 		t.Fatalf("esc should not emit a tea.Cmd, got %v", cmd)
@@ -60,7 +60,7 @@ func TestCustomCommandMenu_Esc(t *testing.T) {
 
 func TestCustomCommandMenu_ArrowNavigation(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 
 	m.Update(keySpecial(tea.KeyDown))
 	if m.selected != 1 {
@@ -89,7 +89,7 @@ func TestCustomCommandMenu_ArrowNavigation(t *testing.T) {
 func TestCustomCommandMenu_EnterRunsSelected(t *testing.T) {
 	var m CustomCommandMenu
 	vars := map[string]string{"filePath": "/x"}
-	m.Open(testCommands(), nil, vars)
+	m.Open(testCommands(), nil, vars, nil)
 	m.Update(keySpecial(tea.KeyDown)) // select Reveal
 
 	cmd := m.Update(keySpecial(tea.KeyEnter))
@@ -114,7 +114,7 @@ func TestCustomCommandMenu_EnterRunsSelected(t *testing.T) {
 
 func TestCustomCommandMenu_FilterNarrowsAndEnterRuns(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 
 	// Typing 'w' should fuzzy-match "Word count" (and possibly "Reveal"
 	// via the 'w' in 'wc' description) — but "Word count" should rank first.
@@ -150,7 +150,7 @@ func TestCustomCommandMenu_FilterNarrowsAndEnterRuns(t *testing.T) {
 
 func TestCustomCommandMenu_BackspaceRestores(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 	all := len(m.matches)
 	m.Update(key1('w'))
 	if len(m.matches) >= all {
@@ -167,7 +167,7 @@ func TestCustomCommandMenu_BackspaceRestores(t *testing.T) {
 
 func TestCustomCommandMenu_NoMatchEnterCloses(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 	m.Update(key1('z'))
 	m.Update(key1('z'))
 	m.Update(key1('z'))
@@ -185,7 +185,7 @@ func TestCustomCommandMenu_NoMatchEnterCloses(t *testing.T) {
 
 func TestCustomCommandMenu_EmptyFilterShowsAllInOrder(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 	if len(m.matches) != 3 {
 		t.Fatalf("expected 3 matches, got %d", len(m.matches))
 	}
@@ -198,7 +198,7 @@ func TestCustomCommandMenu_EmptyFilterShowsAllInOrder(t *testing.T) {
 
 func TestCustomCommandMenu_EnterOnEmptyMenuJustCloses(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(nil, nil, nil)
+	m.Open(nil, nil, nil, nil)
 	cmd := m.Update(keySpecial(tea.KeyEnter))
 	if cmd != nil {
 		t.Errorf("empty enter should not emit a tea.Cmd, got %v", cmd)
@@ -210,7 +210,7 @@ func TestCustomCommandMenu_EnterOnEmptyMenuJustCloses(t *testing.T) {
 
 func TestCustomCommandMenu_View_EmptyState(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(nil, nil, nil)
+	m.Open(nil, nil, nil, nil)
 	view := m.View(120, 40)
 	if !strings.Contains(view, "no commands defined") {
 		t.Errorf("empty state missing hint, got:\n%s", view)
@@ -222,7 +222,7 @@ func TestCustomCommandMenu_View_ShowsWarnings(t *testing.T) {
 	warnings := []config.CommandLoadWarning{
 		{Source: ".kbrd_commands.yml", Message: "parse error: bad yaml"},
 	}
-	m.Open(nil, warnings, nil)
+	m.Open(nil, warnings, nil, nil)
 	view := m.View(120, 40)
 	for _, want := range []string{"load errors", ".kbrd_commands.yml", "parse error: bad yaml"} {
 		if !strings.Contains(view, want) {
@@ -233,7 +233,7 @@ func TestCustomCommandMenu_View_ShowsWarnings(t *testing.T) {
 
 func TestCustomCommandMenu_View_ListsCommands(t *testing.T) {
 	var m CustomCommandMenu
-	m.Open(testCommands(), nil, nil)
+	m.Open(testCommands(), nil, nil, nil)
 	view := m.View(120, 40)
 	for _, want := range []string{"Edit", "Reveal", "Word count"} {
 		if !strings.Contains(view, want) {

@@ -123,6 +123,12 @@ type Board struct {
 	scriptUI ScriptUI
 	hooks    *hookRunner // declarative YAML event hooks; nil when disabled
 
+	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
+	// registry separate from the filesystem columns so they survive disk
+	// reloads. They are appended to the tail of b.columns after every
+	// filesystem (re)build. Keyed implicitly by Column.VID.
+	virtualCols []*Column
+
 	// watch debounce state — every raw fsnotify event bumps watchSeq and
 	// records its path in watchDirty; a debounce tick that still matches
 	// watchSeq triggers one coalesced reload (mirrors search's Seq guard).
@@ -365,10 +371,94 @@ func (b *Board) loadColumns() error {
 		}
 	}
 	b.columns = columns
+	b.appendVirtualColumns()
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
 		b.selectedCol = len(b.columns) - 1
 	}
 	return nil
+}
+
+// appendVirtualColumns re-attaches the registered virtual columns to the tail of
+// b.columns after a filesystem (re)build, applying current height and palette.
+// Virtual columns are script state, not filesystem state, so they persist across
+// reloads.
+func (b *Board) appendVirtualColumns() {
+	for _, vc := range b.virtualCols {
+		if b.visibleHeight > 0 {
+			vc.SetHeight(b.visibleHeight)
+		}
+		vc.palette = b.palette
+		b.columns = append(b.columns, vc)
+	}
+}
+
+// virtualColumn returns the registered virtual column with the given id, or nil.
+func (b *Board) virtualColumn(vid string) *Column {
+	for _, c := range b.virtualCols {
+		if c.VID == vid {
+			return c
+		}
+	}
+	return nil
+}
+
+// setVirtualColumn creates or updates a virtual column from a script push. A new
+// column is appended to both the registry and the live b.columns tail; an
+// existing one is updated in place (it is already attached).
+func (b *Board) setVirtualColumn(id string, spec events.VirtualColumnSpec) {
+	if col := b.virtualColumn(id); col != nil {
+		col.ApplyVirtualSpec(spec)
+		return
+	}
+	col := NewVirtualColumn(id, spec.Name, b.cfg.ColumnWidth, b.palette)
+	if b.visibleHeight > 0 {
+		col.SetHeight(b.visibleHeight)
+	}
+	col.ApplyVirtualSpec(spec)
+	b.virtualCols = append(b.virtualCols, col)
+	b.columns = append(b.columns, col)
+}
+
+// clearVirtualColumn removes a single virtual column by id from both the
+// registry and the live column slice.
+func (b *Board) clearVirtualColumn(id string) {
+	b.virtualCols = dropColumnByVID(b.virtualCols, id)
+	b.columns = dropColumnByVID(b.columns, id)
+	b.clampSelectedCol()
+}
+
+// clearAllVirtualColumns removes every virtual column from both slices.
+func (b *Board) clearAllVirtualColumns() {
+	b.virtualCols = nil
+	kept := b.columns[:0]
+	for _, c := range b.columns {
+		if !c.Virtual {
+			kept = append(kept, c)
+		}
+	}
+	b.columns = kept
+	b.clampSelectedCol()
+}
+
+// dropColumnByVID returns cols without the virtual column whose VID matches id.
+func dropColumnByVID(cols []*Column, id string) []*Column {
+	out := cols[:0]
+	for _, c := range cols {
+		if c.Virtual && c.VID == id {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func (b *Board) clampSelectedCol() {
+	if b.selectedCol >= len(b.columns) {
+		b.selectedCol = len(b.columns) - 1
+	}
+	if b.selectedCol < 0 {
+		b.selectedCol = 0
+	}
 }
 
 // debouncedReload runs when a watcher debounce tick fires. It drops stale ticks
@@ -497,6 +587,7 @@ func (b *Board) applyReloadedColumns(columns []*Column) {
 		}
 	}
 	b.columns = columns
+	b.appendVirtualColumns()
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
 		b.selectedCol = len(b.columns) - 1
 	}
@@ -567,6 +658,10 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send(msg.Message, msg.Type)
 
 	case watchStartMsg:
+		// board_load fires once, after the initial columns are populated and the
+		// script host is subscribed. Publishing here (on the UI goroutine, not in
+		// Init's off-thread startup) keeps Lua single-threaded.
+		b.bus.Publish(events.BoardLoad{})
 		b.bus.Publish(events.BoardRefresh{Reason: "startup"})
 		return b, b.watchCmd()
 
@@ -902,6 +997,15 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, col.UpdateList(msg)
 	}
 
+	// Virtual columns have no built-in item mutations: their command keys and
+	// Enter run script-declared actions, and the file-mutation keys are swallowed.
+	// Navigation/global keys fall through to the shared switch below.
+	if col.Virtual {
+		if cmd, handled := b.handleVirtualColumnKey(msg, col); handled {
+			return b, cmd
+		}
+	}
+
 	switch {
 	case key.Matches(msg, Keys.Quit):
 		return b.beginShutdown()
@@ -930,10 +1034,14 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
 		}
 	case key.Matches(msg, Keys.CustomCommands):
-		if col.HasSelectedItem() {
+		if col.HasSelectedItem() && !col.SelectedItem().Separator {
 			item := col.SelectedItem()
 			b.loadCommands()
-			b.customCmds.Open(b.commands, b.commandWarnings, b.buildCommandVars(b.selectedCol, item))
+			var vctx map[string]interface{}
+			if col.Virtual {
+				vctx = b.buildVirtualVars(col, item)
+			}
+			b.customCmds.Open(b.commandsForColumn(col), b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
 		}
 		return b, nil
 	case key.Matches(msg, Keys.RenameCol):
@@ -1462,6 +1570,9 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	b.initGit()
 	b.applyPalette()
 	b.selectedCol = 0
+	// Virtual columns belong to the previous board's (now-closed) script host;
+	// drop them so they don't leak onto the new board before its board_load runs.
+	b.virtualCols = nil
 	b.initScripting()
 	b.loadCommands()
 	b.initHooks()
@@ -1471,6 +1582,9 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	}
 	b.applyPalette()
 	b.git.Detect()
+	// Re-fire board_load on the new board so its init script can repopulate any
+	// virtual columns (runs on the UI goroutine, host already subscribed).
+	b.bus.Publish(events.BoardLoad{})
 
 	if paths, err := board.DiscoverPaths(b.cfg.Path); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -1545,6 +1659,9 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		return b.notifier.Send("invalid column", notifyError)
 	}
 	col := b.columns[ref.ColIndex]
+	if col.Virtual {
+		return b.notifier.Send("virtual columns have no built-in item actions — use x", notifyError)
+	}
 	var item *Item
 	for i := range col.Items {
 		if col.Items[i].Name == ref.Name {
@@ -1609,6 +1726,9 @@ func (b *Board) rebuildMnemonics() {
 	var cells []cell
 	for ci, col := range b.columns {
 		for _, item := range col.VisibleItems() {
+			if item.Separator {
+				continue // inert grouping rows get no quick-jump tag
+			}
 			cells = append(cells, cell{ref: itemRef{ColIndex: ci, Name: item.Name}})
 		}
 	}
@@ -2018,6 +2138,15 @@ func (b *Board) renderStatusBar() string {
 
 	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode}
 	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
+	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
+		col := b.columns[b.selectedCol]
+		ctx.Virtual = true
+		for _, vc := range col.colCmds {
+			if vc.Key != "" {
+				ctx.VirtualCmds = append(ctx.VirtualCmds, Shortcut{Keys: vc.Key, Label: vc.Name})
+			}
+		}
+	}
 
 	// The board/column info and the transient activity indicators (git sync,
 	// background jobs, kbrd.status) now live in the header cells, so the bottom

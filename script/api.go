@@ -58,6 +58,12 @@ func (h *Host) installAPI() {
 	cell.RawSetString("clear_all", L.NewFunction(h.luaCellClearAll))
 	kbrd.RawSetString("cell", cell)
 
+	column := L.NewTable()
+	column.RawSetString("set", L.NewFunction(h.luaColumnSet))
+	column.RawSetString("clear", L.NewFunction(h.luaColumnClear))
+	column.RawSetString("clear_all", L.NewFunction(h.luaColumnClearAll))
+	kbrd.RawSetString("column", column)
+
 	L.SetGlobal("kbrd", kbrd)
 
 	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
@@ -264,6 +270,111 @@ func (h *Host) luaCellClearAll(L *lua.LState) int {
 	return 0
 }
 
+// vcolRefPrefix returns the dispatch-ref prefix shared by all column-scoped
+// commands of a virtual column, used to find/clear its run closures.
+func vcolRefPrefix(vid string) string { return "vcol:" + vid + ":" }
+
+// clearVcolFns drops the run closures registered for one virtual column id so a
+// replace (kbrd.column.set again) or removal (kbrd.column.clear) doesn't leak
+// stale Lua references.
+func (h *Host) clearVcolFns(vid string) {
+	prefix := vcolRefPrefix(vid)
+	for ref := range h.vcolFns {
+		if len(ref) >= len(prefix) && ref[:len(prefix)] == prefix {
+			delete(h.vcolFns, ref)
+		}
+	}
+}
+
+// kbrd.column.set(id, { name=, empty=, items={...}, commands={...} }) —
+// create or replace a virtual column. Idempotent; safe from timers/async
+// callbacks. See the events.VirtualColumnSpec types for the field shapes.
+func (h *Host) luaColumnSet(L *lua.LState) int {
+	id := L.CheckString(1)
+	spec := L.CheckTable(2)
+	if id == "" {
+		L.RaiseError("kbrd.column.set: id is required")
+		return 0
+	}
+
+	// Replacing a column drops the previous run closures for this id.
+	h.clearVcolFns(id)
+
+	out := events.VirtualColumnSpec{
+		Name:  lua.LVAsString(spec.RawGetString("name")),
+		Empty: lua.LVAsString(spec.RawGetString("empty")),
+	}
+	if out.Name == "" {
+		out.Name = id
+	}
+
+	if items, ok := spec.RawGetString("items").(*lua.LTable); ok {
+		items.ForEach(func(_, v lua.LValue) {
+			it, ok := v.(*lua.LTable)
+			if !ok {
+				return
+			}
+			item := events.VirtualItem{
+				ID:        lua.LVAsString(it.RawGetString("id")),
+				Title:     lua.LVAsString(it.RawGetString("title")),
+				Preview:   lua.LVAsString(it.RawGetString("preview")),
+				Meta:      lua.LVAsString(it.RawGetString("meta")),
+				Icon:      lua.LVAsString(it.RawGetString("icon")),
+				Accent:    lua.LVAsString(it.RawGetString("accent")),
+				Path:      lua.LVAsString(it.RawGetString("path")),
+				Separator: lua.LVAsBool(it.RawGetString("separator")),
+			}
+			if d, ok := it.RawGetString("data").(*lua.LTable); ok {
+				if m, ok := fromLValue(d).(map[string]interface{}); ok {
+					item.Data = m
+				}
+			}
+			out.Items = append(out.Items, item)
+		})
+	}
+
+	if cmds, ok := spec.RawGetString("commands").(*lua.LTable); ok {
+		cmds.ForEach(func(_, v lua.LValue) {
+			ct, ok := v.(*lua.LTable)
+			if !ok {
+				return
+			}
+			cid := lua.LVAsString(ct.RawGetString("id"))
+			fn, _ := ct.RawGetString("run").(*lua.LFunction)
+			if cid == "" || fn == nil {
+				return
+			}
+			ref := vcolRefPrefix(id) + cid
+			h.vcolFns[ref] = fn
+			out.Commands = append(out.Commands, events.VirtualCommand{
+				ID:      cid,
+				Name:    lua.LVAsString(ct.RawGetString("name")),
+				Key:     lua.LVAsString(ct.RawGetString("key")),
+				Default: lua.LVAsBool(ct.RawGetString("default")),
+				Ref:     ref,
+			})
+		})
+	}
+
+	h.api.VirtualColumnSet(id, out)
+	return 0
+}
+
+// kbrd.column.clear(id) — remove a single virtual column.
+func (h *Host) luaColumnClear(L *lua.LState) int {
+	id := L.CheckString(1)
+	h.clearVcolFns(id)
+	h.api.VirtualColumnClear(id)
+	return 0
+}
+
+// kbrd.column.clear_all() — remove every script-set virtual column.
+func (h *Host) luaColumnClearAll(L *lua.LState) int {
+	h.vcolFns = make(map[string]*lua.LFunction)
+	h.api.VirtualColumnClearAll()
+	return 0
+}
+
 // kbrd._uiGuard(name) — called by the kbrd.ui.* Lua wrappers before yielding.
 // Rejects with a clear message if invoked from a timer body or a hook, both
 // of which run via PCall and have no coroutine to yield from.
@@ -342,6 +453,7 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		id          string
 		name        string
 		description string
+		scope       string
 		fn          *lua.LFunction
 	)
 
@@ -350,6 +462,7 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		id = lua.LVAsString(t.RawGetString("id"))
 		name = lua.LVAsString(t.RawGetString("name"))
 		description = lua.LVAsString(t.RawGetString("description"))
+		scope = lua.LVAsString(t.RawGetString("scope"))
 		if v, ok := t.RawGetString("run").(*lua.LFunction); ok {
 			fn = v
 		}
@@ -363,23 +476,36 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		L.RaiseError("kbrd.command: id, name, and run/fn are required")
 		return 0
 	}
+	scope = normalizeScope(scope)
 
 	ref := fmt.Sprintf("lua:%s", id)
 	// Replace any existing registration with the same id so reloads work.
 	for i, c := range h.commands {
 		if c.ID == id {
 			h.commands[i] = luaCommand{
-				Name: name, ID: id, Description: description,
+				Name: name, ID: id, Description: description, Scope: scope,
 				Ref: ref, fn: fn,
 			}
 			return 0
 		}
 	}
 	h.commands = append(h.commands, luaCommand{
-		Name: name, ID: id, Description: description,
+		Name: name, ID: id, Description: description, Scope: scope,
 		Ref: ref, fn: fn,
 	})
 	return 0
+}
+
+// normalizeScope canonicalizes a command scope string. The empty/unknown value
+// maps to "files" (the backward-compatible default: shown only on filesystem
+// columns).
+func normalizeScope(s string) string {
+	switch s {
+	case "virtual", "all":
+		return s
+	default:
+		return "files"
+	}
 }
 
 // kbrd.has_command(id) → bool

@@ -13,6 +13,10 @@ import (
 type runCustomCommandMsg struct {
 	Cmd  config.Command
 	Vars map[string]string
+	// VCtx is set only when the command runs against a virtual-column item. It
+	// carries the rich Lua ctx (nested `data` table, path, title, vid) that a
+	// plain string-var map can't hold. nil for filesystem columns.
+	VCtx map[string]interface{}
 }
 
 type customCommandFinishedMsg struct {
@@ -67,8 +71,151 @@ func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 	}.Vars()
 }
 
+// buildVirtualVars builds the structured Lua ctx for a command dispatched on a
+// virtual-column item: the standard board/column fields plus the item's opaque
+// `data` table and a common `path`/`filePath` (set only when the item provided
+// one). The shared `path` lets a scope="all" command serve real and virtual
+// items without branching.
+func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]interface{} {
+	m := map[string]interface{}{
+		"boardPath":  b.cfg.Path,
+		"boardName":  b.cfg.BoardName,
+		"columnName": col.Name,
+		"vid":        col.VID,
+		"title":      item.Title,
+		"fileName":   item.Name,
+	}
+	if item.FullPath != "" {
+		m["path"] = item.FullPath
+		m["filePath"] = item.FullPath
+	}
+	if item.Data != nil {
+		m["data"] = item.Data
+	}
+	return m
+}
+
+// commandsForColumn returns the menu command list for the focused column,
+// applying scope: filesystem columns show files/all globals; virtual columns
+// show their own column-scoped commands first, then virtual/all globals.
+func (b *Board) commandsForColumn(col *Column) []config.Command {
+	if col.Virtual {
+		out := make([]config.Command, 0, len(col.colCmds)+len(b.commands))
+		for _, vc := range col.colCmds {
+			out = append(out, config.Command{
+				Name:   vc.Name,
+				ID:     vc.ID,
+				Scope:  "virtual",
+				Source: config.SourceLua,
+				LuaRef: vc.Ref,
+			})
+		}
+		for _, c := range b.commands {
+			if c.ShowsOnVirtual() {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	out := make([]config.Command, 0, len(b.commands))
+	for _, c := range b.commands {
+		if c.ShowsOnFiles() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// handleVirtualColumnKey intercepts keys while a virtual column is focused. It
+// returns handled=true when it consumed the key (a column command, Enter's
+// default action, or a swallowed built-in mutation key); handled=false lets the
+// shared switch process navigation/global keys (and the X menu).
+func (b *Board) handleVirtualColumnKey(msg tea.KeyMsg, col *Column) (tea.Cmd, bool) {
+	// Let the shared switch open the X menu (it builds the scoped command list).
+	if key.Matches(msg, Keys.CustomCommands) {
+		return nil, false
+	}
+
+	sel := col.SelectedItem()
+	hasItem := sel != nil && !sel.Separator
+
+	// Enter runs the column's default action.
+	if msg.Type == tea.KeyEnter {
+		if hasItem {
+			return b.runVirtualDefault(col, sel), true
+		}
+		return nil, true
+	}
+
+	// A key bound to one of the column's commands wins over built-in actions.
+	if hasItem {
+		s := msg.String()
+		for _, vc := range col.colCmds {
+			if vc.Key != "" && vc.Key == s {
+				return b.dispatchVirtualCommand(col, sel, vc.Ref, vc.Name), true
+			}
+		}
+	}
+
+	// Built-in item/column mutation keys are blocked on virtual columns.
+	if isVirtualBlockedKey(msg) {
+		return nil, true
+	}
+	return nil, false
+}
+
+// isVirtualBlockedKey reports whether a key is a built-in item/column mutation
+// that must not run on a virtual (script-owned, fileless) column. NewFirst (N,
+// targets the first real folder) is intentionally allowed.
+func isVirtualBlockedKey(msg tea.KeyMsg) bool {
+	for _, bnd := range []key.Binding{
+		Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal, Keys.Copy, Keys.Paste,
+		Keys.OpenExternal, Keys.Pin, Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem,
+		Keys.Delete, Keys.New, Keys.RenameCol,
+	} {
+		if key.Matches(msg, bnd) {
+			return true
+		}
+	}
+	return false
+}
+
+// runVirtualDefault runs the column's declared default command, or falls back to
+// opening the item's underlying file when it has one, else no-op.
+func (b *Board) runVirtualDefault(col *Column, item *Item) tea.Cmd {
+	if col.defaultCmd != "" {
+		for _, vc := range col.colCmds {
+			if vc.ID == col.defaultCmd {
+				return b.dispatchVirtualCommand(col, item, vc.Ref, vc.Name)
+			}
+		}
+	}
+	if item.FullPath != "" {
+		path := item.FullPath
+		name := item.Title
+		return func() tea.Msg {
+			err := openFile(path)
+			return customCommandFinishedMsg{Name: "open " + name, Err: err}
+		}
+	}
+	return nil
+}
+
+// dispatchVirtualCommand runs a column-scoped (or scope=all) Lua command against
+// a virtual item, passing the structured ctx (data/path/title/vid).
+func (b *Board) dispatchVirtualCommand(col *Column, item *Item, ref, name string) tea.Cmd {
+	req, err := b.scripts.RunVirtualCommand(ref, b.buildVirtualVars(col, item))
+	return b.handleScriptResult(name, req, err)
+}
+
 func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.Cmd) {
 	if msg.Cmd.Source == config.SourceLua {
+		if msg.VCtx != nil {
+			// Virtual-column item: dispatch with the structured ctx so the
+			// script sees ctx.data, ctx.path, etc.
+			req, err := b.scripts.RunVirtualCommand(msg.Cmd.LuaRef, msg.VCtx)
+			return b, b.handleScriptResult(msg.Cmd.Name, req, err)
+		}
 		req, err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
 		return b, b.handleScriptResult(msg.Cmd.Name, req, err)
 	}
@@ -99,6 +246,7 @@ type CustomCommandMenu struct {
 	matches  []FuzzyMatch
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
+	vctx     map[string]interface{} // rich Lua ctx for virtual-column dispatch; nil otherwise
 	palette  Palette
 }
 
@@ -110,11 +258,12 @@ func (m *CustomCommandMenu) commandHaystack(i int) string {
 	return c.Name
 }
 
-func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string) {
+func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]interface{}) {
 	m.active = true
 	m.commands = commands
 	m.warnings = warnings
 	m.vars = vars
+	m.vctx = vctx
 	m.selected = 0
 	m.filter = ""
 	m.recompute()
@@ -126,6 +275,7 @@ func (m *CustomCommandMenu) Close() {
 	m.matches = nil
 	m.warnings = nil
 	m.vars = nil
+	m.vctx = nil
 	m.selected = 0
 	m.filter = ""
 }
@@ -185,9 +335,10 @@ func (m *CustomCommandMenu) Update(msg tea.KeyMsg) tea.Cmd {
 
 func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	vars := m.vars
+	vctx := m.vctx
 	m.Close()
 	return func() tea.Msg {
-		return runCustomCommandMsg{Cmd: c, Vars: vars}
+		return runCustomCommandMsg{Cmd: c, Vars: vars, VCtx: vctx}
 	}
 }
 

@@ -27,6 +27,16 @@ type Item struct {
 	Pinned   bool
 	Size     int64
 	Modified time.Time
+
+	// Virtual-column fields. These are set only for items pushed by a script via
+	// kbrd.column.set; filesystem items leave them zero. Name doubles as the
+	// stable cursor key for virtual items (set from the item id, else title).
+	Virtual   bool
+	Separator bool                   // inert grouping row — no actions, no mnemonic
+	Meta      string                 // replaces the filesystem meta line (line 3)
+	Icon      string                 // optional glyph prefixed on line 1
+	Accent    string                 // color key/name for the title/icon
+	Data      map[string]interface{} // opaque payload, round-trips into command ctx
 }
 
 func NewItem(fullPath string, opts ItemOptions) (Item, error) {
@@ -73,7 +83,15 @@ func (c itemCache) reuse(path string, info os.FileInfo) (Item, bool) {
 	return old, true
 }
 
-func (i Item) FilterValue() string { return i.Name }
+func (i Item) FilterValue() string {
+	if i.Separator {
+		return "" // an empty filter value never matches a query → filtered out
+	}
+	if i.Virtual {
+		return i.Title
+	}
+	return i.Name
+}
 
 func (i Item) HumanSize() string {
 	if i.Size < 1024 {

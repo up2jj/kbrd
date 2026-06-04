@@ -34,11 +34,38 @@ type Command struct {
 	ID          string `yaml:"id"`
 	Description string `yaml:"description"`
 	Template    string `yaml:"command"`
+	// Scope controls which columns a command appears on: "files" (default —
+	// filesystem columns only), "virtual" (virtual columns only), or "all".
+	// The default keeps file-assuming commands off fileless virtual columns.
+	Scope string `yaml:"scope"`
 	// Source is populated by the loader/registrar; never read from YAML.
 	Source CommandSource `yaml:"-"`
 	// LuaRef is opaque to non-script code; the script subsystem uses it to
 	// dispatch back to the registered callback. Empty for shell commands.
 	LuaRef string `yaml:"-"`
+}
+
+// EffectiveScope returns the command's scope with the empty/unknown value
+// normalized to "files" (the backward-compatible default).
+func (c Command) EffectiveScope() string {
+	switch c.Scope {
+	case "virtual", "all":
+		return c.Scope
+	default:
+		return "files"
+	}
+}
+
+// ShowsOnVirtual reports whether the command should appear on a virtual column.
+func (c Command) ShowsOnVirtual() bool {
+	s := c.EffectiveScope()
+	return s == "virtual" || s == "all"
+}
+
+// ShowsOnFiles reports whether the command should appear on a filesystem column.
+func (c Command) ShowsOnFiles() bool {
+	s := c.EffectiveScope()
+	return s == "files" || s == "all"
 }
 
 type commandsFile struct {

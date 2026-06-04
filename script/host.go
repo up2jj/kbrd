@@ -55,6 +55,12 @@ type Host struct {
 	commands []luaCommand
 	hooks    map[string][]*hookEntry
 
+	// vcolFns holds the run closures for column-scoped (virtual-column) commands,
+	// keyed by their dispatch ref ("vcol:<vid>:<cmdid>"). Kept separate from
+	// `commands` so they never leak into the global command menu; RunVirtualCommand
+	// resolves them. Cleared per-vid when a column is replaced or removed.
+	vcolFns map[string]*lua.LFunction
+
 	pending  map[string]*pendingCoro
 	tokenSeq int
 
@@ -124,6 +130,7 @@ type luaCommand struct {
 	Name        string
 	ID          string
 	Description string
+	Scope       string // "files" (default) | "virtual" | "all"
 	Ref         string
 	fn          *lua.LFunction
 }
@@ -157,6 +164,7 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 		pending:        make(map[string]*pendingCoro),
 		timers:         make(map[string]*timerEntry),
 		asyncCallbacks: make(map[string]*lua.LFunction),
+		vcolFns:        make(map[string]*lua.LFunction),
 	}
 	h.installAPI()
 
@@ -214,6 +222,7 @@ func (h *Host) Close() {
 	h.asyncCallbacks = nil
 	h.pendingAsyncCmds = nil
 	h.deferred = nil
+	h.vcolFns = nil
 }
 
 // Commands returns the Lua-registered commands as config.Command values,
@@ -228,6 +237,7 @@ func (h *Host) Commands() []config.Command {
 			Name:        c.Name,
 			ID:          c.ID,
 			Description: c.Description,
+			Scope:       c.Scope,
 			Source:      config.SourceLua,
 			LuaRef:      c.Ref,
 		})
@@ -246,13 +256,33 @@ func (h *Host) RunCommand(ref string, ctx map[string]string) (*UIRequest, error)
 	if h == nil {
 		return nil, nil
 	}
+	return h.runByRef(ref, toLValue(h.L, ctx))
+}
+
+// RunVirtualCommand dispatches a command (global or column-scoped) against a
+// virtual-column item. ctx is a structured map — typically including a nested
+// `data` table plus `path`/`title`/`columnName` — converted to a Lua table so
+// the script can read ctx.data, ctx.path, etc. Same return contract as
+// RunCommand.
+func (h *Host) RunVirtualCommand(ref string, ctx map[string]interface{}) (*UIRequest, error) {
+	if h == nil {
+		return nil, nil
+	}
+	return h.runByRef(ref, toLValue(h.L, ctx))
+}
+
+// runByRef resolves a dispatch ref to its run closure — first the global command
+// registry, then the virtual-column registry — and runs it on a fresh coroutine.
+func (h *Host) runByRef(ref string, arg lua.LValue) (*UIRequest, error) {
 	for _, c := range h.commands {
 		if c.Ref == ref {
 			co, _ := h.L.NewThread()
-			arg := toLValue(h.L, ctx)
-			req, err := h.runDuringCall(co, c.Name, c.fn, []lua.LValue{arg})
-			return req, err
+			return h.runDuringCall(co, c.Name, c.fn, []lua.LValue{arg})
 		}
+	}
+	if fn, ok := h.vcolFns[ref]; ok {
+		co, _ := h.L.NewThread()
+		return h.runDuringCall(co, ref, fn, []lua.LValue{arg})
 	}
 	return nil, fmt.Errorf("unknown lua command %q", ref)
 }

@@ -77,6 +77,7 @@ A quick, scannable rundown of everything kbrd does:
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Custom shell commands** — run templated shell commands against any card (`x`).
 - **Lua scripting** — extend kbrd with commands, event hooks, timers, and async tasks.
+- **Virtual columns** — Lua-driven columns showing a computed view (e.g. open tasks across boards); `tab` switches into them, with script-declared item actions ([example](./examples/tasks/tasks.lua)).
 - **Built-in MCP server** — let external tools and LLM agents operate on your boards.
 
 ---

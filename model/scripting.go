@@ -490,3 +490,14 @@ func (a boardScriptAPI) CellSet(id int, o events.CellOpts) {
 func (a boardScriptAPI) CellClear(id int) { a.b.cells.Clear(id) }
 
 func (a boardScriptAPI) CellClearAll() { a.b.cells.ClearAll() }
+
+// VirtualColumnSet/Clear/ClearAll mutate the virtual-column registry directly,
+// on the Bubble Tea goroutine, just like the cell methods — the next render
+// shows the change.
+func (a boardScriptAPI) VirtualColumnSet(id string, spec events.VirtualColumnSpec) {
+	a.b.setVirtualColumn(id, spec)
+}
+
+func (a boardScriptAPI) VirtualColumnClear(id string) { a.b.clearVirtualColumn(id) }
+
+func (a boardScriptAPI) VirtualColumnClearAll() { a.b.clearAllVirtualColumns() }
