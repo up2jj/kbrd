@@ -30,4 +30,3 @@
 #                            #   the command inherits kbrd's full environment — see SECURITY.md.
 #                            #   Launch with `kbrd --safe` to force this and all scripting/hooks off)
 # command_timeout_ms = 20000 # per-{{shell}} timeout
-

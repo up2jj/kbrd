@@ -29,6 +29,10 @@ fmt:
 tidy:
     go mod tidy
 
+# Install git hooks via prek (pre-commit + pre-push).
+hooks:
+    prek install --hook-type pre-commit --hook-type pre-push
+
 # Run kbrd in the current directory (pass flags after --, e.g. `just run -- --no-mcp`).
 run *args:
     go run . {{ args }}

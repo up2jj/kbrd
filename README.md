@@ -532,10 +532,16 @@ Common tasks are wrapped in a [`justfile`](justfile) (install with `brew install
 just              # list all recipes
 just build        # build ./kbrd
 just test         # run the test suite
+just hooks        # install git hooks via prek
 just snapshot     # build a local release into ./dist (no publish)
 just check        # validate the GoReleaser config
 just release 0.2.0  # tag v0.2.0 and push, triggering the release workflow
 ```
+
+Git hooks are managed with [prek](https://prek.j178.dev) (`brew install prek`), configured in
+[`prek.toml`](prek.toml). Install them once with `just hooks` — commits then run gofmt, go vet,
+a `go mod tidy` check, and file hygiene checks; pushes additionally run the full test suite.
+Run all hooks manually with `prek run --all-files`.
 
 Releases are automated with [GoReleaser](https://goreleaser.com) (see [`.goreleaser.yaml`](.goreleaser.yaml)).
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the macOS binaries,
