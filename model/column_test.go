@@ -599,7 +599,7 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 		files["f"+string(rune('a'+i%26))+string(rune('a'+i/26))] = "x"
 	}
 	col := newTestColumn(t, files)
-	// Item delegate height is 3 + spacing 1 = 4. Set list height to 12 → 3 items per page.
+	// Item delegate height is 5 + spacing 0 = 5. Set list height to 12 → 2 items per page.
 	col.SetHeight(12)
 	// Trigger a render so paginator updates its PerPage/page count.
 	_ = col.View(true, func(string) string { return "" }, 2, nil)

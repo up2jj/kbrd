@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/board"
 	"kbrd/events"
@@ -28,8 +29,8 @@ type itemDelegate struct {
 	palette    Palette
 }
 
-func (d itemDelegate) Height() int                             { return 3 }
-func (d itemDelegate) Spacing() int                            { return 1 }
+func (d itemDelegate) Height() int                             { return 5 }
+func (d itemDelegate) Spacing() int                            { return 0 }
 func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
 func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
@@ -52,28 +53,36 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	if gutterW < 2 {
 		gutterW = 2
 	}
+	innerW := d.colWidth - 2
+	if innerW < 1 {
+		innerW = 1
+	}
 	mnemonic := ""
 	if d.mnemonicOf != nil {
 		mnemonic = d.mnemonicOf(item.Name)
 	}
 
 	// Row palette — every cell on the row shares the same background so the
-	// mnemonic cell visually belongs to the row.
+	// mnemonic cell visually belongs to the row. The card border doubles as a
+	// selection cue: accent when selected, muted otherwise.
 	p := d.palette
-	var rowBg, mnemFg, nameFg lipgloss.Color
+	var rowBg, mnemFg, nameFg, cardBorder lipgloss.Color
 	hasRowBg := false
 	switch {
 	case isSelected && d.isActive:
 		rowBg = p.PrimaryStrong
 		mnemFg = p.Highlight
 		nameFg = p.FgOnAccent
+		cardBorder = p.PrimaryStrong
 		hasRowBg = true
 	case isSelected:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
+		cardBorder = p.BorderActive
 	default:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
+		cardBorder = p.BorderMuted
 	}
 
 	pinIcon := ""
@@ -84,7 +93,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	// Build line 1 as gutter + rest, each rendered with the same row background
 	// so they fuse into one continuous bar.
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := d.colWidth - gutterW
+	restWidth := innerW - gutterW
 	if restWidth < 1 {
 		restWidth = 1
 	}
@@ -100,7 +109,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			gutterText = ">"
 		}
 	}
-	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(pinIcon+item.Title))
+	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(pinIcon+item.Title, restWidth))
 
 	// Line 2 — preview
 	preview := "—"
@@ -117,11 +126,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		previewFg = p.FgSubtle
 	}
-	previewStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
+	previewStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
-	fmt.Fprintln(w, previewStyle.Render(preview))
+	previewLine := previewStyle.Render(truncLine(preview, innerW-gutterW))
 
 	// Line 3 — meta (modified + size + git diff)
 	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
@@ -150,15 +159,40 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	default:
 		metaFg = p.BorderMuted
 	}
-	metaStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(metaFg)
+	metaStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(metaFg)
 	if isSelected && d.isActive {
 		metaStyle = metaStyle.Background(detailBg)
 	}
-	fmt.Fprint(w, metaStyle.Render(meta))
+	metaLine := metaStyle.Render(truncLine(meta, innerW-gutterW))
+
+	fmt.Fprint(w, renderCard(titleLine, previewLine, metaLine, innerW, cardBorder))
+}
+
+// truncLine clamps s (ANSI-aware) to a single line of at most w cells, ending
+// with an ellipsis when cut. Cards have a fixed height, so content must never
+// wrap — a line wider than its style's Width would wrap and grow the card.
+func truncLine(s string, w int) string {
+	if w < 1 {
+		w = 1
+	}
+	return ansi.Truncate(s, w, "…")
+}
+
+// renderCard wraps the three content lines of an item in a rounded border so
+// it reads as a kanban card. The border consumes 2 columns, bringing the total
+// width back to colWidth, and 2 rows (delegate Height is 5).
+func renderCard(titleLine, previewLine, metaLine string, innerW int, borderFg lipgloss.Color) string {
+	block := lipgloss.JoinVertical(lipgloss.Left, titleLine, previewLine, metaLine)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderFg).
+		Width(innerW).
+		Render(block)
 }
 
 // renderSeparator draws an inert grouping row: a centered label flanked by rule
-// glyphs, vertically padded to fill the fixed 3-row item slot.
+// glyphs, vertically padded to fill the fixed 5-row item slot. Separators stay
+// borderless — they are grouping rules, not cards.
 func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 	p := d.palette
 	fg := p.FgMuted
@@ -180,11 +214,13 @@ func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
 	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
 	fmt.Fprintln(w, blank)
+	fmt.Fprintln(w, blank)
 	fmt.Fprintln(w, style.Render(line))
+	fmt.Fprintln(w, blank)
 	fmt.Fprint(w, blank)
 }
 
-// renderVirtual draws a script-supplied item in the fixed 3-row frame: icon +
+// renderVirtual draws a script-supplied item in the fixed card frame: icon +
 // title (line 1, tinted by Accent), preview (line 2), and the script-provided
 // Meta string (line 3) in place of the filesystem-only mtime/size/diff line.
 func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
@@ -193,29 +229,39 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	if gutterW < 2 {
 		gutterW = 2
 	}
+	innerW := d.colWidth - 2
+	if innerW < 1 {
+		innerW = 1
+	}
 	mnemonic := ""
 	if d.mnemonicOf != nil {
 		mnemonic = d.mnemonicOf(item.Name)
 	}
 
-	var rowBg, mnemFg, nameFg lipgloss.Color
+	var rowBg, mnemFg, nameFg, cardBorder lipgloss.Color
 	hasRowBg := false
 	switch {
 	case isSelected && d.isActive:
 		rowBg = p.PrimaryStrong
 		mnemFg = p.Highlight
 		nameFg = p.FgOnAccent
+		cardBorder = p.PrimaryStrong
 		hasRowBg = true
+	case isSelected:
+		mnemFg = p.Warning
+		nameFg = p.FgEmphasis
+		cardBorder = p.BorderActive
 	default:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
+		cardBorder = p.BorderMuted
 	}
 	if item.Accent != "" && !hasRowBg {
 		nameFg = lipgloss.Color(item.Accent)
 	}
 
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := d.colWidth - gutterW
+	restWidth := innerW - gutterW
 	if restWidth < 1 {
 		restWidth = 1
 	}
@@ -232,7 +278,7 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	if item.Icon != "" {
 		title = item.Icon + " " + title
 	}
-	fmt.Fprintln(w, gutterStyle.Render(gutterText)+restStyle.Render(title))
+	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(title, restWidth))
 
 	preview := "—"
 	if len(item.Preview) > 0 {
@@ -246,21 +292,23 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	default:
 		previewFg = p.FgSubtle
 	}
-	previewStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
+	previewStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
-	fmt.Fprintln(w, previewStyle.Render(preview))
+	previewLine := previewStyle.Render(truncLine(preview, innerW-gutterW))
 
 	metaFg := p.BorderMuted
 	if isSelected && d.isActive {
 		metaFg = p.AccentSoft
 	}
-	metaStyle := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).PaddingLeft(gutterW).Foreground(metaFg)
+	metaStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(metaFg)
 	if isSelected && d.isActive {
 		metaStyle = metaStyle.Background(detailBg)
 	}
-	fmt.Fprint(w, metaStyle.Render(item.Meta))
+	metaLine := metaStyle.Render(truncLine(item.Meta, innerW-gutterW))
+
+	fmt.Fprint(w, renderCard(titleLine, previewLine, metaLine, innerW, cardBorder))
 }
 
 // Column represents one kanban column backed by a directory.
