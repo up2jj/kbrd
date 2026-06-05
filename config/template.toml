@@ -25,3 +25,9 @@
 # enabled = false           # built-in MCP server; off by default (start with --mcp or enabled = true)
 # addr    = "127.0.0.1:7777" # Streamable HTTP listen address
 
+[template]
+# exec               = false # allow {{shell}} in card templates to run commands (off by default;
+#                            #   the command inherits kbrd's full environment — see SECURITY.md.
+#                            #   Launch with `kbrd --safe` to force this and all scripting/hooks off)
+# command_timeout_ms = 20000 # per-{{shell}} timeout
+

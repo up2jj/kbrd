@@ -123,6 +123,7 @@ type Board struct {
 	scripts      *script.Host
 	scriptUI     ScriptUI
 	templateFlow TemplateFlow
+	templateExec templateExec
 	hooks        *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
@@ -161,6 +162,7 @@ func NewBoard(cfg config.Config) *Board {
 		palette:       palette,
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
+	b.templateExec.notifier = b.notifier
 	b.initGit()
 	b.applyPalette()
 	b.initScripting()
@@ -244,6 +246,9 @@ func (b *Board) applyPalette() {
 
 func (b *Board) Init() tea.Cmd {
 	startup := func() tea.Msg {
+		// Repair any {{shell}} markers left pending by a prior interrupted
+		// session before reading cards, so they load as the interrupted note.
+		b.templateExec.recover(b.cfg.Path)
 		if err := b.loadColumns(); err != nil {
 			return notifyMsg{Message: "failed to load columns: " + err.Error(), Type: notifyError}
 		}
@@ -846,6 +851,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case templateSubmitMsg:
 		return b.handleTemplateSubmit(msg)
 
+	case templateShellDoneMsg:
+		return b, b.templateExec.done(msg)
+
 	default:
 		// An active huh form drives itself with internal messages (cursor
 		// blink, group transitions); route them to it ahead of the column
@@ -1387,6 +1395,11 @@ func (b *Board) handleTemplateSubmit(msg templateSubmitMsg) (tea.Model, tea.Cmd)
 	if err != nil {
 		return b, b.notifier.Send("template: "+err.Error(), notifyError)
 	}
+	// Resolve {{shell}} markers: rewrite to inert notes when exec is disabled,
+	// or spawn a background worker per marker that fills it in. cardPath is the
+	// path the card is about to be written to.
+	cardPath := filepath.Join(col.Path, name+".md")
+	body, shellCmd := b.templateExec.dispatch(cardPath, body, b.cfg.Path, b.cfg.Template)
 	if _, err := b.createItemContent(col, name, body); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return b, b.notifier.Send("file already exists: "+name+".md", notifyError)
@@ -1394,7 +1407,7 @@ func (b *Board) handleTemplateSubmit(msg templateSubmitMsg) (tea.Model, tea.Cmd)
 		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
 	}
 	col.SelectByName(name)
-	return b, b.notifier.Send("created "+name+".md", notifySuccess)
+	return b, tea.Batch(shellCmd, b.notifier.Send("created "+name+".md", notifySuccess))
 }
 
 func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
@@ -1953,6 +1966,16 @@ func (b *Board) updateBuiltinCells() {
 		b.setActivityCell(-4, label)
 	} else {
 		b.cells.Clear(-4)
+	}
+
+	if n := b.templateExec.Inflight(); n > 0 {
+		label := "✦ generating"
+		if n > 1 {
+			label = "✦ " + strconv.Itoa(n) + " generating"
+		}
+		b.setActivityCell(-8, label)
+	} else {
+		b.cells.Clear(-8)
 	}
 
 	if b.hooks.busy() {

@@ -519,6 +519,11 @@ func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values m
 	if err != nil {
 		return err
 	}
+	// {{shell}} is never auto-run on the Lua path: dispatch with exec disabled
+	// rewrites any markers to the inert note. A script that wants async work
+	// calls kbrd.async.run itself.
+	cardPath := filepath.Join(col.Path, name+".md")
+	body, _ = a.b.templateExec.dispatch(cardPath, body, a.b.cfg.Path, config.TemplateConfig{Exec: false})
 	// Centralized helper creates the file AND publishes ItemCreated.
 	_, err = a.b.createItemContent(col, name, body)
 	return err

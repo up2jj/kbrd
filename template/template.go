@@ -11,6 +11,7 @@ package template
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	texttemplate "text/template"
 	"time"
@@ -394,10 +396,23 @@ func compile(s string) (*texttemplate.Template, error) {
 // funcMap is the function set available to filename and body templates.
 // Documented in TEMPLATES.md — extend both together.
 func funcMap() texttemplate.FuncMap {
+	// shellID is a per-render counter so multiple {{shell}} calls in one body
+	// get distinct ids. The model reassigns session-unique ids at dispatch, so
+	// this only needs to be unique within the render.
+	shellID := 0
 	return texttemplate.FuncMap{
 		"env":  os.Getenv,
 		"join": strings.Join,
 		"slug": Slugify,
+
+		// shell emits a pending marker for a background command; the model runs
+		// it after the card is created (gated by [template] exec) and replaces
+		// the marker with the output. parts are concatenated into the command's
+		// stdin. It never executes anything here — render stays pure.
+		"shell": func(cmd string, parts ...string) string {
+			shellID++
+			return RenderShellMarker(shellID, cmd, strings.Join(parts, ""))
+		},
 
 		// now formats the current local time with a Go layout, e.g.
 		// {{now "2006-01-02"}} → 2026-06-05. Makes renders intentionally
@@ -667,4 +682,87 @@ func execute(s string, data map[string]any) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// --- Shell markers --------------------------------------------------------
+//
+// A {{shell}} call renders a marker block into the card body; the model runs
+// the command and replaces the block with the output. The block is:
+//
+//	<!-- kbrd:shell id=1 cmd=<base64> stdin=<base64> -->
+//	⏳ running: <cmd>
+//	<!-- kbrd:/shell id=1 -->
+//
+// The comments are invisible in rendered markdown, so a card committed mid-run
+// is harmless and recoverable. cmd/stdin are base64 so the block is
+// self-contained and unforgeable: the base64 alphabet (A-Za-z0-9+/=) can never
+// contain "-->" or a nested marker, so encoded user input cannot break out.
+
+// ShellMarker is one parsed {{shell}} block.
+type ShellMarker struct {
+	ID    int
+	Cmd   string
+	Stdin string
+	Span  [2]int // [start, end) byte offsets of the whole block in the source
+}
+
+var shellMarkerRe = regexp.MustCompile(
+	`(?s)<!-- kbrd:shell id=(\d+) cmd=([A-Za-z0-9+/=]*) stdin=([A-Za-z0-9+/=]*) -->.*?<!-- kbrd:/shell id=(\d+) -->`)
+
+// RenderShellMarker builds the pending marker block for a command. cmd and
+// stdin are base64-encoded in the open comment; the visible line shows the
+// command for the user.
+func RenderShellMarker(id int, cmd, stdin string) string {
+	enc := base64.StdEncoding
+	display := strings.ReplaceAll(firstLine(cmd), "`", "")
+	return fmt.Sprintf("<!-- kbrd:shell id=%d cmd=%s stdin=%s -->\n⏳ running: `%s`\n<!-- kbrd:/shell id=%d -->",
+		id, enc.EncodeToString([]byte(cmd)), enc.EncodeToString([]byte(stdin)), display, id)
+}
+
+// ParseShellMarkers returns every well-formed shell marker block in body, in
+// order. Blocks whose open/close ids disagree or whose base64 won't decode are
+// skipped (treated as not a marker).
+func ParseShellMarkers(body string) []ShellMarker {
+	var out []ShellMarker
+	for _, loc := range shellMarkerRe.FindAllStringSubmatchIndex(body, -1) {
+		openID := body[loc[2]:loc[3]]
+		closeID := body[loc[8]:loc[9]]
+		if openID != closeID {
+			continue
+		}
+		id, err := strconv.Atoi(openID)
+		if err != nil {
+			continue
+		}
+		cmd, err1 := base64.StdEncoding.DecodeString(body[loc[4]:loc[5]])
+		stdin, err2 := base64.StdEncoding.DecodeString(body[loc[6]:loc[7]])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		out = append(out, ShellMarker{
+			ID:    id,
+			Cmd:   string(cmd),
+			Stdin: string(stdin),
+			Span:  [2]int{loc[0], loc[1]},
+		})
+	}
+	return out
+}
+
+// RewriteShellMarker replaces the marker block with the given id by
+// replacement, returning the new body. If no marker with that id is present,
+// body is returned unchanged. The match is anchored to the specific id, so an
+// adjacent marker is never disturbed.
+func RewriteShellMarker(body string, id int, replacement string) string {
+	for _, m := range ParseShellMarkers(body) {
+		if m.ID == id {
+			return body[:m.Span[0]] + replacement + body[m.Span[1]:]
+		}
+	}
+	return body
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

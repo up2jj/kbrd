@@ -40,6 +40,7 @@ type Config struct {
 	Scripting ScriptingConfig
 	Hooks     HooksConfig
 	MCP       MCPConfig
+	Template  TemplateConfig
 }
 
 // HooksConfig controls declarative YAML event hooks (hooks.yml /
@@ -57,6 +58,16 @@ type HooksConfig struct {
 type MCPConfig struct {
 	Enabled bool
 	Addr    string
+}
+
+// TemplateConfig controls card templates. Exec gates the {{shell}} template
+// function: when false (the default), a template's shell directives render as
+// an inert "disabled" note instead of running. It is opt-in because templates
+// are shared/pasted more casually than whole boards, and a {{shell}} command
+// runs with kbrd's full environment. CommandTimeoutMs bounds each invocation.
+type TemplateConfig struct {
+	Exec             bool
+	CommandTimeoutMs int
 }
 
 // ScriptingConfig controls the embedded Lua scripting subsystem.
@@ -101,6 +112,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("hooks.timeout_ms", 2000)
 	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
+	v.SetDefault("template.exec", false)
+	v.SetDefault("template.command_timeout_ms", 20000)
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -161,6 +174,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		MCP: MCPConfig{
 			Enabled: v.GetBool("mcp.enabled"),
 			Addr:    v.GetString("mcp.addr"),
+		},
+		Template: TemplateConfig{
+			Exec:             v.GetBool("template.exec"),
+			CommandTimeoutMs: v.GetInt("template.command_timeout_ms"),
 		},
 	}, nil
 }

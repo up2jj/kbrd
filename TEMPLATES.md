@@ -12,6 +12,7 @@ Go [`text/template`](https://pkg.go.dev/text/template) that receives the answers
 - [Field types](#field-types)
 - [Filenames](#filenames)
 - [Template variables & functions](#template-variables--functions)
+- [Shell commands (`{{shell}}`)](#shell-commands-shell)
 - [Flow & keys](#flow--keys)
 - [Errors & edge cases](#errors--edge-cases)
 - [Scripting (Lua)](#scripting-lua)
@@ -197,6 +198,7 @@ Form field keys may not reuse these names — that's rejected at load time.
 | `{{trim .v}}` | Strip surrounding whitespace |
 | `{{truncate 50 .v}}` | Cap at N characters, appending `…` when cut (pipes too) |
 | `{{env "VAR"}}` | Environment variable (empty if unset) |
+| `{{shell "cmd" .a .b}}` | Run a command after the card is created, filling the spot with its output — see [Shell commands](#shell-commands-shell) |
 
 Referencing an undeclared variable is an error (`missingkey=error`), so typos fail loudly
 at creation instead of rendering blanks.
@@ -265,6 +267,52 @@ Ticket: {{.ticket}}
 
 ---
 
+## Shell commands (`{{shell}}`)
+
+A template can offload part of a card to an external command — most usefully a slow one
+like an LLM:
+
+```markdown
+## Likely causes
+{{shell "claude -p 'List 3 likely root causes, terse bullets'" .title " — repro: " .repro}}
+```
+
+**How it works.** The command does **not** block the form. On submit the card is created
+immediately with a `⏳ running…` placeholder, a background worker runs the command, and the
+placeholder is replaced with the output when it finishes (the board live-reloads, so the
+card fills in on its own). A header chip `✦ generating` shows while any command is running.
+
+- **Arguments are stdin.** Everything after the command string is concatenated and piped to
+  the command's standard input — `{{shell "wc -w" .notes}}` counts the words in `.notes`.
+  The command string itself is fixed by the template author; form answers only reach it via
+  stdin, so an answer can never inject into the command line.
+- **Put `{{shell}}` on its own line or in its own section.** The placeholder and the
+  disabled/interrupted states are block-level notes; inline (`Created: {{shell …}}`) works
+  for the success case but looks odd in the others.
+- **Errors** become an inline note (`⚠ command exited 3`, with any output) — the rest of the
+  card is unaffected.
+- **Interrupted** (you quit, or the app is killed, while a command runs): the card keeps its
+  placeholder, and the next time you open the board it is rewritten to
+  `⚠ generation interrupted`. Nothing is left frozen, and a committed mid-run card is just an
+  invisible HTML comment plus that line — harmless and recoverable.
+
+**Enabling it — `[template] exec`.** Shell exec is **off by default**. A template's `{{shell}}`
+directives render as an inert "disabled" note until you opt in, in `kbrd.toml`:
+
+```toml
+[template]
+exec = true
+```
+
+It is opt-in because a `{{shell}}` command runs with kbrd's **full environment** (including
+secrets like `$ANTHROPIC_API_KEY`) and templates are shared/pasted more casually than whole
+boards. Commands run **only on `T`-submit** — never at render time, and never implicitly on
+the Lua path. To open a board you don't fully trust with everything defused, launch
+`kbrd --safe`, which forces scripting, hooks, and template exec off regardless of config
+(see [SECURITY.md](./SECURITY.md)).
+
+---
+
 ## Flow & keys
 
 | Keys | Action |
@@ -311,6 +359,11 @@ Omitted keys take the field defaults; `required` fields must be provided. The
 card is created through the same path as the interactive flow, so
 `item_created` fires identically. See the
 [API reference in SCRIPTING.md](./SCRIPTING.md#kbrdboardcreatefromtemplatecolumn-template-values).
+
+`{{shell}}` directives are **not** run on the Lua path — they render as the disabled note.
+A script that wants async work should call `kbrd.async.run` itself (it can then
+`createFromTemplate` with the result), so shell execution stays explicit rather than
+implicit.
 
 ---
 

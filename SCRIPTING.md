@@ -60,6 +60,10 @@ error_threshold    = 3        # auto-disable a timer/hook after N consecutive er
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
 Equivalent to compiling kbrd without scripting.
 
+Launching with **`kbrd --safe`** forces `enabled = false` here, disables declarative hooks,
+and disables template `{{shell}}` exec — overriding config, including a board's folder-local
+`kbrd.toml`. Use it to open a board you don't fully trust. See [SECURITY.md](./SECURITY.md).
+
 ### Environment variables
 
 Scripts inherit kbrd's environment, and there are three ways to read it:

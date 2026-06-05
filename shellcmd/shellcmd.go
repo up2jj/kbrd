@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 )
 
 // ErrTimeout is returned by Run when ctx's deadline fired or it was cancelled
@@ -27,9 +28,25 @@ type Result struct {
 // deadline or cancellation yields ErrTimeout. Other start/IO failures propagate
 // as-is.
 func Run(ctx context.Context, dir, script string) (Result, error) {
+	return run(ctx, dir, script, "")
+}
+
+// RunStdin is Run with stdin fed from the given string instead of /dev/null —
+// used to pipe template form values into a {{shell}} command. Like Run, it
+// leaves the command's environment unset, so it inherits the parent process's
+// full environment.
+func RunStdin(ctx context.Context, dir, script, stdin string) (Result, error) {
+	return run(ctx, dir, script, stdin)
+}
+
+func run(ctx context.Context, dir, script, stdin string) (Result, error) {
 	c := exec.CommandContext(ctx, "sh", "-c", script)
 	c.Dir = dir
-	c.Stdin = nil // /dev/null
+	if stdin == "" {
+		c.Stdin = nil // /dev/null
+	} else {
+		c.Stdin = strings.NewReader(stdin)
+	}
 	out, err := c.CombinedOutput()
 	res := Result{Output: string(out)}
 	if err != nil {

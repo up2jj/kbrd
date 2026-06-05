@@ -23,6 +23,7 @@ import (
 type cliFlags struct {
 	mcp     bool   // start the built-in MCP server
 	mcpAddr string // address override; does not by itself enable the server
+	safe    bool   // disable all board-supplied code: scripting, hooks, template exec
 }
 
 func main() {
@@ -54,6 +55,7 @@ func newRootCmd() *cobra.Command {
 	// Persistent so subcommands that open a board (e.g. clone) honor them too.
 	root.PersistentFlags().BoolVar(&flags.mcp, "mcp", false, "start the built-in MCP server")
 	root.PersistentFlags().StringVar(&flags.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
+	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: Lua scripting, event hooks, and template shell exec (overrides config)")
 
 	root.AddCommand(newInitCmd(), newCloneCmd(&flags))
 	return root
@@ -152,6 +154,15 @@ func runBoard(cwd string, flags cliFlags) error {
 	cfg, err := config.Load(cwd)
 	if err != nil {
 		return err
+	}
+
+	// --safe neuters every board-supplied code path. Applied after config load
+	// so it overrides config — including a folder-local kbrd.toml that tried to
+	// enable any of these — which is the one layer a board cannot ship around.
+	if flags.safe {
+		cfg.Scripting.Enabled = false
+		cfg.Hooks.Enabled = false
+		cfg.Template.Exec = false
 	}
 
 	if abs, absErr := filepath.Abs(cwd); absErr == nil {

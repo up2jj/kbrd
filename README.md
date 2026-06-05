@@ -174,6 +174,7 @@ overlay. To scaffold configuration files:
 | --- | --- |
 | `--mcp` | Start the built-in MCP server for this run (off by default). |
 | `--mcp-addr <addr>` | Override the MCP listen address (default `127.0.0.1:7777`). |
+| `--safe` | Disable all board-supplied code — Lua scripting, event hooks, and template `{{shell}}` exec — overriding config. Use when opening a board you don't fully trust. |
 
 ---
 

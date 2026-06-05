@@ -589,6 +589,74 @@ func TestTitleCase(t *testing.T) {
 	}
 }
 
+func TestShellFuncEmitsMarker(t *testing.T) {
+	body := renderBody(t, `{{shell "cat -" .a .b}}`, map[string]any{"a": "x", "b": "y"})
+	markers := ParseShellMarkers(body)
+	if len(markers) != 1 {
+		t.Fatalf("got %d markers: %q", len(markers), body)
+	}
+	if markers[0].Cmd != "cat -" {
+		t.Errorf("cmd = %q", markers[0].Cmd)
+	}
+	if markers[0].Stdin != "xy" {
+		t.Errorf("stdin = %q", markers[0].Stdin)
+	}
+	if markers[0].ID != 1 {
+		t.Errorf("id = %d", markers[0].ID)
+	}
+}
+
+func TestShellMarkersDistinctIDs(t *testing.T) {
+	body := renderBody(t, "{{shell \"a\"}}\n{{shell \"b\"}}", nil)
+	markers := ParseShellMarkers(body)
+	if len(markers) != 2 || markers[0].ID == markers[1].ID {
+		t.Fatalf("markers = %+v", markers)
+	}
+	if markers[0].Cmd != "a" || markers[1].Cmd != "b" {
+		t.Errorf("cmds = %q, %q", markers[0].Cmd, markers[1].Cmd)
+	}
+}
+
+func TestShellMarkerRoundTripSpecialChars(t *testing.T) {
+	// A command with --> and stdin with newlines must survive base64 round-trip
+	// without breaking the marker.
+	cmd := `sh -c 'echo --> done'`
+	stdin := "line1\nline2\n-->\nline3"
+	body := "before\n" + RenderShellMarker(7, cmd, stdin) + "\nafter"
+	markers := ParseShellMarkers(body)
+	if len(markers) != 1 {
+		t.Fatalf("got %d markers", len(markers))
+	}
+	if markers[0].ID != 7 || markers[0].Cmd != cmd || markers[0].Stdin != stdin {
+		t.Errorf("round-trip mismatch: %+v", markers[0])
+	}
+}
+
+func TestRewriteShellMarker(t *testing.T) {
+	body := "A\n" + RenderShellMarker(1, "cmd1", "") + "\nB\n" + RenderShellMarker(2, "cmd2", "") + "\nC"
+	got := RewriteShellMarker(body, 1, "RESULT1")
+	if !strings.Contains(got, "RESULT1") {
+		t.Errorf("id=1 not replaced: %q", got)
+	}
+	// id=2 marker must survive intact.
+	rest := ParseShellMarkers(got)
+	if len(rest) != 1 || rest[0].ID != 2 || rest[0].Cmd != "cmd2" {
+		t.Errorf("id=2 disturbed: %+v", rest)
+	}
+	// Unknown id leaves body unchanged.
+	if RewriteShellMarker(body, 99, "x") != body {
+		t.Error("unknown id altered body")
+	}
+}
+
+func TestParseShellMarkersIgnoresMalformed(t *testing.T) {
+	// Mismatched open/close ids → not a marker.
+	body := "<!-- kbrd:shell id=1 cmd=Y2Q= stdin= -->\nx\n<!-- kbrd:/shell id=2 -->"
+	if m := ParseShellMarkers(body); len(m) != 0 {
+		t.Errorf("expected no markers, got %+v", m)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
 		"Hello World":   "hello-world",
