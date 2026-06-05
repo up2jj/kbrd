@@ -1,6 +1,6 @@
 # Card templates
 
-Create pre-structured cards from reusable templates. Press `T` in a column to pick a
+Create pre-structured cards from reusable templates. Press `t` in a column to pick a
 template, fill in its form (multi-step, powered by [huh](https://github.com/charmbracelet/huh)),
 and kbrd renders the result into a new `.md` card in that column.
 
@@ -22,7 +22,7 @@ Go [`text/template`](https://pkg.go.dev/text/template) that receives the answers
 
 ## Where templates live
 
-Two locations, merged when you press `T`:
+Two locations, merged when you press `t`:
 
 | Location | Scope |
 | --- | --- |
@@ -306,7 +306,7 @@ exec = true
 
 It is opt-in because a `{{shell}}` command runs with kbrd's **full environment** (including
 secrets like `$ANTHROPIC_API_KEY`) and templates are shared/pasted more casually than whole
-boards. Commands run **only on `T`-submit** — never at render time, and never implicitly on
+boards. Commands run **only on `t`-submit** — never at render time, and never implicitly on
 the Lua path. To open a board you don't fully trust with everything defused, launch
 `kbrd --safe`, which forces scripting, hooks, and template exec off regardless of config
 (see [SECURITY.md](./SECURITY.md)).
@@ -317,7 +317,7 @@ the Lua path. To open a board you don't fully trust with everything defused, lau
 
 | Keys | Action |
 | --- | --- |
-| `T` | Open the template picker for the current column |
+| `t` | Open the template picker for the current column |
 | `↑` / `↓`, `enter` | Pick a template (skipped when there is exactly one) |
 | `tab` / `enter` | Next field / next step |
 | `shift+tab` | Previous field / step |
@@ -337,7 +337,7 @@ and YAML hooks see template-created cards exactly like manually created ones.
 - **No `steps`** → no form: with a `filename` the card is created immediately on pick;
   without one you are asked just for the filename.
 - **Existing filename** → "file already exists" error, nothing overwritten.
-- **Virtual columns** are read-only — `T` is rejected there.
+- **Virtual columns** are read-only — `t` is rejected there.
 
 ---
 
@@ -375,4 +375,4 @@ Worked examples live in [`examples/templates/`](./examples/templates/):
 - [`meeting.md`](./examples/templates/meeting.md) — two steps, confirm field, scaffolded sections
 - [`bug.md`](./examples/templates/bug.md) — the full field set: select, multiselect with `join`, confirm
 
-Copy them into `<board>/.kbrd_templates/` (or a column's `.kbrd_templates/`) and press `T`.
+Copy them into `<board>/.kbrd_templates/` (or a column's `.kbrd_templates/`) and press `t`.

@@ -49,7 +49,7 @@ from the `x` menu, and `.mcp.json` can point the MCP server at external processe
 
 Card-template **shell exec** (`{{shell}}`) is off unless a board or your config sets
 `[template] exec = true`. When enabled, a command declared in a template runs on the Bubble
-Tea host when you create a card from it (the `T` key — never at render time, never on the
+Tea host when you create a card from it (the `t` key — never at render time, never on the
 Lua API). Like every other shell path it **inherits kbrd's full environment**, so a command
 can read secrets such as `$ANTHROPIC_API_KEY` and exfiltrate them. This is no more powerful
 than `.kbrd.lua` (which can already shell out), which is why it is gated the same way and

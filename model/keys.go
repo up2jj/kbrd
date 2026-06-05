@@ -9,7 +9,6 @@ type KeyMap struct {
 	QuickCmd    key.Binding
 	SwitchBoard key.Binding
 	Search      key.Binding
-	ToggleTheme key.Binding
 	Refresh     key.Binding
 
 	// Navigation
@@ -109,7 +108,6 @@ var Keys = KeyMap{
 	QuickCmd:    key.NewBinding(key.WithKeys("."), key.WithHelp(".", "quick command")),
 	SwitchBoard: key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
 	Search:      key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
-	ToggleTheme: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "toggle theme")),
 	Refresh:     key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
 	// Navigation
@@ -139,7 +137,7 @@ var Keys = KeyMap{
 	// Create
 	New:             key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item in current folder")),
 	NewFirst:        key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new item in first folder")),
-	NewFromTemplate: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "new item from template")),
+	NewFromTemplate: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "new item from template")),
 
 	// Column
 	RenameCol: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename column")),
@@ -245,7 +243,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Global",
-			Items: bindingShortcuts(Keys.Refresh, Keys.ToggleTheme, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
+			Items: bindingShortcuts(Keys.Refresh, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
 		},
 	}
 }

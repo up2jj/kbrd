@@ -60,7 +60,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Live reload** — the board updates instantly when files change on disk (`fsnotify`).
 - **Fully keyboard-driven** — every action has a binding; mouse optional.
 - **Create cards** — in the current column (`n`) or the first column (`N`).
-- **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`T`); see [TEMPLATES.md](./TEMPLATES.md).
+- **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`t`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Edit inline** — with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
@@ -74,7 +74,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Git panel** — diff, commit, log, sync (pull+push), and add remotes in-app (`g`).
 - **Auto-sync** — optional periodic pull/push with automatic upstream setup.
 - **README generation** — optionally regenerate `README.md` from the board before commits.
-- **Themes** — toggle light / dark palettes on the fly (`t`).
+- **Themes** — toggle light / dark palettes on the fly (quick command `.` → `t`).
 - **Help overlay** — discover every shortcut without leaving the app (`?`).
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Custom shell commands** — run templated shell commands against any card (`x`).
@@ -216,7 +216,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | --- | --- |
 | `n` | New item in current column |
 | `N` | New item in first column |
-| `T` | New item from template |
+| `t` | New item from template |
 | `.` | Quick command |
 
 **Column**
@@ -230,7 +230,6 @@ All bindings below are the defaults from the in-app help (`?`).
 | Keys | Action |
 | --- | --- |
 | `F5` | Refresh |
-| `t` | Toggle theme |
 | `Ctrl+P` | Switch board |
 | `f` | Search across boards |
 | `g` | Git panel |
@@ -256,7 +255,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `g` / `home`, `G` / `end` | Top / bottom |
 | `q` / `esc` | Close |
 
-### Template form (`T`)
+### Template form (`t`)
 
 | Keys | Action |
 | --- | --- |
@@ -350,7 +349,7 @@ addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 
 ## Card templates
 
-Press `T` in a column to create a card from a template instead of starting blank. A
+Press `t` in a column to create a card from a template instead of starting blank. A
 template is a Markdown file whose YAML frontmatter declares a multi-step form (text
 inputs, selects, multi-selects, confirms — rendered with
 [huh](https://github.com/charmbracelet/huh)); the body is a Go `text/template` that

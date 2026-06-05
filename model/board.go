@@ -1049,9 +1049,6 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.openSearch()
 	case key.Matches(msg, Keys.GitPanel):
 		return b, b.git.Open()
-	case key.Matches(msg, Keys.ToggleTheme):
-		b.toggleTheme()
-		return b, nil
 	case key.Matches(msg, Keys.Refresh):
 		return b, b.refresh()
 	case key.Matches(msg, Keys.RenameItem):

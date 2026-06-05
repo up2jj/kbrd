@@ -1,6 +1,6 @@
 # Templates — card templates example
 
-Three worked card templates for the `T` (new item from template) flow. Each is a
+Three worked card templates for the `t` (new item from template) flow. Each is a
 Markdown file whose YAML frontmatter declares a form; the body is rendered with the
 answers into a new card. Full reference: [TEMPLATES.md](../../TEMPLATES.md).
 
@@ -28,4 +28,4 @@ Copy any of these into:
 - `<board>/<column>/.kbrd_templates/` — just that column (shadows a board template
   with the same `name`).
 
-Then press `T` in a column. No reload needed — templates are read when the picker opens.
+Then press `t` in a column. No reload needed — templates are read when the picker opens.
