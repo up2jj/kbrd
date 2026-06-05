@@ -27,6 +27,8 @@ func (h *Host) installAPI() {
 	board := L.NewTable()
 	board.RawSetString("move", L.NewFunction(h.luaBoardMove))
 	board.RawSetString("create", L.NewFunction(h.luaBoardCreate))
+	board.RawSetString("templates", L.NewFunction(h.luaBoardTemplates))
+	board.RawSetString("createFromTemplate", L.NewFunction(h.luaBoardCreateFromTemplate))
 	board.RawSetString("rename", L.NewFunction(h.luaBoardRename))
 	board.RawSetString("delete", L.NewFunction(h.luaBoardDelete))
 	board.RawSetString("refresh", L.NewFunction(h.luaBoardRefresh))
@@ -605,6 +607,50 @@ func (h *Host) luaBoardCreate(L *lua.LState) int {
 	column := L.CheckString(1)
 	name := L.CheckString(2)
 	if err := h.api.CreateItem(column, name); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.board.templates(column) → {{name=..., scope="column"|"board"}, ...} | nil, err
+func (h *Host) luaBoardTemplates(L *lua.LState) int {
+	column := L.CheckString(1)
+	infos, err := h.api.ListTemplates(column)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	out := L.NewTable()
+	for i, info := range infos {
+		t := L.NewTable()
+		t.RawSetString("name", lua.LString(info.Name))
+		t.RawSetString("scope", lua.LString(info.Scope))
+		out.RawSetInt(i+1, t)
+	}
+	L.Push(out)
+	return 1
+}
+
+// kbrd.board.createFromTemplate(column, template, values?) → true | nil, err
+//
+// values maps field keys to answers: string for input/text/select, a list of
+// strings for multiselect, boolean for confirm. Omitted keys take the field's
+// default; required fields must be provided. When the template declares no
+// filename, pass the new card's name as values._filename.
+func (h *Host) luaBoardCreateFromTemplate(L *lua.LState) int {
+	column := L.CheckString(1)
+	template := L.CheckString(2)
+	values := map[string]interface{}{}
+	if tbl := L.OptTable(3, nil); tbl != nil {
+		if m, ok := fromLValue(tbl).(map[string]interface{}); ok {
+			values = m
+		}
+	}
+	if err := h.api.CreateItemFromTemplate(column, template, values); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2

@@ -23,6 +23,9 @@ type fakeAPI struct {
 	moves      []move
 	moveErr    error
 	creates    []string
+	tmplInfos  []events.TemplateInfo
+	tmplCalls  []tmplCreate
+	tmplErr    error
 	renames    []string
 	deletes    []string
 	refreshes  int
@@ -49,6 +52,11 @@ type move struct {
 	From, To, Name string
 }
 
+type tmplCreate struct {
+	Column, Template string
+	Values           map[string]interface{}
+}
+
 func (f *fakeAPI) Notify(msg, level string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -67,6 +75,19 @@ func (f *fakeAPI) CreateItem(column, name string) error {
 	defer f.mu.Unlock()
 	f.creates = append(f.creates, column+"/"+name)
 	return nil
+}
+
+func (f *fakeAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tmplInfos, f.tmplErr
+}
+
+func (f *fakeAPI) CreateItemFromTemplate(column, template string, values map[string]interface{}) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tmplCalls = append(f.tmplCalls, tmplCreate{Column: column, Template: template, Values: values})
+	return f.tmplErr
 }
 
 func (f *fakeAPI) RenameItem(item events.ItemRef, newName string) error {
@@ -409,6 +430,71 @@ end)`)
 	}
 	if len(api.deletes) != 1 || api.deletes[0] != "todo/renamed" {
 		t.Errorf("deletes: %+v", api.deletes)
+	}
+}
+
+func TestBoardTemplates(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("t", "Tmpl", function(ctx)
+  local tmpls, err = kbrd.board.templates(ctx.columnName)
+  kbrd.notify("count:"..#tmpls.." first:"..tmpls[1].name.."/"..tmpls[1].scope, "info")
+  kbrd.board.createFromTemplate(ctx.columnName, "Bug report", {
+    title = "Crash",
+    areas = {"UI", "data"},
+    regression = true,
+  })
+end)`)
+	api := &fakeAPI{tmplInfos: []events.TemplateInfo{
+		{Name: "Bug report", Scope: "column"},
+		{Name: "Task", Scope: "board"},
+	}}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	cmds := h.Commands()
+	if _, err := h.RunCommand(cmds[0].LuaRef, map[string]string{"columnName": "todo"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.notifies) != 1 || api.notifies[0] != "info:count:2 first:Bug report/column" {
+		t.Errorf("notifies: %+v", api.notifies)
+	}
+	if len(api.tmplCalls) != 1 {
+		t.Fatalf("tmplCalls: %+v", api.tmplCalls)
+	}
+	call := api.tmplCalls[0]
+	if call.Column != "todo" || call.Template != "Bug report" {
+		t.Errorf("call: %+v", call)
+	}
+	if call.Values["title"] != "Crash" || call.Values["regression"] != true {
+		t.Errorf("values: %#v", call.Values)
+	}
+	areas, ok := call.Values["areas"].([]interface{})
+	if !ok || len(areas) != 2 || areas[0] != "UI" || areas[1] != "data" {
+		t.Errorf("areas: %#v", call.Values["areas"])
+	}
+}
+
+func TestBoardCreateFromTemplateError(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("t", "Tmpl", function(ctx)
+  local ok, err = kbrd.board.createFromTemplate("todo", "Nope", {})
+  if not ok then kbrd.notify("err:"..err, "error") end
+end)`)
+	api := &fakeAPI{tmplErr: errors.New("template \"Nope\" not found")}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	cmds := h.Commands()
+	if _, err := h.RunCommand(cmds[0].LuaRef, map[string]string{"columnName": "todo"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.notifies) != 1 || api.notifies[0] != `error:err:template "Nope" not found` {
+		t.Errorf("notifies: %+v", api.notifies)
 	}
 }
 

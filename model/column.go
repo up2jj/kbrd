@@ -708,7 +708,13 @@ func (c *Column) DeleteItem(itemName string) error {
 // overwrite an existing item (board.CreateItem uses O_EXCL). Returns the new
 // item's filename.
 func (c *Column) CreateItem(name string) (string, error) {
-	fullPath, err := board.CreateItem(c.Path, name, "")
+	return c.CreateItemContent(name, "")
+}
+
+// CreateItemContent is CreateItem with initial file content (e.g. a rendered
+// template body).
+func (c *Column) CreateItemContent(name, content string) (string, error) {
+	fullPath, err := board.CreateItem(c.Path, name, content)
 	if err != nil {
 		return "", err
 	}

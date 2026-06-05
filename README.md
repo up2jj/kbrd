@@ -40,6 +40,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Configuration](#configuration)
+- [Card templates](#card-templates)
 - [Extensibility](#extensibility)
   - [Custom shell commands](#custom-shell-commands)
   - [Lua scripting](#lua-scripting)
@@ -59,6 +60,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Live reload** — the board updates instantly when files change on disk (`fsnotify`).
 - **Fully keyboard-driven** — every action has a binding; mouse optional.
 - **Create cards** — in the current column (`n`) or the first column (`N`).
+- **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`T`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Edit inline** — with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
@@ -213,6 +215,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | --- | --- |
 | `n` | New item in current column |
 | `N` | New item in first column |
+| `T` | New item from template |
 | `.` | Quick command |
 
 **Column**
@@ -251,6 +254,15 @@ All bindings below are the defaults from the in-app help (`?`).
 | `enter` / `space` / `pgdn` | Page down |
 | `g` / `home`, `G` / `end` | Top / bottom |
 | `q` / `esc` | Close |
+
+### Template form (`T`)
+
+| Keys | Action |
+| --- | --- |
+| `↑` / `↓`, `enter` | Pick a template |
+| `tab` / `enter` | Next field / step |
+| `shift+tab` | Previous field / step |
+| `esc` `esc` | Cancel (first `esc` arms, second confirms) |
 
 ### Board switcher (`Ctrl+P`)
 
@@ -335,6 +347,38 @@ addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 
 ---
 
+## Card templates
+
+Press `T` in a column to create a card from a template instead of starting blank. A
+template is a Markdown file whose YAML frontmatter declares a multi-step form (text
+inputs, selects, multi-selects, confirms — rendered with
+[huh](https://github.com/charmbracelet/huh)); the body is a Go `text/template` that
+receives your answers plus the standard board variables.
+
+```markdown
+---
+name: Task
+filename: "{{slug .title}}"
+steps:
+  - title: Task
+    fields:
+      - {key: title, type: input, title: Title, required: true}
+      - {key: priority, type: select, title: Priority, options: [low, normal, high], default: normal}
+---
+# {{.title}}
+
+- Priority: {{.priority}}
+```
+
+Templates live in `<board>/.kbrd_templates/` (every column) and
+`<board>/<column>/.kbrd_templates/` (column-only; shadows board templates with the same
+name). Created cards fire the normal `item_created` event, so hooks apply.
+
+See **[TEMPLATES.md](./TEMPLATES.md)** for the full format reference and
+[`examples/templates/`](./examples/templates/) for worked examples.
+
+---
+
 ## Extensibility
 
 kbrd is extensible at three levels: simple **shell commands**, full **Lua scripting**, and
@@ -398,7 +442,8 @@ The API surface includes:
 
 - `kbrd.command(...)` — register a custom command (appears in the `x` menu; shadows a shell command with the same id).
 - `kbrd.on(event, fn)` — hook lifecycle events (`board_load`, `board_refresh`, `item_select`, `column_change`, `item_open`, `item_created`, `item_renamed`, `item_deleted`, `item_moved`, `git_sync_done`).
-- `kbrd.board.move / refresh / createColumn` — board operations.
+- `kbrd.board.move / create / rename / delete / refresh / createColumn` — board operations.
+- `kbrd.board.templates / createFromTemplate` — list card templates and create cards from them ([TEMPLATES.md](./TEMPLATES.md)).
 - `kbrd.ui.pick / prompt / confirm` — interactive dialogs (commands only, not hooks/timers).
 - `kbrd.fs.read / write / exists / mkdir / glob` — filesystem helpers (paths resolve against the board root).
 - `kbrd.async.run / cancel` — run shell commands on a worker goroutine.
@@ -462,6 +507,7 @@ Toggle between light and dark palettes with `t`, or set a default with `display.
 | Directory | Role |
 | --- | --- |
 | `board/` | Headless board semantics: discovery, column/item enumeration, name sanitizing |
+| `template/` | Card templates: discovery, frontmatter schema, validation, rendering |
 | `config/` | TOML config + custom-command loading and templates |
 | `events/` | Event bus that feeds the scripting hooks |
 | `fs/` | Filesystem and git CLI helpers, plus the file watcher |

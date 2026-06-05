@@ -23,6 +23,7 @@ import (
 	"kbrd/git"
 	"kbrd/recents"
 	"kbrd/script"
+	"kbrd/template"
 )
 
 var Version = "dev"
@@ -118,10 +119,11 @@ type Board struct {
 	scriptStatus    string // transient kbrd.status message shown in the status bar
 	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks
 
-	bus      events.Bus
-	scripts  *script.Host
-	scriptUI ScriptUI
-	hooks    *hookRunner // declarative YAML event hooks; nil when disabled
+	bus          events.Bus
+	scripts      *script.Host
+	scriptUI     ScriptUI
+	templateFlow TemplateFlow
+	hooks        *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
 	// registry separate from the filesystem columns so they survive disk
@@ -231,6 +233,7 @@ func (b *Board) applyPalette() {
 	b.git.SetPalette(b.palette)
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
+	b.templateFlow.SetPalette(b.palette)
 	if b.editor != nil {
 		b.editor.palette = b.palette
 	}
@@ -646,6 +649,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			col.SetHeight(b.visibleHeight)
 		}
 		b.editor.SetTermSize(b.termWidth, b.termHeight)
+		b.templateFlow.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.KeyMsg:
@@ -839,7 +843,16 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is no shutdown bookkeeping here.
 		return b, b.git.Update(msg)
 
+	case templateSubmitMsg:
+		return b.handleTemplateSubmit(msg)
+
 	default:
+		// An active huh form drives itself with internal messages (cursor
+		// blink, group transitions); route them to it ahead of the column
+		// list so they don't leak into the list filter.
+		if b.templateFlow.Active() {
+			return b, b.templateFlow.Update(msg)
+		}
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
 		if len(b.columns) > 0 {
 			return b, b.columns[b.selectedCol].UpdateList(msg)
@@ -974,6 +987,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle script-driven UI (kbrd.ui.pick / prompt). Confirms go through Dialog.
 	if b.scriptUI.Active() {
 		return b, b.scriptUI.Update(msg)
+	}
+
+	// Handle template picker / form
+	if b.templateFlow.Active() {
+		return b, b.templateFlow.Update(msg)
 	}
 
 	// Handle git panel
@@ -1194,6 +1212,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, b.notifier.Send("no folders available", notifyError)
 		}
 		return b, b.editor.OpenNew(0, b.columns[0].Name)
+	case key.Matches(msg, Keys.NewFromTemplate):
+		return b.openTemplateFlow(col)
 	default:
 		return b, col.UpdateList(msg)
 	}
@@ -1203,7 +1223,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.git.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.quickCmdMode || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1323,6 +1343,58 @@ func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	}
 	col.LoadItems()
 	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
+}
+
+// openTemplateFlow starts the new-item-from-template overlay for col: lists
+// the column's .kbrd_templates merged with the board-level ones and opens the
+// picker (or, with a single template, its form directly).
+func (b *Board) openTemplateFlow(col *Column) (tea.Model, tea.Cmd) {
+	if col.Virtual {
+		return b, b.notifier.Send(errVirtualColumn.Error(), notifyError)
+	}
+	tmpls, warns, err := template.List(b.cfg.Path, col.Path)
+	if err != nil {
+		return b, b.notifier.Send("failed to list templates: "+err.Error(), notifyError)
+	}
+	var warnCmd tea.Cmd
+	if len(warns) > 0 {
+		w := warns[0]
+		warnCmd = b.notifier.Send("skipped "+filepath.Base(w.Path)+": "+w.Err.Error(), notifyError)
+	}
+	if len(tmpls) == 0 {
+		if warnCmd != nil {
+			return b, warnCmd
+		}
+		return b, b.notifier.Send("no templates — add .md files to "+col.Name+"/"+template.Dir+" or "+template.Dir, notifyError)
+	}
+	return b, tea.Batch(warnCmd, b.templateFlow.Open(b.selectedCol, tmpls))
+}
+
+// handleTemplateSubmit renders the completed template form and creates the
+// new card, mirroring handleNew's error reporting.
+func (b *Board) handleTemplateSubmit(msg templateSubmitMsg) (tea.Model, tea.Cmd) {
+	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
+		return b, b.notifier.Send("invalid column", notifyError)
+	}
+	col := b.columns[msg.ColIndex]
+	vctx := board.VarContext{
+		BoardPath:  b.cfg.Path,
+		BoardName:  b.cfg.BoardName,
+		ColumnPath: col.Path,
+		ColumnName: col.Name,
+	}
+	name, body, err := template.Instantiate(msg.Template, vctx, msg.Values)
+	if err != nil {
+		return b, b.notifier.Send("template: "+err.Error(), notifyError)
+	}
+	if _, err := b.createItemContent(col, name, body); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return b, b.notifier.Send("file already exists: "+name+".md", notifyError)
+		}
+		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
+	}
+	col.SelectByName(name)
+	return b, b.notifier.Send("created "+name+".md", notifySuccess)
 }
 
 func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
@@ -2126,6 +2198,9 @@ func (b *Board) View() string {
 	}
 	if b.scriptUI.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
+	}
+	if b.templateFlow.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.templateFlow.View())
 	}
 	if b.git.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.git.View())

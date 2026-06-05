@@ -174,21 +174,27 @@ func (s *ScriptUI) View() string {
 }
 
 func (s *ScriptUI) renderChoices() string {
-	if len(s.choices) == 0 {
+	return renderPickerChoices(s.palette, s.choices, s.selected)
+}
+
+// renderPickerChoices renders a vertical pick list with the shared gutter +
+// inverted-selection look. Used by both ScriptUI (kbrd.ui.pick) and the
+// template picker so the two overlays stay visually identical.
+func renderPickerChoices(p Palette, choices []string, selected int) string {
+	if len(choices) == 0 {
 		return helpDimStyle.Render("(no choices)")
 	}
-	p := s.palette
 	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
 	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
 	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
-	rows := make([]string, 0, len(s.choices))
-	for i, c := range s.choices {
+	rows := make([]string, 0, len(choices))
+	for i, c := range choices {
 		gutter := " "
-		if i == s.selected {
+		if i == selected {
 			gutter = gutterSel
 		}
-		if i == s.selected {
+		if i == selected {
 			rows = append(rows, gutter+" "+selStyle.Render(" "+c+" "))
 			continue
 		}

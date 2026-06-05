@@ -23,10 +23,14 @@ var errVirtualColumn = errors.New("virtual columns are read-only")
 // reload) — callers own that. All run on the Bubble Tea goroutine.
 
 func (b *Board) createItem(col *Column, name string) (string, error) {
+	return b.createItemContent(col, name, "")
+}
+
+func (b *Board) createItemContent(col *Column, name, content string) (string, error) {
 	if col.Virtual {
 		return "", errVirtualColumn
 	}
-	path, err := col.CreateItem(name)
+	path, err := col.CreateItemContent(name, content)
 	if err != nil {
 		return "", err
 	}

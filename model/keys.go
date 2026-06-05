@@ -37,8 +37,9 @@ type KeyMap struct {
 	CustomCommands key.Binding
 
 	// Create
-	New      key.Binding
-	NewFirst key.Binding
+	New             key.Binding
+	NewFirst        key.Binding
+	NewFromTemplate key.Binding
 
 	// Column
 	RenameCol key.Binding
@@ -136,8 +137,9 @@ var Keys = KeyMap{
 	CustomCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
 
 	// Create
-	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item in current folder")),
-	NewFirst: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new item in first folder")),
+	New:             key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item in current folder")),
+	NewFirst:        key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new item in first folder")),
+	NewFromTemplate: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "new item from template")),
 
 	// Column
 	RenameCol: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename column")),
@@ -235,7 +237,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Create & Command",
-			Items: bindingShortcuts(Keys.New, Keys.NewFirst, Keys.QuickCmd),
+			Items: bindingShortcuts(Keys.New, Keys.NewFirst, Keys.NewFromTemplate, Keys.QuickCmd),
 		},
 		{
 			Title: "Column",

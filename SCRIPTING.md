@@ -285,6 +285,63 @@ or `nil, err`. Fires `item_created`.
 kbrd.board.create("1. TO DO", "follow up")
 ```
 
+### `kbrd.board.templates(column)`
+
+List the card templates available to the named column — its own
+`.kbrd_templates/` merged with the board-level one (column wins on a name
+clash; see [TEMPLATES.md](./TEMPLATES.md)). Returns an array of
+`{name=, scope=}` tables (`scope` is `"column"` or `"board"`), or `nil, err`.
+
+```lua
+local tmpls, err = kbrd.board.templates("1. TO DO")
+for _, t in ipairs(tmpls) do print(t.name, t.scope) end
+```
+
+### `kbrd.board.createFromTemplate(column, template, values)`
+
+Render the template named `template` (its display name, as returned by
+`kbrd.board.templates`) with `values` and create the resulting card in the
+named column. Returns `true` or `nil, err`. Fires `item_created` — the same
+event a `T`-key or `n`-key creation fires.
+
+`values` maps field keys to answers:
+
+| Field type | Lua value |
+| --- | --- |
+| `input` / `text` / `select` | string |
+| `multiselect` | array of strings |
+| `confirm` | boolean |
+
+Omitted keys take the field's `default` (a `select` without one takes its
+first option); `required` fields must be provided and non-empty. Unknown keys
+and out-of-options values are errors, and `pattern`/`min_len`/`max_len`
+constraints declared on a field are enforced exactly as in the interactive
+form (see [TEMPLATES.md](./TEMPLATES.md#validation)). When the template
+declares no `filename`, pass the card name as `values._filename`.
+
+```lua
+local ok, err = kbrd.board.createFromTemplate("1. TO DO", "Bug report", {
+  title      = "Crash on save",
+  severity   = "high",
+  areas      = {"UI", "data"},   -- multiselect
+  regression = true,             -- confirm
+})
+```
+
+Combine with `kbrd.ui.*` for interactive flows the static form can't do —
+e.g. branch on earlier answers:
+
+```lua
+kbrd.command("bug", "File a bug", function(ctx)
+  local title = kbrd.ui.prompt("Bug title", "")
+  if not title then return end
+  local sev = kbrd.ui.pick("Severity", {"low", "medium", "high"})
+  if not sev then return end
+  kbrd.board.createFromTemplate(ctx.columnName, "Bug report",
+    {title = title, severity = sev})
+end)
+```
+
 ### `kbrd.board.rename(item, newName)`
 
 Rename an item (same column). `item` may be the `ctx` table or an explicit

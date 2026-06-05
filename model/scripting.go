@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kbrd/board"
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
 	"kbrd/shellcmd"
+	"kbrd/template"
 )
 
 // initScripting creates the Lua host (if enabled and init files exist) and
@@ -460,6 +463,64 @@ func (a boardScriptAPI) CreateItem(column, name string) error {
 		return fmt.Errorf("column %q not found", column)
 	}
 	_, err := a.b.createItem(col, name)
+	return err
+}
+
+func (a boardScriptAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
+	col := a.column(column)
+	if col == nil {
+		return nil, fmt.Errorf("column %q not found", column)
+	}
+	if col.Virtual {
+		return nil, errVirtualColumn
+	}
+	tmpls, _, err := template.List(a.b.cfg.Path, col.Path)
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]events.TemplateInfo, 0, len(tmpls))
+	for _, t := range tmpls {
+		infos = append(infos, events.TemplateInfo{Name: t.Name, Scope: t.Scope})
+	}
+	return infos, nil
+}
+
+func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values map[string]interface{}) error {
+	col := a.column(column)
+	if col == nil {
+		return fmt.Errorf("column %q not found", column)
+	}
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	tmpls, _, err := template.List(a.b.cfg.Path, col.Path)
+	if err != nil {
+		return err
+	}
+	var tmpl *template.Template
+	names := make([]string, 0, len(tmpls))
+	for i, t := range tmpls {
+		names = append(names, t.Name)
+		if t.Name == tmplName {
+			tmpl = &tmpls[i]
+			break
+		}
+	}
+	if tmpl == nil {
+		return fmt.Errorf("template %q not found; available: %s", tmplName, strings.Join(names, ", "))
+	}
+	vctx := board.VarContext{
+		BoardPath:  a.b.cfg.Path,
+		BoardName:  a.b.cfg.BoardName,
+		ColumnPath: col.Path,
+		ColumnName: col.Name,
+	}
+	name, body, err := template.Instantiate(*tmpl, vctx, values)
+	if err != nil {
+		return err
+	}
+	// Centralized helper creates the file AND publishes ItemCreated.
+	_, err = a.b.createItemContent(col, name, body)
 	return err
 }
 

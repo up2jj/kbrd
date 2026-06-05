@@ -94,6 +94,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	}
 	return []Shortcut{
 		short(Keys.New.Help().Key, "new"),
+		short(Keys.NewFromTemplate.Help().Key, "template"),
 		bindingShortcut(Keys.Filter),
 		short(Keys.RenameCol.Help().Key, "rename col"),
 		short(Keys.GitPanel.Help().Key, "git"),

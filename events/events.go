@@ -203,6 +203,13 @@ type BoardAPI interface {
 	MoveItem(item ItemRef, toColumn string) error
 	// CreateItem creates a new (empty) item named name in the named column.
 	CreateItem(column, name string) error
+	// ListTemplates lists the card templates available to the named column
+	// (column-local merged with board-level; column wins on a name clash).
+	ListTemplates(column string) ([]TemplateInfo, error)
+	// CreateItemFromTemplate renders the named template with the given field
+	// values and creates the resulting card in the named column. Field
+	// defaults apply for omitted keys; required fields must be non-empty.
+	CreateItemFromTemplate(column, template string, values map[string]interface{}) error
 	// RenameItem renames the item identified by item to newName (same column).
 	RenameItem(item ItemRef, newName string) error
 	// DeleteItem deletes the item identified by item.
@@ -234,6 +241,14 @@ type BoardAPI interface {
 	VirtualColumnSet(id string, spec VirtualColumnSpec)
 	VirtualColumnClear(id string)
 	VirtualColumnClearAll()
+}
+
+// TemplateInfo describes one card template available to a column, as exposed
+// to scripts. Scope is "column" or "board" depending on where the template
+// file lives.
+type TemplateInfo struct {
+	Name  string
+	Scope string
 }
 
 // VirtualItem is one entry a script pushes into a virtual column via
