@@ -118,6 +118,7 @@ Currently emitted events:
 | `column_created`| `{name}`                                                 | After `kbrd.board.createColumn` succeeds                  |
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
+| `column_items`  | `{column, pinned, items}` — **expects a return value**  | When a filesystem column's items are (re)built — see below |
 
 Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
 command callback) are **deferred** until the script returns, then dispatched
@@ -278,6 +279,54 @@ end
 
 Subscribe to an event. See the table above for available events. The
 callback receives an event-specific payload table.
+
+### `kbrd.on("column_items", fn)` — column transform hook
+
+Unlike the other (fire-and-forget) events, `column_items` is a **transform**:
+its return value becomes the column's item order. It fires whenever a
+filesystem column's items are (re)built — startup, watcher reloads, manual
+refresh, and after item mutations — letting a script sort, filter, or group a
+column's cards.
+
+```lua
+kbrd.on("column_items", function(ev)
+  if ev.column ~= "1. TO DO" then return nil end  -- decline other columns
+  table.sort(ev.items, function(a, b)
+    return (a.data.priority or 99) < (b.data.priority or 99)
+  end)
+  return ev.items
+end)
+```
+
+Payload:
+
+- `ev.column` — the column name.
+- `ev.pinned` — the pinned (`p_*`) items, **read-only context**: they always
+  render on top in default order and cannot be reordered or hidden.
+- `ev.items` — the unpinned items, the transform target. Each item table has
+  `name`, `title`, `pinned`, `tags`, `meta`, `icon`, `accent`, `path`, and
+  `data` (the card's full YAML frontmatter, including custom keys like
+  `priority`).
+
+Return value:
+
+- a new array of item tables — reordered and/or a subset (**omitted items are
+  hidden** from the column until the hook stops hiding them; the files are
+  untouched),
+- entries of the form `{separator = true, title = "..."}` to inject inert
+  grouping rows,
+- or `nil` to decline and leave the column alone.
+
+Returned entries are matched back to real items by `name` (then `path`);
+unknown or duplicate entries are ignored, so the hook can never corrupt or
+clone a card. Hooks fire in registration order and the first one returning a
+table wins. Errors fall back to the default name order (and count toward the
+hook's `error_threshold`). Virtual columns are exempt — they already control
+their own order via `kbrd.column.set`.
+
+A column whose order is currently script-defined shows a soft `ƒ` glyph next
+to its header name (the filesystem cousin of the `◇` virtual marker), so a
+hidden or reordered card is always explainable at a glance.
 
 ### `kbrd.board.move(item, columnName)`
 

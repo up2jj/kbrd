@@ -658,29 +658,52 @@ func (h *Host) fireHook(name string, payload map[string]interface{}) {
 			e.consecutiveErrors = 0
 		}
 	}
-	if len(disable) > 0 {
-		kept := make([]*hookEntry, 0, len(entries)-len(disable))
-		j := 0
-		for i, e := range entries {
-			if j < len(disable) && disable[j] == i {
-				h.api.Notify(fmt.Sprintf("hook %s disabled after %d errors", name, e.consecutiveErrors), "error")
-				j++
-				continue
-			}
-			kept = append(kept, e)
+	h.pruneHooks(name, disable)
+}
+
+// pruneHooks removes the hook entries at the given (ascending) indices from the
+// named event's slice, notifying the user once per disabled hook. No-op for an
+// empty disable list.
+func (h *Host) pruneHooks(name string, disable []int) {
+	if len(disable) == 0 {
+		return
+	}
+	entries := h.hooks[name]
+	kept := make([]*hookEntry, 0, len(entries)-len(disable))
+	j := 0
+	for i, e := range entries {
+		if j < len(disable) && disable[j] == i {
+			h.api.Notify(fmt.Sprintf("hook %s disabled after %d errors", name, e.consecutiveErrors), "error")
+			j++
+			continue
 		}
-		if len(kept) == 0 {
-			delete(h.hooks, name)
-		} else {
-			h.hooks[name] = kept
-		}
+		kept = append(kept, e)
+	}
+	if len(kept) == 0 {
+		delete(h.hooks, name)
+	} else {
+		h.hooks[name] = kept
 	}
 }
 
 // invokeHook runs a hook function via PCall (no coroutine).
 func (h *Host) invokeHook(fn *lua.LFunction, arg interface{}) error {
+	_, err := h.callHook(fn, arg, 0)
+	return err
+}
+
+// invokeHookValue runs a hook function via PCall and returns its single return
+// value. Used by transform hooks (column_items) where the script's return is
+// the result, not just a side effect.
+func (h *Host) invokeHookValue(fn *lua.LFunction, arg interface{}) (lua.LValue, error) {
+	return h.callHook(fn, arg, 1)
+}
+
+// callHook is the shared PCall core behind invokeHook/invokeHookValue. nret is
+// 0 (fire-and-forget) or 1 (collect one return value).
+func (h *Host) callHook(fn *lua.LFunction, arg interface{}, nret int) (lua.LValue, error) {
 	if h.L == nil {
-		return fmt.Errorf("lua VM closed")
+		return lua.LNil, fmt.Errorf("lua VM closed")
 	}
 
 	timeout := time.Duration(h.cfg.HookTimeoutMs) * time.Millisecond
@@ -696,6 +719,7 @@ func (h *Host) invokeHook(fn *lua.LFunction, arg interface{}) error {
 	h.L.SetContext(ctx)
 	defer h.L.RemoveContext()
 
+	ret := lua.LValue(lua.LNil)
 	err := func() (retErr error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -704,9 +728,16 @@ func (h *Host) invokeHook(fn *lua.LFunction, arg interface{}) error {
 		}()
 		h.L.Push(fn)
 		h.L.Push(toLValue(h.L, arg))
-		return h.L.PCall(1, 0, nil)
+		if err := h.L.PCall(1, nret, nil); err != nil {
+			return err
+		}
+		if nret > 0 {
+			ret = h.L.Get(-1)
+			h.L.Pop(1)
+		}
+		return nil
 	}()
-	return err
+	return ret, err
 }
 
 func (h *Host) doFile(path string) error {

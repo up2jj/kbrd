@@ -373,6 +373,12 @@ type Column struct {
 	listYOffset int
 	palette     Palette
 
+	// transformed marks a filesystem column whose item order is currently
+	// script-defined (a column_items hook returned a table for it). Rendered
+	// as a ƒ glyph in the header so a hidden/reordered card is explainable.
+	// Maintained by Board.applyColumnTransform.
+	transformed bool
+
 	// Virtual-column state. A virtual column has no filesystem backing: its
 	// Items are pushed by a script via kbrd.column.set, file moves into/out of
 	// it are rejected, and its actions come from colCmds rather than the
@@ -562,6 +568,11 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
 	}
 
 	name := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Render(nameLabel)
+	if c.transformed {
+		// ƒ marks a script-defined order (column_items hook), mirroring the
+		// ◇ virtual marker: a soft-accent hint, not a selection cue.
+		name += lipgloss.NewStyle().Foreground(c.palette.AccentSoft).Render(" ƒ")
+	}
 	count := lipgloss.NewStyle().Foreground(countFg).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
@@ -762,6 +773,25 @@ func (c *Column) loadItems(cache itemCache) error {
 	}
 	c.list.SetItems(listItems)
 	return nil
+}
+
+// SetItems replaces the master item slice and the underlying list, preserving
+// the cursor by item name. Used by the column_items transform to apply a
+// script-defined order after a (re)load.
+func (c *Column) SetItems(items []Item) {
+	prevName := ""
+	if sel := c.SelectedItem(); sel != nil {
+		prevName = sel.Name
+	}
+	c.Items = items
+	listItems := make([]list.Item, len(items))
+	for i, item := range items {
+		listItems[i] = item
+	}
+	c.list.SetItems(listItems)
+	if prevName != "" {
+		c.SelectByName(prevName)
+	}
 }
 
 func (c *Column) TotalCount() int {

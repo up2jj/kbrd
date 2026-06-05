@@ -33,6 +33,11 @@ const (
 	NameItemMoved     = "item_moved"
 	NameColumnCreated = "column_created"
 	NameGitSyncDone   = "git_sync_done"
+	// NameColumnItems is the Lua-only transform hook fired when a filesystem
+	// column's items are (re)built. Unlike the action events above it expects a
+	// return value (the reordered/filtered item list), so it is never part of
+	// actionEvents and cannot be bound by declarative YAML hooks.
+	NameColumnItems = "column_items"
 )
 
 // actionEvents is the set of low-frequency "action" events that declarative

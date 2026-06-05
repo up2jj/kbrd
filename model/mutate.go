@@ -21,6 +21,10 @@ var errVirtualColumn = errors.New("virtual columns are read-only")
 //
 // These helpers deliberately do NOT touch UI state (notifier, selection,
 // reload) — callers own that. All run on the Bubble Tea goroutine.
+//
+// Mutations whose Column method reloads the column internally also re-apply
+// the column_items transform here, for the same reason events are published
+// here: the call sites can't forget it.
 
 func (b *Board) createItem(col *Column, name string) (string, error) {
 	return b.createItemContent(col, name, "")
@@ -35,6 +39,7 @@ func (b *Board) createItemContent(col *Column, name, content string) (string, er
 		return "", err
 	}
 	b.bus.Publish(events.ItemCreated{Item: events.ItemRef{Column: col.Name, Name: name}})
+	b.applyColumnTransform(col)
 	return path, nil
 }
 
@@ -49,6 +54,7 @@ func (b *Board) renameItem(col *Column, oldName, newName string) error {
 		Item:    events.ItemRef{Column: col.Name, Name: newName},
 		OldName: oldName,
 	})
+	b.applyColumnTransform(col)
 	return nil
 }
 
@@ -75,5 +81,7 @@ func (b *Board) moveItem(src, dst *Column, name string) error {
 		From: src.Name,
 		To:   dst.Name,
 	})
+	b.applyColumnTransform(src)
+	b.applyColumnTransform(dst)
 	return nil
 }

@@ -380,6 +380,9 @@ func (a boardScriptAPI) Refresh() error {
 	if err := a.b.loadColumns(); err != nil {
 		return err
 	}
+	// The calling script is still running, so this marks the transform
+	// pending; drainColumnTransform applies it once the script finishes.
+	a.b.applyColumnTransforms()
 	a.b.git.RefreshStatsNow()
 	a.b.bus.Publish(events.BoardRefresh{Reason: "command"})
 	return nil

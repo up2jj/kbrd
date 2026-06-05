@@ -42,6 +42,10 @@ type watchEventMsg struct{ Path string }
 // reload only if Seq still matches b.watchSeq (no newer event has arrived).
 type watchDebounceMsg struct{ Seq int }
 
+// refreshedMsg fires after a manual refresh's off-goroutine loadColumns; its
+// handler applies the column_items transform on the UI goroutine and notifies.
+type refreshedMsg struct{}
+
 // boardReloadedMsg carries the result of an off-goroutine full board rescan.
 // Stale results (Seq != b.watchSeq) are discarded.
 type boardReloadedMsg struct {
@@ -120,12 +124,15 @@ type Board struct {
 	scriptStatus    string // transient kbrd.status message shown in the status bar
 	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks
 
-	bus          events.Bus
-	scripts      *script.Host
-	scriptUI     ScriptUI
-	templateFlow TemplateFlow
-	templateExec templateExec
-	hooks        *hookRunner // declarative YAML event hooks; nil when disabled
+	bus      events.Bus
+	scripts  *script.Host
+	scriptUI ScriptUI
+	// transformPending marks a column_items transform that was skipped because
+	// a script was mid-run; drainColumnTransform re-applies it once idle.
+	transformPending bool
+	templateFlow     TemplateFlow
+	templateExec     templateExec
+	hooks            *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
 	// registry separate from the filesystem columns so they survive disk
@@ -627,6 +634,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if scmd := b.collectStatusCmd(); scmd != nil {
 		cmd = batchCmd(cmd, scmd)
 	}
+	// Re-apply any column_items transform that was skipped while a script was
+	// running (the script has finished by the time the wrapper runs).
+	b.drainColumnTransform()
 	return model, cmd
 }
 
@@ -676,6 +686,10 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Init's off-thread startup) keeps Lua single-threaded.
 		b.bus.Publish(events.BoardLoad{})
 		b.bus.Publish(events.BoardRefresh{Reason: "startup"})
+		// Cold-load transform: columns were built in Init's startup goroutine
+		// (no VM access there); apply the script order now, on the UI goroutine,
+		// after board_load has let init.lua finish its registrations.
+		b.applyColumnTransforms()
 		return b, b.watchCmd()
 
 	case watchEventMsg:
@@ -697,11 +711,16 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case watchDebounceMsg:
 		return b, b.debouncedReload(msg.Seq)
 
+	case refreshedMsg:
+		b.applyColumnTransforms()
+		return b, b.notifier.Send("refreshed", notifySuccess)
+
 	case boardReloadedMsg:
 		if msg.Seq != b.watchSeq {
 			return b, nil // stale — a newer change is already queued
 		}
 		b.applyReloadedColumns(msg.columns)
+		b.applyColumnTransforms()
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.git.RefreshStats()
 
@@ -732,6 +751,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.col.SelectByName(prevName)
 		}
 		b.columns[idx] = msg.col
+		b.applyColumnTransform(msg.col)
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.git.RefreshStats()
 
@@ -1172,6 +1192,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return b, b.notifier.Send("failed to pin: "+err.Error(), notifyError)
 			}
+			b.applyColumnTransform(col)
 			pinState := "unpinned"
 			if item.Pinned {
 				pinState = "pinned"
@@ -1335,7 +1356,7 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
-	col.LoadItems()
+	b.reloadColumnAfterMutation(col)
 	return b, b.notifier.Send("saved "+msg.FileName, notifySuccess)
 }
 
@@ -1345,7 +1366,7 @@ func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
 	}
-	col.LoadItems()
+	b.reloadColumnAfterMutation(col)
 	return b, b.notifier.Send("appended to "+msg.FileName, notifySuccess)
 }
 
@@ -1355,7 +1376,7 @@ func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
 	}
-	col.LoadItems()
+	b.reloadColumnAfterMutation(col)
 	return b, b.notifier.Send("prepended to "+msg.FileName, notifySuccess)
 }
 
@@ -1365,7 +1386,7 @@ func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
 	}
-	col.LoadItems()
+	b.reloadColumnAfterMutation(col)
 	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
 }
 
@@ -1515,7 +1536,7 @@ func (b *Board) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
 	if err := b.deleteItem(col, msg.FileName); err != nil {
 		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
 	}
-	col.LoadItems()
+	b.reloadColumnAfterMutation(col)
 	return b, b.notifier.Send("deleted "+msg.FileName, notifySuccess)
 }
 
@@ -1691,6 +1712,7 @@ func (b *Board) loadBoard(path string) (tea.Cmd, error) {
 	// Re-fire board_load on the new board so its init script can repopulate any
 	// virtual columns (runs on the UI goroutine, host already subscribed).
 	b.bus.Publish(events.BoardLoad{})
+	b.applyColumnTransforms()
 
 	if paths, err := board.DiscoverPaths(b.cfg.Path); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
@@ -1806,6 +1828,7 @@ func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
 		if err := col.PinItem(item.Name); err != nil {
 			return b.notifier.Send("failed to pin: "+err.Error(), notifyError)
 		}
+		b.applyColumnTransform(col)
 		state := "unpinned"
 		if !item.Pinned {
 			state = "pinned"
@@ -1865,7 +1888,9 @@ func (b *Board) refresh() tea.Cmd {
 			return notifyMsg{Message: "failed to refresh: " + err.Error(), Type: notifyError}
 		}
 		b.bus.Publish(events.BoardRefresh{Reason: "refresh"})
-		return notifyMsg{Message: "refreshed", Type: notifySuccess}
+		// The column_items transform needs the UI goroutine (Lua VM); this
+		// closure runs on a worker, so hand off via the message handler.
+		return refreshedMsg{}
 	}
 }
 
