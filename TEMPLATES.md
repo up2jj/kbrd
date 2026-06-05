@@ -198,11 +198,70 @@ Form field keys may not reuse these names — that's rejected at load time.
 | `{{truncate 50 .v}}` | Cap at N characters, appending `…` when cut (pipes too) |
 | `{{env "VAR"}}` | Environment variable (empty if unset) |
 
-Everything in Go [`text/template`](https://pkg.go.dev/text/template) also works:
-`{{if .ticket}}…{{end}}`, `{{range .areas}}…{{end}}`, `{{printf "%s!" .title}}`, and so on.
-
 Referencing an undeclared variable is an error (`missingkey=error`), so typos fail loudly
 at creation instead of rendering blanks.
+
+### Syntax in 60 seconds
+
+Templates use Go's [`text/template`](https://pkg.go.dev/text/template) syntax — here is
+everything you need without reading the Go docs. `{{...}}` is a placeholder; everything
+outside is literal markdown.
+
+**Insert a value** — your field keys (and the board variables) with a leading dot:
+
+```
+# {{.title}}
+```
+
+**Call a function** — name first, arguments after, separated by spaces:
+
+```
+{{slug .title}}          {{truncate 40 .title}}
+```
+
+**Chain functions** — pipe with `|`; each step's output becomes the *last* argument of
+the next:
+
+```
+{{.title | trim | truncate 40 | upper}}
+{{.severity | default "unset" | upper}}
+```
+
+…or nest with parentheses, which is equivalent:
+
+```
+{{upper (default "unset" .severity)}}
+```
+
+> Exception: `join` cannot be piped (`{{.areas | join ", "}}` fails — the list must be
+> the first argument). Use the direct form `{{join .areas ", "}}`.
+
+**Conditionals** — show a line only when a field was filled:
+
+```
+{{if .ticket}}Ticket: {{.ticket}}{{end}}
+{{if .regression}}⚠ regression{{else}}new bug{{end}}
+```
+
+**Loops** — over a multiselect's values; `.` is the current item inside the loop:
+
+```
+{{range .areas}}- area: {{.}}
+{{end}}
+```
+
+(For the common case, `{{checklist .areas}}` and `{{join .areas ", "}}` already do this.)
+
+**Formatting** — `printf` works like in most languages: `{{printf "[%s]" .severity}}`.
+
+**Whitespace control** — `{{-` and `-}}` eat the adjacent whitespace/newline, useful to
+keep optional lines from leaving blank gaps:
+
+```
+{{- if .ticket}}
+Ticket: {{.ticket}}
+{{- end}}
+```
 
 ---
 
