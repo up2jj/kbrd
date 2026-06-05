@@ -300,3 +300,56 @@ func TestBoard_ColumnReloadPreservesSelection(t *testing.T) {
 		t.Fatalf("selection after column reload = %v, want two", got)
 	}
 }
+
+func TestBoard_ZoomToggleAndFollowSelection(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 4, 2)
+
+	plus := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")}
+	b.handleKey(plus)
+	if !b.zoom.Active() {
+		t.Fatal("+ should activate zoom")
+	}
+
+	// Zoom renders only the selected column, with no pan indicators.
+	out := b.View()
+	if strings.Contains(out, "◀") || strings.Contains(out, "▶") {
+		t.Errorf("zoomed view must not show pan indicators:\n%s", out)
+	}
+	if !strings.Contains(out, "C0") || strings.Contains(out, "C1") {
+		t.Errorf("zoomed view should show only the selected column header:\n%s", out)
+	}
+
+	// Selection changes keep zoom on; the zoomed column follows.
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	if !b.zoom.Active() {
+		t.Error("changing columns must not exit zoom")
+	}
+	if b.selectedCol != 1 {
+		t.Errorf("selectedCol = %d, want 1", b.selectedCol)
+	}
+	out = b.View()
+	if !strings.Contains(out, "C1") || strings.Contains(out, "C0") {
+		t.Errorf("zoom should follow selection to C1:\n%s", out)
+	}
+
+	// esc exits zoom; pressing esc again is passed through, not consumed.
+	b.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if b.zoom.Active() {
+		t.Error("esc should exit zoom")
+	}
+
+	// + then - also exits.
+	b.handleKey(plus)
+	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("-")})
+	if b.zoom.Active() {
+		t.Error("- should exit zoom")
+	}
+
+	// + twice toggles off.
+	b.handleKey(plus)
+	b.handleKey(plus)
+	if b.zoom.Active() {
+		t.Error("+ should toggle zoom off")
+	}
+}

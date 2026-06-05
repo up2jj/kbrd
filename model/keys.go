@@ -41,7 +41,9 @@ type KeyMap struct {
 	NewFromTemplate key.Binding
 
 	// Column
-	RenameCol key.Binding
+	RenameCol  key.Binding
+	ZoomToggle key.Binding
+	ZoomOff    key.Binding
 
 	// Editor
 	EditorCancel       key.Binding
@@ -140,7 +142,9 @@ var Keys = KeyMap{
 	NewFromTemplate: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "new item from template")),
 
 	// Column
-	RenameCol: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename column")),
+	RenameCol:  key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename column")),
+	ZoomToggle: key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "zoom column")),
+	ZoomOff:    key.NewBinding(key.WithKeys("-", "esc"), key.WithHelp("-/esc", "exit zoom")),
 
 	// Editor
 	EditorCancel:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -239,7 +243,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Column",
-			Items: bindingShortcuts(Keys.RenameCol),
+			Items: bindingShortcuts(Keys.RenameCol, Keys.ZoomToggle),
 		},
 		{
 			Title: "Global",

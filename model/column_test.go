@@ -21,7 +21,7 @@ func newTestColumn(t *testing.T, files map[string]string) *Column {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	col := NewColumn(filepath.Base(dir), dir, 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn(filepath.Base(dir), dir, ItemOptions{PreviewLines: 3})
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestColumn_LoadItems(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	col := NewColumn("c", dir, 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn("c", dir, ItemOptions{PreviewLines: 3})
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestColumn_LoadItems_ReusesUnchangedFiles(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("bbb"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	col := NewColumn("c", dir, 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn("c", dir, ItemOptions{PreviewLines: 3})
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestColumn_LoadItems_SkipsHiddenAndUnderscore(t *testing.T) {
 		}
 	}
 
-	col := NewColumn("c", dir, 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn("c", dir, ItemOptions{PreviewLines: 3})
 	if err := col.LoadItems(); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestColumn_LoadItems_SkipsHiddenAndUnderscore(t *testing.T) {
 
 func TestColumn_LoadItems_MissingDir(t *testing.T) {
 	t.Parallel()
-	col := NewColumn("c", filepath.Join(t.TempDir(), "nope"), 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn("c", filepath.Join(t.TempDir(), "nope"), ItemOptions{PreviewLines: 3})
 	if err := col.LoadItems(); err == nil {
 		t.Fatal("expected error for missing dir")
 	}
@@ -566,7 +566,7 @@ func TestColumn_HasSelectedItem(t *testing.T) {
 
 func TestColumn_NewColumn_Defaults(t *testing.T) {
 	t.Parallel()
-	col := NewColumn("name", "/path", 32, ItemOptions{PreviewLines: 3})
+	col := NewColumn("name", "/path", ItemOptions{PreviewLines: 3})
 	if col.Name != "name" || col.Path != "/path" {
 		t.Errorf("col = %+v, want Name=name Path=/path", col)
 	}
@@ -602,9 +602,9 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	// Item delegate height is 5 + spacing 0 = 5. Set list height to 12 → 2 items per page.
 	col.SetHeight(12)
 	// Trigger a render so paginator updates its PerPage/page count.
-	_ = col.View(true, func(string) string { return "" }, 2, nil)
+	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer := col.renderOverflowFooter()
+	footer := col.renderOverflowFooter(32)
 	if !strings.Contains(footer, "below") {
 		t.Errorf("expected 'below' indicator on first page, got %q", footer)
 	}
@@ -615,9 +615,9 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	// Jump to the end and re-render.
 	end := len(col.list.VisibleItems()) - 1
 	col.list.Select(end)
-	_ = col.View(true, func(string) string { return "" }, 2, nil)
+	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer = col.renderOverflowFooter()
+	footer = col.renderOverflowFooter(32)
 	if !strings.Contains(footer, "above") {
 		t.Errorf("expected 'above' indicator on last page, got %q", footer)
 	}
@@ -630,10 +630,33 @@ func TestColumn_OverflowFooter_BlankWhenAllFit(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{"a": "x", "b": "y"})
 	col.SetHeight(40)
-	_ = col.View(true, func(string) string { return "" }, 2, nil)
+	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer := col.renderOverflowFooter()
+	footer := col.renderOverflowFooter(32)
 	if strings.Contains(footer, "above") || strings.Contains(footer, "below") {
 		t.Errorf("expected no overflow chips, got %q", footer)
+	}
+}
+
+func TestColumn_View_PreviewDensity(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"task": "first preview line\nsecond preview line\nthird preview line",
+	})
+	col.SetHeight(40)
+
+	compact := col.View(RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 1})
+	if !strings.Contains(compact, "first preview line") {
+		t.Errorf("compact view missing first preview line:\n%s", compact)
+	}
+	if strings.Contains(compact, "second preview line") {
+		t.Errorf("compact view must not show second preview line:\n%s", compact)
+	}
+
+	zoomed := col.View(RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 4})
+	for _, want := range []string{"first preview line", "second preview line", "third preview line"} {
+		if !strings.Contains(zoomed, want) {
+			t.Errorf("zoomed view missing %q:\n%s", want, zoomed)
+		}
 	}
 }

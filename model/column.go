@@ -21,15 +21,24 @@ import (
 
 // itemDelegate renders each kanban item inside a bubbles list.
 type itemDelegate struct {
-	isActive   bool
-	mnemonicOf func(name string) string
-	gutterW    int
-	colWidth   int
-	statFor    func(absPath string) (kbrdfs.DiffStat, bool)
-	palette    Palette
+	isActive     bool
+	mnemonicOf   func(name string) string
+	gutterW      int
+	colWidth     int
+	previewLines int // preview rows per card; <=1 means the compact default
+	statFor      func(absPath string) (kbrdfs.DiffStat, bool)
+	palette      Palette
 }
 
-func (d itemDelegate) Height() int                             { return 5 }
+// cardRows is the fixed height of one card slot for a given preview density:
+// title + N preview rows + meta + 2 border rows. It is the single source of
+// truth shared by delegate.Height() and the renderers, so the declared and
+// drawn heights can never drift apart.
+func cardRows(previewLines int) int {
+	return max(previewLines, 1) + 4
+}
+
+func (d itemDelegate) Height() int                             { return cardRows(d.previewLines) }
 func (d itemDelegate) Spacing() int                            { return 0 }
 func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
@@ -111,11 +120,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(pinIcon+item.Title, restWidth))
 
-	// Line 2 — preview
-	preview := "—"
-	if len(item.Preview) > 0 {
-		preview = item.Preview[0]
-	}
+	// Preview block — N rows depending on the layout's density.
 	var previewFg, detailBg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
@@ -130,7 +135,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
-	previewLine := previewStyle.Render(truncLine(preview, innerW-gutterW))
+	previewLine := previewBlock(item.Preview, d.previewLines, innerW, gutterW, previewStyle)
 
 	// Line 3 — meta (modified + size + git diff)
 	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
@@ -178,9 +183,28 @@ func truncLine(s string, w int) string {
 	return ansi.Truncate(s, w, "…")
 }
 
-// renderCard wraps the three content lines of an item in a rounded border so
-// it reads as a kanban card. The border consumes 2 columns, bringing the total
-// width back to colWidth, and 2 rows (delegate Height is 5).
+// previewBlock renders exactly max(n,1) preview rows from lines, padding with
+// blank rows so the card height always matches cardRows(n). When there is no
+// preview at all, the first row shows the "—" placeholder.
+func previewBlock(lines []string, n, innerW, gutterW int, style lipgloss.Style) string {
+	n = max(n, 1)
+	rows := make([]string, 0, n)
+	for i := range n {
+		text := ""
+		switch {
+		case i < len(lines):
+			text = lines[i]
+		case i == 0:
+			text = "—"
+		}
+		rows = append(rows, style.Render(truncLine(text, innerW-gutterW)))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// renderCard wraps the content lines of an item in a rounded border so it
+// reads as a kanban card. The border consumes 2 columns, bringing the total
+// width back to colWidth, and 2 rows (delegate Height is cardRows).
 func renderCard(titleLine, previewLine, metaLine string, innerW int, borderFg lipgloss.Color) string {
 	block := lipgloss.JoinVertical(lipgloss.Left, titleLine, previewLine, metaLine)
 	return lipgloss.NewStyle().
@@ -191,8 +215,8 @@ func renderCard(titleLine, previewLine, metaLine string, innerW int, borderFg li
 }
 
 // renderSeparator draws an inert grouping row: a centered label flanked by rule
-// glyphs, vertically padded to fill the fixed 5-row item slot. Separators stay
-// borderless — they are grouping rules, not cards.
+// glyphs, vertically padded to fill the fixed cardRows item slot. Separators
+// stay borderless — they are grouping rules, not cards.
 func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 	p := d.palette
 	fg := p.FgMuted
@@ -213,11 +237,18 @@ func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 	line = strings.Repeat("─", left) + label + strings.Repeat("─", right)
 	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
 	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
-	fmt.Fprintln(w, blank)
-	fmt.Fprintln(w, blank)
-	fmt.Fprintln(w, style.Render(line))
-	fmt.Fprintln(w, blank)
-	fmt.Fprint(w, blank)
+
+	total := cardRows(d.previewLines)
+	ruleRow := total / 2
+	rows := make([]string, 0, total)
+	for i := range total {
+		if i == ruleRow {
+			rows = append(rows, style.Render(line))
+		} else {
+			rows = append(rows, blank)
+		}
+	}
+	fmt.Fprint(w, strings.Join(rows, "\n"))
 }
 
 // renderVirtual draws a script-supplied item in the fixed card frame: icon +
@@ -280,10 +311,6 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	}
 	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(title, restWidth))
 
-	preview := "—"
-	if len(item.Preview) > 0 {
-		preview = item.Preview[0]
-	}
 	var previewFg, detailBg lipgloss.Color
 	switch {
 	case isSelected && d.isActive:
@@ -296,7 +323,7 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	if isSelected && d.isActive {
 		previewStyle = previewStyle.Background(detailBg)
 	}
-	previewLine := previewStyle.Render(truncLine(preview, innerW-gutterW))
+	previewLine := previewBlock(item.Preview, d.previewLines, innerW, gutterW, previewStyle)
 
 	metaFg := p.BorderMuted
 	if isSelected && d.isActive {
@@ -317,7 +344,6 @@ type Column struct {
 	Path        string
 	Items       []Item // unfiltered master list (used by file operations)
 	list        list.Model
-	colWidth    int
 	itemOpts    ItemOptions
 	listYOffset int
 	palette     Palette
@@ -343,10 +369,12 @@ type VirtualCmd struct {
 	Ref     string
 }
 
-func NewColumn(name, path string, colWidth int, itemOpts ItemOptions) *Column {
+// NewColumn builds a column over a directory. Widths are not stored: layout
+// owns geometry, and every render passes the column its width via RenderCtx.
+func NewColumn(name, path string, itemOpts ItemOptions) *Column {
 	palette := DarkPalette()
-	delegate := itemDelegate{colWidth: colWidth, palette: palette}
-	l := list.New(nil, delegate, colWidth, 20)
+	delegate := itemDelegate{palette: palette}
+	l := list.New(nil, delegate, 0, 20)
 	l.SetShowTitle(false)
 	l.SetShowFilter(false)
 	l.SetShowStatusBar(false)
@@ -358,17 +386,17 @@ func NewColumn(name, path string, colWidth int, itemOpts ItemOptions) *Column {
 		PaddingLeft(2).
 		Foreground(palette.FgDim)
 
-	return &Column{Name: name, Path: path, list: l, colWidth: colWidth, itemOpts: itemOpts, palette: palette}
+	return &Column{Name: name, Path: path, list: l, itemOpts: itemOpts, palette: palette}
 }
 
 // NewVirtualColumn builds an empty script-backed column. It reuses NewColumn's
 // list setup, then flips the virtual flag and clears the filesystem Path.
-func NewVirtualColumn(vid, name string, colWidth int, palette Palette) *Column {
-	c := NewColumn(name, "", colWidth, ItemOptions{})
+func NewVirtualColumn(vid, name string, palette Palette) *Column {
+	c := NewColumn(name, "", ItemOptions{})
 	c.Virtual = true
 	c.VID = vid
 	c.palette = palette
-	c.list.SetDelegate(itemDelegate{colWidth: colWidth, palette: palette})
+	c.list.SetDelegate(itemDelegate{palette: palette})
 	return c
 }
 
@@ -469,7 +497,7 @@ func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func (c *Column) renderHeader(isActive bool, leftPad int) string {
+func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
 	p := c.palette
 	var nameFg, countFg, sepColor lipgloss.Color
 	if isActive {
@@ -512,20 +540,40 @@ func (c *Column) renderHeader(isActive bool, leftPad int) string {
 	count := lipgloss.NewStyle().Foreground(countFg).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
-	gap := c.colWidth - used
+	gap := width - used
 	if gap < 1 {
 		gap = 1
 	}
 	spacer := strings.Repeat(" ", gap)
 
 	header := leftPadStr + indicator + name + spacer + count
-	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", c.colWidth))
+	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", width))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep)
 }
 
-func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutterW int, statFor func(absPath string) (kbrdfs.DiffStat, bool)) string {
-	c.list.SetDelegate(itemDelegate{isActive: isActive, mnemonicOf: mnemonicOf, gutterW: gutterW, colWidth: c.colWidth, statFor: statFor, palette: c.palette})
+// RenderCtx is the render environment Board hands a column for one frame:
+// focus, geometry (from layout), and the board-level lookups cards need.
+type RenderCtx struct {
+	Active       bool
+	Width        int // content width allotted by layout (excludes border)
+	PreviewLines int // preview rows per card (Slot.PreviewLines)
+	GutterW      int // mnemonic gutter width
+	MnemonicOf   func(name string) string
+	StatFor      func(absPath string) (kbrdfs.DiffStat, bool)
+}
+
+func (c *Column) View(ctx RenderCtx) string {
+	c.list.SetWidth(ctx.Width)
+	c.list.SetDelegate(itemDelegate{
+		isActive:     ctx.Active,
+		mnemonicOf:   ctx.MnemonicOf,
+		gutterW:      ctx.GutterW,
+		colWidth:     ctx.Width,
+		previewLines: ctx.PreviewLines,
+		statFor:      ctx.StatFor,
+		palette:      c.palette,
+	})
 	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
 	c.list.Styles.NoItems = lipgloss.NewStyle().PaddingLeft(2).Foreground(c.palette.FgDim)
 
@@ -538,20 +586,20 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 		border = lipgloss.DoubleBorder()
 	}
 	borderColor := c.palette.BorderMuted
-	if isActive {
+	if ctx.Active {
 		borderColor = c.palette.BorderActive
 	}
 
-	leftPad := gutterW - 2
+	leftPad := ctx.GutterW - 2
 	if leftPad < 0 {
 		leftPad = 0
 	}
-	header := c.renderHeader(isActive, leftPad)
+	header := c.renderHeader(ctx.Active, leftPad, ctx.Width)
 	listView := c.list.View()
 	if c.Virtual && len(c.Items) == 0 && c.emptyText != "" {
 		listView = lipgloss.NewStyle().
 			PaddingLeft(2).
-			Width(c.colWidth).
+			Width(ctx.Width).
 			Foreground(c.palette.FgDim).
 			Render(c.emptyText)
 	}
@@ -562,7 +610,7 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		listView,
-		c.renderOverflowFooter(),
+		c.renderOverflowFooter(ctx.Width),
 	)
 
 	return lipgloss.NewStyle().
@@ -574,10 +622,10 @@ func (c *Column) View(isActive bool, mnemonicOf func(name string) string, gutter
 // renderOverflowFooter shows "▲ N above" / "▼ N below" chips when the current
 // page of items doesn't cover the full visible-items list. Always returns a
 // single-line string (possibly blank) so column heights stay stable.
-func (c *Column) renderOverflowFooter() string {
+func (c *Column) renderOverflowFooter(width int) string {
 	style := lipgloss.NewStyle().
-		Width(c.colWidth).
-		MaxWidth(c.colWidth).
+		Width(width).
+		MaxWidth(width).
 		Foreground(c.palette.FgSubtle).
 		Italic(true).
 		PaddingLeft(2)

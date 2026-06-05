@@ -20,6 +20,8 @@ type ShortcutContext struct {
 	HasSelectedItem bool
 	QuickCmdMode    bool
 	Filtering       bool
+	// Zoomed is set while a column is zoomed, to surface the exit hint.
+	Zoomed bool
 	// Virtual is set when the focused column is a virtual (script) column;
 	// VirtualCmds holds its declared command key/label hints to surface inline.
 	Virtual     bool
@@ -69,8 +71,12 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	if ctx.QuickCmdMode {
 		return []Shortcut{bindingShortcut(Keys.QuickCmdCancel)}
 	}
+	var prefix []Shortcut
+	if ctx.Zoomed {
+		prefix = []Shortcut{bindingShortcut(Keys.ZoomOff)}
+	}
 	if ctx.Virtual {
-		out := []Shortcut{short("enter", "default")}
+		out := append(prefix, short("enter", "default"))
 		out = append(out, ctx.VirtualCmds...)
 		out = append(out,
 			bindingShortcut(Keys.CustomCommands),
@@ -80,7 +86,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		return out
 	}
 	if ctx.HasSelectedItem {
-		return []Shortcut{
+		return append(prefix,
 			bindingShortcut(Keys.Peek),
 			bindingShortcut(Keys.Edit),
 			bindingShortcut(Keys.Append),
@@ -90,9 +96,9 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			short(Keys.GitPanel.Help().Key, "git"),
 			short(Keys.QuickCmd.Help().Key, "cmd"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
-		}
+		)
 	}
-	return []Shortcut{
+	return append(prefix,
 		short(Keys.New.Help().Key, "new"),
 		short(Keys.NewFromTemplate.Help().Key, "template"),
 		bindingShortcut(Keys.Filter),
@@ -100,7 +106,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		short(Keys.GitPanel.Help().Key, "git"),
 		short(Keys.QuickCmd.Help().Key, "cmd"),
 		short(Keys.ToggleHelp.Help().Key, "more"),
-	}
+	)
 }
 
 // RenderInlineHints renders a single line of `key label · key label · …` hints.

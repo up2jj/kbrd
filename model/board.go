@@ -103,6 +103,7 @@ type Board struct {
 	helpOpen           bool
 	configMenuOpen     bool
 	peek               Peek
+	zoom               Zoom
 	switcher           Switcher
 	search             Search
 	git                git.Controller
@@ -354,8 +355,11 @@ func buildColumns(cfg config.Config, palette Palette, cache itemCache) ([]*Colum
 // unchanged files skip re-reads (see Column.loadItems); it may be nil for a
 // cold load.
 func buildColumn(path, name string, cfg config.Config, palette Palette, cache itemCache) *Column {
-	col := NewColumn(name, path, cfg.ColumnWidth, ItemOptions{
-		PreviewLines:     cfg.PreviewLines,
+	// Read up to the layout ceiling so zoomed cards have their extra preview
+	// lines in memory without re-reading files on mode changes (bounded prefix
+	// read — the extra lines are nearly free).
+	col := NewColumn(name, path, ItemOptions{
+		PreviewLines:     max(cfg.PreviewLines, maxPreviewLines()),
 		TitleFromHeading: cfg.TitleFromHeading,
 	})
 	col.palette = palette
@@ -418,7 +422,7 @@ func (b *Board) setVirtualColumn(id string, spec events.VirtualColumnSpec) {
 		col.ApplyVirtualSpec(spec)
 		return
 	}
-	col := NewVirtualColumn(id, spec.Name, b.cfg.ColumnWidth, b.palette)
+	col := NewVirtualColumn(id, spec.Name, b.palette)
 	if b.visibleHeight > 0 {
 		col.SetHeight(b.visibleHeight)
 	}
@@ -1069,6 +1073,14 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
+	case key.Matches(msg, Keys.ZoomToggle):
+		b.zoom.Toggle()
+		return b, nil
+	case key.Matches(msg, Keys.ZoomOff) && b.zoom.Active():
+		// Only consume -/esc while zoomed; otherwise they fall through to the
+		// list passthrough below, preserving their pre-zoom behavior.
+		b.zoom.Off()
+		return b, nil
 	case key.Matches(msg, Keys.PrevCol):
 		b.selectedCol--
 		if b.selectedCol < 0 {
@@ -1227,8 +1239,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Zoom is excluded because click hit-testing assumes the normal multi-column
+	// slot geometry and card height.
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.quickCmdMode || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -2038,46 +2052,20 @@ func (b *Board) setActivityCell(id int, text string) {
 	b.cells.SetInternal(Cell{ID: id, Text: text, FG: string(b.palette.AccentSoft)})
 }
 
-// slotWidth is the rendered width of one column cell on the row:
-// configured colWidth + 2 for the rounded border + 1 for the right margin.
-func (b *Board) slotWidth() int { return b.cfg.ColumnWidth + 3 }
+// slotWidth is the rendered width of one column cell on the row (see
+// layout.go for the geometry).
+func (b *Board) slotWidth() int { return slotWidth(b.cfg.ColumnWidth) }
 
 // visibleColRange returns the index of the first column to render and the
 // number of columns that fit horizontally. It also adjusts firstVisibleCol so
-// the active column is always within the visible window.
+// the active column is always within the visible window. The math lives in
+// layout.go; this wrapper applies it to board state.
 func (b *Board) visibleColRange() (first, count int) {
 	if len(b.columns) == 0 {
 		return 0, 0
 	}
-	w := b.termWidth
-	if w == 0 {
-		w = 80
-	}
-	const indicatorReserve = 6 // room for "◀ N " / " N ▶" chips on either side
-	count = (w - indicatorReserve) / b.slotWidth()
-	if count < 1 {
-		count = 1
-	}
-	if count > len(b.columns) {
-		count = len(b.columns)
-	}
-
-	if b.selectedCol < b.firstVisibleCol {
-		b.firstVisibleCol = b.selectedCol
-	}
-	if b.selectedCol >= b.firstVisibleCol+count {
-		b.firstVisibleCol = b.selectedCol - count + 1
-	}
-	maxFirst := len(b.columns) - count
-	if maxFirst < 0 {
-		maxFirst = 0
-	}
-	if b.firstVisibleCol > maxFirst {
-		b.firstVisibleCol = maxFirst
-	}
-	if b.firstVisibleCol < 0 {
-		b.firstVisibleCol = 0
-	}
+	count = visibleCount(b.termWidth, b.slotWidth(), len(b.columns))
+	b.firstVisibleCol = clampFirstVisible(b.firstVisibleCol, b.selectedCol, count, len(b.columns))
 	return b.firstVisibleCol, count
 }
 
@@ -2097,7 +2085,7 @@ func (b *Board) View() string {
 	}
 
 	// Bail out cleanly on tiny terminals rather than draw a broken layout.
-	if b.termWidth > 0 && b.termWidth < b.cfg.ColumnWidth+4 {
+	if b.termWidth > 0 && b.termWidth < minBoardWidth(b.cfg.ColumnWidth) {
 		w, h := b.termWidth, b.termHeight
 		if h == 0 {
 			h = 24
@@ -2117,14 +2105,12 @@ func (b *Board) View() string {
 	b.rebuildMnemonics()
 
 	gap := lipgloss.NewStyle().MarginRight(1)
-	gutterW := 2
-	if b.mnemonicMaxLen+1 > gutterW {
-		gutterW = b.mnemonicMaxLen + 1
-	}
+	gutterW := gutterWidth(b.mnemonicMaxLen)
 
-	first, count := b.visibleColRange()
-	end := first + count
-	rendered := make([]string, 0, count+2)
+	slots, first := computeSlots(b.zoom.Active(), b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.cfg.ColumnWidth)
+	b.firstVisibleCol = first
+	end := first + len(slots)
+	rendered := make([]string, 0, len(slots)+2)
 
 	indicatorStyle := lipgloss.NewStyle().
 		Foreground(b.palette.FgSubtle).
@@ -2132,19 +2118,30 @@ func (b *Board) View() string {
 		PaddingTop(1).
 		MarginRight(1)
 	b.leftIndicatorWidth = 0
-	if first > 0 {
+	if !b.zoom.Active() && first > 0 {
 		chip := indicatorStyle.Render(fmt.Sprintf("◀ %d", first))
 		rendered = append(rendered, chip)
 		b.leftIndicatorWidth = lipgloss.Width(chip) + 1
 	}
-	for i := first; i < end; i++ {
-		col := b.columns[i]
-		rendered = append(rendered, gap.Render(col.View(i == b.selectedCol, b.mnemonicLookup(i), gutterW, b.git.StatFor)))
+	for _, s := range slots {
+		col := b.columns[s.Col]
+		rendered = append(rendered, gap.Render(col.View(RenderCtx{
+			Active:       s.Col == b.selectedCol,
+			Width:        s.Width,
+			PreviewLines: s.PreviewLines,
+			GutterW:      gutterW,
+			MnemonicOf:   b.mnemonicLookup(s.Col),
+			StatFor:      b.git.StatFor,
+		})))
 	}
-	if end < len(b.columns) {
+	if !b.zoom.Active() && end < len(b.columns) {
 		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))
 	}
 	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
+	if b.zoom.Active() {
+		// Zoom renders a single column; center it on the row.
+		columnsView = lipgloss.PlaceHorizontal(b.termWidth, lipgloss.Center, columnsView)
+	}
 
 	quickCmdView := b.renderQuickCommand()
 
@@ -2236,7 +2233,7 @@ func (b *Board) renderStatusBar() string {
 		width = 80
 	}
 
-	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode}
+	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode, Zoomed: b.zoom.Active()}
 	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
 	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
 		col := b.columns[b.selectedCol]
