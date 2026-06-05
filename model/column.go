@@ -131,6 +131,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			case s.Moved:
 				movedStyle := lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true)
 				meta += "  ·  " + movedStyle.Render("→ moved")
+			case s.New:
+				newStyle := lipgloss.NewStyle().Foreground(p.Success).Bold(true)
+				meta += "  ·  " + newStyle.Render("✚ new")
 			case s.Added > 0 || s.Deleted > 0:
 				addedStyle := lipgloss.NewStyle().Foreground(p.Success)
 				deletedStyle := lipgloss.NewStyle().Foreground(p.Danger)

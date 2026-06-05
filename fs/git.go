@@ -15,6 +15,7 @@ type DiffStat struct {
 	Added   int
 	Deleted int
 	Moved   bool
+	New     bool // untracked or added vs HEAD
 }
 
 type FileChange struct {
@@ -134,6 +135,10 @@ func numstatByPath(repoRoot string) map[string]DiffStat {
 	return stats
 }
 
+func isNewStatus(xy string) bool {
+	return xy == "??" || (len(xy) == 2 && (xy[0] == 'A' || xy[1] == 'A'))
+}
+
 func isRenameStatus(xy string) bool {
 	if len(xy) != 2 {
 		return false
@@ -155,6 +160,7 @@ func GitDiffStats(repoRoot string) map[string]DiffStat {
 			Added:   f.Added,
 			Deleted: f.Deleted,
 			Moved:   isRenameStatus(f.Status),
+			New:     isNewStatus(f.Status),
 		}
 	}
 	return out

@@ -198,9 +198,12 @@ func TestGitDiffStats_TracksModifiedFile(t *testing.T) {
 	if got.Added != 2 || got.Deleted != 0 {
 		t.Errorf("stats for seed.md = %+v, want {Added:2 Deleted:0}", got)
 	}
+	if got.New {
+		t.Errorf("modified tracked file flagged New; stat = %+v", got)
+	}
 }
 
-func TestGitDiffStats_UntrackedHasNoBadge(t *testing.T) {
+func TestGitDiffStats_UntrackedIsNew(t *testing.T) {
 	root := initRepo(t)
 	writeFile(t, filepath.Join(root, "new.md"), "fresh\n")
 	stats := GitDiffStats(root)
@@ -208,10 +211,23 @@ func TestGitDiffStats_UntrackedHasNoBadge(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected untracked entry in stats; got %v", stats)
 	}
-	// Untracked files appear in the map but have no visible badge: zero
-	// counts, not flagged as moved.
-	if s.Added != 0 || s.Deleted != 0 || s.Moved {
-		t.Errorf("untracked stat = %+v, want zero counts and Moved=false", s)
+	// Untracked files carry the New flag: zero counts, not flagged as moved.
+	if s.Added != 0 || s.Deleted != 0 || s.Moved || !s.New {
+		t.Errorf("untracked stat = %+v, want zero counts, Moved=false, New=true", s)
+	}
+}
+
+func TestGitDiffStats_StagedAddIsNew(t *testing.T) {
+	root := initRepo(t)
+	writeFile(t, filepath.Join(root, "new.md"), "fresh\n")
+	run(t, root, "add", "new.md")
+	stats := GitDiffStats(root)
+	s, ok := stats[filepath.Join(root, "new.md")]
+	if !ok {
+		t.Fatalf("expected staged-add entry in stats; got %v", stats)
+	}
+	if !s.New {
+		t.Errorf("staged-add stat = %+v, want New=true", s)
 	}
 }
 
