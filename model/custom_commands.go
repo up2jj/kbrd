@@ -95,6 +95,22 @@ func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]interface{}
 	return m
 }
 
+// buildFilesystemCtx builds the structured Lua ctx for a command dispatched on
+// a filesystem item that carries frontmatter data: a strict superset of the
+// flat string vars (so scripts reading ctx.fileDir etc. keep working) plus
+// `title`, the shared `path`, and the nested `data` table that a string map
+// can't hold. Items without frontmatter keep the plain string-vars flow.
+func (b *Board) buildFilesystemCtx(colIdx int, item *Item) map[string]interface{} {
+	ctx := map[string]interface{}{}
+	for k, v := range b.buildCommandVars(colIdx, item) {
+		ctx[k] = v
+	}
+	ctx["path"] = item.FullPath
+	ctx["title"] = item.Title
+	ctx["data"] = item.Data
+	return ctx
+}
+
 // commandsForColumn returns the menu command list for the focused column,
 // applying scope: filesystem columns show files/all globals; virtual columns
 // show their own column-scoped commands first, then virtual/all globals.

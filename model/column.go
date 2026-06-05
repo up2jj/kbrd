@@ -93,6 +93,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		nameFg = p.FgEmphasis
 		cardBorder = p.BorderMuted
 	}
+	// Frontmatter accent tints the title, but never overrides the selected
+	// row's on-accent foreground (mirrors renderVirtual).
+	if item.Accent != "" && !hasRowBg {
+		nameFg = lipgloss.Color(item.Accent)
+	}
 
 	pinIcon := ""
 	if item.Pinned {
@@ -118,7 +123,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			gutterText = ">"
 		}
 	}
-	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(pinIcon+item.Title, restWidth))
+	title := pinIcon + item.Title
+	if item.Icon != "" {
+		title = item.Icon + " " + title
+	}
+	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(title, restWidth))
 
 	// Preview block — N rows depending on the layout's density.
 	var previewFg, detailBg lipgloss.Color
@@ -137,23 +146,39 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 	previewLine := previewBlock(item.Preview, d.previewLines, innerW, gutterW, previewStyle)
 
-	// Line 3 — meta (modified + size + git diff)
-	meta := timeAgo(item.Modified) + "  ·  " + item.HumanSize()
-	if d.statFor != nil {
-		if s, ok := d.statFor(item.FullPath); ok {
-			switch {
-			case s.Moved:
-				movedStyle := lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true)
-				meta += "  ·  " + movedStyle.Render("→ moved")
-			case s.New:
-				newStyle := lipgloss.NewStyle().Foreground(p.Success).Bold(true)
-				meta += "  ·  " + newStyle.Render("✚ new")
-			case s.Added > 0 || s.Deleted > 0:
-				addedStyle := lipgloss.NewStyle().Foreground(p.Success)
-				deletedStyle := lipgloss.NewStyle().Foreground(p.Danger)
-				meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
+	// Line 3 — meta: a frontmatter `meta` replaces the computed modified +
+	// size + git diff block, matching virtual-item semantics.
+	meta := item.Meta
+	if meta == "" {
+		meta = timeAgo(item.Modified) + "  ·  " + item.HumanSize()
+		if d.statFor != nil {
+			if s, ok := d.statFor(item.FullPath); ok {
+				switch {
+				case s.Moved:
+					movedStyle := lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true)
+					meta += "  ·  " + movedStyle.Render("→ moved")
+				case s.New:
+					newStyle := lipgloss.NewStyle().Foreground(p.Success).Bold(true)
+					meta += "  ·  " + newStyle.Render("✚ new")
+				case s.Added > 0 || s.Deleted > 0:
+					addedStyle := lipgloss.NewStyle().Foreground(p.Success)
+					deletedStyle := lipgloss.NewStyle().Foreground(p.Danger)
+					meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
+				}
 			}
 		}
+	}
+	if len(item.Tags) > 0 {
+		tagStyle := lipgloss.NewStyle().Foreground(p.AccentSoft)
+		chips := make([]string, len(item.Tags))
+		for i, tag := range item.Tags {
+			chips[i] = tagStyle.Render("#" + tag)
+		}
+		meta += "  " + strings.Join(chips, " ")
+	}
+	if item.BadFM {
+		badStyle := lipgloss.NewStyle().Foreground(p.Warning).Bold(true)
+		meta += "  ·  " + badStyle.Render("⚠ yaml")
 	}
 	var metaFg lipgloss.Color
 	switch {

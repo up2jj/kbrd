@@ -638,6 +638,49 @@ func TestColumn_OverflowFooter_BlankWhenAllFit(t *testing.T) {
 	}
 }
 
+func TestColumn_View_Frontmatter(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"task": "---\nicon: \"♞\"\nmeta: custom meta line\ntags: [urgent, backend]\n---\nbody line",
+	})
+	col.SetHeight(40)
+
+	view := col.View(RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 3})
+	for _, want := range []string{"♞", "custom meta line", "#urgent", "#backend"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	// The frontmatter meta replaces the mtime/size line.
+	if strings.Contains(view, "just now") {
+		t.Errorf("view must not show the filesystem meta when frontmatter meta is set:\n%s", view)
+	}
+	// Frontmatter never leaks into the preview.
+	if strings.Contains(view, "icon:") || strings.Contains(view, "tags:") {
+		t.Errorf("frontmatter leaked into the preview:\n%s", view)
+	}
+	if !strings.Contains(view, "body line") {
+		t.Errorf("view missing preview body:\n%s", view)
+	}
+}
+
+func TestColumn_View_BadFrontmatterBadge(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"broken": "---\ntags: [unclosed\n---\nbody line",
+		"fine":   "plain body",
+	})
+	col.SetHeight(40)
+
+	view := col.View(RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 3})
+	if !strings.Contains(view, "⚠ yaml") {
+		t.Errorf("view missing ⚠ yaml badge for malformed frontmatter:\n%s", view)
+	}
+	if strings.Count(view, "⚠ yaml") != 1 {
+		t.Errorf("⚠ yaml badge should appear exactly once:\n%s", view)
+	}
+}
+
 func TestColumn_View_PreviewDensity(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{

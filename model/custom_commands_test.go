@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +24,47 @@ func testCommands() []config.Command {
 		{Name: "Edit", ID: "e", Description: "edit", Template: "nano"},
 		{Name: "Reveal", ID: "f", Description: "reveal", Template: "open"},
 		{Name: "Word count", ID: "w", Description: "wc", Template: "wc"},
+	}
+}
+
+func TestBuildFilesystemCtx_CarriesFrontmatterData(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	colDir := filepath.Join(dir, "1. TO DO")
+	if err := os.Mkdir(colDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	card := "---\ntags: [urgent]\nassignee: kuba\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(colDir, "task.md"), []byte(card), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewBoard(config.Config{Path: dir, BoardName: "demo", ColumnWidth: 32, PreviewLines: 3})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+	item := b.columns[0].SelectedItem()
+	if item == nil || item.Data == nil {
+		t.Fatalf("expected frontmatter-carrying item, got %+v", item)
+	}
+
+	ctx := b.buildFilesystemCtx(0, item)
+	if ctx["boardName"] != "demo" || ctx["columnName"] != "1. TO DO" || ctx["fileName"] != "task" {
+		t.Errorf("ctx = %+v, want board/column/file fields", ctx)
+	}
+	if ctx["filePath"] != item.FullPath || ctx["path"] != item.FullPath {
+		t.Errorf("ctx path = %v/%v, want %q", ctx["path"], ctx["filePath"], item.FullPath)
+	}
+	// Strict superset of the flat string vars — scripts reading ctx.fileDir
+	// must keep working when a card gains frontmatter.
+	for k, v := range b.buildCommandVars(0, item) {
+		if ctx[k] != v {
+			t.Errorf("ctx[%q] = %v, want %q (flat var parity)", k, ctx[k], v)
+		}
+	}
+	data, ok := ctx["data"].(map[string]interface{})
+	if !ok || data["assignee"] != "kuba" {
+		t.Errorf("ctx data = %+v, want frontmatter map with assignee", ctx["data"])
 	}
 }
 

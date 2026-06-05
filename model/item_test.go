@@ -197,12 +197,133 @@ func TestNewItem_Title(t *testing.T) {
 	})
 }
 
+func TestNewItem_Frontmatter(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	const fm = "---\naccent: \"#e06c75\"\nicon: \"F\"\nmeta: due soon\ntags: [urgent, backend]\ncustom: hello\n---\n"
+
+	t.Run("fields populated, heading mode off", func(t *testing.T) {
+		path := writeFile(t, dir, "meta_off.md", fm+"body one\nbody two\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Accent != "#e06c75" || item.Icon != "F" || item.Meta != "due soon" {
+			t.Errorf("Accent/Icon/Meta = %q/%q/%q, want #e06c75/F/due soon", item.Accent, item.Icon, item.Meta)
+		}
+		if len(item.Tags) != 2 || item.Tags[0] != "urgent" || item.Tags[1] != "backend" {
+			t.Errorf("Tags = %v, want [urgent backend]", item.Tags)
+		}
+		if item.Data["custom"] != "hello" {
+			t.Errorf("Data[custom] = %v, want hello", item.Data["custom"])
+		}
+		// Behavior guard: frontmatter never leaks into the preview, even with
+		// TitleFromHeading off.
+		if len(item.Preview) != 2 || item.Preview[0] != "body one" {
+			t.Errorf("Preview = %v, want [body one, body two]", item.Preview)
+		}
+	})
+
+	t.Run("fields populated, heading mode on", func(t *testing.T) {
+		path := writeFile(t, dir, "meta_on.md", fm+"# Heading\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3, TitleFromHeading: true})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Title != "Heading" {
+			t.Errorf("Title = %q, want Heading", item.Title)
+		}
+		if item.Accent != "#e06c75" || len(item.Tags) != 2 {
+			t.Errorf("Accent/Tags = %q/%v, want populated", item.Accent, item.Tags)
+		}
+		if len(item.Preview) != 1 || item.Preview[0] != "body" {
+			t.Errorf("Preview = %v, want [body]", item.Preview)
+		}
+	})
+
+	t.Run("malformed YAML still loads the card", func(t *testing.T) {
+		path := writeFile(t, dir, "bad.md", "---\ntags: [unclosed\n---\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Accent != "" || item.Tags != nil || item.Data != nil {
+			t.Errorf("metadata = %q/%v/%v, want zero on malformed YAML", item.Accent, item.Tags, item.Data)
+		}
+		if !item.BadFM {
+			t.Error("BadFM = false, want true for malformed frontmatter")
+		}
+		if len(item.Preview) != 1 || item.Preview[0] != "body" {
+			t.Errorf("Preview = %v, want [body]", item.Preview)
+		}
+	})
+
+	t.Run("valid frontmatter is not flagged", func(t *testing.T) {
+		path := writeFile(t, dir, "good.md", fm+"body\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.BadFM {
+			t.Error("BadFM = true, want false for valid frontmatter")
+		}
+	})
+
+	t.Run("refresh clears BadFM when frontmatter fixed", func(t *testing.T) {
+		path := writeFile(t, dir, "fixed.md", "---\ntags: [unclosed\n---\nbody\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if !item.BadFM {
+			t.Fatal("precondition: BadFM should be set")
+		}
+		writeFile(t, dir, "fixed.md", "---\ntags: [ok]\n---\nbody\n")
+		if err := item.Refresh(ItemOptions{PreviewLines: 3}); err != nil {
+			t.Fatalf("Refresh: %v", err)
+		}
+		if item.BadFM {
+			t.Error("BadFM = true after fix, want false")
+		}
+		if len(item.Tags) != 1 || item.Tags[0] != "ok" {
+			t.Errorf("Tags = %v, want [ok]", item.Tags)
+		}
+	})
+
+	t.Run("refresh clears fields when frontmatter removed", func(t *testing.T) {
+		path := writeFile(t, dir, "clear.md", fm+"body\n")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if item.Accent == "" {
+			t.Fatal("precondition: Accent should be set")
+		}
+		writeFile(t, dir, "clear.md", "body only\n")
+		if err := item.Refresh(ItemOptions{PreviewLines: 3}); err != nil {
+			t.Fatalf("Refresh: %v", err)
+		}
+		if item.Accent != "" || item.Icon != "" || item.Meta != "" || item.Tags != nil || item.Data != nil {
+			t.Errorf("metadata after refresh = %q/%q/%q/%v/%v, want cleared",
+				item.Accent, item.Icon, item.Meta, item.Tags, item.Data)
+		}
+	})
+}
+
 func TestItem_FilterValue(t *testing.T) {
 	t.Parallel()
 	it := Item{Name: "hello"}
 	if got := it.FilterValue(); got != "hello" {
 		t.Errorf("FilterValue = %q, want %q", got, "hello")
 	}
+
+	t.Run("tags join the haystack", func(t *testing.T) {
+		it := Item{Name: "hello", Tags: []string{"urgent", "backend"}}
+		if got := it.FilterValue(); got != "hello urgent backend" {
+			t.Errorf("FilterValue = %q, want %q", got, "hello urgent backend")
+		}
+	})
 }
 
 func TestItem_HumanSize(t *testing.T) {

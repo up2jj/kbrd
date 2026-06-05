@@ -41,6 +41,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Configuration](#configuration)
 - [Card templates](#card-templates)
+- [Card frontmatter](#card-frontmatter)
 - [Extensibility](#extensibility)
   - [Custom shell commands](#custom-shell-commands)
   - [Lua scripting](#lua-scripting)
@@ -61,6 +62,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Fully keyboard-driven** — every action has a binding; mouse optional.
 - **Create cards** — in the current column (`n`) or the first column (`N`).
 - **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`t`); see [TEMPLATES.md](./TEMPLATES.md).
+- **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Edit inline** — with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
@@ -376,6 +378,32 @@ name). Created cards fire the normal `item_created` event, so hooks apply.
 
 See **[TEMPLATES.md](./TEMPLATES.md)** for the full format reference and
 [`examples/templates/`](./examples/templates/) for worked examples.
+
+---
+
+## Card frontmatter
+
+A card may open with a YAML frontmatter block; kbrd parses it for display
+metadata and keeps it out of the card preview:
+
+```markdown
+---
+accent: "#e06c75"       # color for the card title
+icon: "🔥"              # glyph shown before the title
+meta: due tomorrow      # replaces the modified/size/git meta line
+tags: [urgent, backend] # rendered as #tag chips; matched by the column filter
+assignee: kuba          # custom keys are allowed
+---
+# Card title
+Body text…
+```
+
+All keys are optional and parsing is always on. `tags` accepts a list or a
+single string, and tag names participate in the column filter (`/`). The full
+frontmatter map — including custom keys like `assignee` — is exposed to Lua
+custom commands as `ctx.data`, so scripts can act on it. Malformed YAML never
+breaks a card: it loads without metadata and shows a `⚠ yaml` badge on its
+meta line so the mistake is visible.
 
 ---
 

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"kbrd/frontmatter"
 )
 
 const pinPrefix = "p_"
@@ -27,10 +29,13 @@ type Item struct {
 	Pinned   bool
 	Size     int64
 	Modified time.Time
+	Tags     []string // frontmatter `tags`; shown as #tag chips, matched by the filter
+	BadFM    bool     // frontmatter block present but not valid YAML; card shows a ⚠ badge
 
-	// Virtual-column fields. These are set only for items pushed by a script via
-	// kbrd.column.set; filesystem items leave them zero. Name doubles as the
-	// stable cursor key for virtual items (set from the item id, else title).
+	// Presentation/payload fields shared by both item kinds: scripts set them
+	// via kbrd.column.set, filesystem items populate them from YAML frontmatter.
+	// Virtual/Separator stay script-only; for virtual items Name doubles as the
+	// stable cursor key (set from the item id, else title).
 	Virtual   bool
 	Separator bool                   // inert grouping row — no actions, no mnemonic
 	Meta      string                 // replaces the filesystem meta line (line 3)
@@ -52,9 +57,11 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		name = strings.TrimPrefix(name, pinPrefix)
 	}
 
-	preview, heading, _ := readPreviewAndHeading(fullPath, opts)
+	preview, heading, front, _ := readPreviewAndHeading(fullPath, opts)
+	fm, fmErr := frontmatter.Parse(front) // malformed YAML degrades to no metadata
 
 	return Item{
+		BadFM:    fmErr != nil,
 		Name:     name,
 		Title:    resolveTitle(name, heading, opts),
 		Preview:  preview,
@@ -62,6 +69,11 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		Pinned:   pinned,
 		Size:     info.Size(),
 		Modified: info.ModTime(),
+		Tags:     fm.Tags,
+		Meta:     fm.Meta,
+		Icon:     fm.Icon,
+		Accent:   fm.Accent,
+		Data:     fm.Data,
 	}, nil
 }
 
@@ -89,6 +101,9 @@ func (i Item) FilterValue() string {
 	}
 	if i.Virtual {
 		return i.Title
+	}
+	if len(i.Tags) > 0 {
+		return i.Name + " " + strings.Join(i.Tags, " ")
 	}
 	return i.Name
 }
@@ -137,9 +152,17 @@ func (i *Item) Refresh(opts ItemOptions) error {
 	i.Size = info.Size()
 	i.Modified = info.ModTime()
 
-	if preview, heading, err := readPreviewAndHeading(i.FullPath, opts); err == nil {
+	if preview, heading, front, err := readPreviewAndHeading(i.FullPath, opts); err == nil {
 		i.Preview = preview
 		i.Title = resolveTitle(i.Name, heading, opts)
+		// Assign unconditionally so removing the frontmatter clears the fields.
+		fm, fmErr := frontmatter.Parse(front)
+		i.BadFM = fmErr != nil
+		i.Tags = fm.Tags
+		i.Meta = fm.Meta
+		i.Icon = fm.Icon
+		i.Accent = fm.Accent
+		i.Data = fm.Data
 	}
 	return nil
 }
@@ -158,20 +181,24 @@ func resolveTitle(name, heading string, opts ItemOptions) string {
 var reH1 = regexp.MustCompile(`^#[ \t]+(.+?)[ \t]*#*$`)
 
 // readPreviewAndHeading scans only the leading prefix of the file in a single
-// pass, returning the non-empty preview lines (first opts.PreviewLines of them)
-// and, when opts.TitleFromHeading is set, the first level-1 markdown heading.
+// pass, returning the non-empty preview lines (first opts.PreviewLines of
+// them), the first level-1 markdown heading (when opts.TitleFromHeading is
+// set), and the raw bytes of an optional leading YAML frontmatter block.
 //
-// The heading must be the file's first non-blank content line (an optional
-// leading YAML frontmatter block delimited by '---' is skipped first); if the
-// first content line is not an H1 there is no title. The heading line, when
-// used, is omitted from the preview so it is not shown twice. The read never
-// touches the file's tail — cost stays bounded regardless of file size — and
-// the 64 KB scanner line cap is raised so pathological single-line files
-// degrade gracefully (matching the old whole-file ReadFile behaviour).
-func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, error) {
+// The frontmatter block ('---' fences, closed by '---' or '...') is captured
+// regardless of opts and never reaches the preview; the returned bytes exclude
+// the fences and are capped at frontmatter.MaxBytes (the file is still
+// consumed to the closing fence so the preview stays correct). The heading
+// must be the first non-blank content line after the frontmatter; if it is
+// not an H1 there is no title. The heading line, when used, is omitted from
+// the preview so it is not shown twice. The read never touches the file's
+// tail — cost stays bounded regardless of file size — and the 64 KB scanner
+// line cap is raised so pathological single-line files degrade gracefully
+// (matching the old whole-file ReadFile behaviour).
+func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, []byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	defer f.Close()
 
@@ -179,7 +206,9 @@ func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, err
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	heading := ""
-	prologueDone := !opts.TitleFromHeading // once true, every line counts against the preview
+	headingDone := !opts.TitleFromHeading // once true, every line counts against the preview
+	var front []byte
+	frontPossible := true // until the first non-blank line settles the question
 	inFrontmatter := false
 
 	preview := []string{}
@@ -189,26 +218,38 @@ func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, err
 			break
 		}
 		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
 
-		// Prologue phase (heading mode only): consume an optional leading YAML
-		// frontmatter block, any leading blank lines, and the title line itself
-		// without spending the preview budget, so the preview shows body text.
-		if !prologueDone {
-			trimmed := strings.TrimSpace(line)
-			if inFrontmatter {
-				if trimmed == "---" || trimmed == "..." {
-					inFrontmatter = false
-				}
-				continue
+		// Frontmatter phase — independent of TitleFromHeading: capture an
+		// optional leading '---' block so it never leaks into the preview.
+		if inFrontmatter {
+			if trimmed == "---" || trimmed == "..." {
+				inFrontmatter = false
+			} else if len(front) < frontmatter.MaxBytes {
+				front = append(front, line...)
+				front = append(front, '\n')
 			}
-			if len(preview) == 0 && trimmed == "---" {
+			continue
+		}
+		if frontPossible && trimmed != "" {
+			frontPossible = false
+			if trimmed == "---" {
 				inFrontmatter = true
 				continue
 			}
+			// Leading blanks fall through: in heading mode the heading phase
+			// consumes them for free; otherwise they spend preview budget,
+			// matching the pre-frontmatter behaviour.
+		}
+
+		// Heading phase (heading mode only): consume any blank lines and the
+		// title line itself without spending the preview budget, so the
+		// preview shows body text.
+		if !headingDone {
 			if trimmed == "" {
-				continue // leading blanks before the first content line
+				continue
 			}
-			prologueDone = true
+			headingDone = true
 			if m := reH1.FindStringSubmatch(trimmed); m != nil {
 				heading = m[1]
 				continue // omit the title line from the preview
@@ -224,7 +265,7 @@ func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, err
 			preview = append(preview, line)
 		}
 	}
-	return preview, heading, nil
+	return preview, heading, front, nil
 }
 
 func SortItems(items []Item) []Item {

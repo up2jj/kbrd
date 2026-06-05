@@ -1065,8 +1065,13 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := col.SelectedItem()
 			b.loadCommands()
 			var vctx map[string]interface{}
-			if col.Virtual {
+			switch {
+			case col.Virtual:
 				vctx = b.buildVirtualVars(col, item)
+			case item.Data != nil:
+				// Frontmatter-carrying item: Lua commands get the rich ctx
+				// (nested data table); shell commands still use the flat vars.
+				vctx = b.buildFilesystemCtx(b.selectedCol, item)
 			}
 			b.customCmds.Open(b.commandsForColumn(col), b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
 		}

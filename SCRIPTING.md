@@ -193,6 +193,18 @@ ctx.boardName    -- configured board name, or ""
 ctx.boardPath    -- "/abs/path/to/board"
 ```
 
+When the card has a YAML frontmatter block, the ctx additionally carries:
+
+```lua
+ctx.title        -- display title (heading or file name)
+ctx.path         -- same as ctx.filePath (shared key with virtual items)
+ctx.data         -- the full frontmatter map, e.g. ctx.data.assignee
+```
+
+`ctx.data` includes every frontmatter key — the display ones (`accent`,
+`icon`, `meta`, `tags`) and any custom keys you add. Cards without
+frontmatter omit these fields.
+
 `kbrd.board.move(ctx, "done")` works directly — the function looks at
 `ctx.columnName` and `ctx.fileName` automatically. You can also build a
 table by hand: `kbrd.board.move({column="todo", name="foo"}, "done")`.
