@@ -113,8 +113,8 @@ var Keys = KeyMap{
 	Refresh:     key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
 	// Navigation
-	PrevCol:  key.NewBinding(key.WithKeys("[", "shift+tab"), key.WithHelp("shift+tab / [", "previous column")),
-	NextCol:  key.NewBinding(key.WithKeys("]", "tab"), key.WithHelp("tab / ]", "next column")),
+	PrevCol:  key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column")),
+	NextCol:  key.NewBinding(key.WithKeys("]", "tab", "right"), key.WithHelp("→ / tab / ]", "next column")),
 	JumpCol:  key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to column N")),
 	PanLeft:  key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "pan columns left")),
 	PanRight: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "pan columns right")),

@@ -188,8 +188,8 @@ All bindings below are the defaults from the in-app help (`?`).
 
 | Keys | Action |
 | --- | --- |
-| `tab` / `]` | Next column |
-| `shift+tab` / `[` | Previous column |
+| `→` / `tab` / `]` | Next column |
+| `←` / `shift+tab` / `[` | Previous column |
 | `j` / `k` | Move within a column |
 | `H` / `L` | Pan columns left / right |
 | `/` | Filter cards in the current column |
