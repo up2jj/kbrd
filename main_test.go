@@ -168,6 +168,21 @@ func TestWriteGlobalTemplate(t *testing.T) {
 	}
 }
 
+func TestServe_RejectsMCPFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"serve", "--mcp"},
+		{"serve", "--mcp-addr", "127.0.0.1:7777"},
+	} {
+		root := newRootCmd()
+		root.SetArgs(args)
+		if err := root.Execute(); err == nil {
+			t.Errorf("%v: expected error", args)
+		} else if !strings.Contains(err.Error(), "not supported with serve") {
+			t.Errorf("%v: error = %q, want it to mention 'not supported with serve'", args, err)
+		}
+	}
+}
+
 func TestRunClone_BadURL(t *testing.T) {
 	isolateConfig(t)
 	requireGit(t)

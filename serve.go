@@ -33,14 +33,21 @@ const minTokenLen = 12
 
 // newServeCmd builds `kbrd serve`: the headless web frontend. The TUI never
 // runs; board-supplied code (scripting, hooks, template exec) never executes —
-// serve is implicitly --safe.
+// serve is implicitly --safe. The MCP server never runs either: the inherited
+// --mcp/--mcp-addr flags are rejected rather than silently ignored.
 func newServeCmd() *cobra.Command {
 	var f serveFlags
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the board as a mobile-first web app (headless, git-backed)",
 		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, args []string) error { return runServe(cmd, f) },
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("mcp") || cmd.Flags().Changed("mcp-addr") {
+				return errors.New("--mcp is not supported with serve: the web frontend runs no MCP server")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error { return runServe(cmd, f) },
 	}
 	cmd.Flags().StringVar(&f.addr, "addr", "", "listen address for plain HTTP (env KBRD_ADDR, default :8080); ignored when --domain is set")
 	cmd.Flags().StringVar(&f.domain, "domain", "", "public domain: enables Let's Encrypt TLS on :443 + :80 (env KBRD_DOMAIN)")
