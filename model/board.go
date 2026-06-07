@@ -1352,8 +1352,9 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	if fullPath == "" {
 		return b, b.notifier.Send("item not found: "+msg.FileName, notifyError)
 	}
-	err := os.WriteFile(fullPath, []byte(msg.Content), 0644)
-	if err != nil {
+	// board.ReplaceFileContent is existing-only: a card deleted while the
+	// editor was open errors instead of being silently resurrected.
+	if err := board.ReplaceFileContent(fullPath, msg.Content); err != nil {
 		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)

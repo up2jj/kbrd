@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -142,16 +143,15 @@ func commandVars(ref board.Ref, folder, item string) (map[string]string, error) 
 	vc.ColumnName = filepath.Base(colPath)
 
 	if item != "" {
-		clean, err := board.SanitizeName(item)
+		fp, err := board.ItemPath(colPath, item)
 		if err != nil {
 			return nil, err
 		}
-		fp := filepath.Join(colPath, clean+".md")
 		if _, err := os.Stat(fp); err != nil {
 			return nil, fmt.Errorf("item %q not found in folder %q", item, filepath.Base(colPath))
 		}
 		vc.FilePath = fp
-		vc.FileName = clean
+		vc.FileName = strings.TrimSuffix(filepath.Base(fp), ".md")
 	}
 	return vc.Vars(), nil
 }

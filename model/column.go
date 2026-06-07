@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -837,10 +836,7 @@ func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
 	}
 
 	destPath := filepath.Join(destCol.Path, filepath.Base(srcPath))
-	if _, err := os.Stat(destPath); err == nil {
-		return os.ErrExist
-	}
-	if err := os.Rename(srcPath, destPath); err != nil {
+	if err := board.RenameNoClobber(srcPath, destPath); err != nil {
 		return err
 	}
 
@@ -876,19 +872,17 @@ func (c *Column) CreateItemContent(name, content string) (string, error) {
 	return filepath.Base(fullPath), nil
 }
 
+// The content mutations below resolve the item's path through the in-memory
+// list (so virtual-column items mutate wherever they really live) and
+// delegate the content semantics to package board, shared with the web
+// frontend.
+
 func (c *Column) AppendText(itemName, text string) error {
 	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-	content, err := os.ReadFile(fullPath)
-	if err != nil {
-		return err
-	}
-	if len(content) > 0 && content[len(content)-1] != '\n' {
-		text = "\n" + text
-	}
-	return os.WriteFile(fullPath, append(content, []byte(text+"\n")...), 0644)
+	return board.AppendLine(fullPath, text)
 }
 
 func (c *Column) PrependText(itemName, text string) error {
@@ -896,11 +890,7 @@ func (c *Column) PrependText(itemName, text string) error {
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-	content, err := os.ReadFile(fullPath)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(fullPath, append([]byte(text+"\n"), content...), 0644)
+	return board.PrependLine(fullPath, text)
 }
 
 func (c *Column) ReplaceFile(itemName, text string) error {
@@ -908,15 +898,15 @@ func (c *Column) ReplaceFile(itemName, text string) error {
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-	if len(text) > 0 && text[len(text)-1] != '\n' {
-		text += "\n"
-	}
-	return os.WriteFile(fullPath, []byte(text), 0644)
+	return board.ReplaceFileContent(fullPath, text)
 }
 
 func (c *Column) JournalText(itemName, text string) error {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	return c.AppendText(itemName, timestamp+" - "+text)
+	fullPath := c.fullPathFor(itemName)
+	if fullPath == "" {
+		return os.ErrNotExist
+	}
+	return board.JournalLine(fullPath, text)
 }
 
 func (c *Column) CopyContent(itemName string) ([]byte, error) {
@@ -939,10 +929,7 @@ func (c *Column) RenameItem(oldName, newName string) error {
 	for i := range c.Items {
 		if c.Items[i].Name == oldName {
 			newPath := filepath.Join(c.Path, newName+".md")
-			if _, err := os.Stat(newPath); err == nil {
-				return os.ErrExist
-			}
-			if err := os.Rename(c.Items[i].FullPath, newPath); err != nil {
+			if err := board.RenameNoClobber(c.Items[i].FullPath, newPath); err != nil {
 				return err
 			}
 			return c.LoadItems()
@@ -952,12 +939,8 @@ func (c *Column) RenameItem(oldName, newName string) error {
 }
 
 func (c *Column) Rename(newName string) error {
-	parent := filepath.Dir(c.Path)
-	newPath := filepath.Join(parent, newName)
-	if _, err := os.Stat(newPath); err == nil {
-		return os.ErrExist
-	}
-	if err := os.Rename(c.Path, newPath); err != nil {
+	newPath := filepath.Join(filepath.Dir(c.Path), newName)
+	if err := board.RenameNoClobber(c.Path, newPath); err != nil {
 		return err
 	}
 	c.Name = newName
@@ -968,10 +951,14 @@ func (c *Column) Rename(newName string) error {
 func (c *Column) PinItem(itemName string) error {
 	for i := range c.Items {
 		if c.Items[i].Name == itemName {
-			c.Items[i].TogglePin()
-			newName := c.Items[i].Name
-			newPath := filepath.Join(c.Path, newName+".md")
-			if err := os.Rename(c.Items[i].FullPath, newPath); err != nil {
+			// Toggle a copy so a failed rename leaves the in-memory item
+			// matching the file on disk.
+			toggled := c.Items[i]
+			toggled.TogglePin()
+			newPath := filepath.Join(c.Path, toggled.Name+".md")
+			// NoClobber matters here: pinning "x" while "p_x" exists must
+			// fail rather than silently overwrite p_x.md.
+			if err := board.RenameNoClobber(c.Items[i].FullPath, newPath); err != nil {
 				return err
 			}
 			return c.LoadItems()

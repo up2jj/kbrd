@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"kbrd/board"
 	"kbrd/frontmatter"
 )
 
-const pinPrefix = "p_"
+// pinPrefix aliases the on-disk pin convention owned by package board.
+const pinPrefix = board.PinPrefix
 
 // ItemOptions bundles the per-board display settings that influence how an item
 // is loaded and labelled. It is owned by the model layer so Item stays

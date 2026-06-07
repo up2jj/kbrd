@@ -125,7 +125,9 @@ func (te *templateExec) done(msg templateShellDoneMsg) tea.Cmd {
 		// Marker edited away by the user — nothing to fill.
 		return te.notifier.Send("template: section removed, discarded command output", notifyError)
 	}
-	if err := os.WriteFile(msg.CardPath, []byte(newBody), 0o644); err != nil {
+	// Existing-only write: the card may vanish between the read above and
+	// this write; never resurrect it.
+	if err := board.ReplaceFileContent(msg.CardPath, newBody); err != nil {
 		return te.notifier.Send("template: failed to write result: "+err.Error(), notifyError)
 	}
 	return nil // the fsnotify watcher picks up the write and refreshes
@@ -184,7 +186,7 @@ func (te *templateExec) recover(boardPath string) {
 				newBody = template.RewriteShellMarker(newBody, m.ID, templateInterruptedNote)
 			}
 			if newBody != body {
-				_ = os.WriteFile(path, []byte(newBody), 0o644)
+				_ = board.ReplaceFileContent(path, newBody)
 			}
 		}
 	}
