@@ -1,0 +1,11 @@
+# Keep local board data and git history out of the build context: nothing
+# here may leak into image layers or pushed build caches.
+.git
+data/
+demo/
+dist/
+docs/
+examples/
+kbrd
+*.md
+!README.md

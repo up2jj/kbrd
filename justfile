@@ -37,6 +37,10 @@ hooks:
 run *args:
     go run . {{ args }}
 
+# Build the docker image for the headless web server (kbrd serve).
+docker-build:
+    docker build --build-arg VERSION=$(git describe --tags --always) -t kbrd .
+
 # Validate the GoReleaser config.
 check:
     goreleaser check

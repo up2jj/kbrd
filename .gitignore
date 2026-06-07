@@ -7,6 +7,9 @@
 # Generated shell completions (built during release)
 /completions/
 
+# Local board data (e.g. a test board for kbrd serve)
+/data/
+
 # Demo artifacts (regenerate with demo/seed.sh + vhs demo/screenshots.tape)
 /demo/sample-board/
 /demo/boards/
