@@ -31,7 +31,7 @@ func (s *Server) syncView() syncView {
 // page bundles the fields every full page shares.
 func (s *Server) page(extra map[string]any) map[string]any {
 	data := map[string]any{
-		"BoardName": s.opts.BoardName,
+		"BoardName": s.currentBoardName(),
 		"Sync":      s.syncView(),
 	}
 	maps.Copy(data, extra)

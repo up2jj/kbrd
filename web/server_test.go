@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testToken = "test-token-1234"
@@ -341,5 +343,116 @@ func TestSplitFrontmatter(t *testing.T) {
 		if block != tc.block || body != tc.body {
 			t.Errorf("splitFrontmatter(%q) = (%q, %q), want (%q, %q)", tc.raw, block, body, tc.block, tc.body)
 		}
+	}
+}
+
+func TestApplyConfig_BoardName(t *testing.T) {
+	s, _, _ := newTestServer(t)
+
+	if got := s.currentBoardName(); got != "test" {
+		t.Fatalf("initial board name: got %q want test", got)
+	}
+	s.applyConfig(t.Context(), ReloadableConfig{BoardName: "renamed"})
+	if got := s.currentBoardName(); got != "renamed" {
+		t.Fatalf("board name after apply: got %q want renamed", got)
+	}
+	// Empty reloaded name falls back to the startup label.
+	s.applyConfig(t.Context(), ReloadableConfig{})
+	if got := s.currentBoardName(); got != "test" {
+		t.Fatalf("board name after empty apply: got %q want test", got)
+	}
+}
+
+func TestRestartPullLoop_Bookkeeping(t *testing.T) {
+	s, _, _ := newTestServer(t) // Syncer nil: loops never start, bookkeeping still runs
+	ctx := t.Context()
+
+	s.restartPullLoop(ctx, 0)
+	if s.pullEvery != 0 || s.pullCancel != nil {
+		t.Fatalf("after 0: every=%v cancel=%v", s.pullEvery, s.pullCancel != nil)
+	}
+	s.restartPullLoop(ctx, 5*time.Second)
+	if s.pullEvery != 5*time.Second {
+		t.Fatalf("after 5s: every=%v", s.pullEvery)
+	}
+	if s.pullCancel != nil {
+		t.Fatal("nil Syncer must not leave a cancel func behind")
+	}
+	s.restartPullLoop(ctx, 0)
+	if s.pullEvery != 0 {
+		t.Fatalf("back to 0: every=%v", s.pullEvery)
+	}
+}
+
+func TestConfigEditor(t *testing.T) {
+	s, h, boardDir := newTestServer(t)
+	cfgPath := filepath.Join(boardDir, "kbrd.toml")
+	s.opts.ConfigFile = cfgPath
+	validateErr := error(nil)
+	s.opts.ValidateConfig = func([]byte) error { return validateErr }
+	c := loginCookie(t, h)
+
+	post := func(content, hash string) *httptest.ResponseRecorder {
+		form := url.Values{"content": {content}, "hash": {hash}}
+		req := httptest.NewRequest("POST", "/config", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(c)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Empty editor for a missing kbrd.toml.
+	rec := get(h, "/config", c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /config: %d", rec.Code)
+	}
+
+	// Valid save creates the file (hash of empty current content).
+	emptyHash := contentHash("")
+	if rec = post("[board]\nname = \"x\"\n", emptyHash); rec.Code != http.StatusSeeOther {
+		t.Fatalf("valid save: got %d want 303 (%s)", rec.Code, rec.Body.String())
+	}
+	saved, err := os.ReadFile(cfgPath)
+	if err != nil || string(saved) != "[board]\nname = \"x\"\n" {
+		t.Fatalf("saved content: %q err=%v", saved, err)
+	}
+
+	// Stale hash is rejected and the file stays untouched.
+	if rec = post("[board]\nname = \"y\"\n", emptyHash); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "changed while you were editing") {
+		t.Fatalf("stale save: got %d body %q", rec.Code, rec.Body.String())
+	}
+
+	// Validation failure is rejected, file stays untouched, text preserved.
+	validateErr = fmt.Errorf("serve.token cannot be set in kbrd.toml")
+	curHash := contentHash(string(saved))
+	rec = post("[serve]\ntoken = \"x\"\n", curHash)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "serve.token cannot be set") {
+		t.Fatalf("invalid save: got %d body %q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "token = ") {
+		t.Fatal("invalid save must preserve the user's text in the form")
+	}
+	after, _ := os.ReadFile(cfgPath)
+	if string(after) != string(saved) {
+		t.Fatalf("file changed by rejected save: %q", after)
+	}
+
+	// CRLF from the textarea is normalized before validation and write.
+	validateErr = nil
+	if rec = post("[board]\r\nname = \"z\"", curHash); rec.Code != http.StatusSeeOther {
+		t.Fatalf("crlf save: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	after, _ = os.ReadFile(cfgPath)
+	if string(after) != "[board]\nname = \"z\"\n" {
+		t.Fatalf("crlf normalization: got %q", after)
+	}
+}
+
+func TestConfigEditor_DisabledWithoutConfigFile(t *testing.T) {
+	_, h, _ := newTestServer(t)
+	c := loginCookie(t, h)
+	if rec := get(h, "/config", c); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /config without ConfigFile: got %d want 404", rec.Code)
 	}
 }

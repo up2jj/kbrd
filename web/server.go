@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -33,6 +34,36 @@ type Options struct {
 	// setStatus ("cloning…", "pulling…") and may return a board name (e.g.
 	// from config loaded post-clone) that overrides Options.BoardName.
 	Init func(setStatus func(string)) (boardName string, err error)
+
+	// LoadConfig, when non-nil, re-loads config and re-resolves the
+	// hot-reloadable subset with the same flag > env > toml precedence the
+	// serve command applied at startup. Called once after init and again by
+	// the config watcher whenever a watched config file is saved.
+	LoadConfig func() (ReloadableConfig, error)
+
+	// ConfigWatch lists config file paths whose saves trigger LoadConfig
+	// (their parent directories are watched, so files may not exist yet).
+	ConfigWatch []string
+
+	// ConfigFile is the board config the web editor reads and writes
+	// (the board's kbrd.toml); empty disables the /config editor.
+	ConfigFile string
+
+	// ValidateConfig vets candidate ConfigFile bytes before the editor
+	// writes them, so a bad save cannot break the running server.
+	ValidateConfig func([]byte) error
+}
+
+// ReloadableConfig is the subset of serve configuration that can change while
+// the server runs. Addr and Domain are NOT hot-applied — kbrd.toml can arrive
+// via git pull, and rebinding the listener or swapping the ACME domain from a
+// pulled file would hand listener control to anyone with push access. They
+// are carried here only so a change can be logged as "restart required".
+type ReloadableConfig struct {
+	BoardName string
+	PullEvery time.Duration
+	Addr      string
+	Domain    string
 }
 
 // Server holds the running state. Mutations take the Syncer's mutex, reads go
@@ -46,6 +77,61 @@ type Server struct {
 	ready      atomic.Bool
 	initFailed atomic.Bool
 	initStatus atomic.Value // string
+
+	boardName atomic.Value // string; hot-reloadable header label
+
+	pullMu     sync.Mutex // guards the pull-loop fields below
+	pullCancel context.CancelFunc
+	pullEvery  time.Duration
+
+	restartNote atomic.Value // string; last logged "restart required" diff
+}
+
+// currentBoardName returns the header label, preferring a hot-reloaded value.
+// Handlers must use this instead of opts.BoardName: the init goroutine and
+// the config watcher both update the name after requests start flowing.
+func (s *Server) currentBoardName() string {
+	if name, _ := s.boardName.Load().(string); name != "" {
+		return name
+	}
+	return s.opts.BoardName
+}
+
+// restartPullLoop swaps the background pull loop to a new interval: no-op when
+// unchanged, cancels the running loop, and starts a fresh one when every > 0.
+func (s *Server) restartPullLoop(ctx context.Context, every time.Duration) {
+	s.pullMu.Lock()
+	defer s.pullMu.Unlock()
+	if every == s.pullEvery && s.pullCancel != nil {
+		return
+	}
+	if s.pullCancel != nil {
+		s.pullCancel()
+		s.pullCancel = nil
+	}
+	s.pullEvery = every
+	if every <= 0 || s.sync == nil {
+		return
+	}
+	loopCtx, cancel := context.WithCancel(ctx)
+	s.pullCancel = cancel
+	go s.sync.PullLoop(loopCtx, every)
+}
+
+// applyConfig hot-applies a reloaded config: board name and pull interval
+// take effect immediately; a changed addr/domain is only logged (startup-only
+// by design — see ReloadableConfig).
+func (s *Server) applyConfig(ctx context.Context, rc ReloadableConfig) {
+	s.boardName.Store(rc.BoardName) // "" falls back to opts.BoardName
+	s.restartPullLoop(ctx, rc.PullEvery)
+
+	if rc.Addr != s.opts.Addr || rc.Domain != s.opts.Domain {
+		note := rc.Addr + "|" + rc.Domain
+		if prev, _ := s.restartNote.Load().(string); prev != note {
+			s.restartNote.Store(note)
+			log.Printf("web: serve.addr/domain changed in config — restart kbrd serve to apply")
+		}
+	}
 }
 
 // Run starts the server and blocks until ctx is cancelled (graceful shutdown)
@@ -68,7 +154,7 @@ func Run(ctx context.Context, opts Options) error {
 	s.initStatus.Store("starting…")
 
 	if opts.Init == nil {
-		s.finishInit()
+		s.finishInit(ctx)
 	} else {
 		go func() {
 			name, err := opts.Init(func(st string) { s.initStatus.Store(st) })
@@ -79,9 +165,9 @@ func Run(ctx context.Context, opts Options) error {
 				return
 			}
 			if name != "" {
-				s.opts.BoardName = name
+				s.boardName.Store(name)
 			}
-			s.finishInit()
+			s.finishInit(ctx)
 		}()
 	}
 
@@ -111,15 +197,35 @@ func displayURL(addr string) string {
 	return "http://" + net.JoinHostPort(host, port)
 }
 
-// finishInit wires the Syncer (now that the repo exists on disk) and opens the
-// board to requests.
-func (s *Server) finishInit() {
+// finishInit wires the Syncer (now that the repo exists on disk), applies the
+// on-disk config (it may have just been cloned), starts the config watcher,
+// and opens the board to requests.
+func (s *Server) finishInit(ctx context.Context) {
 	s.sync = NewSyncer(s.opts.BoardPath, s.opts.AuthorName, s.opts.AuthorEmail)
 	if s.sync == nil {
 		log.Printf("web: %s is not a git repository — running without sync", s.opts.BoardPath)
-	} else if s.opts.PullEvery > 0 {
-		go s.sync.PullLoop(context.Background(), s.opts.PullEvery)
 	}
+	s.restartPullLoop(ctx, s.opts.PullEvery)
+
+	if s.opts.LoadConfig != nil {
+		// Immediate load: in the --git-url flow the board's kbrd.toml only
+		// exists after the clone that just finished.
+		if rc, err := s.opts.LoadConfig(); err != nil {
+			log.Printf("web: load config: %v", err)
+		} else {
+			s.applyConfig(ctx, rc)
+		}
+		cw, err := NewConfigWatcher(s.opts.ConfigWatch, s.opts.LoadConfig, func(rc ReloadableConfig) {
+			log.Printf("web: config reloaded")
+			s.applyConfig(ctx, rc)
+		})
+		if err != nil {
+			log.Printf("web: config watcher disabled: %v", err)
+		} else {
+			go cw.Run(ctx)
+		}
+	}
+
 	s.ready.Store(true)
 	log.Printf("web: board ready at %s", s.opts.BoardPath)
 }
@@ -165,6 +271,8 @@ func (s *Server) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /{$}", s.handleBoard)
 	mux.HandleFunc("GET /history", s.handleHistory)
+	mux.HandleFunc("GET /config", s.handleConfigForm)
+	mux.HandleFunc("POST /config", s.handleConfigSave)
 	mux.HandleFunc("GET /c/{col}", s.handleColumn)
 	mux.HandleFunc("GET /c/{col}/new", s.handleNewForm)
 	mux.HandleFunc("POST /c/{col}/cards", s.handleCreate)

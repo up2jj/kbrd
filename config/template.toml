@@ -30,3 +30,13 @@
 #                            #   the command inherits kbrd's full environment — see SECURITY.md.
 #                            #   Launch with `kbrd --safe` to force this and all scripting/hooks off)
 # command_timeout_ms = 20000 # per-{{shell}} timeout
+
+[serve]
+# Options for `kbrd serve` (precedence: flag > env > this file > default).
+# pull_interval and board.name hot-reload when this file is saved (or pulled);
+# addr/domain are read at startup only — a change here needs a server restart.
+# The access token is NEVER read from this file: use --token or KBRD_TOKEN
+# (kbrd.toml is committed and pulled with the board repo).
+# addr          = ":8080"   # plain-HTTP listen address (env KBRD_ADDR); ignored when domain is set
+# domain        = ""        # public domain: enables Let's Encrypt TLS (env KBRD_DOMAIN)
+# pull_interval = "60s"     # background git pull; "0" disables (env KBRD_PULL_INTERVAL)

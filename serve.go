@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"kbrd/config"
 	fsutil "kbrd/fs"
@@ -69,22 +70,47 @@ func envDefault(v, envKey, def string) string {
 	return def
 }
 
+// resolveOpt returns the first set value in the serve precedence chain:
+// flag > env > toml > default. Flag presence is checked via Changed so an
+// explicit `--addr ""` still beats the other layers (envDefault can't tell
+// "empty flag" from "no flag", which is fine elsewhere but wrong once a TOML
+// layer sits underneath).
+func resolveOpt(fl *pflag.FlagSet, name, flagVal, envKey, tomlVal, def string) string {
+	if fl.Changed(name) {
+		return flagVal
+	}
+	if e := os.Getenv(envKey); e != "" {
+		return e
+	}
+	if tomlVal != "" {
+		return tomlVal
+	}
+	return def
+}
+
+// loadServeConfig loads the [serve] config for dir; before a clone the
+// board's kbrd.toml does not exist yet, so only the global config applies.
+func loadServeConfig(dir string, needsClone bool) (config.Config, error) {
+	if needsClone {
+		return config.Load("")
+	}
+	return config.Load(dir)
+}
+
 func runServe(cmd *cobra.Command, f serveFlags) error {
-	f.addr = envDefault(f.addr, "KBRD_ADDR", ":8080")
-	f.domain = envDefault(f.domain, "KBRD_DOMAIN", "")
+	fl := cmd.Flags()
+
+	// Token never comes from TOML: kbrd.toml is committed and pulled with the
+	// board repo, so a token in it is a leaked token.
 	f.token = envDefault(f.token, "KBRD_TOKEN", "")
 	f.gitURL = envDefault(f.gitURL, "GIT_URL", "")
-	f.pullInterval = envDefault(f.pullInterval, "KBRD_PULL_INTERVAL", "60s")
 
 	if len(f.token) < minTokenLen {
 		return fmt.Errorf("an access token of at least %d characters is required (--token or KBRD_TOKEN); generate one with: openssl rand -base64 24", minTokenLen)
 	}
-	pullEvery, err := time.ParseDuration(f.pullInterval)
-	if err != nil || pullEvery < 0 {
-		return fmt.Errorf("invalid pull interval %q", f.pullInterval)
-	}
 
 	dir := f.dir
+	var err error
 	if dir == "" {
 		if dir, err = os.Getwd(); err != nil {
 			return fmt.Errorf("cannot determine working directory: %w", err)
@@ -102,14 +128,39 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 		return fmt.Errorf("board directory %s is missing or empty and no --git-url/GIT_URL is set", dir)
 	}
 
+	cfg, err := loadServeConfig(dir, needsClone)
+	if err != nil {
+		return err
+	}
+	if cfg.Serve.TokenInTOML {
+		fmt.Fprintln(os.Stderr, "warning: serve.token in config is ignored — use --token or KBRD_TOKEN (a token in kbrd.toml would be committed with the board)")
+	}
+
+	addr := resolveOpt(fl, "addr", f.addr, "KBRD_ADDR", cfg.Serve.Addr, ":8080")
+	domain := resolveOpt(fl, "domain", f.domain, "KBRD_DOMAIN", cfg.Serve.Domain, "")
+	pullInterval := resolveOpt(fl, "pull-interval", f.pullInterval, "KBRD_PULL_INTERVAL", cfg.Serve.PullInterval, "60s")
+	pullEvery, err := time.ParseDuration(pullInterval)
+	if err != nil || pullEvery < 0 {
+		return fmt.Errorf("invalid pull interval %q", pullInterval)
+	}
+
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	fmt.Printf("kbrd %s serve: board %s\n", model.Version, dir)
 
+	globalDir := ""
+	if d, err := os.UserConfigDir(); err == nil {
+		globalDir = filepath.Join(d, config.AppDirName)
+	}
+	configWatch := []string{filepath.Join(dir, config.FolderConfigFile)}
+	if globalDir != "" {
+		configWatch = append(configWatch, filepath.Join(globalDir, config.GlobalConfigFile))
+	}
+
 	opts := web.Options{
-		Addr:         f.addr,
-		Domain:       f.domain,
+		Addr:         addr,
+		Domain:       domain,
 		CertCacheDir: filepath.Join(filepath.Dir(dir), "certs"),
 		BoardPath:    dir,
 		BoardName:    filepath.Base(dir),
@@ -120,6 +171,28 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 		Init: func(setStatus func(string)) (string, error) {
 			return initBoard(dir, f.gitURL, needsClone, setStatus)
 		},
+		// LoadConfig re-runs the full precedence chain against the file on
+		// disk, so env/flag still beat a freshly saved (or pulled) TOML.
+		LoadConfig: func() (web.ReloadableConfig, error) {
+			cfg, err := config.Load(dir)
+			if err != nil {
+				return web.ReloadableConfig{}, err
+			}
+			pi := resolveOpt(fl, "pull-interval", f.pullInterval, "KBRD_PULL_INTERVAL", cfg.Serve.PullInterval, "60s")
+			every, err := time.ParseDuration(pi)
+			if err != nil || every < 0 {
+				return web.ReloadableConfig{}, fmt.Errorf("invalid pull interval %q", pi)
+			}
+			return web.ReloadableConfig{
+				BoardName: cfg.BoardName,
+				PullEvery: every,
+				Addr:      resolveOpt(fl, "addr", f.addr, "KBRD_ADDR", cfg.Serve.Addr, ":8080"),
+				Domain:    resolveOpt(fl, "domain", f.domain, "KBRD_DOMAIN", cfg.Serve.Domain, ""),
+			}, nil
+		},
+		ConfigWatch:    configWatch,
+		ConfigFile:     filepath.Join(dir, config.FolderConfigFile),
+		ValidateConfig: config.ValidateServe,
 	}
 	return web.Run(ctx, opts)
 }

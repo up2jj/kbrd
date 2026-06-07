@@ -41,6 +41,21 @@ type Config struct {
 	Hooks     HooksConfig
 	MCP       MCPConfig
 	Template  TemplateConfig
+	Serve     ServeConfig
+}
+
+// ServeConfig holds the [serve] table consumed by `kbrd serve`. Values are
+// one layer of the flag > env > toml > default chain, so unset keys stay ""
+// for the resolver to fall through. Addr and Domain are read at startup only:
+// kbrd.toml can arrive via git pull from a remote, and hot-applying listener
+// or ACME settings would let anyone with push access rebind the server.
+// PullInterval stays a raw duration string because the serve command
+// re-resolves it against env/flag on every hot reload.
+type ServeConfig struct {
+	Addr         string // serve.addr — startup only
+	Domain       string // serve.domain — startup only
+	PullInterval string // serve.pull_interval — hot-reloadable
+	TokenInTOML  bool   // serve.token was present: warned about and never read
 }
 
 // HooksConfig controls declarative YAML event hooks (hooks.yml /
@@ -114,6 +129,9 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 	v.SetDefault("template.exec", false)
 	v.SetDefault("template.command_timeout_ms", 20000)
+	v.SetDefault("serve.addr", "")
+	v.SetDefault("serve.domain", "")
+	v.SetDefault("serve.pull_interval", "")
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -179,5 +197,38 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			Exec:             v.GetBool("template.exec"),
 			CommandTimeoutMs: v.GetInt("template.command_timeout_ms"),
 		},
+		Serve: ServeConfig{
+			Addr:         v.GetString("serve.addr"),
+			Domain:       v.GetString("serve.domain"),
+			PullInterval: v.GetString("serve.pull_interval"),
+			// Deliberately never read the value: a token in a file that gets
+			// committed and pulled with the board repo is a leaked token.
+			TokenInTOML: v.IsSet("serve.token"),
+		},
 	}, nil
+}
+
+// ValidateServe checks candidate kbrd.toml bytes before they are written —
+// the web config editor calls this so a save cannot break the running server.
+// It enforces TOML syntax plus the [serve] rules; other sections are
+// syntax-checked only.
+func ValidateServe(data []byte) error {
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("invalid TOML: %w", err)
+	}
+	if v.IsSet("serve.token") {
+		return errors.New("serve.token cannot be set in kbrd.toml — use --token or KBRD_TOKEN (this file may be committed with the board)")
+	}
+	if pi := v.GetString("serve.pull_interval"); pi != "" {
+		d, err := time.ParseDuration(pi)
+		if err != nil {
+			return fmt.Errorf("serve.pull_interval %q is not a duration (e.g. \"60s\", \"5m\", \"0\")", pi)
+		}
+		if d < 0 {
+			return fmt.Errorf("serve.pull_interval %q must not be negative", pi)
+		}
+	}
+	return nil
 }

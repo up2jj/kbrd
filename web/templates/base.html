@@ -28,6 +28,7 @@
   </form>
   {{end}}
   {{if .Sync.Enabled}}<a class="ghost" href="/history">history</a>{{end}}
+  <a class="ghost" href="/config">config</a>
   {{if .Sync.Enabled}}
     {{if .Sync.OK}}<span class="chip chip-ok" title="changes pushed to git">synced</span>
     {{else}}<span class="chip chip-err" title="{{.Sync.Detail}}">sync failed</span>{{end}}

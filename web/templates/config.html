@@ -1,0 +1,20 @@
+{{template "head" .}}
+{{template "topbar" .}}
+<main class="form-page">
+  <h2>Board config <span class="muted">kbrd.toml</span></h2>
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <p class="muted">Saves are validated first, so a typo can't break the server.
+    <code>board.name</code> and <code>serve.pull_interval</code> apply immediately;
+    <code>serve.addr</code>/<code>serve.domain</code> need a server restart.
+    The access token is never read from this file.</p>
+  <form method="post" action="/config">
+    <input type="hidden" name="hash" value="{{.Hash}}">
+    <label for="content">kbrd.toml (TOML)</label>
+    <textarea id="content" name="content" rows="16" autofocus>{{.Content}}</textarea>
+    <div class="actions">
+      <a class="ghost" href="/">cancel</a>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</main>
+{{template "foot" .}}

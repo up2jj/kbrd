@@ -219,3 +219,94 @@ theme = "dark"
 		t.Fatalf("theme: got %q want dark", cfg.Theme)
 	}
 }
+
+func TestLoad_ServeSection(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	globalDir := t.TempDir()
+	folder := t.TempDir()
+
+	writeFile(t, filepath.Join(globalDir, "config.toml"), `
+[serve]
+addr = ":9090"
+pull_interval = "30s"
+`)
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[serve]
+pull_interval = "5s"
+`)
+
+	cfg, err := loadFrom(globalDir, folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Serve.Addr != ":9090" {
+		t.Fatalf("serve.addr: got %q want :9090 (inherited from global)", cfg.Serve.Addr)
+	}
+	if cfg.Serve.PullInterval != "5s" {
+		t.Fatalf("serve.pull_interval: got %q want 5s (folder overrides global)", cfg.Serve.PullInterval)
+	}
+	if cfg.Serve.Domain != "" {
+		t.Fatalf("serve.domain: got %q want empty default", cfg.Serve.Domain)
+	}
+	if cfg.Serve.TokenInTOML {
+		t.Fatal("TokenInTOML: got true without serve.token present")
+	}
+}
+
+func TestLoad_ServeDefaultsEmpty(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Serve.Addr != "" || cfg.Serve.Domain != "" || cfg.Serve.PullInterval != "" {
+		t.Fatalf("serve defaults must be empty (unset), got %+v", cfg.Serve)
+	}
+}
+
+func TestLoad_ServeTokenDetectedNotRead(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[serve]
+token = "supersecretvalue"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if !cfg.Serve.TokenInTOML {
+		t.Fatal("TokenInTOML: got false, want true")
+	}
+}
+
+func TestValidateServe(t *testing.T) {
+	cases := []struct {
+		name    string
+		toml    string
+		wantErr string // substring; "" means valid
+	}{
+		{"empty", "", ""},
+		{"no serve section", "[board]\nname = \"x\"\n", ""},
+		{"valid serve", "[serve]\naddr = \":9090\"\npull_interval = \"30s\"\n", ""},
+		{"zero interval", "[serve]\npull_interval = \"0\"\n", ""},
+		{"bad toml", "not = valid = toml", "invalid TOML"},
+		{"token present", "[serve]\ntoken = \"abc\"\n", "serve.token cannot be set"},
+		{"bad interval", "[serve]\npull_interval = \"banana\"\n", "not a duration"},
+		{"negative interval", "[serve]\npull_interval = \"-5s\"\n", "must not be negative"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateServe([]byte(tc.toml))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateServe: unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("ValidateServe: got %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
