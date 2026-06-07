@@ -16,7 +16,7 @@ Output demo/.discard.gif
 # boards, then enter the sample board (cwd is the board root) and launch kbrd.
 Hide
 Type "export HOME=$(pwd)/demo/home" Enter
-Type "cd demo/sample-board && ${KBRD:-../../kbrd} --no-mcp" Enter
+Type "cd demo/sample-board && ${KBRD:-../../kbrd}" Enter
 Sleep 2s
 Show
 

@@ -8,7 +8,7 @@
 [![Bubble Tea](https://img.shields.io/badge/TUI-Bubble%20Tea-FF75B7)](https://github.com/charmbracelet/bubbletea)
 [![Lua](https://img.shields.io/badge/Scripting-Lua%205.1-000080?logo=lua&logoColor=white)](./SCRIPTING.md)
 [![MCP](https://img.shields.io/badge/MCP-ready-6E56CF)](https://modelcontextprotocol.io)
-![Version](https://img.shields.io/badge/version-v0.1.0-brightgreen)
+![Version](https://img.shields.io/badge/version-v0.5.0-brightgreen)
 
 *Your board is just a folder. Columns are directories. Cards are Markdown files.*
 
