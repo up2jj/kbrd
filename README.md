@@ -47,6 +47,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
   - [Lua scripting](#lua-scripting)
   - [MCP server](#mcp-server)
   - [Theming](#theming)
+- [Web server (headless)](#web-server-headless)
 - [Limitations & known gaps](#limitations--known-gaps)
 - [Project layout](#project-layout)
 - [Development](#development)
@@ -517,6 +518,49 @@ Toggle between light and dark palettes with `t`, or set a default with `display.
 
 ---
 
+## Web server (headless)
+
+`kbrd serve` runs the board as a mobile-first web app — no TUI, no JavaScript build step
+(plain HTML + [htmx](https://htmx.org), vendored). View columns and cards; create, edit,
+and delete cards from a phone. **Every mutation becomes a git commit and is pushed
+immediately**, so the git remote stays the source of truth and the server is disposable.
+
+```bash
+# Local: plain HTTP on :8080 (no TLS, no git remote needed — "no sync" banner)
+KBRD_TOKEN=$(openssl rand -base64 24) kbrd serve --dir ~/boards/work
+```
+
+Dockerized — clones the board repo on first boot, serves it over Let's Encrypt TLS:
+
+```bash
+cp .env.example .env   # set KBRD_TOKEN, GIT_TOKEN, KBRD_DOMAIN, and the GIT_URL repo
+docker compose up -d
+```
+
+Flags / env (flag wins): `--addr`/`KBRD_ADDR` (default `:8080`), `--domain`/`KBRD_DOMAIN`
+(enables Let's Encrypt on `:443`+`:80`; needs public reachability under that domain),
+`--token`/`KBRD_TOKEN` (required, ≥12 chars), `--git-url`/`GIT_URL` (clone when `--dir` is
+missing/empty), `--pull-interval`/`KBRD_PULL_INTERVAL` (default `60s`, `0` disables).
+Commit author comes from `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`.
+
+Security notes:
+
+- The web token and the git credential are **separate secrets**; use a fine-grained PAT
+  scoped to the single board repo (contents read/write) embedded in `GIT_URL`.
+- Login is a single shared token behind a rate limiter; sessions are HMAC cookies that
+  all invalidate on restart. For LAN/Tailscale-only use, omit `--domain` and terminate
+  TLS yourself (e.g. `tailscale serve`).
+- Web mode is implicitly `--safe`: folder-local Lua, hooks, and template exec **never
+  run**, so serving an untrusted board cannot execute its code.
+
+Conflict stance: each mutation commits locally first, then pushes (with one
+`pull --rebase` retry). A conflicting rebase is aborted — your change stays committed
+locally, the UI shows a sync-failed chip, and resolution is left to a human in the TUI.
+Edits carry a content hash, so a card changed upstream mid-edit is flagged instead of
+silently overwritten.
+
+---
+
 ## Limitations & known gaps
 
 - Several scripting helpers are **planned but not yet available**: synchronous shell
@@ -540,6 +584,7 @@ Toggle between light and dark palettes with `t`, or set a default with `display.
 | `events/` | Event bus that feeds the scripting hooks |
 | `fs/` | Filesystem and git CLI helpers, plus the file watcher |
 | `mcp/` | MCP server: protocol, tools, command bridge, agents template |
+| `web/` | Headless web frontend (`kbrd serve`): handlers, templates, auth, git sync |
 | `model/` | The Bubble Tea TUI — board state, dialogs, git panel, search, switcher, theming, keys |
 | `recents/` | Persisted list of recent/pinned boards |
 | `script/` | Lua VM host and the `kbrd.*` API bindings |

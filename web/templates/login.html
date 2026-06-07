@@ -1,0 +1,11 @@
+{{template "head" .}}
+<main class="login">
+  <h1>{{.BoardName}}</h1>
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <form method="post" action="/login">
+    <label for="token">Access token</label>
+    <input id="token" name="token" type="password" required autofocus autocomplete="current-password">
+    <button type="submit">Open board</button>
+  </form>
+</main>
+{{template "foot" .}}

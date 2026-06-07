@@ -1,0 +1,17 @@
+{{template "head" .}}
+{{template "topbar" .}}
+<main class="form-page">
+  <h2>New card in {{.Col}}</h2>
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <form method="post" action="/c/{{.Col | pathesc}}/cards">
+    <label for="name">Name</label>
+    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off">
+    <label for="content">Content (markdown)</label>
+    <textarea id="content" name="content" rows="10">{{.Content}}</textarea>
+    <div class="actions">
+      <a class="ghost" href="/#col-{{.Col | pathesc}}">cancel</a>
+      <button type="submit">Create</button>
+    </div>
+  </form>
+</main>
+{{template "foot" .}}

@@ -57,7 +57,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&flags.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
 	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: Lua scripting, event hooks, and template shell exec (overrides config)")
 
-	root.AddCommand(newInitCmd(), newCloneCmd(&flags))
+	root.AddCommand(newInitCmd(), newCloneCmd(&flags), newServeCmd())
 	return root
 }
 

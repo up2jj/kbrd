@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if not .Failed}}<meta http-equiv="refresh" content="2">{{end}}
+<title>kbrd — starting</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="login">
+  {{if .Failed}}
+  <h1>Board failed to start</h1>
+  <div class="err">{{.Status}}</div>
+  <p class="muted">Check the container logs for details.</p>
+  {{else}}
+  <h1>Board is initializing…</h1>
+  <p class="muted">{{.Status}}</p>
+  {{end}}
+</main>
+</body>
+</html>

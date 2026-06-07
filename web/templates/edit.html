@@ -1,0 +1,22 @@
+{{template "head" .}}
+{{template "topbar" .}}
+<main class="form-page">
+  <h2>{{.Name}} <span class="muted">in {{.Col}}</span></h2>
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <form method="post" action="/c/{{.Col | pathesc}}/i/{{.Name | pathesc}}">
+    <input type="hidden" name="hash" value="{{.Hash}}">
+    <label for="content">Content (markdown, frontmatter included)</label>
+    <textarea id="content" name="content" rows="16" autofocus>{{.Content}}</textarea>
+    <div class="actions">
+      <a class="ghost" href="/#col-{{.Col | pathesc}}">cancel</a>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+  {{/* hx-confirm uses window.confirm, fine under CSP; an inline onsubmit
+       fallback would be blocked by script-src 'self', so without JS the
+       delete submits unconfirmed — accepted. */}}
+  <form method="post" action="/c/{{.Col | pathesc}}/i/{{.Name | pathesc}}/delete" hx-confirm="Delete this card?">
+    <button class="danger" type="submit">Delete card</button>
+  </form>
+</main>
+{{template "foot" .}}

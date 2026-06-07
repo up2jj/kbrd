@@ -1,0 +1,28 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.BoardName}}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body hx-boost="true" hx-indicator="#busy" hx-disabled-elt="find button">
+<div id="busy" class="busy htmx-indicator" aria-hidden="true"></div>
+{{end}}
+
+{{define "foot"}}</body>
+</html>
+{{end}}
+
+{{define "topbar"}}
+<header class="topbar">
+  <a class="brand" href="/">{{.BoardName}}</a>
+  <span class="spacer"></span>
+  {{if .Sync.Enabled}}
+    {{if .Sync.OK}}<span class="chip chip-ok" title="changes pushed to git">synced</span>
+    {{else}}<span class="chip chip-err" title="{{.Sync.Detail}}">sync failed</span>{{end}}
+  {{else}}<span class="chip chip-warn" title="not a git repo with a remote — changes stay local">no sync</span>{{end}}
+  <form method="post" action="/logout" class="inline"><button class="ghost" type="submit">logout</button></form>
+</header>
+{{end}}

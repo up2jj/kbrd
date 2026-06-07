@@ -1,0 +1,166 @@
+:root {
+  --bg: #14161a;
+  --panel: #1d2127;
+  --card: #242a32;
+  --text: #e6e9ee;
+  --muted: #8b93a1;
+  --line: #323a45;
+  --accent: #6ca0f6;
+  --ok: #3fb96f;
+  --warn: #d8a437;
+  --err: #e0606a;
+  --board-pad: .8rem;
+  /* A column fills the viewport minus the board padding (so its border is
+     never clipped on phones), capped for wider screens. */
+  --col-w: min(calc(100dvw - 2 * var(--board-pad)), 28rem);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100dvh;
+}
+a { color: var(--accent); text-decoration: none; }
+
+/* in-flight indicator: a thin animated bar pinned to the top of the viewport.
+   htmx toggles .htmx-request on the #busy element (hx-indicator) for every
+   boosted navigation and form submit — visible whenever a request is open,
+   e.g. while a save waits on git commit+push. */
+.busy {
+  position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms ease-in;
+}
+.busy.htmx-request {
+  opacity: 1;
+  animation: busy-slide 1s linear infinite;
+}
+@keyframes busy-slide {
+  from { background-position: -50% 0; }
+  to   { background-position: 150% 0; }
+}
+
+/* top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: .6rem;
+  padding: .6rem .9rem;
+  padding-top: calc(.6rem + env(safe-area-inset-top));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 700; color: var(--text); }
+.spacer { flex: 1; }
+.chip { font-size: .72rem; padding: .15rem .5rem; border-radius: 999px; white-space: nowrap; }
+.chip-ok   { background: color-mix(in srgb, var(--ok) 20%, transparent);   color: var(--ok); }
+.chip-warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.chip-err  { background: color-mix(in srgb, var(--err) 20%, transparent);  color: var(--err); }
+.inline { display: inline; }
+
+/* column nav dots */
+.dots {
+  display: flex; gap: .8rem; overflow-x: auto;
+  padding: .45rem .9rem; font-size: .82rem;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.dots a { color: var(--muted); white-space: nowrap; }
+
+/* board: horizontal scroll-snap carousel */
+.board {
+  display: flex; gap: var(--board-pad);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: var(--board-pad);
+  padding: var(--board-pad);
+  padding-left: max(var(--board-pad), env(safe-area-inset-left));
+  padding-right: max(var(--board-pad), env(safe-area-inset-right));
+  min-height: calc(100dvh - 7rem);
+}
+.column {
+  position: relative;
+  flex: 0 0 var(--col-w);
+  max-width: var(--col-w);
+  scroll-snap-align: start;
+  background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: .8rem .8rem 4.5rem;
+}
+.column h2 { margin: 0 0 .7rem; font-size: 1rem; }
+.count { color: var(--muted); font-weight: 400; font-size: .85rem; }
+
+.cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+.card {
+  display: block; min-height: 44px;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 10px; padding: .6rem .75rem;
+}
+.card:active { filter: brightness(1.15); }
+.card .title { display: block; font-weight: 600; }
+.card .preview { display: block; color: var(--muted); font-size: .82rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .tags { display: block; margin-top: .3rem; }
+.tag { font-size: .72rem; color: var(--accent); margin-right: .5rem; }
+.pin { color: var(--warn); }
+
+/* frontmatter accent colors mirror the TUI palette names */
+.accent-red    { border-left-color: #e0606a; }
+.accent-green  { border-left-color: #3fb96f; }
+.accent-yellow { border-left-color: #d8a437; }
+.accent-blue   { border-left-color: #6ca0f6; }
+.accent-magenta{ border-left-color: #c678dd; }
+.accent-cyan   { border-left-color: #4db8c4; }
+
+.fab {
+  position: absolute; right: .9rem; bottom: .9rem;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent); color: #0c0e11;
+  font-size: 1.6rem; font-weight: 700;
+}
+
+/* forms */
+.form-page, .login { max-width: 34rem; margin: 0 auto; padding: 1rem .9rem 3rem; }
+.login { padding-top: 18dvh; text-align: center; }
+.login form { display: flex; flex-direction: column; gap: .7rem; margin-top: 1rem; text-align: left; }
+label { color: var(--muted); font-size: .85rem; }
+input, textarea {
+  width: 100%; background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: .65rem .7rem; font: inherit;
+}
+textarea { resize: vertical; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+form { display: flex; flex-direction: column; gap: .7rem; margin: 0; }
+.inline, .topbar form { display: inline; }
+.actions { display: flex; gap: .7rem; justify-content: flex-end; align-items: center; }
+button {
+  min-height: 44px; padding: .55rem 1.2rem;
+  background: var(--accent); color: #0c0e11;
+  border: 0; border-radius: 8px; font: inherit; font-weight: 600;
+}
+button:disabled { opacity: .55; }
+button.ghost, a.ghost {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: .55rem 1rem; min-height: 44px; display: inline-flex; align-items: center;
+}
+.topbar button.ghost { min-height: 0; padding: .2rem .6rem; font-size: .78rem; }
+button.danger { background: transparent; color: var(--err); border: 1px solid var(--err); margin-top: 1.2rem; }
+
+.err {
+  background: color-mix(in srgb, var(--err) 15%, transparent);
+  border: 1px solid var(--err); color: var(--err);
+  border-radius: 8px; padding: .6rem .8rem; margin: .6rem 0;
+}
+.muted { color: var(--muted); font-weight: 400; }
+
+/* wider screens: several columns side by side */
+@media (min-width: 56rem) {
+  .board { scroll-snap-type: none; }
+}

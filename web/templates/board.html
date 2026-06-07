@@ -1,0 +1,9 @@
+{{template "head" .}}
+{{template "topbar" .}}
+<nav class="dots">
+  {{range .Columns}}<a href="#col-{{.Name | pathesc}}">{{.Name}}</a>{{end}}
+</nav>
+<main class="board">
+  {{range .Columns}}{{template "column" .}}{{end}}
+</main>
+{{template "foot" .}}

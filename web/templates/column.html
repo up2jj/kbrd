@@ -1,0 +1,18 @@
+{{define "column"}}
+<section class="column" id="col-{{.Name | pathesc}}">
+  <h2>{{.Name}} <span class="count">{{len .Cards}}</span></h2>
+  <ul class="cards">
+    {{$col := .Name}}
+    {{range .Cards}}
+    <li>
+      <a class="card{{if .Accent}} accent-{{.Accent}}{{end}}" href="/c/{{$col | pathesc}}/i/{{.Name | pathesc}}">
+        <span class="title">{{if .Pinned}}<span class="pin">●</span> {{end}}{{if .Icon}}{{.Icon}} {{end}}{{.Title}}</span>
+        {{range .Preview}}<span class="preview">{{.}}</span>{{end}}
+        {{if .Tags}}<span class="tags">{{range .Tags}}<span class="tag">#{{.}}</span>{{end}}</span>{{end}}
+      </a>
+    </li>
+    {{end}}
+  </ul>
+  <a class="fab" href="/c/{{.Name | pathesc}}/new" title="new card">+</a>
+</section>
+{{end}}
