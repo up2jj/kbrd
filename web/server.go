@@ -164,6 +164,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.HandleFunc("GET /{$}", s.handleBoard)
+	mux.HandleFunc("GET /history", s.handleHistory)
 	mux.HandleFunc("GET /c/{col}", s.handleColumn)
 	mux.HandleFunc("GET /c/{col}/new", s.handleNewForm)
 	mux.HandleFunc("POST /c/{col}/cards", s.handleCreate)

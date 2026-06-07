@@ -26,6 +26,7 @@ type Card struct {
 	Tags    []string
 	Preview []string // first few body lines, frontmatter and H1 excluded
 	Pinned  bool
+	Changed bool // file touched by the latest commit (HEAD)
 
 	search string // lowercased title + tags + body, for the quick filter
 }

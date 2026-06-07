@@ -1,0 +1,18 @@
+{{template "head" .}}
+{{template "topbar" .}}
+<main class="form-page">
+  <h2>History</h2>
+  {{if .Commits}}
+  <ul class="history">
+    {{range .Commits}}
+    <li>
+      <span class="hash">{{.Short}}</span><span class="subject">{{.Subject}}</span>
+      <span class="meta">{{.Author}} · {{.When}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">No commits yet.</p>
+  {{end}}
+</main>
+{{template "foot" .}}

@@ -108,6 +108,14 @@ a { color: var(--accent); text-decoration: none; }
 .card .tags { display: block; margin-top: .3rem; }
 .tag { font-size: .72rem; color: var(--accent); margin-right: .5rem; }
 .pin { color: var(--warn); }
+.card .changed { color: var(--ok); font-size: .6rem; vertical-align: middle; }
+
+/* commit history page */
+.history { list-style: none; margin: 0; padding: 0; }
+.history li { padding: .55rem 0; border-bottom: 1px solid var(--line); }
+.history .hash { font: .8rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); margin-right: .6rem; }
+.history .meta { display: block; color: var(--muted); font-size: .78rem; }
 
 /* frontmatter accent colors mirror the TUI palette names */
 .accent-red    { border-left-color: #e0606a; }
@@ -150,7 +158,7 @@ button.ghost, a.ghost {
   border: 1px solid var(--line); border-radius: 8px;
   padding: .55rem 1rem; min-height: 44px; display: inline-flex; align-items: center;
 }
-.topbar button.ghost { min-height: 0; padding: .2rem .6rem; font-size: .78rem; }
+.topbar button.ghost, .topbar a.ghost { min-height: 0; padding: .2rem .6rem; font-size: .78rem; }
 .topbar .search input { min-height: 0; padding: .2rem .6rem; font-size: .78rem; width: 8.5rem; }
 button.danger { background: transparent; color: var(--err); border: 1px solid var(--err); margin-top: 1.2rem; }
 

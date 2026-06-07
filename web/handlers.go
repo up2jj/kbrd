@@ -105,6 +105,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read board", http.StatusInternalServerError)
 		return
 	}
+	cols = markChanged(cols, s.headChangedSet())
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	data := s.page(map[string]any{
 		"Columns":    filterColumns(cols, q),
@@ -130,6 +131,7 @@ func (s *Server) handleColumn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read column", http.StatusInternalServerError)
 		return
 	}
+	col = markChanged([]Column{col}, s.headChangedSet())[0]
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		col.Cards = filterCards(col.Cards, strings.ToLower(q))
 	}

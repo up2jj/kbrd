@@ -6,7 +6,7 @@
     {{range .Cards}}
     <li>
       <a class="card{{if .Accent}} accent-{{.Accent}}{{end}}" href="/c/{{$col | pathesc}}/i/{{.Name | pathesc}}">
-        <span class="title">{{if .Pinned}}<span class="pin">●</span> {{end}}{{if .Icon}}{{.Icon}} {{end}}{{.Title}}</span>
+        <span class="title">{{if .Pinned}}<span class="pin">●</span> {{end}}{{if .Icon}}{{.Icon}} {{end}}{{.Title}}{{if .Changed}} <span class="changed" title="changed in latest commit">●</span>{{end}}</span>
         {{range .Preview}}<span class="preview">{{.}}</span>{{end}}
         {{if .Tags}}<span class="tags">{{range .Tags}}<span class="tag">#{{.}}</span>{{end}}</span>{{end}}
       </a>
