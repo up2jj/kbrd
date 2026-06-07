@@ -19,6 +19,14 @@
 <header class="topbar">
   <a class="brand" href="/">{{.BoardName}}</a>
   <span class="spacer"></span>
+  {{if .ShowSearch}}
+  <form method="get" action="/" class="search" role="search">
+    <input type="search" name="q" value="{{.Query}}" placeholder="filter"
+           aria-label="filter cards"
+           hx-get="/" hx-trigger="input changed delay:300ms, search"
+           hx-target="#columns" hx-swap="outerHTML" hx-push-url="true">
+  </form>
+  {{end}}
   {{if .Sync.Enabled}}
     {{if .Sync.OK}}<span class="chip chip-ok" title="changes pushed to git">synced</span>
     {{else}}<span class="chip chip-err" title="{{.Sync.Detail}}">sync failed</span>{{end}}

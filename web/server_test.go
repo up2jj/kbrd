@@ -244,6 +244,67 @@ func TestCreateEditDelete(t *testing.T) {
 	}
 }
 
+func TestQuickFilter(t *testing.T) {
+	_, h, boardDir := newTestServer(t)
+	// Second card: tag zeta, unique word "needle" on the 4th body line —
+	// beyond previewLines, so a hit proves full-body matching.
+	content := "---\ntags: [zeta]\n---\n# Task B\nline one\nline two\nline three\nthe needle word\n"
+	os.WriteFile(filepath.Join(boardDir, "1. todo", "task-b.md"), []byte(content), 0o644)
+	c := loginCookie(t, h)
+
+	// Full-body match, case-insensitive; non-matching card filtered out.
+	for _, q := range []string{"needle", "NEEDLE"} {
+		body := get(h, "/?q="+q, c).Body.String()
+		if !strings.Contains(body, "Task B") || strings.Contains(body, "Task A") {
+			t.Errorf("q=%s: wrong cards on board", q)
+		}
+		if !strings.Contains(body, `<span class="count">1</span>`) {
+			t.Errorf("q=%s: count not updated", q)
+		}
+	}
+
+	// Tag match.
+	if body := get(h, "/?q=zeta", c).Body.String(); !strings.Contains(body, "Task B") || strings.Contains(body, "Task A") {
+		t.Error("tag match failed")
+	}
+
+	// Empty query: everything visible.
+	if body := get(h, "/?q=", c).Body.String(); !strings.Contains(body, "Task A") || !strings.Contains(body, "Task B") {
+		t.Error("empty query filtered cards")
+	}
+
+	// htmx filter request gets just the columns fragment.
+	req := httptest.NewRequest("GET", "/?q=needle", nil)
+	req.Header.Set("HX-Request", "true")
+	req.AddCookie(c)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, `id="columns"`) || strings.Contains(body, "topbar") {
+		t.Error("htmx request did not get a bare columns fragment")
+	}
+
+	// Boosted navigation still gets the full page.
+	req = httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Boosted", "true")
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "topbar") {
+		t.Error("boosted request lost the full page")
+	}
+
+	// Query echo is escaped.
+	if body := get(h, "/?q=%3Cscript%3E", c).Body.String(); strings.Contains(body, "<script>alert") || !strings.Contains(body, "&lt;script&gt;") {
+		t.Error("query echo not escaped")
+	}
+
+	// Column fragment endpoint honors q.
+	if body := get(h, "/c/"+url.PathEscape("1. todo")+"?q=needle", c).Body.String(); !strings.Contains(body, "Task B") || strings.Contains(body, "Task A") {
+		t.Error("column fragment filter failed")
+	}
+}
+
 // extractHash pulls the stale-edit guard value out of the edit form.
 func extractHash(t *testing.T, body string) string {
 	t.Helper()

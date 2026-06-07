@@ -105,7 +105,19 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read board", http.StatusInternalServerError)
 		return
 	}
-	s.render(w, "board.html", s.page(map[string]any{"Columns": cols}))
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	data := s.page(map[string]any{
+		"Columns":    filterColumns(cols, q),
+		"Query":      q,
+		"ShowSearch": true,
+	})
+	// The filter input's hx-get wants just the columns fragment; boosted
+	// navigations (hx-boost on <body>) still get the full page.
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Boosted") != "true" {
+		s.render(w, "columns", data)
+		return
+	}
+	s.render(w, "board.html", data)
 }
 
 func (s *Server) handleColumn(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +129,9 @@ func (s *Server) handleColumn(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "failed to read column", http.StatusInternalServerError)
 		return
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		col.Cards = filterCards(col.Cards, strings.ToLower(q))
 	}
 	s.render(w, "column", col)
 }

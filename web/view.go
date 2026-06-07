@@ -26,6 +26,8 @@ type Card struct {
 	Tags    []string
 	Preview []string // first few body lines, frontmatter and H1 excluded
 	Pinned  bool
+
+	search string // lowercased title + tags + body, for the quick filter
 }
 
 // Column is the view model for one column directory.
@@ -80,6 +82,7 @@ func loadCard(columnPath, name string) Card {
 
 	raw, err := board.ReadItem(columnPath, name)
 	if err != nil {
+		c.search = strings.ToLower(c.Title)
 		return c
 	}
 	fmBlock, body := splitFrontmatter(raw)
@@ -102,6 +105,7 @@ func loadCard(columnPath, name string) Card {
 			c.Preview = append(c.Preview, trimmed)
 		}
 	}
+	c.search = strings.ToLower(c.Title + "\n" + strings.Join(c.Tags, "\n") + "\n" + body)
 	return c
 }
 

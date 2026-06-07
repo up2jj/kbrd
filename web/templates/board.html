@@ -3,7 +3,11 @@
 <nav class="dots">
   {{range .Columns}}<a href="#col-{{.Name | pathesc}}">{{.Name}}</a>{{end}}
 </nav>
-<main class="board">
+{{template "columns" .}}
+{{template "foot" .}}
+
+{{define "columns"}}
+<main class="board" id="columns">
   {{range .Columns}}{{template "column" .}}{{end}}
 </main>
-{{template "foot" .}}
+{{end}}
