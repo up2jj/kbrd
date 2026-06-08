@@ -101,6 +101,13 @@ type KeyMap struct {
 
 	// Git panel (open binding only; in-panel bindings live in the git package)
 	GitPanel key.Binding
+
+	// Zellij actions menu (only active when running inside zellij)
+	ZellijMenu     key.Binding // opens the menu
+	ZellijFloating key.Binding // f — floating editor pane
+	ZellijTiled    key.Binding // e — tiled editor pane
+	ZellijShell    key.Binding // s — shell in board dir
+	ZellijClose    key.Binding
 }
 
 var Keys = KeyMap{
@@ -202,6 +209,14 @@ var Keys = KeyMap{
 
 	// Git panel (open binding only; in-panel bindings live in the git package)
 	GitPanel: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
+
+	// Zellij actions (mnemonics f/e/s only matter while the menu is open, which
+	// is routed before the global bindings, so they don't clash with Search/Edit)
+	ZellijMenu:     key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "zellij actions")),
+	ZellijFloating: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "floating editor pane")),
+	ZellijTiled:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "new tiled pane")),
+	ZellijShell:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shell in board dir")),
+	ZellijClose:    key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {
@@ -219,6 +234,10 @@ func bindingShortcuts(bs ...key.Binding) []Shortcut {
 
 // ShortcutGroups returns the help-overlay groups derived from the registry.
 func ShortcutGroups() []ShortcutGroup {
+	global := bindingShortcuts(Keys.Refresh, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit)
+	if inZellij() {
+		global = append(global, bindingShortcut(Keys.ZellijMenu))
+	}
 	return []ShortcutGroup{
 		{
 			Title: "Navigation",
@@ -247,7 +266,7 @@ func ShortcutGroups() []ShortcutGroup {
 		},
 		{
 			Title: "Global",
-			Items: bindingShortcuts(Keys.Refresh, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit),
+			Items: global,
 		},
 	}
 }

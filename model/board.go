@@ -111,6 +111,7 @@ type Board struct {
 	switcher           Switcher
 	search             Search
 	git                git.Controller
+	zellij             Zellij
 	customCmds         CustomCommandMenu
 	commands           []config.Command
 	commandWarnings    []config.CommandLoadWarning
@@ -168,6 +169,7 @@ func NewBoard(cfg config.Config) *Board {
 		quickCmdInput: ti,
 		theme:         cfg.Theme,
 		palette:       palette,
+		zellij:        NewZellij(),
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
@@ -241,6 +243,7 @@ func (b *Board) applyPalette() {
 	b.switcher.palette = b.palette
 	b.search.palette = b.palette
 	b.git.SetPalette(b.palette)
+	b.zellij.SetPalette(b.palette)
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
@@ -273,6 +276,9 @@ func (b *Board) Init() tea.Cmd {
 		return watchStartMsg{}
 	}
 	cmds := []tea.Cmd{startup}
+	if c := b.zellij.StartCmd(b.cfg.BoardName, b.cfg.Path); c != nil {
+		cmds = append(cmds, c)
+	}
 	if len(b.commandWarnings) > 0 {
 		first := b.commandWarnings[0]
 		extra := ""
@@ -872,6 +878,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is no shutdown bookkeeping here.
 		return b, b.git.Update(msg)
 
+	case zellijDoneMsg:
+		return b, b.zellij.Done(msg, b.notifier)
+
 	case templateSubmitMsg:
 		return b.handleTemplateSubmit(msg)
 
@@ -1031,6 +1040,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.git.HandleKey(msg)
 	}
 
+	// Handle zellij actions menu
+	if b.zellij.Active() {
+		return b, b.zellij.Update(msg)
+	}
+
 	// Handle quick command
 	if b.quickCmdMode {
 		return b.handleQuickCommandKey(msg)
@@ -1073,6 +1087,9 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.openSearch()
 	case key.Matches(msg, Keys.GitPanel):
 		return b, b.git.Open()
+	case b.zellij.Enabled && key.Matches(msg, Keys.ZellijMenu):
+		b.zellij.OpenFor(b.cfg.Path, col)
+		return b, nil
 	case key.Matches(msg, Keys.Refresh):
 		return b, b.refresh()
 	case key.Matches(msg, Keys.RenameItem):
@@ -1268,7 +1285,7 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -2252,6 +2269,9 @@ func (b *Board) View() string {
 	}
 	if b.git.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.git.View())
+	}
+	if b.zellij.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.zellij.View())
 	}
 	result += "\n" + b.renderStatusBar()
 

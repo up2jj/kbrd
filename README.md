@@ -40,6 +40,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Configuration](#configuration)
+- [Zellij integration](#zellij-integration)
 - [Card templates](#card-templates)
 - [Card frontmatter](#card-frontmatter)
 - [Extensibility](#extensibility)
@@ -81,6 +82,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Help overlay** — discover every shortcut without leaving the app (`?`).
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Custom shell commands** — run templated shell commands against any card (`x`).
+- **Zellij integration** — inside a [zellij](https://zellij.dev) session, open a card in a floating or tiled editor pane, or a shell scoped to the board (`z`); the tab is named after the board.
 - **Lua scripting** — extend kbrd with commands, event hooks, timers, and async tasks.
 - **Virtual columns** — Lua-driven columns showing a computed view (e.g. open tasks across boards); `tab` switches into them, with script-declared item actions ([example](./examples/tasks/tasks.lua)).
 - **Built-in MCP server** — let external tools and LLM agents operate on your boards.
@@ -160,6 +162,7 @@ Move the resulting `kbrd` binary somewhere on your `PATH`. See [Development](#de
 - `git` — for the git panel and sync features.
 - Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for global search.
 - Optional: [`difft`](https://github.com/Wilfred/difftastic) or `diff-so-fancy` — nicer diffs (falls back to `git`).
+- Optional: [`zellij`](https://zellij.dev) — enables the `z` actions menu (editor/shell panes) when kbrd runs inside a zellij session.
 
 ---
 
@@ -253,6 +256,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `Ctrl+P` | Switch board |
 | `f` | Search across boards |
 | `g` | Git panel |
+| `z` | Zellij actions menu (only inside a zellij session) |
 | `,` | Config menu |
 | `?` | Toggle help |
 | `Ctrl+C` | Quit |
@@ -324,6 +328,17 @@ All bindings below are the defaults from the in-app help (`?`).
 | `m` | Create local `.mcp.json` |
 | `a` | Create local `AGENTS.md` |
 
+### Zellij actions (`z`)
+
+Only available inside a [zellij](https://zellij.dev) session.
+
+| Keys | Action |
+| --- | --- |
+| `f` | Open the card in a floating editor pane |
+| `e` | Open the card in a new tiled pane |
+| `s` | Open a shell in the board directory |
+| `q` / `esc` | Close |
+
 ---
 
 ## Configuration
@@ -363,6 +378,48 @@ error_threshold    = 3        # auto-disable a failing hook/timer after N errors
 [mcp]
 enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
 addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
+```
+
+---
+
+## Zellij integration
+
+When kbrd detects it is running inside a [zellij](https://zellij.dev) session (via the
+`ZELLIJ` environment variable), it names the current tab after the board on startup and
+adds a **`z` actions menu** so you can jump into a card without leaving the board:
+
+| Key | Action |
+| --- | --- |
+| `f` | Open the card in a **floating** editor pane |
+| `e` | Open the card in a new **tiled** pane |
+| `s` | Open a **shell** in the board directory |
+
+Editor panes use `$VISUAL` → `$EDITOR` → `vi`. Reopening a card you already have open
+**focuses the existing pane** instead of spawning a duplicate. The `z` binding and its
+help entry appear only inside zellij; everywhere else it does nothing. Outside zellij, use
+`o` to open a card in your `$EDITOR` as usual.
+
+### Extending zellij usage with custom commands
+
+The built-in menu covers the common cases; for anything else, kbrd's
+[custom shell commands](#custom-shell-commands) already give you the whole zellij CLI.
+Because commands run inside the session with the board
+[template variables](#custom-shell-commands), you can script any pane / tab / layout
+behavior and run it from the `x` menu — no kbrd config required:
+
+```yaml
+commands:
+  - name: Edit in big floating pane
+    id: zellij-edit-big
+    command: zellij edit -f --width 80% --height 80% --cwd "{{.boardPath}}" "{{.filePath}}"
+
+  - name: Lazygit in the card's column
+    id: zellij-lazygit
+    command: zellij run --cwd "{{.columnPath}}" -- lazygit
+
+  - name: Tail the card's log
+    id: zellij-tail-log
+    command: zellij run --name logs -- tail -f "{{.fileDir}}/run.log"
 ```
 
 ---
