@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"os"
@@ -13,7 +13,7 @@ import (
 
 // requireGit skips the test when git is unavailable, reusing the same
 // production check (fs.GitAvailable) that fs's own requireGit wraps — the latter
-// is unexported, so package main can't call it directly.
+// is unexported, so package commands can't call it directly.
 func requireGit(t *testing.T) {
 	t.Helper()
 	if !fsutil.GitAvailable() {
@@ -135,51 +135,6 @@ func TestRunClone_ExistingDir(t *testing.T) {
 		t.Fatal("expected error when target directory already exists")
 	} else if !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("error = %q, want it to mention 'already exists'", err)
-	}
-}
-
-func TestWriteLocalTemplate(t *testing.T) {
-	dir := t.TempDir()
-	if err := writeLocalTemplate(dir); err != nil {
-		t.Fatalf("writeLocalTemplate: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "kbrd.toml")); err != nil {
-		t.Errorf("expected kbrd.toml to be written: %v", err)
-	}
-	// A second run must refuse to clobber the existing file.
-	if err := writeLocalTemplate(dir); err == nil {
-		t.Error("expected error on second writeLocalTemplate (overwrite)")
-	} else if !strings.Contains(err.Error(), "refusing to overwrite") {
-		t.Errorf("error = %q, want it to mention 'refusing to overwrite'", err)
-	}
-}
-
-func TestWriteGlobalTemplate(t *testing.T) {
-	isolateConfig(t)
-	if err := writeGlobalTemplate(); err != nil {
-		t.Fatalf("writeGlobalTemplate: %v", err)
-	}
-	cfgDir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("UserConfigDir: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(cfgDir, "kbrd", "config.toml")); err != nil {
-		t.Errorf("expected global config template to be written: %v", err)
-	}
-}
-
-func TestServe_RejectsMCPFlags(t *testing.T) {
-	for _, args := range [][]string{
-		{"serve", "--mcp"},
-		{"serve", "--mcp-addr", "127.0.0.1:7777"},
-	} {
-		root := newRootCmd()
-		root.SetArgs(args)
-		if err := root.Execute(); err == nil {
-			t.Errorf("%v: expected error", args)
-		} else if !strings.Contains(err.Error(), "not supported with serve") {
-			t.Errorf("%v: error = %q, want it to mention 'not supported with serve'", args, err)
-		}
 	}
 }
 

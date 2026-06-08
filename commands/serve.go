@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"errors"
@@ -7,12 +7,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"kbrd/config"
 	fsutil "kbrd/fs"
@@ -66,85 +64,6 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&f.instance, "name", "", "instance name for routing instance-scoped Lua timers (env KBRD_INSTANCE, default hostname)")
 	cmd.Flags().BoolVar(&f.scripting, "scripting", false, "run the board's Lua timers (init.lua/.kbrd.lua) — executes board-supplied code, single-user boards only (env KBRD_SCRIPTING)")
 	return cmd
-}
-
-// newServeEjectCmd builds `kbrd serve eject`, which writes the embedded web
-// templates and static assets into <dir>/.kbrd_web_templates so they can be
-// customized. Existing files are never overwritten.
-func newServeEjectCmd() *cobra.Command {
-	var dir string
-	cmd := &cobra.Command{
-		Use:   "eject",
-		Short: "Write the default web templates and static assets to .kbrd_web_templates for customizing",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			d := dir
-			var err error
-			if d == "" {
-				if d, err = os.Getwd(); err != nil {
-					return fmt.Errorf("cannot determine working directory: %w", err)
-				}
-			}
-			if d, err = filepath.Abs(d); err != nil {
-				return err
-			}
-			written, skipped, err := web.EjectAssets(d)
-			if err != nil {
-				return err
-			}
-			for _, p := range written {
-				fmt.Printf("wrote  %s\n", p)
-			}
-			for _, p := range skipped {
-				fmt.Printf("kept   %s (already exists)\n", p)
-			}
-			fmt.Printf("\n%d written, %d kept. Edit files under %s, then restart or save to hot-reload.\n",
-				len(written), len(skipped), filepath.Join(d, web.WebDir))
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&dir, "dir", "", "board directory (default current directory)")
-	return cmd
-}
-
-// isTruthyEnv reports whether the named env var is set to a truthy value
-// (1/true/yes/on, case-insensitive). Used for boolean opt-ins that, unlike the
-// string flags, have no flag-presence signal to distinguish "" from unset.
-func isTruthyEnv(key string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
-
-// envDefault fills v from env when the flag was not set.
-func envDefault(v, envKey, def string) string {
-	if v != "" {
-		return v
-	}
-	if e := os.Getenv(envKey); e != "" {
-		return e
-	}
-	return def
-}
-
-// resolveOpt returns the first set value in the serve precedence chain:
-// flag > env > toml > default. Flag presence is checked via Changed so an
-// explicit `--addr ""` still beats the other layers (envDefault can't tell
-// "empty flag" from "no flag", which is fine elsewhere but wrong once a TOML
-// layer sits underneath).
-func resolveOpt(fl *pflag.FlagSet, name, flagVal, envKey, tomlVal, def string) string {
-	if fl.Changed(name) {
-		return flagVal
-	}
-	if e := os.Getenv(envKey); e != "" {
-		return e
-	}
-	if tomlVal != "" {
-		return tomlVal
-	}
-	return def
 }
 
 // loadServeConfig loads the [serve] config for dir; before a clone the

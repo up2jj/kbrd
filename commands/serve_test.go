@@ -1,6 +1,7 @@
-package main
+package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -40,5 +41,20 @@ func TestResolveOpt(t *testing.T) {
 				t.Fatalf("resolveOpt: got %q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestServe_RejectsMCPFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"serve", "--mcp"},
+		{"serve", "--mcp-addr", "127.0.0.1:7777"},
+	} {
+		root := NewRootCmd()
+		root.SetArgs(args)
+		if err := root.Execute(); err == nil {
+			t.Errorf("%v: expected error", args)
+		} else if !strings.Contains(err.Error(), "not supported with serve") {
+			t.Errorf("%v: error = %q, want it to mention 'not supported with serve'", args, err)
+		}
 	}
 }
