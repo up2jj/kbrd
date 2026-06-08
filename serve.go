@@ -50,12 +50,52 @@ func newServeCmd() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error { return runServe(cmd, f) },
 	}
+	cmd.AddCommand(newServeEjectCmd())
 	cmd.Flags().StringVar(&f.addr, "addr", "", "listen address for plain HTTP (env KBRD_ADDR, default :8080); ignored when --domain is set")
 	cmd.Flags().StringVar(&f.domain, "domain", "", "public domain: enables Let's Encrypt TLS on :443 + :80 (env KBRD_DOMAIN)")
 	cmd.Flags().StringVar(&f.token, "token", "", "shared access token, min 12 chars (env KBRD_TOKEN)")
 	cmd.Flags().StringVar(&f.dir, "dir", "", "board directory (default current directory)")
 	cmd.Flags().StringVar(&f.gitURL, "git-url", "", "clone this repo into --dir when it is missing or empty (env GIT_URL)")
 	cmd.Flags().StringVar(&f.pullInterval, "pull-interval", "", "background git pull interval, 0 to disable (env KBRD_PULL_INTERVAL, default 60s)")
+	return cmd
+}
+
+// newServeEjectCmd builds `kbrd serve eject`, which writes the embedded web
+// templates and static assets into <dir>/.kbrd_web_templates so they can be
+// customized. Existing files are never overwritten.
+func newServeEjectCmd() *cobra.Command {
+	var dir string
+	cmd := &cobra.Command{
+		Use:   "eject",
+		Short: "Write the default web templates and static assets to .kbrd_web_templates for customizing",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			d := dir
+			var err error
+			if d == "" {
+				if d, err = os.Getwd(); err != nil {
+					return fmt.Errorf("cannot determine working directory: %w", err)
+				}
+			}
+			if d, err = filepath.Abs(d); err != nil {
+				return err
+			}
+			written, skipped, err := web.EjectAssets(d)
+			if err != nil {
+				return err
+			}
+			for _, p := range written {
+				fmt.Printf("wrote  %s\n", p)
+			}
+			for _, p := range skipped {
+				fmt.Printf("kept   %s (already exists)\n", p)
+			}
+			fmt.Printf("\n%d written, %d kept. Edit files under %s, then restart or save to hot-reload.\n",
+				len(written), len(skipped), filepath.Join(d, web.WebDir))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dir, "dir", "", "board directory (default current directory)")
 	return cmd
 }
 

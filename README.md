@@ -170,6 +170,7 @@ overlay. To scaffold configuration files:
 | `kbrd` | Open the current directory as a board (default). |
 | `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
+| `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**
 
@@ -558,6 +559,30 @@ Conflict stance: each mutation commits locally first, then pushes (with one
 locally, the UI shows a sync-failed chip, and resolution is left to a human in the TUI.
 Edits carry a content hash, so a card changed upstream mid-edit is flagged instead of
 silently overwritten.
+
+### Customizing the web UI
+
+The HTML templates and static assets (`style.css`, the vendored htmx) are baked into the
+binary, but a `.kbrd_web_templates/` folder inside the board **overrides them
+file-by-file**, mirroring the embedded layout:
+
+```
+<board>/.kbrd_web_templates/
+  templates/   *.html — shadow the embedded template of the same name
+  static/      style.css, htmx.min.js, or any new file
+```
+
+Scaffold the defaults to edit from with:
+
+```bash
+kbrd serve eject --dir ~/boards/work   # writes .kbrd_web_templates/ (never clobbers existing files)
+```
+
+Overrides **hot-reload on save** — a saved template re-parses live (a syntax error is
+logged and the last-good markup keeps serving), and static files are read straight from
+disk. The folder is committed and pulled with the board like any other content. Note the
+Content-Security-Policy is `default-src 'self'`, so custom styles must be served from
+`static/` (or inlined) — external stylesheet/script URLs are blocked.
 
 ---
 

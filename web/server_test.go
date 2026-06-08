@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,15 +26,15 @@ func newTestServer(t *testing.T) (*Server, http.Handler, string) {
 			os.WriteFile(filepath.Join(dir, it+".md"), []byte("---\ntags: [x]\n---\n# Task A\nbody line\n"), 0o644)
 		}
 	}
-	tmpl, err := template.New("").Funcs(template.FuncMap{"pathesc": url.PathEscape}).ParseFS(assets, "templates/*.html")
+	tmpl, err := buildTemplates(boardDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{
 		opts: Options{BoardPath: boardDir, BoardName: "test", Token: testToken},
-		tmpl: tmpl,
 		auth: newAuth(testToken, false),
 	}
+	s.tmpl.Store(tmpl)
 	s.ready.Store(true)
 	return s, s.middleware(s.routes()), boardDir
 }

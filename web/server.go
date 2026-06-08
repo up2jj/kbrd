@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,7 +68,7 @@ type ReloadableConfig struct {
 // straight to disk.
 type Server struct {
 	opts Options
-	tmpl *template.Template
+	tmpl atomic.Pointer[template.Template]
 	auth *auth
 	sync *Syncer
 
@@ -140,17 +138,18 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Token == "" {
 		return errors.New("web: access token is required")
 	}
-	funcs := template.FuncMap{"pathesc": url.PathEscape}
-	tmpl, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/*.html")
+	// Parse the embedded set for the initializing splash; finishInit rebuilds
+	// it with any .kbrd_web_templates overrides once the board exists on disk.
+	tmpl, err := buildTemplates("")
 	if err != nil {
-		return fmt.Errorf("web: parse templates: %w", err)
+		return err
 	}
 
 	s := &Server{
 		opts: opts,
-		tmpl: tmpl,
 		auth: newAuth(opts.Token, opts.Domain != ""),
 	}
+	s.tmpl.Store(tmpl)
 	s.initStatus.Store("starting…")
 
 	if opts.Init == nil {
@@ -207,6 +206,16 @@ func (s *Server) finishInit(ctx context.Context) {
 	}
 	s.restartPullLoop(ctx, s.opts.PullEvery)
 
+	// The board (and any .kbrd_web_templates overrides) now exist on disk —
+	// rebuild the template set with overrides applied. A bad override keeps the
+	// embedded set already stored at startup. Then hot-reload on save.
+	if tmpl, err := buildTemplates(s.opts.BoardPath); err != nil {
+		log.Printf("web: template overrides not applied: %v", err)
+	} else {
+		s.tmpl.Store(tmpl)
+	}
+	go s.watchTemplates(ctx)
+
 	if s.opts.LoadConfig != nil {
 		// Immediate load: in the --git-url flow the board's kbrd.toml only
 		// exists after the clone that just finished.
@@ -261,8 +270,7 @@ func serveUntilDone(ctx context.Context, srv *http.Server, listen func() error) 
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	static, _ := fs.Sub(assets, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS(s.opts.BoardPath))))
 
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /login", s.handleLoginForm)
@@ -348,7 +356,7 @@ func (s *Server) renderInitializing(w http.ResponseWriter) {
 
 // render executes a template, logging (not exposing) render errors.
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := s.tmpl.Load().ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("web: render %s: %v", name, err)
 	}
 }
