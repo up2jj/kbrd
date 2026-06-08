@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,6 +156,8 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Token == "" {
 		return errors.New("web: access token is required")
 	}
+	// The standard logger defaults to stderr; send all web logs to stdout.
+	log.SetOutput(os.Stdout)
 	// Parse the embedded set for the initializing splash; finishInit rebuilds
 	// it with any .kbrd_web_templates overrides once the board exists on disk.
 	tmpl, err := buildTemplates("")
@@ -187,7 +190,7 @@ func Run(ctx context.Context, opts Options) error {
 		}()
 	}
 
-	handler := s.middleware(s.routes())
+	handler := s.accessLog(s.middleware(s.routes()))
 	if opts.Domain != "" {
 		return runTLS(ctx, opts, handler)
 	}
