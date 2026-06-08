@@ -15,6 +15,48 @@ import (
 // into one reload.
 const configDebounce = 300 * time.Millisecond
 
+// writeOps are the fsnotify operations that count as a content change. Editors
+// save via rename and may delete-then-recreate, so all four are watched.
+const writeOps = fsnotify.Create | fsnotify.Write | fsnotify.Rename | fsnotify.Remove
+
+// watchLoop debounces accepted events from w and calls onChange once per burst,
+// blocking until ctx is cancelled. It does not own w (the caller closes it).
+// Shared by ConfigWatcher and the web-template watcher, whose only differences
+// are which events they accept and what they do on change.
+func watchLoop(ctx context.Context, w *fsutil.Watcher, debounce time.Duration, accept func(fsnotify.Event) bool, onChange func()) {
+	var timer *time.Timer
+	var fire <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
+			return
+		case ev, ok := <-w.Events():
+			if !ok {
+				return
+			}
+			if !accept(ev) {
+				continue
+			}
+			if timer != nil {
+				timer.Stop()
+			}
+			timer = time.NewTimer(debounce)
+			fire = timer.C
+		case <-fire:
+			timer, fire = nil, nil
+			onChange()
+		case err, ok := <-w.Errors():
+			if !ok {
+				return
+			}
+			log.Printf("web: watcher: %v", err)
+		}
+	}
+}
+
 // ConfigWatcher watches config files for saves and hands a freshly loaded
 // config to apply. It watches the parent directories rather than the files
 // themselves: editors save via rename (a file-level watch dies with the old
@@ -62,44 +104,16 @@ func NewConfigWatcher(files []string, load func() (ReloadableConfig, error), app
 // keeps the current config; the next save retries.
 func (cw *ConfigWatcher) Run(ctx context.Context) {
 	defer cw.w.Close()
-
-	var timer *time.Timer
-	var fire <-chan time.Time
-	for {
-		select {
-		case <-ctx.Done():
-			if timer != nil {
-				timer.Stop()
-			}
-			return
-		case ev, ok := <-cw.w.Events():
-			if !ok {
-				return
-			}
-			if !cw.files[filepath.Clean(ev.Name)] {
-				continue
-			}
-			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Remove) == 0 {
-				continue
-			}
-			if timer != nil {
-				timer.Stop()
-			}
-			timer = time.NewTimer(cw.debounce)
-			fire = timer.C
-		case <-fire:
-			timer, fire = nil, nil
-			rc, err := cw.load()
-			if err != nil {
-				log.Printf("web: config reload skipped: %v", err)
-				continue
-			}
-			cw.apply(rc)
-		case err, ok := <-cw.w.Errors():
-			if !ok {
-				return
-			}
-			log.Printf("web: config watcher: %v", err)
-		}
+	accept := func(ev fsnotify.Event) bool {
+		return cw.files[filepath.Clean(ev.Name)] && ev.Op&writeOps != 0
 	}
+	onChange := func() {
+		rc, err := cw.load()
+		if err != nil {
+			log.Printf("web: config reload skipped: %v", err)
+			return
+		}
+		cw.apply(rc)
+	}
+	watchLoop(ctx, cw.w, cw.debounce, accept, onChange)
 }

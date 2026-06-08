@@ -155,44 +155,17 @@ func (s *Server) watchTemplates(ctx context.Context) {
 	}
 	defer w.Close()
 
-	var timer *time.Timer
-	var fire <-chan time.Time
-	for {
-		select {
-		case <-ctx.Done():
-			if timer != nil {
-				timer.Stop()
-			}
-			return
-		case ev, ok := <-w.Events():
-			if !ok {
-				return
-			}
-			if filepath.Ext(ev.Name) != ".html" {
-				continue
-			}
-			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Remove) == 0 {
-				continue
-			}
-			if timer != nil {
-				timer.Stop()
-			}
-			timer = time.NewTimer(templateReloadDebounce)
-			fire = timer.C
-		case <-fire:
-			timer, fire = nil, nil
-			tmpl, err := buildTemplates(s.opts.BoardPath)
-			if err != nil {
-				log.Printf("web: template reload skipped: %v", err)
-				continue
-			}
-			s.tmpl.Store(tmpl)
-			log.Printf("web: templates reloaded")
-		case err, ok := <-w.Errors():
-			if !ok {
-				return
-			}
-			log.Printf("web: template watcher: %v", err)
-		}
+	accept := func(ev fsnotify.Event) bool {
+		return filepath.Ext(ev.Name) == ".html" && ev.Op&writeOps != 0
 	}
+	onChange := func() {
+		tmpl, err := buildTemplates(s.opts.BoardPath)
+		if err != nil {
+			log.Printf("web: template reload skipped: %v", err)
+			return
+		}
+		s.tmpl.Store(tmpl)
+		log.Printf("web: templates reloaded")
+	}
+	watchLoop(ctx, w, templateReloadDebounce, accept, onChange)
 }
