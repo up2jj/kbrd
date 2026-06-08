@@ -24,6 +24,13 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
 
+	// kbrd.instance.name is this process's machine-local name, used to route
+	// instance-scoped timers (kbrd.timer.every(.., { instance = "..." })) and
+	// available for any per-machine branching a script wants to do.
+	instance := L.NewTable()
+	instance.RawSetString("name", lua.LString(h.instanceName))
+	kbrd.RawSetString("instance", instance)
+
 	board := L.NewTable()
 	board.RawSetString("move", L.NewFunction(h.luaBoardMove))
 	board.RawSetString("create", L.NewFunction(h.luaBoardCreate))
@@ -178,11 +185,17 @@ func (h *Host) luaBoardCreateColumn(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.timer.every(interval, fn) → handle
-// kbrd.timer.after(interval, fn) → handle
+// kbrd.timer.every(interval, fn [, opts]) → handle
+// kbrd.timer.after(interval, fn [, opts]) → handle
 // interval is either a number of milliseconds (e.g. 1500) or a Go duration
 // string (e.g. "30s", "5m", "1h30s"). Sub-100ms intervals are silently
 // clamped to 100ms — protects against accidental tight loops starving the UI.
+//
+// opts is an optional table. opts.instance, when set, restricts the timer to a
+// single named instance: the timer is only registered when opts.instance equals
+// kbrd.instance.name, so the same .kbrd.lua can run a repeating task on one box
+// (e.g. an always-on `serve`) without firing on every clone. A skipped timer
+// returns an inert handle, so kbrd.timer.cancel on it is a harmless no-op.
 func (h *Host) luaTimerEvery(L *lua.LState) int { return h.scheduleTimer(L, true) }
 func (h *Host) luaTimerAfter(L *lua.LState) int { return h.scheduleTimer(L, false) }
 
@@ -201,11 +214,19 @@ func (h *Host) scheduleTimer(L *lua.LState, repeat bool) int {
 		return 0
 	}
 	fn := L.CheckFunction(2)
+	// Instance routing: allocate a handle either way so the script can store it,
+	// but only register (and schedule) the timer when the target matches.
+	token := h.allocToken()
+	if opts, ok := L.Get(3).(*lua.LTable); ok {
+		if want := lua.LVAsString(opts.RawGetString("instance")); want != "" && want != h.instanceName {
+			L.Push(lua.LString(token))
+			return 1
+		}
+	}
 	const minDur = 100 * time.Millisecond
 	if dur < minDur {
 		dur = minDur
 	}
-	token := h.allocToken()
 	h.timers[token] = &timerEntry{fn: fn, interval: dur, repeat: repeat}
 	h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: dur, Repeat: repeat})
 	L.Push(lua.LString(token))

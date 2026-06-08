@@ -50,6 +50,13 @@ type Host struct {
 	api    events.BoardAPI
 	logger events.Logger
 
+	// instanceName identifies this running kbrd process (a machine-local name,
+	// never sourced from the git-synced board config). Timers declared with an
+	// `instance` option only schedule when the option matches this name, so the
+	// same .kbrd.lua can route a repeating task to one box (e.g. an always-on
+	// `serve`) without firing on every clone. Exposed to Lua as kbrd.instance.name.
+	instanceName string
+
 	L *lua.LState
 
 	commands []luaCommand
@@ -144,9 +151,12 @@ type pendingCoro struct {
 
 // New creates a Host, loads global (~/.config/kbrd/init.lua) and folder-local
 // (./.kbrd.lua) init files if present, and registers the kbrd global.
+// instanceName is this process's machine-local name (used to route
+// instance-scoped timers and exposed as kbrd.instance.name); pass "" when no
+// name is configured.
 // Returns a Host even on partial failure — callers should always call Close.
 // nil is returned only when scripting is disabled in config.
-func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, folderPath string) (*Host, error) {
+func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -159,6 +169,7 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 		cfg:            cfg,
 		api:            api,
 		logger:         logger,
+		instanceName:   instanceName,
 		L:              L,
 		hooks:          make(map[string][]*hookEntry),
 		pending:        make(map[string]*pendingCoro),

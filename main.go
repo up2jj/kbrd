@@ -21,9 +21,10 @@ import (
 
 // cliFlags holds the parsed command-line options.
 type cliFlags struct {
-	mcp     bool   // start the built-in MCP server
-	mcpAddr string // address override; does not by itself enable the server
-	safe    bool   // disable all board-supplied code: scripting, hooks, template exec
+	mcp      bool   // start the built-in MCP server
+	mcpAddr  string // address override; does not by itself enable the server
+	safe     bool   // disable all board-supplied code: scripting, hooks, template exec
+	instance string // machine-local instance name for routing instance-scoped timers
 }
 
 func main() {
@@ -56,6 +57,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.mcp, "mcp", false, "start the built-in MCP server")
 	root.PersistentFlags().StringVar(&flags.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
 	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: Lua scripting, event hooks, and template shell exec (overrides config)")
+	root.PersistentFlags().StringVar(&flags.instance, "name", "", "instance name for routing instance-scoped Lua timers (env KBRD_INSTANCE, default hostname)")
 
 	root.AddCommand(newInitCmd(), newCloneCmd(&flags), newServeCmd())
 	return root
@@ -155,6 +157,7 @@ func runBoard(cwd string, flags cliFlags) error {
 	if err != nil {
 		return err
 	}
+	cfg.InstanceName = config.ResolveInstanceName(flags.instance)
 
 	// --safe neuters every board-supplied code path. Applied after config load
 	// so it overrides config — including a folder-local kbrd.toml that tried to

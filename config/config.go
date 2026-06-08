@@ -42,6 +42,14 @@ type Config struct {
 	MCP       MCPConfig
 	Template  TemplateConfig
 	Serve     ServeConfig
+
+	// InstanceName is this process's machine-local name, used to route
+	// instance-scoped Lua timers (and exposed as kbrd.instance.name). It is set
+	// by the command layer from --name / KBRD_INSTANCE / the hostname and is
+	// deliberately never read from a TOML file: the board's kbrd.toml is carried
+	// by git, so a name in it would be identical on every clone and routing
+	// would collapse. See ResolveInstanceName.
+	InstanceName string
 }
 
 // ServeConfig holds the [serve] table consumed by `kbrd serve`. Values are
@@ -96,6 +104,24 @@ type ScriptingConfig struct {
 	// failing timer or hook. 0 means "never auto-disable" — useful if you
 	// want a periodically-flaky script to keep retrying forever. Default 3.
 	ErrorThreshold int
+}
+
+// ResolveInstanceName picks this process's machine-local instance name from
+// the precedence flag > KBRD_INSTANCE env > hostname. It never consults TOML:
+// the name must differ per machine, but kbrd.toml travels with the board over
+// git, so a name there would be the same on every clone. An empty flagVal means
+// "not set"; the hostname keeps zero-config setups working (each box differs).
+func ResolveInstanceName(flagVal string) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	if e := os.Getenv("KBRD_INSTANCE"); e != "" {
+		return e
+	}
+	if host, err := os.Hostname(); err == nil {
+		return host
+	}
+	return ""
 }
 
 func Load(path string) (Config, error) {

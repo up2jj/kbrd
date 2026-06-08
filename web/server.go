@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"kbrd/config"
 )
 
 // Options configures the web server.
@@ -24,6 +26,16 @@ type Options struct {
 	AuthorName   string // git commit author
 	AuthorEmail  string
 	PullEvery    time.Duration // background pull interval; 0 disables
+
+	// InstanceName is this server's machine-local name, used to route
+	// instance-scoped Lua timers (kbrd.timer.every(.., { instance = "..." })).
+	InstanceName string
+
+	// Scripting enables the headless task scheduler: a Lua host that loads the
+	// board's init.lua / .kbrd.lua and fires their timers. Off by default —
+	// `serve` is safe-by-default, and this runs board-supplied code. Only the
+	// Enabled field plus the timeouts/limits are consulted.
+	Scripting config.ScriptingConfig
 
 	// Init, when non-nil, runs in the background after the listener is up
 	// (clone/pull on container boot). Until it returns the server answers
@@ -232,6 +244,19 @@ func (s *Server) finishInit(ctx context.Context) {
 			log.Printf("web: config watcher disabled: %v", err)
 		} else {
 			go cw.Run(ctx)
+		}
+	}
+
+	// Start the repeating-task scheduler once the board exists on disk and the
+	// Syncer is wired (so task mutations commit/push). Off unless --scripting.
+	if s.opts.Scripting.Enabled {
+		switch ts, err := startTaskScheduler(ctx, s.opts.BoardPath, s.currentBoardName(), s.opts.InstanceName, s.opts.Scripting, s.sync); {
+		case err != nil:
+			log.Printf("web: task scheduler disabled: %v", err)
+		case ts != nil:
+			log.Printf("web: task scheduler running (instance %q)", s.opts.InstanceName)
+		default:
+			log.Printf("web: scripting enabled but no init.lua/.kbrd.lua found")
 		}
 	}
 

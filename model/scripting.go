@@ -32,7 +32,7 @@ func (b *Board) initScripting() {
 		return
 	}
 	logger := script.NewFileLogger()
-	host, err := script.New(b.cfg.Scripting, boardScriptAPI{b: b}, logger, b.cfg.Path)
+	host, err := script.New(b.cfg.Scripting, boardScriptAPI{b: b}, logger, b.cfg.Path, b.cfg.InstanceName)
 	if err != nil && host == nil {
 		// Hard failure during init — surface but keep running.
 		b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{

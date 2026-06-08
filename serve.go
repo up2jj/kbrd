@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,14 +29,19 @@ type serveFlags struct {
 	dir          string
 	gitURL       string // GIT_URL
 	pullInterval string // KBRD_PULL_INTERVAL
+	instance     string // KBRD_INSTANCE — machine-local name for timer routing
+	scripting    bool   // KBRD_SCRIPTING — run the board's Lua timers (off by default)
 }
 
 const minTokenLen = 12
 
 // newServeCmd builds `kbrd serve`: the headless web frontend. The TUI never
-// runs; board-supplied code (scripting, hooks, template exec) never executes —
-// serve is implicitly --safe. The MCP server never runs either: the inherited
-// --mcp/--mcp-addr flags are rejected rather than silently ignored.
+// runs; board-supplied code is off by default (no hooks, no template exec) —
+// serve is safe-by-default. The one opt-in is --scripting, which runs the
+// board's Lua timers (init.lua/.kbrd.lua) for repeating tasks; it executes
+// board-supplied code and is intended for single-user boards. The MCP server
+// never runs: the inherited --mcp/--mcp-addr flags are rejected rather than
+// silently ignored.
 func newServeCmd() *cobra.Command {
 	var f serveFlags
 	cmd := &cobra.Command{
@@ -57,6 +63,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&f.dir, "dir", "", "board directory (default current directory)")
 	cmd.Flags().StringVar(&f.gitURL, "git-url", "", "clone this repo into --dir when it is missing or empty (env GIT_URL)")
 	cmd.Flags().StringVar(&f.pullInterval, "pull-interval", "", "background git pull interval, 0 to disable (env KBRD_PULL_INTERVAL, default 60s)")
+	cmd.Flags().StringVar(&f.instance, "name", "", "instance name for routing instance-scoped Lua timers (env KBRD_INSTANCE, default hostname)")
+	cmd.Flags().BoolVar(&f.scripting, "scripting", false, "run the board's Lua timers (init.lua/.kbrd.lua) — executes board-supplied code, single-user boards only (env KBRD_SCRIPTING)")
 	return cmd
 }
 
@@ -97,6 +105,17 @@ func newServeEjectCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dir, "dir", "", "board directory (default current directory)")
 	return cmd
+}
+
+// isTruthyEnv reports whether the named env var is set to a truthy value
+// (1/true/yes/on, case-insensitive). Used for boolean opt-ins that, unlike the
+// string flags, have no flag-presence signal to distinguish "" from unset.
+func isTruthyEnv(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // envDefault fills v from env when the flag was not set.
@@ -184,6 +203,14 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 		return fmt.Errorf("invalid pull interval %q", pullInterval)
 	}
 
+	// Scripting opt-in: flag, or KBRD_SCRIPTING truthy. Carries the board's
+	// scripting timeouts/limits but with Enabled gated on this explicit opt-in
+	// (serve stays safe-by-default). Instance name is machine-local — flag/env/
+	// hostname, never the git-carried kbrd.toml.
+	scripting := cfg.Scripting
+	scripting.Enabled = f.scripting || isTruthyEnv("KBRD_SCRIPTING")
+	instanceName := config.ResolveInstanceName(f.instance)
+
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -205,6 +232,8 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 		BoardPath:    dir,
 		BoardName:    filepath.Base(dir),
 		Token:        f.token,
+		InstanceName: instanceName,
+		Scripting:    scripting,
 		AuthorName:   envDefault("", "GIT_AUTHOR_NAME", "kbrd-web"),
 		AuthorEmail:  envDefault("", "GIT_AUTHOR_EMAIL", "kbrd@localhost"),
 		PullEvery:    pullEvery,

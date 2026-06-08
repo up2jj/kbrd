@@ -217,7 +217,7 @@ func defaultCfg() config.ScriptingConfig {
 func TestHostDisabled(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.Enabled = false
-	h, err := New(cfg, &fakeAPI{}, nil, t.TempDir())
+	h, err := New(cfg, &fakeAPI{}, nil, t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestHostDisabled(t *testing.T) {
 }
 
 func TestHostNoInitFiles(t *testing.T) {
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, t.TempDir())
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestHostNoInitFiles(t *testing.T) {
 func TestCommandRegistration(t *testing.T) {
 	dir := writeInit(t, `kbrd.command("a", "Archive", function(ctx) kbrd.notify("ran:"..ctx.fileName) end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -276,7 +276,7 @@ kbrd.column.set("tasks", {
   },
 })`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -327,7 +327,7 @@ if not kbrd.has_command("missing") then kbrd.notify("no-missing") end
 if kbrd.has_command("archive") == false then kbrd.notify("wrong") end
 `)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -347,7 +347,7 @@ if kbrd.has_command("archive") == false then kbrd.notify("wrong") end
 func TestHookFires(t *testing.T) {
 	dir := writeInit(t, `kbrd.on("git_sync_done", function(evt) kbrd.notify("hook:"..tostring(evt.ok), "info") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestWatchdogTimeout(t *testing.T) {
 	cfg.CommandTimeoutMs = 200
 	cfg.InstructionLimit = 100000
 	api := &fakeAPI{}
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -386,7 +386,7 @@ kbrd.command("m", "Move", function(ctx)
   if not ok then kbrd.notify("err:"..err, "error") end
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -412,7 +412,7 @@ kbrd.command("c", "CRD", function(ctx)
   kbrd.board.delete({column = ctx.columnName, name = "renamed"})
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -448,7 +448,7 @@ end)`)
 		{Name: "Bug report", Scope: "column"},
 		{Name: "Task", Scope: "board"},
 	}}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -484,7 +484,7 @@ kbrd.command("t", "Tmpl", function(ctx)
   if not ok then kbrd.notify("err:"..err, "error") end
 end)`)
 	api := &fakeAPI{tmplErr: errors.New("template \"Nope\" not found")}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -516,7 +516,7 @@ kbrd.command("m", "Move", function(ctx)
 end)
 `)
 	api := &fakeAPIWithBus{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -562,7 +562,7 @@ kbrd.command("m", "Move", function(ctx)
   if not ok then kbrd.notify("err:"..err, "error") end
 end)`)
 	api := &fakeAPI{moveErr: errors.New("nope")}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -584,7 +584,7 @@ kbrd.command("w", "Write", function()
   kbrd.notify("got:"..body, "info")
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -608,7 +608,7 @@ kbrd.command("g", "Glob", function()
   kbrd.notify("count:"..#hits, "info")
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -635,7 +635,7 @@ kbrd.command("a", "Archive", function()
   kbrd.notify("ok", "success")
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -666,7 +666,7 @@ kbrd.command("a", "Bad", function()
   kbrd.notify("ok", "success")
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -682,7 +682,7 @@ end)`)
 func TestBoardRefresh(t *testing.T) {
 	dir := writeInit(t, `kbrd.command("r", "Refresh", function() kbrd.board.refresh() end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestCellAPI(t *testing.T) {
   kbrd.cell.clear_all()
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -737,7 +737,7 @@ kbrd.command("r", "Read", function(ctx)
   kbrd.notify("body:"..body, "info")
 end)`)
 	api := &fakeAPI{root: dir}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -760,7 +760,7 @@ kbrd.command("p", "Pick", function()
   kbrd.notify("chose:"..choice, "success")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -797,7 +797,7 @@ kbrd.command("p", "Pick", function()
   kbrd.notify("chose:"..choice, "success")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -822,7 +822,7 @@ kbrd.command("r", "Rename", function()
   kbrd.notify("got:"..tostring(name), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -850,7 +850,7 @@ kbrd.command("c", "Confirm", function()
   kbrd.notify("answered:"..tostring(ok), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -879,7 +879,7 @@ kbrd.command("c", "Chain", function()
   kbrd.notify("got:"..a..","..b, "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -907,7 +907,7 @@ local handle = kbrd.timer.every(150, function() kbrd.notify("tick", "info") end)
 kbrd.notify("handle:"..handle, "info")
 `)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -925,9 +925,66 @@ kbrd.notify("handle:"..handle, "info")
 	}
 }
 
+func TestTimerInstanceMatchSchedules(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.every(150, function() end, { instance = "server" })`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "server")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if pending := h.PendingTimers(); len(pending) != 1 {
+		t.Fatalf("instance match should schedule the timer, got %d pending", len(pending))
+	}
+}
+
+func TestTimerInstanceMismatchSkips(t *testing.T) {
+	dir := writeInit(t, `
+local handle = kbrd.timer.every(150, function() end, { instance = "server" })
+kbrd.notify("handle:"..handle, "info")
+`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "laptop")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if pending := h.PendingTimers(); len(pending) != 0 {
+		t.Fatalf("instance mismatch should not schedule, got %d pending", len(pending))
+	}
+	// A skipped timer still returns an inert handle so the script can store it.
+	if len(api.notifies) != 1 || !strings.HasPrefix(api.notifies[0], "info:handle:co-") {
+		t.Fatalf("expected an inert handle notify, got %v", api.notifies)
+	}
+}
+
+func TestTimerNoInstanceRunsEverywhere(t *testing.T) {
+	dir := writeInit(t, `kbrd.timer.every(150, function() end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "laptop")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if pending := h.PendingTimers(); len(pending) != 1 {
+		t.Fatalf("an unscoped timer should schedule on any instance, got %d pending", len(pending))
+	}
+}
+
+func TestInstanceNameExposed(t *testing.T) {
+	dir := writeInit(t, `kbrd.notify("name:"..kbrd.instance.name, "info")`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "server")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	if len(api.notifies) != 1 || api.notifies[0] != "info:name:server" {
+		t.Fatalf("expected kbrd.instance.name to be \"server\", got %v", api.notifies)
+	}
+}
+
 func TestTimerMinClamp(t *testing.T) {
 	dir := writeInit(t, `kbrd.timer.after(5, function() end)`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -946,7 +1003,7 @@ func TestTimerDurationString(t *testing.T) {
 kbrd.timer.every("1s", function() end)
 kbrd.timer.after("250ms", function() end)
 `)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -965,7 +1022,7 @@ kbrd.timer.after("250ms", function() end)
 
 func TestTimerInvalidDuration(t *testing.T) {
 	dir := writeInit(t, `kbrd.timer.after("not-a-duration", function() end)`)
-	if _, err := New(defaultCfg(), &fakeAPI{}, nil, dir); err == nil {
+	if _, err := New(defaultCfg(), &fakeAPI{}, nil, dir, ""); err == nil {
 		t.Fatalf("expected error for invalid duration string")
 	}
 }
@@ -975,7 +1032,7 @@ func TestStatusPending(t *testing.T) {
 kbrd.status("first")
 kbrd.status("second", "5s")
 `)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -999,7 +1056,7 @@ kbrd.status("second", "5s")
 func TestTimerFireOnce(t *testing.T) {
 	dir := writeInit(t, `kbrd.timer.after(100, function() kbrd.notify("fired", "info") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1029,7 +1086,7 @@ kbrd.timer.every(120, function()
 end)
 `)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1058,7 +1115,7 @@ kbrd.timer.after(100, function()
   kbrd.notify("nested:"..tostring(ok), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1091,7 +1148,7 @@ kbrd.timer.after(100, function()
   kbrd.board.move({column = "todo", name = "x"}, "done")
 end)`)
 	api := &fakeAPIWithBus{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1112,7 +1169,7 @@ func TestTimerRepeatStillWorksDespiteNestedBlock(t *testing.T) {
 	// inTimer block must not break that.
 	dir := writeInit(t, `kbrd.timer.every(100, function() kbrd.notify("tick", "info") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1135,7 +1192,7 @@ kbrd.timer.every(100, function() error("boom") end)
 	cfg := defaultCfg()
 	cfg.ErrorThreshold = 3
 	api := &fakeAPI{}
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1167,7 +1224,7 @@ func TestTimerThresholdZeroNeverDisables(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.ErrorThreshold = 0 // "never auto-disable"
 	api := &fakeAPI{}
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1197,7 +1254,7 @@ end)`)
 	cfg := defaultCfg()
 	cfg.ErrorThreshold = 3
 	api := &fakeAPI{}
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1217,7 +1274,7 @@ func TestHookAutoDisableAfterErrors(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.ErrorThreshold = 2
 	api := &fakeAPI{}
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1248,7 +1305,7 @@ kbrd.timer.after(100, function()
   kbrd.notify("ui:"..tostring(ok)..":"..tostring(err), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1269,7 +1326,7 @@ kbrd.command("e", "Exit", function()
   kbrd.notify("exit:"..tostring(ok)..":"..tostring(err), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1292,7 +1349,7 @@ kbrd.timer.after(100, function()
   kbrd.notify("cmd:"..tostring(ok), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1313,7 +1370,7 @@ kbrd.timer.after(100, function()
   kbrd.notify("hook:"..tostring(ok), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1330,7 +1387,7 @@ local h = kbrd.timer.every(100, function() kbrd.notify("tick", "info") end)
 kbrd.timer.cancel(h)
 `)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1354,7 +1411,7 @@ kbrd.on("item_select", function(evt)
   kbrd.notify("sel:"..evt.item.name.." prev:"..evt.prev.name, "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1374,7 +1431,7 @@ kbrd.on("item_created", function(evt) kbrd.notify("created:"..evt.item.name, "in
 kbrd.on("item_deleted", function(evt) kbrd.notify("deleted:"..evt.name, "info") end)
 kbrd.on("board_refresh", function(evt) kbrd.notify("refresh:"..evt.reason, "info") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1397,7 +1454,7 @@ func TestItemSavedAndChangedHooks(t *testing.T) {
 kbrd.on("item_saved", function(evt) kbrd.notify("saved:"..evt.item.name..":"..evt.kind, "info") end)
 kbrd.on("item_changed", function(evt) kbrd.notify("changed:"..evt.item.name, "info") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1420,7 +1477,7 @@ kbrd.command("a", "Async", function()
   kbrd.notify("handle:"..h, "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1454,7 +1511,7 @@ kbrd.command("a", "Cancel", function()
   kbrd.async.cancel(h)
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1480,7 +1537,7 @@ kbrd.command("a", "Failing", function()
   end)
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1504,7 +1561,7 @@ kbrd.timer.after(100, function()
   kbrd.notify("from-timer:"..tostring(ok), "info")
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1528,7 +1585,7 @@ kbrd.command("a", "Chain", function()
   end)
 end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1552,7 +1609,7 @@ end)`)
 
 func TestParseError(t *testing.T) {
 	dir := writeInit(t, `this is not valid lua @@@`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err == nil {
 		t.Fatal("expected parse error")
 	}

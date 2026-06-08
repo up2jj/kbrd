@@ -21,7 +21,7 @@ func fireItems(h *Host, column string) ColumnItemsResult {
 
 func TestFireColumnItemsNoHook(t *testing.T) {
 	dir := writeInit(t, `kbrd.on("board_load", function() end)`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestFireColumnItemsReorder(t *testing.T) {
 			end)
 			return ev.items
 		end)`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestFireColumnItemsFilterAndSeparator(t *testing.T) {
 				-- ev.items[2] omitted → hidden
 			}
 		end)`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestFireColumnItemsPinnedContext(t *testing.T) {
 			return nil
 		end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestFireColumnItemsPinnedContext(t *testing.T) {
 func TestFireColumnItemsLuaError(t *testing.T) {
 	dir := writeInit(t, `kbrd.on("column_items", function(ev) error("boom") end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestFireColumnItemsLuaError(t *testing.T) {
 func TestFireColumnItemsMalformedReturn(t *testing.T) {
 	dir := writeInit(t, `kbrd.on("column_items", function(ev) return "nope" end)`)
 	api := &fakeAPI{}
-	h, err := New(defaultCfg(), api, nil, dir)
+	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestFireColumnItemsErrorDisablesHook(t *testing.T) {
 	api := &fakeAPI{}
 	cfg := defaultCfg()
 	cfg.ErrorThreshold = 2
-	h, err := New(cfg, api, nil, dir)
+	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestFireColumnItemsErrorDisablesHook(t *testing.T) {
 
 func TestFireColumnItemsSkippedWhileRunning(t *testing.T) {
 	dir := writeInit(t, `kbrd.on("column_items", function(ev) return {} end)`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestFireColumnItemsFirstTableWins(t *testing.T) {
 		kbrd.on("column_items", function(ev) return nil end) -- declines
 		kbrd.on("column_items", function(ev) return { ev.items[2] } end)
 		kbrd.on("column_items", function(ev) return { ev.items[3] } end) -- never reached`)
-	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
