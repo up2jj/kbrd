@@ -74,6 +74,17 @@ Press space to preview a card's rendered Markdown in a scrollable
 viewport.
 EOF
 
+# Board-wide template so the template flow (`t`) opens a rich form directly.
+# A single template skips the picker and goes straight to the form. Mirrors
+# examples/templates/bug.md.
+mkdir -p "$board/.kbrd_templates"
+cp "$here/../examples/templates/bug.md" "$board/.kbrd_templates/bug.md"
+
+# Folder-local Lua script registering a "Tasks" virtual column (ripgreps the
+# board's open `- [ ]` checkboxes). The Backlog cards already have unchecked
+# boxes, so the column lists several tasks. Kept in sync with the example.
+cp "$here/../examples/tasks/tasks.lua" "$board/.kbrd.lua"
+
 # Folder-local custom commands so the `x` menu has entries to show.
 cat > "$board/.kbrd_commands.yml" <<'EOF'
 # Custom commands for the sample board. Press `x` on a card to run one.

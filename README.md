@@ -114,6 +114,22 @@ A quick, scannable rundown of everything kbrd does:
     <td align="center"><em>Run templated shell commands on a card (<code>x</code>)</em></td>
     <td align="center"><em>Discover every shortcut with the help overlay (<code>?</code>)</em></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/template.png" alt="Multi-step card template form" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/virtual-column.png" alt="Lua-driven virtual column" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Create cards from a multi-step template form (<code>t</code>)</em></td>
+    <td align="center"><em>Lua-driven virtual columns, e.g. open tasks (<code>tab</code>)</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/zoom.png" alt="Zoomed single column" width="100%"></td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Zoom a single column for focused reading (<code>+</code>)</em></td>
+    <td></td>
+  </tr>
 </table>
 
 ---
