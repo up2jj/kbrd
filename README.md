@@ -679,6 +679,7 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 
 | Directory | Role |
 | --- | --- |
+| `commands/` | CLI command tree (cobra): root/default, `init`, `clone`, `serve` (+ `eject`), and their run logic |
 | `board/` | Headless board semantics: discovery, column/item enumeration, name sanitizing |
 | `template/` | Card templates: discovery, frontmatter schema, validation, rendering |
 | `config/` | TOML config + custom-command loading and templates |
@@ -689,7 +690,7 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 | `model/` | The Bubble Tea TUI — board state, dialogs, git panel, search, switcher, theming, keys |
 | `recents/` | Persisted list of recent/pinned boards |
 | `script/` | Lua VM host and the `kbrd.*` API bindings |
-| `main.go` | Entry point and flag handling |
+| `main.go` | Entry point — calls `commands.NewRootCmd().Execute()` |
 
 ---
 
@@ -721,5 +722,6 @@ Releases are automated with [GoReleaser](https://goreleaser.com) (see [`.gorelea
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the macOS binaries,
 publishes a GitHub Release, and updates the Homebrew cask in `up2jj/homebrew-tap`.
 
-The TUI lives in `model/`, keybindings are declared in `model/keys.go`, configuration in
-`config/`, and the Lua API in `script/` (documented in `SCRIPTING.md`).
+The CLI command tree lives in `commands/` (one file per command), the TUI in `model/`,
+keybindings are declared in `model/keys.go`, configuration in `config/`, and the Lua API
+in `script/` (documented in `SCRIPTING.md`).
