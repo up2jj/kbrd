@@ -121,6 +121,8 @@ Currently emitted events:
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 | `column_items`  | `{column, pinned, items}` — **expects a return value**  | When a filesystem column's items are (re)built — see below |
+| `http_request`  | `{method, path, query, headers, remote_addr}` — **expects a verdict** | `serve` only: before built-in auth, per HTTP request — see below |
+| `http_response` | `{method, path, status, headers, body}` — **expects a verdict** | `serve` only: after the handler, before the response is sent — see below |
 
 Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
 command callback) are **deferred** until the script returns, then dispatched
@@ -341,6 +343,78 @@ their own order via `kbrd.column.set`.
 A column whose order is currently script-defined shows a soft `ƒ` glyph next
 to its header name (the filesystem cousin of the `◇` virtual marker), so a
 hidden or reordered card is always explainable at a glance.
+
+### `kbrd.on("http_request", fn)` / `kbrd.on("http_response", fn)` — serve middleware
+
+These two transform hooks let a script act as **request middleware** for
+`kbrd serve`. They only fire under `serve --scripting`; in the TUI they are
+inert. Like `column_items`, each **returns a verdict table** (or `nil` to
+decline). They turn the board server into a small programmable pipeline:
+custom auth, IP allow-lists, maintenance mode, vanity redirects, access
+logging, header injection, response rewriting.
+
+`http_request` fires for every request **before the built-in cookie auth**, so
+it can gate even `/login`:
+
+```lua
+kbrd.on("http_request", function(req)
+  -- req = { method, path, query, headers, remote_addr }
+  -- headers are multi-value: req.headers["Cookie"] = { "a=1", "b=2" }
+  if req.path == "/metrics" and not allowed(req.remote_addr) then
+    return { action = "respond", status = 403, body = "forbidden\n" }
+  end
+  if req.path == "/old" then
+    return { action = "redirect", location = "/", status = 302 }
+  end
+  return nil  -- decline → continue to the next hook / normal handling
+end)
+```
+
+Request verdicts:
+
+- `{ action = "respond", status =, body =, headers = {} }` — short-circuit with
+  your own response (status defaults to 200).
+- `{ action = "redirect", location =, status = }` — send a redirect (status
+  defaults to 303).
+- `{ action = "continue", rewrite = {...} }` (or just `nil`) — let the request
+  proceed, optionally mutating it first. `rewrite` may set `path`, `query`,
+  `set_headers = {}`, and `del_headers = {}`. The built-in handlers read the
+  rewritten path/query/headers.
+
+`http_response` fires **after** the handler runs but **before** the response is
+sent, so it can decorate or rewrite the result:
+
+```lua
+kbrd.on("http_response", function(resp)
+  -- resp = { method, path, status, headers, body }
+  if resp.path == "/" then
+    return { set_headers = { ["X-Frame-Options"] = "DENY" } }
+  end
+  return nil
+end)
+```
+
+Response verdicts (any subset; `nil` leaves the response untouched):
+
+- `set_headers = {}` — merged onto the response headers.
+- `status =` — overrides the status when non-zero.
+- `body =` — replaces the body (`Content-Length` is recomputed). An empty
+  string `""` is a real override; omit the key to leave the body alone.
+
+Behavior and limits:
+
+- **Fail-open.** A hook error, timeout, or busy VM lets the request through the
+  normal chain (auth still runs) rather than locking you out. Repeated errors
+  auto-disable the hook per `error_threshold`, like any other hook.
+- **Serialized.** The Lua VM is single-threaded, so every request that matches
+  a hook is evaluated one at a time, bounded by `hook_timeout_ms`. Fine for a
+  single-operator board; not a high-throughput gateway. Requests that match no
+  registered hook never touch the VM (zero overhead) — and when an
+  `http_response` hook exists the response is buffered, which defeats
+  streaming, so register one only when you need it.
+- **No form-body rewrite (v1).** `rewrite` covers path/query/headers only;
+  altering POST form fields is not supported — use `action = "respond"` to
+  fully take over such a request.
 
 ### `kbrd.board.move(item, columnName)`
 

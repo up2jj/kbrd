@@ -544,7 +544,7 @@ loaded at startup from:
 The API surface includes:
 
 - `kbrd.command(...)` — register a custom command (appears in the `x` menu; shadows a shell command with the same id).
-- `kbrd.on(event, fn)` — hook lifecycle events (`board_load`, `board_refresh`, `item_select`, `column_change`, `item_open`, `item_saved`, `item_changed`, `item_created`, `item_renamed`, `item_deleted`, `item_moved`, `git_sync_done`), plus the `column_items` transform hook to sort/filter/group a column's cards (e.g. by a `priority` frontmatter key).
+- `kbrd.on(event, fn)` — hook lifecycle events (`board_load`, `board_refresh`, `item_select`, `column_change`, `item_open`, `item_saved`, `item_changed`, `item_created`, `item_renamed`, `item_deleted`, `item_moved`, `git_sync_done`), plus the `column_items` transform hook to sort/filter/group a column's cards (e.g. by a `priority` frontmatter key), and the serve-only `http_request`/`http_response` middleware hooks to gate, redirect, or rewrite web requests.
 - `kbrd.board.move / create / rename / delete / refresh / createColumn` — board operations.
 - `kbrd.board.templates / createFromTemplate` — list card templates and create cards from them ([TEMPLATES.md](./TEMPLATES.md)).
 - `kbrd.ui.pick / prompt / confirm` — interactive dialogs (commands only, not hooks/timers).
@@ -624,8 +624,11 @@ Security notes:
 - Login is a single shared token behind a rate limiter; sessions are HMAC cookies that
   all invalidate on restart. For LAN/Tailscale-only use, omit `--domain` and terminate
   TLS yourself (e.g. `tailscale serve`).
-- Web mode is implicitly `--safe`: folder-local Lua, hooks, and template exec **never
-  run**, so serving an untrusted board cannot execute its code.
+- Web mode is **safe by default**: folder-local Lua, hooks, and template exec do not
+  run, so serving an untrusted board cannot execute its code. The one opt-in is
+  `serve --scripting`, which runs the board's `init.lua`/`.kbrd.lua` — its timers and
+  the `http_request`/`http_response` request-middleware hooks (custom auth, redirects,
+  header/response rewriting). Enable it only for boards you trust.
 
 Conflict stance: each mutation commits locally first, then pushes (with one
 `pull --rebase` retry). A conflicting rebase is aborted — your change stays committed

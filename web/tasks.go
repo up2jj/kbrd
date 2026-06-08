@@ -225,10 +225,27 @@ func (a boardTaskAPI) VirtualColumnClearAll()                            {}
 // taskScheduler owns a Lua host and drives its timers in a headless server.
 // The Lua VM is single-threaded, so exactly one goroutine (run) ever touches
 // the host: time.AfterFunc callbacks only hand a fired token back over a
-// channel, never call into the host themselves.
+// channel, never call into the host themselves. HTTP middleware likewise never
+// touches the host directly — it posts an httpEval over `eval` and blocks on the
+// reply channel, so request evaluations serialize through run alongside timers.
 type taskScheduler struct {
 	host *script.Host
-	fire chan string // tokens whose timer elapsed, delivered to run
+	fire chan string   // tokens whose timer elapsed, delivered to run
+	eval chan httpEval // request/response hook evaluations from HTTP middleware
+}
+
+// httpEval is one request- or response-hook evaluation the web middleware asks
+// the scheduler goroutine to run on its behalf. reply carries the verdict back.
+type httpEval struct {
+	kind  string // "request" | "response"
+	req   script.HTTPRequestData
+	resp  script.HTTPResponseData
+	reply chan httpEvalResult
+}
+
+type httpEvalResult struct {
+	reqVerdict  script.HTTPRequestVerdict
+	respVerdict script.HTTPResponseVerdict
 }
 
 // startTaskScheduler builds a Lua host for the board and, if any init files
@@ -251,9 +268,63 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 		// Scripting enabled but no init.lua / .kbrd.lua present.
 		return nil, nil
 	}
-	ts := &taskScheduler{host: host, fire: make(chan string, 16)}
+	ts := &taskScheduler{
+		host: host,
+		fire: make(chan string, 16),
+		// Unbuffered: a request blocks here until run is free, which is the
+		// single-threaded-VM serialization contract made explicit.
+		eval: make(chan httpEval),
+	}
 	go ts.run(ctx)
 	return ts, nil
+}
+
+// HasHook reports whether the host has a hook registered for the named event.
+// Nil-safe so the middleware can call it whether or not scripting is enabled.
+func (ts *taskScheduler) HasHook(name string) bool {
+	return ts != nil && ts.host.HasHook(name)
+}
+
+// EvalRequest runs the http_request hook(s) on the scheduler goroutine and
+// returns the verdict. ok is false when the evaluation could not run (scripting
+// off, or ctx cancelled — client disconnect / shutdown); the caller then fails
+// open and lets the request through the normal chain.
+func (ts *taskScheduler) EvalRequest(ctx context.Context, data script.HTTPRequestData) (script.HTTPRequestVerdict, bool) {
+	if ts == nil {
+		return script.HTTPRequestVerdict{}, false
+	}
+	reply := make(chan httpEvalResult, 1)
+	select {
+	case ts.eval <- httpEval{kind: "request", req: data, reply: reply}:
+	case <-ctx.Done():
+		return script.HTTPRequestVerdict{}, false
+	}
+	select {
+	case res := <-reply:
+		return res.reqVerdict, true
+	case <-ctx.Done():
+		return script.HTTPRequestVerdict{}, false
+	}
+}
+
+// EvalResponse runs the http_response hook(s) on the scheduler goroutine. Same
+// fail-open contract as EvalRequest.
+func (ts *taskScheduler) EvalResponse(ctx context.Context, data script.HTTPResponseData) (script.HTTPResponseVerdict, bool) {
+	if ts == nil {
+		return script.HTTPResponseVerdict{}, false
+	}
+	reply := make(chan httpEvalResult, 1)
+	select {
+	case ts.eval <- httpEval{kind: "response", resp: data, reply: reply}:
+	case <-ctx.Done():
+		return script.HTTPResponseVerdict{}, false
+	}
+	select {
+	case res := <-reply:
+		return res.respVerdict, true
+	case <-ctx.Done():
+		return script.HTTPResponseVerdict{}, false
+	}
 }
 
 // run is the single goroutine that owns the host. It arms a one-shot Go timer
@@ -272,6 +343,17 @@ func (ts *taskScheduler) run(ctx context.Context) {
 				log.Printf("web: task timer %s: %v", token, err)
 			}
 			ts.arm(ctx)
+		case ev := <-ts.eval:
+			// Runs on the same goroutine as timer fires, so a request hook
+			// never re-enters the VM mid-timer; they simply queue.
+			var res httpEvalResult
+			switch ev.kind {
+			case "request":
+				res.reqVerdict = ts.host.FireHTTPRequest(ev.req)
+			case "response":
+				res.respVerdict = ts.host.FireHTTPResponse(ev.resp)
+			}
+			ev.reply <- res
 		}
 	}
 }

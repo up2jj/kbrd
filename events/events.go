@@ -40,6 +40,15 @@ const (
 	// return value (the reordered/filtered item list), so it is never part of
 	// actionEvents and cannot be bound by declarative YAML hooks.
 	NameColumnItems = "column_items"
+	// NameHTTPRequest and NameHTTPResponse are the serve-mode-only request
+	// middleware hooks. Like column_items they are Lua-only transform hooks that
+	// expect a return value (a verdict table), so they are never part of
+	// actionEvents and cannot be bound by declarative YAML hooks. http_request
+	// fires before the built-in cookie auth and may short-circuit, redirect, or
+	// rewrite the request; http_response fires after the handler and may rewrite
+	// the captured response. They only fire under `kbrd serve --scripting`.
+	NameHTTPRequest  = "http_request"
+	NameHTTPResponse = "http_response"
 )
 
 // actionEvents is the set of low-frequency "action" events that declarative

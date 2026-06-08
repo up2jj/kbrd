@@ -90,6 +90,11 @@ type Server struct {
 
 	boardName atomic.Value // string; hot-reloadable header label
 
+	// sched is the Lua task scheduler, set by finishInit once the board exists
+	// and scripting is enabled (nil otherwise). The request-middleware hooks
+	// call into it; it owns the single-threaded Lua VM.
+	sched atomic.Pointer[taskScheduler]
+
 	pullMu     sync.Mutex // guards the pull-loop fields below
 	pullCancel context.CancelFunc
 	pullEvery  time.Duration
@@ -254,6 +259,7 @@ func (s *Server) finishInit(ctx context.Context) {
 		case err != nil:
 			log.Printf("web: task scheduler disabled: %v", err)
 		case ts != nil:
+			s.sched.Store(ts)
 			log.Printf("web: task scheduler running (instance %q)", s.opts.InstanceName)
 		default:
 			log.Printf("web: scripting enabled but no init.lua/.kbrd.lua found")
@@ -345,15 +351,23 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		}
 
+		// Lua request middleware (serve --scripting only). Runs before the
+		// built-in cookie auth so a hook can gate even /login. Returns true when
+		// it has already written the response (short-circuit), in which case we
+		// stop here.
+		if s.runRequestHook(w, r) {
+			return
+		}
+
 		if r.URL.Path == "/login" {
-			next.ServeHTTP(w, r)
+			s.serveWithResponseHook(next, w, r)
 			return
 		}
 		if !s.auth.validCookie(r) {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		next.ServeHTTP(w, r)
+		s.serveWithResponseHook(next, w, r)
 	})
 }
 
