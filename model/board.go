@@ -146,6 +146,9 @@ type Board struct {
 	// watchSeq triggers one coalesced reload (mirrors search's Seq guard).
 	watchSeq   int
 	watchDirty map[string]struct{}
+	// changes detects per-item content changes across a watcher reload and is
+	// the source of the item_changed event — see item_changes.go.
+	changes changeTracker
 
 	// mnemonic state — rebuilt whenever the visible item set changes
 	mnemonicByRef  map[itemRef]string
@@ -495,6 +498,7 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 	}
 	dirty := b.watchDirty
 	b.watchDirty = nil
+	b.changes.snapshot(dirty, b.columns)
 	if colPath := b.singleDirtyColumn(dirty); colPath != "" {
 		return b.reloadColumnCmd(seq, colPath)
 	}
@@ -727,6 +731,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.applyReloadedColumns(msg.columns)
 		b.applyColumnTransforms()
+		b.publishItemChanges()
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.git.RefreshStats()
 
@@ -758,6 +763,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.columns[idx] = msg.col
 		b.applyColumnTransform(msg.col)
+		b.publishItemChanges()
 		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
 		return b, b.git.RefreshStats()
 
@@ -1375,6 +1381,7 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "save"})
 	return b, b.notifier.Send("saved "+msg.FileName, notifySuccess)
 }
 
@@ -1385,6 +1392,7 @@ func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "append"})
 	return b, b.notifier.Send("appended to "+msg.FileName, notifySuccess)
 }
 
@@ -1395,6 +1403,7 @@ func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "prepend"})
 	return b, b.notifier.Send("prepended to "+msg.FileName, notifySuccess)
 }
 

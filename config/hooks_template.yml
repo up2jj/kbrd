@@ -9,11 +9,23 @@
 # item_select / column_change / board_refresh are Lua-only via kbrd.on):
 #   item_created   {{.fileName}} {{.columnName}} (+ paths)
 #   item_open      adds {{.kind}}        ("edit"/"append"/"prepend"/"journal"/"external")
+#   item_saved     adds {{.kind}}        ("save"/"append"/"prepend") — fires on an in-app save
+#   item_changed   {{.fileName}} {{.columnName}} — fires when the watcher sees an EXTERNAL edit
 #   item_moved     {{.fileName}} {{.fromColumn}} {{.toColumn}}
 #   item_renamed   {{.fileName}} (new) {{.oldName}} {{.columnName}}
 #   item_deleted   {{.fileName}} {{.columnName}}  (path points to where it was)
 #   git_sync_done  {{.ok}} {{.stage}} {{.error}}
 #   board_load     (board only)
+#
+# Post-save rewriting: a hook may rewrite the card file itself (e.g. a formatter)
+# and the board re-reads it via the watcher, showing the new content.
+#   - item_saved is loop-free: the hook's write is not an in-app save, so it
+#     never re-fires item_saved.
+#   - item_changed CAN LOOP: the hook's own write is an external change the
+#     watcher sees. It is gated on a content hash, so an IDEMPOTENT rewrite
+#     (identical bytes, e.g. `prettier --write`) settles after one extra pass.
+#     A hook that changes the file every run (e.g. appends a timestamp) loops —
+#     keep it idempotent, or guard with a sentinel that skips an already-done file.
 #
 # Always available: {{.boardPath}} {{.boardName}}. {{env "VAR"}} reads an env var.
 # Quote variables to handle paths with spaces.

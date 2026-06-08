@@ -40,6 +40,7 @@ as each operation completes, and the move pops a notification.
   as a mapping.
 - **Action events only.** YAML hooks cover the low-frequency action events
   (`item_created`, `item_moved`, `item_renamed`, `item_deleted`, `item_open`,
-  `column_created`, `git_sync_done`, `board_load`). High-frequency events
+  `item_saved`, `item_changed`, `column_created`, `git_sync_done`, `board_load`).
+  High-frequency events
   (`item_select`, `column_change`, `board_refresh`) are Lua-only via `kbrd.on(...)`.
   See [SCRIPTING.md](../../SCRIPTING.md#declarative-hooks-no-lua--hooksyml).

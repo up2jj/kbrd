@@ -27,6 +27,8 @@ const (
 	NameItemSelect    = "item_select"
 	NameColumnChange  = "column_change"
 	NameItemOpen      = "item_open"
+	NameItemSaved     = "item_saved"
+	NameItemChanged   = "item_changed"
 	NameItemCreated   = "item_created"
 	NameItemRenamed   = "item_renamed"
 	NameItemDeleted   = "item_deleted"
@@ -48,6 +50,8 @@ const (
 var actionEvents = map[string]bool{
 	NameBoardLoad:     true,
 	NameItemOpen:      true,
+	NameItemSaved:     true,
+	NameItemChanged:   true,
 	NameItemCreated:   true,
 	NameItemRenamed:   true,
 	NameItemDeleted:   true,
@@ -116,6 +120,28 @@ type ItemOpen struct {
 }
 
 func (ItemOpen) eventTag() {}
+
+// ItemSaved fires after a card's content is written to disk through an in-app
+// action: an editor save, or a quick append/prepend. A hook bound here may
+// rewrite the file in place; the resulting disk change is picked up by the fs
+// watcher (a BoardRefresh, never another ItemSaved), so post-save rewriting
+// hooks are loop-free. External edits are reported by ItemChanged instead.
+type ItemSaved struct {
+	Item ItemRef
+	Kind string // "save" | "append" | "prepend"
+}
+
+func (ItemSaved) eventTag() {}
+
+// ItemChanged fires when the fs watcher observes a card's content change on
+// disk that did not originate from an in-app save: an external editor, a git
+// pull, or a hook's own rewrite. LOOP HAZARD: a hook bound here that writes the
+// same file re-triggers this event. It is gated on a content hash so an
+// idempotent rewrite (identical bytes) converges after one extra pass; a hook
+// that changes the file on every run will loop. Keep such hooks idempotent.
+type ItemChanged struct{ Item ItemRef }
+
+func (ItemChanged) eventTag() {}
 
 // ItemCreated fires after Column.CreateItem succeeds.
 type ItemCreated struct {

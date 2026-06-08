@@ -1392,6 +1392,27 @@ kbrd.on("board_refresh", function(evt) kbrd.notify("refresh:"..evt.reason, "info
 	}
 }
 
+func TestItemSavedAndChangedHooks(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.on("item_saved", function(evt) kbrd.notify("saved:"..evt.item.name..":"..evt.kind, "info") end)
+kbrd.on("item_changed", function(evt) kbrd.notify("changed:"..evt.item.name, "info") end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	h.OnEvent(events.ItemSaved{Item: events.ItemRef{Column: "todo", Name: "x"}, Kind: "append"})
+	h.OnEvent(events.ItemChanged{Item: events.ItemRef{Column: "todo", Name: "x"}})
+	if len(api.notifies) != 2 {
+		t.Fatalf("expected 2 notifies, got %v", api.notifies)
+	}
+	if !strings.Contains(api.notifies[0], "saved:x:append") ||
+		!strings.Contains(api.notifies[1], "changed:x") {
+		t.Fatalf("unexpected: %v", api.notifies)
+	}
+}
+
 func TestAsyncSchedule(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("a", "Async", function()

@@ -608,6 +608,15 @@ func (h *Host) OnEvent(ev events.Event) {
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
 			"kind": e.Kind,
 		})
+	case events.ItemSaved:
+		h.fireHook(events.NameItemSaved, map[string]interface{}{
+			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+			"kind": e.Kind,
+		})
+	case events.ItemChanged:
+		h.fireHook(events.NameItemChanged, map[string]interface{}{
+			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		})
 	case events.ItemCreated:
 		h.fireHook(events.NameItemCreated, map[string]interface{}{
 			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},

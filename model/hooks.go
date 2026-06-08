@@ -154,6 +154,12 @@ func (r *hookRunner) hookVars(ev events.Event) (string, map[string]string) {
 		v := itemVars(e.Item.Column, e.Item.Name)
 		v["kind"] = e.Kind
 		return events.NameItemOpen, v
+	case events.ItemSaved:
+		v := itemVars(e.Item.Column, e.Item.Name)
+		v["kind"] = e.Kind
+		return events.NameItemSaved, v
+	case events.ItemChanged:
+		return events.NameItemChanged, itemVars(e.Item.Column, e.Item.Name)
 	case events.ItemMoved:
 		// After the move the item lives in To; build its context there.
 		v := itemVars(e.To, e.Item.Name)

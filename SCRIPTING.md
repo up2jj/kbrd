@@ -111,6 +111,8 @@ Currently emitted events:
 | `item_select`   | `{item = {column, name}, prev = {column, name}}`         | Cursor lands on a different item                          |
 | `column_change` | `{column, prev}`                                         | Active column changes (left/right keys, mouse, etc.)      |
 | `item_open`     | `{item, kind}` — kind is `"edit"` / `"external"`         | User opens an item for editing                            |
+| `item_saved`    | `{item, kind}` — kind is `"save"` / `"append"` / `"prepend"` | After an in-app save writes a card                    |
+| `item_changed`  | `{item}`                                                 | Watcher saw an external edit to a card (see loop note)    |
 | `item_created`  | `{item}`                                                 | After a new item is created                               |
 | `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
 | `item_deleted`  | `{column, name}`                                         | After delete confirmation completes                       |
@@ -165,12 +167,24 @@ extras. Only these low-frequency **action** events can be hooked from YAML:
 | --------------- | ---------------------------------------- |
 | `item_created`  | —                                        |
 | `item_open`     | `{{.kind}}`                              |
+| `item_saved`    | `{{.kind}}` (`"save"` / `"append"` / `"prepend"`) |
+| `item_changed`  | — (external edit; see loop note below)   |
 | `item_moved`    | `{{.fromColumn}}` `{{.toColumn}}`        |
 | `item_renamed`  | `{{.oldName}}`                           |
 | `item_deleted`  | — (`fileName`/`filePath` point to where it was) |
 | `column_created`| `{{.columnName}}` `{{.columnPath}}`      |
 | `git_sync_done` | `{{.ok}}` `{{.stage}}` `{{.error}}`      |
 | `board_load`    | —                                        |
+
+**Post-save rewriting & the loop hazard.** A hook bound to `item_saved` or
+`item_changed` may rewrite the card file itself (a formatter, a frontmatter
+stamper); the watcher re-reads it and the board shows the new content.
+`item_saved` is loop-free — the hook's write is not an in-app save, so it never
+re-fires `item_saved`. `item_changed` **can loop**, because the hook's own write
+is exactly the kind of external change it fires on. It is gated on a content
+hash, so an *idempotent* rewrite (identical bytes, e.g. `prettier --write`)
+settles after one extra pass; a hook that changes the file on every run (e.g.
+appending a timestamp) loops — keep it idempotent or guard with a sentinel.
 
 The high-frequency events (`item_select`, `column_change`, `board_refresh`)
 are **Lua-only**: they fire per keystroke / per watcher tick, so a slow shell

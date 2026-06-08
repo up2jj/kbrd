@@ -3,6 +3,8 @@ package model
 import (
 	"bufio"
 	"fmt"
+	"hash/fnv"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -31,8 +33,13 @@ type Item struct {
 	Pinned   bool
 	Size     int64
 	Modified time.Time
-	Tags     []string // frontmatter `tags`; shown as #tag chips, matched by the filter
-	BadFM    bool     // frontmatter block present but not valid YAML; card shows a ⚠ badge
+	// contentHash is an FNV-64a hash of the file's full bytes, used by the
+	// watcher path to tell a real content change from a metadata-only touch
+	// (mtime bump with identical bytes). Lets a post-save rewriting hook bound
+	// to item_changed converge instead of looping. Empty for virtual items.
+	contentHash uint64
+	Tags        []string // frontmatter `tags`; shown as #tag chips, matched by the filter
+	BadFM       bool     // frontmatter block present but not valid YAML; card shows a ⚠ badge
 
 	// Presentation/payload fields shared by both item kinds: scripts set them
 	// via kbrd.column.set, filesystem items populate them from YAML frontmatter.
@@ -59,23 +66,24 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		name = strings.TrimPrefix(name, pinPrefix)
 	}
 
-	preview, heading, front, _ := readPreviewAndHeading(fullPath, opts)
+	preview, heading, front, hash, _ := readPreviewAndHeading(fullPath, opts)
 	fm, fmErr := frontmatter.Parse(front) // malformed YAML degrades to no metadata
 
 	return Item{
-		BadFM:    fmErr != nil,
-		Name:     name,
-		Title:    resolveTitle(name, heading, opts),
-		Preview:  preview,
-		FullPath: fullPath,
-		Pinned:   pinned,
-		Size:     info.Size(),
-		Modified: info.ModTime(),
-		Tags:     fm.Tags,
-		Meta:     fm.Meta,
-		Icon:     fm.Icon,
-		Accent:   fm.Accent,
-		Data:     fm.Data,
+		BadFM:       fmErr != nil,
+		Name:        name,
+		Title:       resolveTitle(name, heading, opts),
+		Preview:     preview,
+		FullPath:    fullPath,
+		Pinned:      pinned,
+		Size:        info.Size(),
+		Modified:    info.ModTime(),
+		contentHash: hash,
+		Tags:        fm.Tags,
+		Meta:        fm.Meta,
+		Icon:        fm.Icon,
+		Accent:      fm.Accent,
+		Data:        fm.Data,
 	}, nil
 }
 
@@ -154,8 +162,9 @@ func (i *Item) Refresh(opts ItemOptions) error {
 	i.Size = info.Size()
 	i.Modified = info.ModTime()
 
-	if preview, heading, front, err := readPreviewAndHeading(i.FullPath, opts); err == nil {
+	if preview, heading, front, hash, err := readPreviewAndHeading(i.FullPath, opts); err == nil {
 		i.Preview = preview
+		i.contentHash = hash
 		i.Title = resolveTitle(i.Name, heading, opts)
 		// Assign unconditionally so removing the frontmatter clears the fields.
 		fm, fmErr := frontmatter.Parse(front)
@@ -193,18 +202,27 @@ var reH1 = regexp.MustCompile(`^#[ \t]+(.+?)[ \t]*#*$`)
 // consumed to the closing fence so the preview stays correct). The heading
 // must be the first non-blank content line after the frontmatter; if it is
 // not an H1 there is no title. The heading line, when used, is omitted from
-// the preview so it is not shown twice. The read never touches the file's
-// tail — cost stays bounded regardless of file size — and the 64 KB scanner
-// line cap is raised so pathological single-line files degrade gracefully
-// (matching the old whole-file ReadFile behaviour).
-func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, []byte, error) {
+// the preview so it is not shown twice. The 64 KB scanner line cap is raised so
+// pathological single-line files degrade gracefully (matching the old
+// whole-file ReadFile behaviour).
+//
+// The returned uint64 is an FNV-64a hash of the file's full bytes. Parsing
+// still only consumes the leading prefix, but the bytes are teed through the
+// hash and the tail is drained after, so the full file is read once — the
+// watcher path uses the hash to suppress no-op (mtime-only) change events.
+func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, []byte, uint64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, 0, err
 	}
 	defer f.Close()
 
-	sc := bufio.NewScanner(f)
+	// Tee the file through a hash so a single pass yields both the preview
+	// prefix and a full-content hash. The scanner reads ahead in chunks, so
+	// every byte it pulls is already teed; draining the remainder after the
+	// preview loop completes the hash over the whole file.
+	h := fnv.New64a()
+	sc := bufio.NewScanner(io.TeeReader(f, h))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	heading := ""
@@ -267,7 +285,11 @@ func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, []b
 			preview = append(preview, line)
 		}
 	}
-	return preview, heading, front, nil
+	// Drain whatever the scanner did not pull (it stops at the preview budget,
+	// not EOF) so the hash covers the file's tail too. TeeReader has already
+	// fed the head — including the scanner's read-ahead — into h.
+	_, _ = io.Copy(h, f)
+	return preview, heading, front, h.Sum64(), nil
 }
 
 func SortItems(items []Item) []Item {

@@ -544,7 +544,7 @@ loaded at startup from:
 The API surface includes:
 
 - `kbrd.command(...)` — register a custom command (appears in the `x` menu; shadows a shell command with the same id).
-- `kbrd.on(event, fn)` — hook lifecycle events (`board_load`, `board_refresh`, `item_select`, `column_change`, `item_open`, `item_created`, `item_renamed`, `item_deleted`, `item_moved`, `git_sync_done`), plus the `column_items` transform hook to sort/filter/group a column's cards (e.g. by a `priority` frontmatter key).
+- `kbrd.on(event, fn)` — hook lifecycle events (`board_load`, `board_refresh`, `item_select`, `column_change`, `item_open`, `item_saved`, `item_changed`, `item_created`, `item_renamed`, `item_deleted`, `item_moved`, `git_sync_done`), plus the `column_items` transform hook to sort/filter/group a column's cards (e.g. by a `priority` frontmatter key).
 - `kbrd.board.move / create / rename / delete / refresh / createColumn` — board operations.
 - `kbrd.board.templates / createFromTemplate` — list card templates and create cards from them ([TEMPLATES.md](./TEMPLATES.md)).
 - `kbrd.ui.pick / prompt / confirm` — interactive dialogs (commands only, not hooks/timers).
