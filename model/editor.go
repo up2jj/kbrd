@@ -154,7 +154,7 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.textarea.CursorEnd()
 	e.initialValue = initial
 	e.resetHistory(initial)
-	e.expanded = false
+	e.expanded = true
 	e.applySize()
 	return e.textarea.Focus()
 }
@@ -166,7 +166,7 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
-	e.expanded = false
+	e.expanded = true
 	e.applySize()
 	return e.textarea.Focus()
 }
@@ -178,7 +178,7 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
-	e.expanded = false
+	e.expanded = true
 	e.applySize()
 	return e.textarea.Focus()
 }
@@ -190,7 +190,7 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
-	e.expanded = false
+	e.expanded = true
 	e.applySize()
 	return e.textarea.Focus()
 }
