@@ -1,8 +1,6 @@
 package fs
 
 import (
-	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -20,28 +18,25 @@ type Commit struct {
 // gitHasHead reports whether HEAD resolves to a commit — false for a freshly
 // initialized repo with no commits yet.
 func gitHasHead(repoRoot string) bool {
-	return exec.Command("git", "--no-optional-locks", "-C", repoRoot,
-		"rev-parse", "--verify", "--quiet", "HEAD").Run() == nil
+	_, err := gitOutput(repoRoot, "rev-parse", "--verify", "--quiet", "HEAD")
+	return err == nil
 }
 
 // GitLog returns up to limit commits, newest first. An empty repo (no HEAD)
 // yields (nil, nil) so callers render an empty state rather than an error.
 func GitLog(repoRoot string, limit int) ([]Commit, error) {
-	if !GitAvailable() {
-		return nil, fmt.Errorf("git not found on PATH")
-	}
 	if !gitHasHead(repoRoot) {
 		return nil, nil
 	}
 	// Unit separator between fields, record separator between commits — both
 	// are impossible in subjects/names, unlike newlines.
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot,
-		"log", "-n", strconv.Itoa(limit), "--format=%H%x1f%h%x1f%an%x1f%at%x1f%s%x1e").Output()
+	out, err := gitOutput(repoRoot,
+		"log", "-n", strconv.Itoa(limit), "--format=%H%x1f%h%x1f%an%x1f%at%x1f%s%x1e")
 	if err != nil {
-		return nil, fmt.Errorf("git log failed: %s", RedactCredentials(err.Error()))
+		return nil, err
 	}
 	var commits []Commit
-	for rec := range strings.SplitSeq(string(out), "\x1e") {
+	for rec := range strings.SplitSeq(out, "\x1e") {
 		rec = strings.TrimSpace(rec)
 		if rec == "" {
 			continue
@@ -69,19 +64,16 @@ func GitLog(repoRoot string, limit int) ([]Commit, error) {
 // as git emits them) touched by the HEAD commit. A root commit lists all its
 // files; an empty repo yields (nil, nil).
 func GitHeadChangedFiles(repoRoot string) ([]string, error) {
-	if !GitAvailable() {
-		return nil, fmt.Errorf("git not found on PATH")
-	}
 	if !gitHasHead(repoRoot) {
 		return nil, nil
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot,
-		"diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", "HEAD").Output()
+	out, err := gitOutput(repoRoot,
+		"diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("git diff-tree failed: %s", RedactCredentials(err.Error()))
+		return nil, err
 	}
 	var files []string
-	for p := range strings.SplitSeq(string(out), "\x00") {
+	for p := range strings.SplitSeq(out, "\x00") {
 		if p != "" {
 			files = append(files, p)
 		}

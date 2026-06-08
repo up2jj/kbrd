@@ -117,7 +117,7 @@ func TestHandleAutoSyncDone_ClearsFlag_Success(t *testing.T) {
 func TestHandleAutoSyncDone_ClearsFlag_Error(t *testing.T) {
 	c := newTestController("")
 	c.syncing = true
-	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Stage: "pull", Err: errors.New("boom"), Output: "fail"})
+	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Stage: "pull", Err: errors.New("boom")})
 	if c.syncing {
 		t.Fatal("expected syncing cleared after error")
 	}

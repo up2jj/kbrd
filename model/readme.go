@@ -1,11 +1,14 @@
 package model
 
 import (
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	kbrdfs "kbrd/fs"
 )
 
 // buildBoardReadme renders a board overview as markdown: a title, an optional
@@ -102,22 +105,20 @@ func (b *Board) writeBoardReadme() error {
 	return os.WriteFile(filepath.Join(root, "README.md"), content, 0o644)
 }
 
-// recentCommits returns up to n recent commit lines ("<short-sha> <date> <subject>")
-// for the repo at root. Returns nil if git fails or there are no commits yet.
+// recentCommits returns up to n recent commit lines ("<short-sha> <date> <subject>",
+// author-less to keep README lines short) for the repo at root. Returns nil if
+// git fails or there are no commits yet.
 func recentCommits(root string, n int) []string {
 	if root == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", root,
-		"log", "--pretty=format:%h %as %s", "--date=short", "-n", strconv.Itoa(n)).Output()
+	commits, err := kbrdfs.GitLog(root, n)
 	if err != nil {
 		return nil
 	}
 	var lines []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
+	for _, c := range commits {
+		lines = append(lines, fmt.Sprintf("%s %s %s", c.Short, c.Time.Format(time.DateOnly), c.Subject))
 	}
 	return lines
 }

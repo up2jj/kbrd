@@ -18,44 +18,51 @@ func RedactCredentials(s string) string {
 	return credentialRe.ReplaceAllString(s, "://***@")
 }
 
-// gitRun executes a git command in repoRoot and returns a redacted error that
-// includes git's combined output on failure.
-func gitRun(repoRoot string, args ...string) error {
-	if !GitAvailable() {
-		return fmt.Errorf("git not found on PATH")
-	}
-	full := append([]string{"-C", repoRoot}, args...)
-	out, err := exec.Command("git", full...).CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return fmt.Errorf("git %s failed: %s", args[0], RedactCredentials(detail))
-	}
-	return nil
-}
-
-// GitCommitAll stages everything and commits with the given message and
-// author identity (passed via -c so no git config is required). A clean
-// working tree is not an error: it commits only when there is something to
-// commit.
-func GitCommitAll(repoRoot, message, authorName, authorEmail string) error {
+// GitCommitAll stages everything and commits with the given message. A
+// non-empty author identity is passed via -c so no git config is required
+// (headless daemons); an empty identity uses the user's ambient git config
+// (interactive callers). A clean working tree is not an error: committed
+// reports whether a commit was actually made.
+func GitCommitAll(repoRoot, message, authorName, authorEmail string) (committed bool, err error) {
 	if err := gitRun(repoRoot, "add", "-A"); err != nil {
-		return err
+		return false, err
 	}
 	if GitWorkingTreeClean(repoRoot) {
-		return nil
+		return false, nil
 	}
-	return gitRun(repoRoot,
-		"-c", "user.name="+authorName,
-		"-c", "user.email="+authorEmail,
-		"commit", "-m", message)
+	var args []string
+	if authorName != "" || authorEmail != "" {
+		args = append(args,
+			"-c", "user.name="+authorName,
+			"-c", "user.email="+authorEmail)
+	}
+	args = append(args, "commit", "-m", message)
+	if err := gitRun(repoRoot, args...); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // GitPush pushes the current branch to its upstream (or origin HEAD).
 func GitPush(repoRoot string) error {
 	return gitRun(repoRoot, "push")
+}
+
+// GitPullFFOnly runs `git pull --ff-only`: fast-forward or fail loudly.
+// This is the attended-sync policy — on divergence the user resolves it
+// themselves. Unattended callers want GitPullRebase instead.
+func GitPullFFOnly(repoRoot string) error {
+	return gitRun(repoRoot, "pull", "--ff-only")
+}
+
+// GitAddRemoteOrigin adds url as the "origin" remote and enables
+// push.autoSetupRemote so the first push sets upstream tracking
+// automatically (works even against an empty remote).
+func GitAddRemoteOrigin(repoRoot, url string) error {
+	if err := gitRun(repoRoot, "remote", "add", "origin", url); err != nil {
+		return err
+	}
+	return gitRun(repoRoot, "config", "push.autoSetupRemote", "true")
 }
 
 // GitPullRebase runs `git pull --rebase`. If it fails (e.g. the rebase

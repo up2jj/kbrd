@@ -44,6 +44,11 @@ func NewSyncer(dir, authorName, authorEmail string) *Syncer {
 // (remote moved ahead) it pulls --rebase once and retries the push once. The
 // local commit always exists before any sync is attempted, so a conflicting
 // rebase aborts back to it and nothing the user wrote is lost.
+//
+// Rebase-and-retry is the unattended policy: no human is present to resolve
+// divergence, so the server must make progress on its own checkout. The
+// attended TUI sync deliberately uses --ff-only instead — do not harmonize
+// the two.
 func (s *Syncer) CommitPush(msg string) error {
 	if s == nil {
 		return nil
@@ -51,7 +56,7 @@ func (s *Syncer) CommitPush(msg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := fs.GitCommitAll(s.root, msg, s.author, s.email); err != nil {
+	if _, err := fs.GitCommitAll(s.root, msg, s.author, s.email); err != nil {
 		return s.record(err)
 	}
 	if !s.push {

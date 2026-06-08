@@ -43,15 +43,23 @@ func TestGitCommitAllAndPush(t *testing.T) {
 	bare, clone := initRepoPair(t)
 
 	os.WriteFile(filepath.Join(clone, "card.md"), []byte("hello\n"), 0o644)
-	if err := GitCommitAll(clone, "web: create card", "kbrd-web", "kbrd@localhost"); err != nil {
+	committed, err := GitCommitAll(clone, "web: create card", "kbrd-web", "kbrd@localhost")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !committed {
+		t.Fatal("GitCommitAll reported committed=false for a dirty tree")
 	}
 	if !GitWorkingTreeClean(clone) {
 		t.Fatal("working tree dirty after GitCommitAll")
 	}
 	// Clean tree: commit-all is a no-op, not an error.
-	if err := GitCommitAll(clone, "noop", "kbrd-web", "kbrd@localhost"); err != nil {
+	committed, err = GitCommitAll(clone, "noop", "kbrd-web", "kbrd@localhost")
+	if err != nil {
 		t.Fatalf("GitCommitAll on clean tree: %v", err)
+	}
+	if committed {
+		t.Fatal("GitCommitAll reported committed=true on a clean tree")
 	}
 	if err := GitPush(clone); err != nil {
 		t.Fatal(err)
@@ -74,7 +82,7 @@ func TestGitPullRebaseConflictAborts(t *testing.T) {
 		t.Fatalf("git clone: %v\n%s", err, out)
 	}
 	os.WriteFile(filepath.Join(other, "seed.md"), []byte("theirs\n"), 0o644)
-	if err := GitCommitAll(other, "their edit", "o", "o@o"); err != nil {
+	if _, err := GitCommitAll(other, "their edit", "o", "o@o"); err != nil {
 		t.Fatal(err)
 	}
 	if err := GitPush(other); err != nil {
@@ -83,7 +91,7 @@ func TestGitPullRebaseConflictAborts(t *testing.T) {
 
 	// Local conflicting commit.
 	os.WriteFile(filepath.Join(clone, "seed.md"), []byte("ours\n"), 0o644)
-	if err := GitCommitAll(clone, "our edit", "u", "u@u"); err != nil {
+	if _, err := GitCommitAll(clone, "our edit", "u", "u@u"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,7 +116,7 @@ func TestGitPullRebaseFastForward(t *testing.T) {
 		t.Fatalf("git clone: %v\n%s", err, out)
 	}
 	os.WriteFile(filepath.Join(other, "new.md"), []byte("x\n"), 0o644)
-	if err := GitCommitAll(other, "their add", "o", "o@o"); err != nil {
+	if _, err := GitCommitAll(other, "their add", "o", "o@o"); err != nil {
 		t.Fatal(err)
 	}
 	if err := GitPush(other); err != nil {
@@ -120,6 +128,124 @@ func TestGitPullRebaseFastForward(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(clone, "new.md")); err != nil {
 		t.Fatal("pulled file missing")
+	}
+}
+
+// TestGitCommitAllAmbientIdentity covers the empty-identity form used by
+// interactive callers: the commit must use the repo's own git config instead
+// of injected -c flags.
+func TestGitCommitAllAmbientIdentity(t *testing.T) {
+	_, clone := initRepoPair(t)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", clone}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("config", "user.name", "Ambient User")
+	run("config", "user.email", "ambient@example.com")
+
+	os.WriteFile(filepath.Join(clone, "card.md"), []byte("hi\n"), 0o644)
+	committed, err := GitCommitAll(clone, "ambient commit", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed {
+		t.Fatal("expected a commit")
+	}
+	out, err := exec.Command("git", "-C", clone, "log", "--format=%an <%ae>", "-1").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "Ambient User <ambient@example.com>" {
+		t.Fatalf("commit author %q, want ambient config identity", got)
+	}
+}
+
+func TestGitPullFFOnly(t *testing.T) {
+	bare, clone := initRepoPair(t)
+
+	// Remote moves ahead; a clean local clone fast-forwards.
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("git", "clone", bare, other).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+	os.WriteFile(filepath.Join(other, "new.md"), []byte("x\n"), 0o644)
+	if _, err := GitCommitAll(other, "their add", "o", "o@o"); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPush(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPullFFOnly(clone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(clone, "new.md")); err != nil {
+		t.Fatal("pulled file missing")
+	}
+
+	// Diverged histories must fail loudly instead of merging or rebasing.
+	os.WriteFile(filepath.Join(other, "theirs.md"), []byte("t\n"), 0o644)
+	if _, err := GitCommitAll(other, "theirs", "o", "o@o"); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPush(other); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(clone, "ours.md"), []byte("u\n"), 0o644)
+	if _, err := GitCommitAll(clone, "ours", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPullFFOnly(clone); err == nil {
+		t.Fatal("expected ff-only pull to fail on divergence")
+	}
+}
+
+func TestGitAddRemoteOrigin(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	if err := GitInit(dir); err != nil {
+		t.Fatal(err)
+	}
+	root := GitRepoRoot(dir)
+	if GitHasRemote(root) {
+		t.Fatal("fresh repo unexpectedly has a remote")
+	}
+	if err := GitAddRemoteOrigin(root, "https://example.invalid/r.git"); err != nil {
+		t.Fatal(err)
+	}
+	if !GitHasRemote(root) {
+		t.Fatal("remote not visible after GitAddRemoteOrigin")
+	}
+	out, err := exec.Command("git", "-C", root, "config", "push.autoSetupRemote").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		t.Fatalf("push.autoSetupRemote = %q, err=%v", out, err)
+	}
+}
+
+// TestGitRunRedactsCredentials asserts the shared mutation runner never leaks
+// URL-embedded credentials into errors surfaced to a UI.
+func TestGitRunRedactsCredentials(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	if err := GitInit(dir); err != nil {
+		t.Fatal(err)
+	}
+	root := GitRepoRoot(dir)
+	if err := GitAddRemoteOrigin(root, "https://user:tok3n@invalid.invalid/x.git"); err != nil {
+		t.Fatal(err)
+	}
+	err := GitPush(root)
+	if err == nil {
+		t.Fatal("expected push to an unreachable remote to fail")
+	}
+	if strings.Contains(err.Error(), "tok3n") {
+		t.Fatalf("credential leaked in error: %v", err)
 	}
 }
 

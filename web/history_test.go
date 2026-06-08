@@ -20,7 +20,7 @@ func gitify(t *testing.T, s *Server, dir string) {
 		t.Skip("git not on PATH")
 	}
 	gitRun(t, dir, "init", "-b", "main")
-	if err := fs.GitCommitAll(dir, "initial board", "Tester", "t@example.com"); err != nil {
+	if _, err := fs.GitCommitAll(dir, "initial board", "Tester", "t@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	s.sync = NewSyncer(s.opts.BoardPath, "Tester", "t@example.com")
@@ -96,7 +96,7 @@ func TestChangedIndicator(t *testing.T) {
 
 	// Commit a new card; only it should be flagged afterward.
 	os.WriteFile(filepath.Join(boardDir, "1. todo", "task-b.md"), []byte("# Task B\n"), 0o644)
-	if err := fs.GitCommitAll(boardDir, "add task-b", "Tester", "t@example.com"); err != nil {
+	if _, err := fs.GitCommitAll(boardDir, "add task-b", "Tester", "t@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	body = get(h, "/", c).Body.String()
@@ -125,7 +125,7 @@ func TestChangedIndicatorBoardInSubdir(t *testing.T) {
 	os.WriteFile(filepath.Join(boardDir, "1. todo", "task-a.md"), []byte("# Task A\n"), 0o644)
 
 	gitRun(t, repo, "init", "-b", "main")
-	if err := fs.GitCommitAll(repo, "initial", "Tester", "t@example.com"); err != nil {
+	if _, err := fs.GitCommitAll(repo, "initial", "Tester", "t@example.com"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -40,67 +40,61 @@ func GitAvailable() bool {
 }
 
 func GitRepoRoot(dir string) string {
-	if !GitAvailable() {
-		return ""
-	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := gitOutput(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 func GitInit(dir string) error {
-	return exec.Command("git", "-C", dir, "init").Run()
+	return gitRun(dir, "init")
 }
 
-// GitClone clones url into dir, surfacing git's combined output on failure.
+// GitClone clones url into dir, surfacing git's combined output (redacted) on
+// failure.
 func GitClone(url, dir string) error {
 	if !GitAvailable() {
 		return fmt.Errorf("git not found on PATH")
 	}
 	out, err := exec.Command("git", "clone", url, dir).CombinedOutput()
 	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return fmt.Errorf("git clone failed: %s", detail)
+		return gitError([]string{"clone"}, out, err)
 	}
 	return nil
 }
 
 func GitHasRemote(repoRoot string) bool {
-	if !GitAvailable() || repoRoot == "" {
+	if repoRoot == "" {
 		return false
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "remote").Output()
+	out, err := gitOutput(repoRoot, "remote")
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(out)) != ""
+	return strings.TrimSpace(out) != ""
 }
 
 func GitWorkingTreeClean(repoRoot string) bool {
-	if !GitAvailable() || repoRoot == "" {
+	if repoRoot == "" {
 		return false
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "status", "--porcelain").Output()
+	out, err := gitOutput(repoRoot, "status", "--porcelain")
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(out)) == ""
+	return strings.TrimSpace(out) == ""
 }
 
 func GitCurrentBranch(repoRoot string) string {
-	if !GitAvailable() || repoRoot == "" {
+	if repoRoot == "" {
 		return ""
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "branch", "--show-current").Output()
+	out, err := gitOutput(repoRoot, "branch", "--show-current")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 // numstatByPath returns added/deleted line counts keyed by repo-relative path.
@@ -108,12 +102,12 @@ func numstatByPath(repoRoot string) map[string]DiffStat {
 	if repoRoot == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot, "diff", "--numstat", "HEAD").Output()
+	out, err := gitOutput(repoRoot, "diff", "--numstat", "HEAD")
 	if err != nil {
 		return map[string]DiffStat{}
 	}
 	stats := map[string]DiffStat{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
@@ -171,18 +165,17 @@ func GitDiffStats(repoRoot string) map[string]DiffStat {
 // as a single R entry, not as separate D + ??). Numstat counts are merged in
 // for ordinary modifications; renamed files report zero counts.
 func GitChangedFiles(repoRoot string) []FileChange {
-	if !GitAvailable() || repoRoot == "" {
+	if repoRoot == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "--no-optional-locks", "-C", repoRoot,
-		"status", "--porcelain=v2", "--renames", "--untracked-files=all", "-z").Output()
+	out, err := gitOutput(repoRoot, "status", "--porcelain=v2", "--renames", "--untracked-files=all", "-z")
 	if err != nil {
 		return nil
 	}
 	stats := numstatByPath(repoRoot)
 
 	files := []FileChange{}
-	records := strings.Split(strings.TrimRight(string(out), "\x00"), "\x00")
+	records := strings.Split(strings.TrimRight(out, "\x00"), "\x00")
 	for i := 0; i < len(records); i++ {
 		rec := records[i]
 		if rec == "" || strings.HasPrefix(rec, "# ") || strings.HasPrefix(rec, "! ") {
@@ -325,13 +318,13 @@ func indexBlobHashes(repoRoot string, paths []string) map[string]string {
 	if len(paths) == 0 {
 		return nil
 	}
-	args := append([]string{"--no-optional-locks", "-C", repoRoot, "ls-files", "--stage", "-z", "--"}, paths...)
-	out, err := exec.Command("git", args...).Output()
+	args := append([]string{"ls-files", "--stage", "-z", "--"}, paths...)
+	out, err := gitOutput(repoRoot, args...)
 	if err != nil {
 		return nil
 	}
 	res := map[string]string{}
-	for _, rec := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+	for _, rec := range strings.Split(strings.TrimRight(out, "\x00"), "\x00") {
 		if rec == "" {
 			continue
 		}

@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -24,9 +25,9 @@ type gitSyncStepMsg struct {
 
 type gitPostCommitMsg struct {
 	gitMsg
-	Output   string
-	Err      error
-	ThenSync bool
+	Committed bool
+	Err       error
+	ThenSync  bool
 }
 
 // Open initializes the repo if needed, opens the panel, and requests the first
@@ -94,12 +95,12 @@ func (c *Controller) runFileDiff(path, status, origPath string) string {
 }
 
 func (c *Controller) runGitDiff(tool string, diffArgs []string, emptyText string) string {
-	args := []string{"--no-optional-locks", "-C", c.repoRoot}
+	args := []string{"--no-optional-locks"}
 	if tool != "difft" {
 		args = append(args, "-c", "color.ui=always")
 	}
 	args = append(args, diffArgs...)
-	cmd := exec.Command("git", args...)
+	cmd := kbrdfs.GitCommand(c.repoRoot, args...)
 	if tool == "difft" {
 		width := c.termW - 8
 		if width < 40 {
@@ -159,14 +160,12 @@ func (c *Controller) handleGitCommit(msg gitCommitRequestMsg) tea.Cmd {
 			return c.notifier.Error("pre-commit failed: " + err.Error())
 		}
 	}
-	if err := exec.Command("git", "-C", c.repoRoot, "add", ".").Run(); err != nil {
-		return c.notifier.Error("git add failed: " + err.Error())
-	}
 	thenSync := msg.ThenSync
 	root := c.repoRoot
 	return func() tea.Msg {
-		out, err := exec.Command("git", "-C", root, "commit", "-m", commitMsg).CombinedOutput()
-		return gitPostCommitMsg{Output: string(out), Err: err, ThenSync: thenSync}
+		// Empty identity: interactive commits carry the user's own git config.
+		committed, err := kbrdfs.GitCommitAll(root, commitMsg, "", "")
+		return gitPostCommitMsg{Committed: committed, Err: err, ThenSync: thenSync}
 	}
 }
 
@@ -174,14 +173,13 @@ func (c *Controller) handleGitPostCommit(msg gitPostCommitMsg) tea.Cmd {
 	if msg.Err != nil {
 		c.refreshStats()
 		c.refreshPanel()
-		detail := strings.TrimSpace(msg.Output)
-		if detail == "" {
-			detail = msg.Err.Error()
-		}
-		return c.notifier.Error("commit failed: " + detail)
+		return c.notifier.Error(msg.Err.Error())
 	}
 	c.refreshStats()
 	c.refreshPanel()
+	if !msg.Committed {
+		return c.notifier.Error("nothing to commit")
+	}
 	cmds := []tea.Cmd{c.notifier.Success("commit ok")}
 	if cc := c.panel.DiffRequestForCurrent(); cc != nil {
 		cmds = append(cmds, cc)
@@ -193,16 +191,16 @@ func (c *Controller) handleGitPostCommit(msg gitPostCommitMsg) tea.Cmd {
 }
 
 func (c *Controller) handleGitLog() tea.Cmd {
-	out, err := exec.Command("git", "--no-optional-locks", "-C", c.repoRoot,
-		"log", "--pretty=format:%h %as %an %s", "--date=short", "-n", "50").CombinedOutput()
+	commits, err := kbrdfs.GitLog(c.repoRoot, 50)
 	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return c.notifier.Error("git log failed: " + detail)
+		return c.notifier.Error(err.Error())
 	}
-	text := strings.TrimSpace(string(out))
+	lines := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		lines = append(lines, fmt.Sprintf("%s %s %s %s",
+			commit.Short, commit.Time.Format(time.DateOnly), commit.Author, commit.Subject))
+	}
+	text := strings.Join(lines, "\n")
 	if text == "" {
 		text = "(no commits yet)"
 	}
@@ -210,8 +208,12 @@ func (c *Controller) handleGitLog() tea.Cmd {
 	return nil
 }
 
+// handleGitSync runs the attended pull→push via ExecProcess so git owns the
+// terminal and can prompt for credentials. Attended sync is `--ff-only` on
+// purpose: on divergence it fails loudly and the user resolves it themselves
+// (the unattended web Syncer rebases instead — do not harmonize the two).
 func (c *Controller) handleGitSync() tea.Cmd {
-	cmd := exec.Command("git", "-C", c.repoRoot, "pull", "--ff-only")
+	cmd := kbrdfs.GitCommand(c.repoRoot, "pull", "--ff-only")
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return gitSyncStepMsg{Stage: "pull", Err: err, ThenPush: err == nil}
 	})
@@ -225,7 +227,7 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 		return c.notifier.Error("git " + msg.Stage + " failed: " + msg.Err.Error())
 	}
 	if msg.Stage == "pull" && msg.ThenPush {
-		cmd := exec.Command("git", "-C", c.repoRoot, "push")
+		cmd := kbrdfs.GitCommand(c.repoRoot, "push")
 		return tea.ExecProcess(cmd, func(err error) tea.Msg {
 			return gitSyncStepMsg{Stage: "push", Err: err}
 		})
@@ -240,9 +242,8 @@ type autoSyncTickMsg struct{ gitMsg }
 
 type autoSyncDoneMsg struct {
 	gitMsg
-	Stage  string // "pull" or "push"
-	Err    error
-	Output string
+	Stage string // "pull" or "push"
+	Err   error
 }
 
 func (c *Controller) scheduleAutoSync() tea.Cmd {
@@ -274,6 +275,10 @@ func (c *Controller) shouldAutoSync() bool {
 // It self-skips (returns nil) when a sync is not due, so any caller — the
 // auto-sync ticker today, a background-task scheduler tomorrow — can drive it
 // without knowing git's preconditions.
+//
+// Like the interactive sync, the pull is `--ff-only` on purpose: auto-sync
+// only runs on a clean tree, a diverged history fails loudly (toast) for the
+// user to resolve, and no rebase ever rewrites commits behind their back.
 func (c *Controller) SyncOnce() tea.Cmd {
 	if !c.shouldAutoSync() {
 		return nil
@@ -281,15 +286,10 @@ func (c *Controller) SyncOnce() tea.Cmd {
 	c.syncing = true
 	root := c.repoRoot
 	return func() tea.Msg {
-		pullOut, err := exec.Command("git", "-C", root, "pull", "--ff-only").CombinedOutput()
-		if err != nil {
-			return autoSyncDoneMsg{Stage: "pull", Err: err, Output: string(pullOut)}
+		if err := kbrdfs.GitPullFFOnly(root); err != nil {
+			return autoSyncDoneMsg{Stage: "pull", Err: err}
 		}
-		pushOut, err := exec.Command("git", "-C", root, "push").CombinedOutput()
-		if err != nil {
-			return autoSyncDoneMsg{Stage: "push", Err: err, Output: string(pushOut)}
-		}
-		return autoSyncDoneMsg{Stage: "push", Output: string(pushOut)}
+		return autoSyncDoneMsg{Stage: "push", Err: kbrdfs.GitPush(root)}
 	}
 }
 
@@ -319,12 +319,8 @@ func (c *Controller) handleAutoSyncDone(msg autoSyncDoneMsg) tea.Cmd {
 		return nil
 	}
 	if msg.Err != nil {
-		detail := strings.TrimSpace(msg.Output)
-		if detail == "" {
-			detail = msg.Err.Error()
-		}
-		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: detail})
-		return c.notifier.Error("auto-sync " + msg.Stage + " failed: " + detail)
+		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
+		return c.notifier.Error("auto-sync " + msg.Stage + " failed: " + msg.Err.Error())
 	}
 	c.refreshStats()
 	c.refreshPanel()
@@ -337,17 +333,9 @@ func (c *Controller) handleGitAddRemote(msg gitAddRemoteRequestMsg) tea.Cmd {
 	if url == "" {
 		return c.notifier.Error("remote URL is empty")
 	}
-	out, err := exec.Command("git", "-C", c.repoRoot, "remote", "add", "origin", url).CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return c.notifier.Error("git remote add failed: " + detail)
+	if err := kbrdfs.GitAddRemoteOrigin(c.repoRoot, url); err != nil {
+		return c.notifier.Error(err.Error())
 	}
-	// Enable auto-upstream so the first `git push` sets tracking automatically
-	// (works even against an empty remote).
-	exec.Command("git", "-C", c.repoRoot, "config", "push.autoSetupRemote", "true").Run()
 	c.refreshPanel()
 	return c.notifier.Success("remote 'origin' added")
 }
