@@ -23,7 +23,7 @@ func gitify(t *testing.T, s *Server, dir string) {
 	if _, err := fs.GitCommitAll(dir, "initial board", "Tester", "t@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	s.sync = NewSyncer(s.opts.BoardPath, "Tester", "t@example.com")
+	s.sync = NewSyncer(s.opts.BoardPath, "Tester", "t@example.com", "test")
 	if s.sync == nil {
 		t.Fatal("syncer not created for git-backed board")
 	}
@@ -131,7 +131,7 @@ func TestChangedIndicatorBoardInSubdir(t *testing.T) {
 
 	s, h, _ := newTestServer(t)
 	s.opts.BoardPath = boardDir
-	s.sync = NewSyncer(boardDir, "Tester", "t@example.com")
+	s.sync = NewSyncer(boardDir, "Tester", "t@example.com", "test")
 	if s.sync == nil {
 		t.Fatal("syncer not created")
 	}

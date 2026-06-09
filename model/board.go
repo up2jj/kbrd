@@ -700,6 +700,12 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (no VM access there); apply the script order now, on the UI goroutine,
 		// after board_load has let init.lua finish its registrations.
 		b.applyColumnTransforms()
+		// Catch up from the remote on open (config-gated, default on). Detection
+		// has run in the startup goroutine, so repoRoot is set; SyncOnce no-ops
+		// when there is no remote or the tree is dirty.
+		if b.cfg.GitSyncOnStartup {
+			return b, tea.Batch(b.watchCmd(), b.git.SyncOnce())
+		}
 		return b, b.watchCmd()
 
 	case watchEventMsg:
@@ -2101,6 +2107,26 @@ func (b *Board) updateBuiltinCells() {
 		}
 	} else {
 		b.cells.Clear(-1)
+	}
+
+	// Remote sync indicator: hidden without a remote, otherwise a hollow glyph
+	// when healthy, a spinner while reconciling, danger on failure, and a sticky
+	// warning naming the conflict copies an automatic merge set aside.
+	switch ss := b.git.SyncState(); {
+	case !ss.HasRemote:
+		b.cells.Clear(-9)
+	case ss.Syncing:
+		b.cells.SetInternal(Cell{ID: -9, Text: "⟳ sync", FG: string(b.palette.AccentSoft)})
+	case ss.Failed:
+		b.cells.SetInternal(Cell{ID: -9, Text: "✕ sync", FG: string(b.palette.Danger)})
+	case ss.Conflicts > 0:
+		text := "⚠ " + strconv.Itoa(ss.Conflicts) + " conflict"
+		if ss.Conflicts > 1 {
+			text += "s"
+		}
+		b.cells.SetInternal(Cell{ID: -9, Text: text, FG: string(b.palette.Warning)})
+	default:
+		b.cells.SetInternal(Cell{ID: -9, Text: "⇅ synced", FG: string(b.palette.FgMuted)})
 	}
 }
 

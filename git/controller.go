@@ -58,7 +58,21 @@ type Controller struct {
 	syncing         bool // auto-sync in progress
 	shutdownPending bool // host asked to quit; signal once the in-flight sync settles
 
+	hasRemote         bool // cached: repo has an "origin" (drives the sync indicator)
+	lastSyncFailed    bool // the most recent reconcile errored
+	lastSyncConflicts int  // conflict copies from the last reconcile, sticky until a clean sync
+
 	termW, termH int
+}
+
+// SyncStatus is the header sync-indicator state. The cell is hidden unless
+// HasRemote; Syncing shows while a background reconcile runs; Failed is sticky
+// until the next success; Conflicts is sticky until the next clean sync.
+type SyncStatus struct {
+	HasRemote bool
+	Syncing   bool
+	Failed    bool
+	Conflicts int
 }
 
 func New(d Deps) Controller {
@@ -75,7 +89,37 @@ func New(d Deps) Controller {
 // diff stats. Called once at startup (off the main goroutine).
 func (c *Controller) Detect() {
 	c.repoRoot = kbrdfs.GitRepoRoot(c.cfg.Path)
+	c.refreshRemote()
 	c.refreshStats()
+}
+
+// refreshRemote caches whether the repo has a remote, so the per-render sync
+// indicator never shells out to git. Called whenever the repo or its remotes
+// may have changed.
+func (c *Controller) refreshRemote() {
+	c.hasRemote = c.repoRoot != "" && kbrdfs.GitHasRemote(c.repoRoot)
+}
+
+// SyncState reports the current header sync-indicator state.
+func (c *Controller) SyncState() SyncStatus {
+	return SyncStatus{
+		HasRemote: c.hasRemote,
+		Syncing:   c.syncing,
+		Failed:    c.lastSyncFailed,
+		Conflicts: c.lastSyncConflicts,
+	}
+}
+
+// recordSyncOutcome updates the indicator after a reconcile settles: a failure
+// is sticky until the next success; conflict copies are sticky until a clean
+// sync clears them.
+func (c *Controller) recordSyncOutcome(err error, conflicts int) {
+	if err != nil {
+		c.lastSyncFailed = true
+		return
+	}
+	c.lastSyncFailed = false
+	c.lastSyncConflicts = conflicts
 }
 
 // StartAutoSync returns the initial auto-sync tick (nil if disabled).

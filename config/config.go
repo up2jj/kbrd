@@ -36,6 +36,15 @@ type Config struct {
 	GitDiffTool         string
 	GitAutoSyncInterval time.Duration
 	GitGenerateReadme   bool
+	// GitManualSyncMode controls the TUI's manual sync (the "s" key). "attended"
+	// (default) keeps the loud pull --ff-only that stops on divergence; "auto"
+	// runs the same self-healing merge-with-sidecar reconciliation the automatic
+	// sync flows use. Automatic flows always self-heal regardless of this value.
+	GitManualSyncMode string
+	// GitSyncOnStartup reconciles with the remote once when the board opens, so a
+	// stale checkout catches up without the user remembering to pull. Default
+	// true; a no-op when the repo has no remote.
+	GitSyncOnStartup bool
 
 	Scripting ScriptingConfig
 	Hooks     HooksConfig
@@ -144,6 +153,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("git.diff_tool", "auto")
 	v.SetDefault("git.auto_sync_interval", "")
 	v.SetDefault("git.generate_readme", false)
+	v.SetDefault("git.manual_sync_mode", "attended")
+	v.SetDefault("git.sync_on_startup", true)
 	v.SetDefault("scripting.enabled", true)
 	v.SetDefault("scripting.command_timeout_ms", 2000)
 	v.SetDefault("scripting.hook_timeout_ms", 500)
@@ -193,6 +204,12 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		autoSync = 0
 	}
 
+	// Anything but the explicit opt-in falls back to the safe attended policy.
+	manualSync := v.GetString("git.manual_sync_mode")
+	if manualSync != "auto" {
+		manualSync = "attended"
+	}
+
 	return Config{
 		Path:                folderPath,
 		ColumnWidth:         v.GetInt("display.column_width"),
@@ -204,6 +221,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		GitDiffTool:         v.GetString("git.diff_tool"),
 		GitAutoSyncInterval: autoSync,
 		GitGenerateReadme:   v.GetBool("git.generate_readme"),
+		GitManualSyncMode:   manualSync,
+		GitSyncOnStartup:    v.GetBool("git.sync_on_startup"),
 		Scripting: ScriptingConfig{
 			Enabled:          v.GetBool("scripting.enabled"),
 			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),

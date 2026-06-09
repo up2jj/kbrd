@@ -73,62 +73,159 @@ func TestGitCommitAllAndPush(t *testing.T) {
 	}
 }
 
-func TestGitPullRebaseConflictAborts(t *testing.T) {
-	bare, clone := initRepoPair(t)
-
-	// Second clone pushes a conflicting change to seed.md.
+// pushFromOther clones bare into a throwaway dir, applies mutate, commits, and
+// pushes — simulating another machine moving the remote ahead.
+func pushFromOther(t *testing.T, bare string, mutate func(dir string)) {
+	t.Helper()
 	other := filepath.Join(t.TempDir(), "other")
 	if out, err := exec.Command("git", "clone", bare, other).CombinedOutput(); err != nil {
 		t.Fatalf("git clone: %v\n%s", err, out)
 	}
-	os.WriteFile(filepath.Join(other, "seed.md"), []byte("theirs\n"), 0o644)
+	mutate(other)
 	if _, err := GitCommitAll(other, "their edit", "o", "o@o"); err != nil {
 		t.Fatal(err)
 	}
 	if err := GitPush(other); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	// Local conflicting commit.
+// TestGitMergeResolveSidecarClean covers the no-conflict paths: a remote-only
+// add fast-forwards, and non-overlapping edits to the same file auto-merge —
+// neither produces a sidecar.
+func TestGitMergeResolveSidecarClean(t *testing.T) {
+	bare, clone := initRepoPair(t)
+
+	// Multi-line seed so the two sides touch different regions.
+	os.WriteFile(filepath.Join(clone, "seed.md"), []byte("a\nb\nc\n"), 0o644)
+	if _, err := GitCommitAll(clone, "seed lines", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPush(clone); err != nil {
+		t.Fatal(err)
+	}
+
+	pushFromOther(t, bare, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "new.md"), []byte("x\n"), 0o644)        // add
+		os.WriteFile(filepath.Join(dir, "seed.md"), []byte("A\nb\nc\n"), 0o644) // top edit
+	})
+
+	// Local edit to a different region of the same file.
+	os.WriteFile(filepath.Join(clone, "seed.md"), []byte("a\nb\nC\n"), 0o644)
+	if _, err := GitCommitAll(clone, "our edit", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+
+	sidecars, err := GitMergeResolveSidecar(clone, "laptop", "u", "u@u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sidecars) != 0 {
+		t.Fatalf("expected no sidecars, got %v", sidecars)
+	}
+	if data, _ := os.ReadFile(filepath.Join(clone, "seed.md")); string(data) != "A\nb\nC\n" {
+		t.Fatalf("auto-merge result %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(clone, "new.md")); err != nil {
+		t.Fatal("merged file missing")
+	}
+	if !GitWorkingTreeClean(clone) {
+		t.Fatal("worktree dirty after clean merge")
+	}
+	if err := GitPush(clone); err != nil {
+		t.Fatalf("push after merge: %v", err)
+	}
+}
+
+// TestGitMergeResolveSidecarConflict covers a true line conflict: local wins the
+// card, the incoming version lands in a labelled sidecar, the merge commits, and
+// the result pushes without force.
+func TestGitMergeResolveSidecarConflict(t *testing.T) {
+	bare, clone := initRepoPair(t)
+
+	pushFromOther(t, bare, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "seed.md"), []byte("theirs\n"), 0o644)
+	})
 	os.WriteFile(filepath.Join(clone, "seed.md"), []byte("ours\n"), 0o644)
 	if _, err := GitCommitAll(clone, "our edit", "u", "u@u"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := GitPullRebase(clone); err == nil {
-		t.Fatal("expected rebase conflict error")
+	sidecars, err := GitMergeResolveSidecar(clone, "laptop", "u", "u@u")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The abort must leave the worktree clean on our local commit.
+	want := "seed (conflict laptop).md"
+	if len(sidecars) != 1 || sidecars[0] != want {
+		t.Fatalf("sidecars = %v, want [%q]", sidecars, want)
+	}
+	if data, _ := os.ReadFile(filepath.Join(clone, "seed.md")); string(data) != "ours\n" {
+		t.Fatalf("local lost the card: %q", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(clone, want)); string(data) != "theirs\n" {
+		t.Fatalf("sidecar content %q, want incoming version", data)
+	}
 	if !GitWorkingTreeClean(clone) {
-		t.Fatal("worktree not restored after aborted rebase")
+		t.Fatal("worktree dirty after resolved merge")
 	}
-	data, _ := os.ReadFile(filepath.Join(clone, "seed.md"))
-	if string(data) != "ours\n" {
-		t.Fatalf("local content lost: %q", data)
+	// Merge commit message names the copy and the push fast-forwards.
+	msg, _ := exec.Command("git", "-C", clone, "log", "--format=%B", "-1").Output()
+	if !strings.Contains(string(msg), want) {
+		t.Fatalf("merge message %q does not name the conflict copy", msg)
+	}
+	if err := GitPush(clone); err != nil {
+		t.Fatalf("push after merge: %v", err)
 	}
 }
 
-func TestGitPullRebaseFastForward(t *testing.T) {
-	bare, clone := initRepoPair(t)
+// TestGitMergeResolveSidecarModifyDelete covers both modify/delete directions:
+// local always wins the primary slot, and a discarded *incoming* edit is kept.
+func TestGitMergeResolveSidecarModifyDelete(t *testing.T) {
+	t.Run("remote deletes, local modifies", func(t *testing.T) {
+		bare, clone := initRepoPair(t)
+		pushFromOther(t, bare, func(dir string) {
+			os.Remove(filepath.Join(dir, "seed.md"))
+		})
+		os.WriteFile(filepath.Join(clone, "seed.md"), []byte("ours\n"), 0o644)
+		if _, err := GitCommitAll(clone, "our edit", "u", "u@u"); err != nil {
+			t.Fatal(err)
+		}
+		sidecars, err := GitMergeResolveSidecar(clone, "laptop", "u", "u@u")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sidecars) != 0 {
+			t.Fatalf("local modify should win with no sidecar, got %v", sidecars)
+		}
+		if data, _ := os.ReadFile(filepath.Join(clone, "seed.md")); string(data) != "ours\n" {
+			t.Fatalf("local card lost: %q", data)
+		}
+	})
 
-	other := filepath.Join(t.TempDir(), "other")
-	if out, err := exec.Command("git", "clone", bare, other).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	os.WriteFile(filepath.Join(other, "new.md"), []byte("x\n"), 0o644)
-	if _, err := GitCommitAll(other, "their add", "o", "o@o"); err != nil {
-		t.Fatal(err)
-	}
-	if err := GitPush(other); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := GitPullRebase(clone); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(clone, "new.md")); err != nil {
-		t.Fatal("pulled file missing")
-	}
+	t.Run("remote modifies, local deletes", func(t *testing.T) {
+		bare, clone := initRepoPair(t)
+		pushFromOther(t, bare, func(dir string) {
+			os.WriteFile(filepath.Join(dir, "seed.md"), []byte("theirs\n"), 0o644)
+		})
+		os.Remove(filepath.Join(clone, "seed.md"))
+		if _, err := GitCommitAll(clone, "our delete", "u", "u@u"); err != nil {
+			t.Fatal(err)
+		}
+		sidecars, err := GitMergeResolveSidecar(clone, "laptop", "u", "u@u")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "seed (conflict laptop).md"
+		if len(sidecars) != 1 || sidecars[0] != want {
+			t.Fatalf("sidecars = %v, want [%q]", sidecars, want)
+		}
+		if _, err := os.Stat(filepath.Join(clone, "seed.md")); !os.IsNotExist(err) {
+			t.Fatal("local deletion should win the primary slot")
+		}
+		if data, _ := os.ReadFile(filepath.Join(clone, want)); string(data) != "theirs\n" {
+			t.Fatalf("discarded incoming edit not preserved: %q", data)
+		}
+	})
 }
 
 // TestGitCommitAllAmbientIdentity covers the empty-identity form used by

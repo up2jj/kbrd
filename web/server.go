@@ -220,7 +220,7 @@ func displayURL(addr string) string {
 // on-disk config (it may have just been cloned), starts the config watcher,
 // and opens the board to requests.
 func (s *Server) finishInit(ctx context.Context) {
-	s.sync = NewSyncer(s.opts.BoardPath, s.opts.AuthorName, s.opts.AuthorEmail)
+	s.sync = NewSyncer(s.opts.BoardPath, s.opts.AuthorName, s.opts.AuthorEmail, s.opts.InstanceName)
 	if s.sync == nil {
 		log.Printf("web: %s is not a git repository — running without sync", s.opts.BoardPath)
 	}

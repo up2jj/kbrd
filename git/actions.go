@@ -17,10 +17,11 @@ import (
 
 type gitSyncStepMsg struct {
 	gitMsg
-	Stage    string // "pull" or "push"
+	Stage    string // "pull", "push", or "sync" (one-shot merge reconcile)
 	Err      error
 	Output   string
 	ThenPush bool
+	Sidecars []string // conflict copies created by an "auto" reconcile
 }
 
 type gitPostCommitMsg struct {
@@ -49,6 +50,7 @@ func (c *Controller) Open() tea.Cmd {
 	}
 	branch := kbrdfs.GitCurrentBranch(c.repoRoot)
 	hasRemote := kbrdfs.GitHasRemote(c.repoRoot)
+	c.hasRemote = hasRemote
 	files := kbrdfs.GitChangedFiles(c.repoRoot)
 	c.panel.Open(c.repoRoot, branch, hasRemote, files, c.termW, c.termH)
 	diffCmd := c.panel.DiffRequestForCurrent()
@@ -208,11 +210,23 @@ func (c *Controller) handleGitLog() tea.Cmd {
 	return nil
 }
 
-// handleGitSync runs the attended pull→push via ExecProcess so git owns the
-// terminal and can prompt for credentials. Attended sync is `--ff-only` on
-// purpose: on divergence it fails loudly and the user resolves it themselves
-// (the unattended web Syncer rebases instead — do not harmonize the two).
+// handleGitSync runs the manual sync, whose policy is set by
+// git.manual_sync_mode. "attended" (default) does pull→push via ExecProcess so
+// git owns the terminal and can prompt for credentials, and `--ff-only` fails
+// loudly on divergence for the user to resolve. "auto" runs the same
+// self-healing merge-with-sidecar reconcile the automatic flows use, off-thread.
 func (c *Controller) handleGitSync() tea.Cmd {
+	if c.cfg.GitManualSyncMode == "auto" {
+		root := c.repoRoot
+		label := c.conflictLabel()
+		return func() tea.Msg {
+			sidecars, err := kbrdfs.GitMergeResolveSidecar(root, label, "", "")
+			if err != nil {
+				return gitSyncStepMsg{Stage: "sync", Err: err}
+			}
+			return gitSyncStepMsg{Stage: "sync", Err: kbrdfs.GitPush(root), Sidecars: sidecars}
+		}
+	}
 	cmd := kbrdfs.GitCommand(c.repoRoot, "pull", "--ff-only")
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return gitSyncStepMsg{Stage: "pull", Err: err, ThenPush: err == nil}
@@ -221,6 +235,7 @@ func (c *Controller) handleGitSync() tea.Cmd {
 
 func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 	if msg.Err != nil {
+		c.recordSyncOutcome(msg.Err, 0)
 		c.refreshStats()
 		c.refreshPanel()
 		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
@@ -232,9 +247,13 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 			return gitSyncStepMsg{Stage: "push", Err: err}
 		})
 	}
+	c.recordSyncOutcome(nil, len(msg.Sidecars))
 	c.refreshStats()
 	c.refreshPanel()
 	c.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
+	if n := len(msg.Sidecars); n > 0 {
+		return c.notifier.Success("sync ok — " + conflictCopyNote(n))
+	}
 	return c.notifier.Success("sync ok")
 }
 
@@ -242,8 +261,9 @@ type autoSyncTickMsg struct{ gitMsg }
 
 type autoSyncDoneMsg struct {
 	gitMsg
-	Stage string // "pull" or "push"
-	Err   error
+	Stage    string // "merge" or "push"
+	Err      error
+	Sidecars []string // conflict copies created during the reconcile
 }
 
 func (c *Controller) scheduleAutoSync() tea.Cmd {
@@ -271,25 +291,28 @@ func (c *Controller) shouldAutoSync() bool {
 	return true
 }
 
-// SyncOnce runs one guarded pull→push cycle off-thread, emitting autoSyncDoneMsg.
-// It self-skips (returns nil) when a sync is not due, so any caller — the
-// auto-sync ticker today, a background-task scheduler tomorrow — can drive it
-// without knowing git's preconditions.
+// SyncOnce runs one guarded reconcile→push cycle off-thread, emitting
+// autoSyncDoneMsg. It self-skips (returns nil) when a sync is not due, so any
+// caller — the auto-sync ticker today, a background-task scheduler tomorrow —
+// can drive it without knowing git's preconditions.
 //
-// Like the interactive sync, the pull is `--ff-only` on purpose: auto-sync
-// only runs on a clean tree, a diverged history fails loudly (toast) for the
-// user to resolve, and no rebase ever rewrites commits behind their back.
+// Auto-sync only runs on a clean tree and self-heals like every automatic flow:
+// GitMergeResolveSidecar merges the remote, auto-resolving true conflicts into
+// sidecar copies (local wins) rather than failing loudly, then pushes so the
+// merge — and any copies — propagate.
 func (c *Controller) SyncOnce() tea.Cmd {
 	if !c.shouldAutoSync() {
 		return nil
 	}
 	c.syncing = true
 	root := c.repoRoot
+	label := c.conflictLabel()
 	return func() tea.Msg {
-		if err := kbrdfs.GitPullFFOnly(root); err != nil {
-			return autoSyncDoneMsg{Stage: "pull", Err: err}
+		sidecars, err := kbrdfs.GitMergeResolveSidecar(root, label, "", "")
+		if err != nil {
+			return autoSyncDoneMsg{Stage: "merge", Err: err}
 		}
-		return autoSyncDoneMsg{Stage: "push", Err: kbrdfs.GitPush(root)}
+		return autoSyncDoneMsg{Stage: "push", Err: kbrdfs.GitPush(root), Sidecars: sidecars}
 	}
 }
 
@@ -319,13 +342,36 @@ func (c *Controller) handleAutoSyncDone(msg autoSyncDoneMsg) tea.Cmd {
 		return nil
 	}
 	if msg.Err != nil {
+		c.recordSyncOutcome(msg.Err, 0)
 		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
 		return c.notifier.Error("auto-sync " + msg.Stage + " failed: " + msg.Err.Error())
 	}
+	c.recordSyncOutcome(nil, len(msg.Sidecars))
 	c.refreshStats()
 	c.refreshPanel()
 	c.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
+	if n := len(msg.Sidecars); n > 0 {
+		return c.notifier.Success("auto-sync — " + conflictCopyNote(n))
+	}
 	return nil
+}
+
+// conflictLabel tags conflict-copy filenames: the instance name when set, else
+// a timestamp so distinct conflicts don't collide.
+func (c *Controller) conflictLabel() string {
+	if c.cfg.InstanceName != "" {
+		return c.cfg.InstanceName
+	}
+	return time.Now().Format("2006-01-02 1504")
+}
+
+// conflictCopyNote renders the "<n> conflict cop(y|ies) created" toast suffix.
+func conflictCopyNote(n int) string {
+	noun := "copy"
+	if n > 1 {
+		noun = "copies"
+	}
+	return fmt.Sprintf("%d conflict %s created", n, noun)
 }
 
 func (c *Controller) handleGitAddRemote(msg gitAddRemoteRequestMsg) tea.Cmd {
@@ -336,6 +382,7 @@ func (c *Controller) handleGitAddRemote(msg gitAddRemoteRequestMsg) tea.Cmd {
 	if err := kbrdfs.GitAddRemoteOrigin(c.repoRoot, url); err != nil {
 		return c.notifier.Error(err.Error())
 	}
+	c.refreshRemote()
 	c.refreshPanel()
 	return c.notifier.Success("remote 'origin' added")
 }

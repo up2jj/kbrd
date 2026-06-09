@@ -27,7 +27,7 @@ func TestTaskCreateItemCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api := boardTaskAPI{root: dir, boardName: "demo", sync: NewSyncer(dir, "Tester", "t@example.com")}
+	api := boardTaskAPI{root: dir, boardName: "demo", sync: NewSyncer(dir, "Tester", "t@example.com", "test")}
 	if api.sync == nil {
 		t.Fatal("syncer not created for git-backed board")
 	}

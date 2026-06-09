@@ -157,7 +157,7 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 		AuthorEmail:  envDefault("", "GIT_AUTHOR_EMAIL", "kbrd@localhost"),
 		PullEvery:    pullEvery,
 		Init: func(setStatus func(string)) (string, error) {
-			return initBoard(dir, f.gitURL, needsClone, setStatus)
+			return initBoard(dir, f.gitURL, instanceName, needsClone, setStatus)
 		},
 		// LoadConfig re-runs the full precedence chain against the file on
 		// disk, so env/flag still beat a freshly saved (or pulled) TOML.
@@ -188,7 +188,7 @@ func runServe(cmd *cobra.Command, f serveFlags) error {
 // initBoard prepares the board directory while the splash page is up: clone
 // on first boot (empty volume), pull on subsequent ones, then load config for
 // the display name. Board-supplied code never runs here.
-func initBoard(dir, gitURL string, needsClone bool, setStatus func(string)) (string, error) {
+func initBoard(dir, gitURL, instanceName string, needsClone bool, setStatus func(string)) (string, error) {
 	switch {
 	case needsClone:
 		setStatus("cloning board…")
@@ -201,9 +201,15 @@ func initBoard(dir, gitURL string, needsClone bool, setStatus func(string)) (str
 	case fsutil.GitRepoRoot(dir) != "" && fsutil.GitHasRemote(fsutil.GitRepoRoot(dir)):
 		setStatus("pulling latest…")
 		fmt.Println("repo present, pulling")
-		if err := fsutil.GitPullRebase(fsutil.GitRepoRoot(dir)); err != nil {
-			// A failed boot pull is not fatal: serve the local state.
+		// Boot is unattended like the rest of serve, so reconcile with the
+		// self-healing merge (a clean boot tree makes this a fast-forward in
+		// practice). A failed boot pull is not fatal: serve the local state.
+		if sidecars, err := fsutil.GitMergeResolveSidecar(fsutil.GitRepoRoot(dir), instanceName, "kbrd-web", "kbrd@localhost"); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: boot pull failed: %v\n", err)
+		} else {
+			for _, p := range sidecars {
+				fmt.Fprintf(os.Stderr, "boot sync created conflict copy %s\n", p)
+			}
 		}
 	}
 

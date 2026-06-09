@@ -3,7 +3,9 @@ package fs
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -65,16 +67,182 @@ func GitAddRemoteOrigin(repoRoot, url string) error {
 	return gitRun(repoRoot, "config", "push.autoSetupRemote", "true")
 }
 
-// GitPullRebase runs `git pull --rebase`. If it fails (e.g. the rebase
-// conflicts), any in-progress rebase is aborted so the working tree is
-// restored to the local committed state, and the original error is returned.
-func GitPullRebase(repoRoot string) error {
-	err := gitRun(repoRoot, "pull", "--rebase")
-	if err != nil {
-		// Best effort: restore the worktree if a rebase was left in progress.
-		_ = gitRun(repoRoot, "rebase", "--abort")
+// GitFetch updates remote-tracking refs without touching the working tree.
+func GitFetch(repoRoot string) error {
+	return gitRun(repoRoot, "fetch")
+}
+
+// GitMergeResolveSidecar fetches and merges the upstream branch (@{u}) into the
+// current branch. A clean merge — fast-forward, "already up to date", or
+// non-overlapping edits git auto-merges — applies with no further action and
+// returns no sidecars. A true content conflict is resolved automatically: the
+// local version keeps the original path and the incoming version is written to
+// a sibling "<name> (conflict <label>)<ext>" file, then the merge is committed
+// with a message naming each copy. This never halts and never loses data — the
+// overwritten edit survives in the sidecar and propagates on the next push.
+//
+// Because the merge runs on top of a committed local HEAD, origin stays an
+// ancestor of the result, so the follow-up push fast-forwards — force is never
+// needed. conflictLabel tags the sidecar filename (an instance name or
+// timestamp, chosen by the caller). authorName/authorEmail inject a commit
+// identity via -c when non-empty, mirroring GitCommitAll; empty uses the repo's
+// git config. Returns the repo-relative sidecar paths created.
+func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail string) (sidecars []string, err error) {
+	if err := GitFetch(repoRoot); err != nil {
+		return nil, err
 	}
-	return err
+	if _, mErr := gitCombined(repoRoot, "merge", "--no-edit", "@{u}"); mErr == nil {
+		return nil, nil // clean: fast-forward, up-to-date, or auto-merged
+	}
+
+	// A non-zero merge means either resolvable conflicts or a hard error
+	// (dirty tree, unrelated histories). Unmerged entries distinguish the two.
+	conflicted, lsErr := unmergedPaths(repoRoot)
+	if lsErr != nil || len(conflicted) == 0 {
+		_ = gitRun(repoRoot, "merge", "--abort")
+		if lsErr != nil {
+			return nil, lsErr
+		}
+		return nil, fmt.Errorf("git merge failed with no conflicts to resolve")
+	}
+
+	var mappings []string
+	for _, path := range conflicted {
+		oursOK := gitStageExists(repoRoot, 2, path)
+		theirs, theirsOK := gitShowStage(repoRoot, 3, path)
+
+		switch {
+		case oursOK:
+			// Local wins the original path.
+			if err := gitRun(repoRoot, "checkout", "--ours", "--", path); err != nil {
+				return sidecars, err
+			}
+			if err := gitRun(repoRoot, "add", "--", path); err != nil {
+				return sidecars, err
+			}
+			if theirsOK { // modify/modify or add/add: preserve incoming copy
+				rel, werr := writeSidecar(repoRoot, path, conflictLabel, theirs)
+				if werr != nil {
+					return sidecars, werr
+				}
+				if err := gitRun(repoRoot, "add", "--", rel); err != nil {
+					return sidecars, err
+				}
+				sidecars = append(sidecars, rel)
+				mappings = append(mappings, path+" → "+rel)
+			}
+		case theirsOK:
+			// Local deleted, remote modified: keep the deletion (local wins)
+			// but preserve the incoming version as a sidecar.
+			if err := gitRun(repoRoot, "rm", "-f", "--", path); err != nil {
+				return sidecars, err
+			}
+			rel, werr := writeSidecar(repoRoot, path, conflictLabel, theirs)
+			if werr != nil {
+				return sidecars, werr
+			}
+			if err := gitRun(repoRoot, "add", "--", rel); err != nil {
+				return sidecars, err
+			}
+			sidecars = append(sidecars, rel)
+			mappings = append(mappings, path+" → "+rel)
+		default:
+			// Neither side has content (rare, e.g. some rename/rename cases):
+			// clear the unmerged entry so the merge can be committed.
+			if err := gitRun(repoRoot, "rm", "-f", "--", path); err != nil {
+				return sidecars, err
+			}
+		}
+	}
+
+	if err := gitRun(repoRoot, commitArgs(authorName, authorEmail, mergeMessage(mappings))...); err != nil {
+		return sidecars, err
+	}
+	return sidecars, nil
+}
+
+// unmergedPaths returns the repo-relative paths with unresolved merge conflicts.
+func unmergedPaths(repoRoot string) ([]string, error) {
+	out, err := gitOutput(repoRoot, "diff", "--name-only", "--diff-filter=U", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for p := range strings.SplitSeq(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// gitStageExists reports whether the given merge stage (2=ours, 3=theirs) holds
+// a blob for path in the index.
+func gitStageExists(repoRoot string, stage int, path string) bool {
+	_, err := gitOutput(repoRoot, "rev-parse", "--verify", "-q", fmt.Sprintf(":%d:%s", stage, path))
+	return err == nil
+}
+
+// gitShowStage returns the blob bytes for a merge stage of path, and whether it
+// exists.
+func gitShowStage(repoRoot string, stage int, path string) ([]byte, bool) {
+	out, err := gitOutput(repoRoot, "show", fmt.Sprintf(":%d:%s", stage, path))
+	if err != nil {
+		return nil, false
+	}
+	return []byte(out), true
+}
+
+// writeSidecar writes content next to path as "<stem> (conflict <label>)<ext>",
+// disambiguating with a counter if that name already exists, and returns the
+// repo-relative path written.
+func writeSidecar(repoRoot, path, label string, content []byte) (string, error) {
+	dir := filepath.Dir(path) // forward-slash, repo-relative
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+
+	build := func(name string) string {
+		if dir == "." || dir == "" {
+			return name
+		}
+		return dir + "/" + name
+	}
+	rel := build(fmt.Sprintf("%s (conflict %s)%s", stem, label, ext))
+	for i := 2; ; i++ {
+		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel))); os.IsNotExist(err) {
+			break
+		}
+		rel = build(fmt.Sprintf("%s (conflict %s %d)%s", stem, label, i, ext))
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(rel)), content, 0o644); err != nil {
+		return "", fmt.Errorf("write conflict copy: %w", err)
+	}
+	return rel, nil
+}
+
+// mergeMessage builds a self-explaining merge commit subject (and body listing
+// each conflict copy, when any).
+func mergeMessage(mappings []string) string {
+	if len(mappings) == 0 {
+		return "sync: merge origin"
+	}
+	noun := "copy"
+	if len(mappings) > 1 {
+		noun = "copies"
+	}
+	return fmt.Sprintf("sync: merge origin; %d conflict %s\n\n%s",
+		len(mappings), noun, strings.Join(mappings, "\n"))
+}
+
+// commitArgs assembles `commit -m msg`, injecting -c identity flags when a
+// non-empty name/email is given (mirrors GitCommitAll).
+func commitArgs(authorName, authorEmail, msg string) []string {
+	var args []string
+	if authorName != "" || authorEmail != "" {
+		args = append(args, "-c", "user.name="+authorName, "-c", "user.email="+authorEmail)
+	}
+	return append(args, "commit", "-m", msg)
 }
 
 // GitCloneStreaming clones url into dir like GitClone, but streams git's

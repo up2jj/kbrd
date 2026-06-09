@@ -201,6 +201,76 @@ auto_sync_interval = "banana"
 	}
 }
 
+func TestLoad_ManualSyncMode_DefaultAttended(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitManualSyncMode != "attended" {
+		t.Fatalf("default manual_sync_mode: got %q want attended", cfg.GitManualSyncMode)
+	}
+}
+
+func TestLoad_ManualSyncMode_Auto(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+manual_sync_mode = "auto"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitManualSyncMode != "auto" {
+		t.Fatalf("manual_sync_mode: got %q want auto", cfg.GitManualSyncMode)
+	}
+}
+
+func TestLoad_ManualSyncMode_UnknownNormalizes(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+manual_sync_mode = "banana"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitManualSyncMode != "attended" {
+		t.Fatalf("unknown manual_sync_mode should fall back to attended, got %q", cfg.GitManualSyncMode)
+	}
+}
+
+func TestLoad_SyncOnStartup_DefaultTrue(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if !cfg.GitSyncOnStartup {
+		t.Fatal("sync_on_startup should default to true")
+	}
+}
+
+func TestLoad_SyncOnStartup_Disabled(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+sync_on_startup = false
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitSyncOnStartup {
+		t.Fatal("sync_on_startup = false should disable startup sync")
+	}
+}
+
 func TestLoad_MissingFolderPresentGlobal(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	globalDir := t.TempDir()

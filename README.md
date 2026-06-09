@@ -76,7 +76,10 @@ A quick, scannable rundown of everything kbrd does:
 - **Global search** — fuzzy full-text search across all recent boards via `ripgrep` (`f`).
 - **Board switcher** — fuzzy switch, pin favorites, and remove boards (`Ctrl+P`).
 - **Git panel** — diff, commit, log, sync (pull+push), and add remotes in-app (`g`).
-- **Auto-sync** — optional periodic pull/push with automatic upstream setup.
+- **Auto-sync** — reconciles with the remote when the board opens (and optionally
+  on an interval), with automatic upstream setup; it resolves divergence on its
+  own, setting aside a conflict copy only when two machines edit the same lines
+  (never blocking the sync). A header cell shows the sync state.
 - **README generation** — optionally regenerate `README.md` from the board before commits.
 - **Themes** — toggle light / dark palettes on the fly (quick command `.` → `t`).
 - **Help overlay** — discover every shortcut without leaving the app (`?`).
@@ -364,9 +367,11 @@ backend = "auto"            # auto | osascript | osc9 | osc777 | none
 name = ""                   # optional label shown in the board switcher
 
 [git]
-diff_tool          = "auto" # auto | difft | diff-so-fancy | git
-auto_sync_interval = ""     # empty / "0" disables; e.g. "30s", "5m", "1h"
-generate_readme    = false  # regenerate README.md from the board before each commit
+diff_tool          = "auto"     # auto | difft | diff-so-fancy | git
+auto_sync_interval = ""         # empty / "0" disables; e.g. "30s", "5m", "1h"
+generate_readme    = false      # regenerate README.md from the board before each commit
+manual_sync_mode   = "attended" # attended (ff-only, fail loud) | auto (merge + conflict copy)
+sync_on_startup    = true       # reconcile with the remote when the board opens (no-op without a remote)
 
 [scripting]
 enabled            = true     # master switch for the Lua VM
@@ -630,11 +635,16 @@ Security notes:
   the `http_request`/`http_response` request-middleware hooks (custom auth, redirects,
   header/response rewriting). Enable it only for boards you trust.
 
-Conflict stance: each mutation commits locally first, then pushes (with one
-`pull --rebase` retry). A conflicting rebase is aborted — your change stays committed
-locally, the UI shows a sync-failed chip, and resolution is left to a human in the TUI.
-Edits carry a content hash, so a card changed upstream mid-edit is flagged instead of
-silently overwritten.
+Conflict stance: each mutation commits locally first, then pushes. When the push is
+rejected (the remote moved ahead) the server reconciles with `fetch → merge → push` —
+no rebase, no force. Non-overlapping edits to a card auto-merge; a *true* line conflict
+keeps your local version as the card and writes the incoming version to a sibling
+`<card> (conflict <name|timestamp>).md`, so sync never halts and nothing is lost — the
+set-aside edit propagates back to every machine on the next push. All **automatic**
+flows (the web daemon and the TUI auto-sync) self-heal this way; the **manual** TUI sync
+follows `git.manual_sync_mode` (`attended` fails loud on divergence, `auto` reconciles
+like the rest). Edits carry a content hash, so a card changed upstream mid-edit is
+flagged instead of silently overwritten.
 
 ### Customizing the web UI
 
