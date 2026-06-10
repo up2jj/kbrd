@@ -6,6 +6,8 @@
 package git
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"kbrd/config"
@@ -58,9 +60,10 @@ type Controller struct {
 	syncing         bool // auto-sync in progress
 	shutdownPending bool // host asked to quit; signal once the in-flight sync settles
 
-	hasRemote         bool // cached: repo has an "origin" (drives the sync indicator)
-	lastSyncFailed    bool // the most recent reconcile errored
-	lastSyncConflicts int  // conflict copies from the last reconcile, sticky until a clean sync
+	hasRemote         bool      // cached: repo has an "origin" (drives the sync indicator)
+	lastSyncFailed    bool      // the most recent reconcile errored
+	lastSyncConflicts int       // conflict copies from the last reconcile, sticky until a clean sync
+	lastSyncAt        time.Time // when the last reconcile succeeded; zero before the first
 
 	termW, termH int
 }
@@ -73,6 +76,7 @@ type SyncStatus struct {
 	Syncing   bool
 	Failed    bool
 	Conflicts int
+	LastSync  time.Time // zero before the first successful sync this session
 }
 
 func New(d Deps) Controller {
@@ -107,6 +111,7 @@ func (c *Controller) SyncState() SyncStatus {
 		Syncing:   c.syncing,
 		Failed:    c.lastSyncFailed,
 		Conflicts: c.lastSyncConflicts,
+		LastSync:  c.lastSyncAt,
 	}
 }
 
@@ -120,6 +125,7 @@ func (c *Controller) recordSyncOutcome(err error, conflicts int) {
 	}
 	c.lastSyncFailed = false
 	c.lastSyncConflicts = conflicts
+	c.lastSyncAt = time.Now()
 }
 
 // StartAutoSync returns the initial auto-sync tick (nil if disabled).

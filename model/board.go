@@ -2022,14 +2022,12 @@ func (b *Board) renderLogo() string {
 // persistent metrics (count, git) sit to the right and the transient activity
 // indicators (sync, jobs, kbrd.status) flow in to their left as they appear.
 func (b *Board) updateBuiltinCells() {
-	// Transient activity indicators — set while active, cleared otherwise.
-	switch {
-	case b.shuttingDown:
-		b.setActivityCell(-5, "⟳ finishing sync…")
-	case b.git.Syncing():
-		b.setActivityCell(-5, "⟳ syncing")
-	default:
-		b.cells.Clear(-5)
+	// Sync indicator (id -5): transient spinner while reconciling, else the
+	// persistent remote-sync status. The mapping lives in syncCell.
+	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, b.palette); ok {
+		b.cells.SetInternal(cell)
+	} else {
+		b.cells.Clear(syncCellID)
 	}
 
 	if b.asyncInflight > 0 {
@@ -2107,26 +2105,6 @@ func (b *Board) updateBuiltinCells() {
 		}
 	} else {
 		b.cells.Clear(-1)
-	}
-
-	// Remote sync indicator: hidden without a remote, otherwise a hollow glyph
-	// when healthy, a spinner while reconciling, danger on failure, and a sticky
-	// warning naming the conflict copies an automatic merge set aside.
-	switch ss := b.git.SyncState(); {
-	case !ss.HasRemote:
-		b.cells.Clear(-9)
-	case ss.Syncing:
-		b.cells.SetInternal(Cell{ID: -9, Text: "⟳ sync", FG: string(b.palette.AccentSoft)})
-	case ss.Failed:
-		b.cells.SetInternal(Cell{ID: -9, Text: "✕ sync", FG: string(b.palette.Danger)})
-	case ss.Conflicts > 0:
-		text := "⚠ " + strconv.Itoa(ss.Conflicts) + " conflict"
-		if ss.Conflicts > 1 {
-			text += "s"
-		}
-		b.cells.SetInternal(Cell{ID: -9, Text: text, FG: string(b.palette.Warning)})
-	default:
-		b.cells.SetInternal(Cell{ID: -9, Text: "⇅ synced", FG: string(b.palette.FgMuted)})
 	}
 }
 
