@@ -271,6 +271,33 @@ sync_on_startup = false
 	}
 }
 
+func TestLoad_AutoCommit_DefaultFalse(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.GitAutoCommit {
+		t.Fatal("auto_commit should default to false")
+	}
+}
+
+func TestLoad_AutoCommit_Enabled(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[git]
+auto_commit = true
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if !cfg.GitAutoCommit {
+		t.Fatal("auto_commit = true should enable auto-commit")
+	}
+}
+
 func TestLoad_MissingFolderPresentGlobal(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	globalDir := t.TempDir()

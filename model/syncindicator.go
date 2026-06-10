@@ -13,7 +13,10 @@ const syncCellID = -5
 // to the header sync cell. The second result is false when the cell should be
 // hidden (no remote configured). Keeping this mapping here — not in the git
 // package — keeps display formatting at the call site; git owns only the state.
-func syncCell(ss git.SyncStatus, dirty int, shuttingDown bool, p Palette) (Cell, bool) {
+//
+// autoCommit suppresses the "commit to sync" hint: when the next auto-sync will
+// commit pending edits itself, a dirty tree isn't waiting on the user.
+func syncCell(ss git.SyncStatus, dirty int, shuttingDown, autoCommit bool, p Palette) (Cell, bool) {
 	cell := func(text, fg string) (Cell, bool) {
 		return Cell{ID: syncCellID, Text: text, FG: fg}, true
 	}
@@ -32,9 +35,10 @@ func syncCell(ss git.SyncStatus, dirty int, shuttingDown bool, p Palette) (Cell,
 			text += "s"
 		}
 		return cell(text, string(p.Warning))
-	case dirty > 0:
+	case dirty > 0 && !autoCommit:
 		// Auto-sync needs a clean tree (it can't merge over uncommitted edits),
-		// so say why it's paused rather than implying it just synced.
+		// so say why it's paused rather than implying it just synced. With
+		// auto_commit on, the next tick commits for you, so skip this hint.
 		return cell("⇅ commit to sync", string(p.FgMuted))
 	case !ss.LastSync.IsZero():
 		return cell("⇅ synced "+timeAgo(ss.LastSync), string(p.FgMuted))

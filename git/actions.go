@@ -285,7 +285,9 @@ func (c *Controller) shouldAutoSync() bool {
 	if !kbrdfs.GitHasRemote(c.repoRoot) {
 		return false
 	}
-	if !kbrdfs.GitWorkingTreeClean(c.repoRoot) {
+	// A merge can't run over uncommitted edits, so a dirty tree normally blocks
+	// auto-sync. With auto_commit on, SyncOnce commits first, so dirty is allowed.
+	if !c.cfg.GitAutoCommit && !kbrdfs.GitWorkingTreeClean(c.repoRoot) {
 		return false
 	}
 	return true
@@ -296,10 +298,11 @@ func (c *Controller) shouldAutoSync() bool {
 // caller — the auto-sync ticker today, a background-task scheduler tomorrow —
 // can drive it without knowing git's preconditions.
 //
-// Auto-sync only runs on a clean tree and self-heals like every automatic flow:
-// GitMergeResolveSidecar merges the remote, auto-resolving true conflicts into
-// sidecar copies (local wins) rather than failing loudly, then pushes so the
-// merge — and any copies — propagate.
+// Auto-sync self-heals like every automatic flow: GitMergeResolveSidecar merges
+// the remote, auto-resolving true conflicts into sidecar copies (local wins)
+// rather than failing loudly, then pushes so the merge — and any copies —
+// propagate. It runs only on a clean tree, unless git.auto_commit is set, in
+// which case it commits pending edits first so it can sync while you work.
 func (c *Controller) SyncOnce() tea.Cmd {
 	if !c.shouldAutoSync() {
 		return nil
@@ -307,7 +310,16 @@ func (c *Controller) SyncOnce() tea.Cmd {
 	c.syncing = true
 	root := c.repoRoot
 	label := c.conflictLabel()
+	autoCommit := c.cfg.GitAutoCommit
 	return func() tea.Msg {
+		if autoCommit {
+			// Empty identity uses the user's git config, matching handleGitCommit.
+			// A no-op on a clean tree. README regen (beforeCommit) is intentionally
+			// skipped here — it would churn on every tick.
+			if _, err := kbrdfs.GitCommitAll(root, "kbrd: auto-sync", "", ""); err != nil {
+				return autoSyncDoneMsg{Stage: "commit", Err: err}
+			}
+		}
 		sidecars, err := kbrdfs.GitMergeResolveSidecar(root, label, "", "")
 		if err != nil {
 			return autoSyncDoneMsg{Stage: "merge", Err: err}

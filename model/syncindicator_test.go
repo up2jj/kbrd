@@ -16,6 +16,7 @@ func TestSyncCell(t *testing.T) {
 		ss           git.SyncStatus
 		dirty        int
 		shuttingDown bool
+		autoCommit   bool
 		wantShow     bool
 		wantText     string
 		wantFG       string
@@ -68,6 +69,14 @@ func TestSyncCell(t *testing.T) {
 			wantText: "⇅ commit to sync",
 		},
 		{
+			name:       "auto_commit suppresses the dirty hint",
+			ss:         git.SyncStatus{HasRemote: true, LastSync: now},
+			dirty:      3,
+			autoCommit: true,
+			wantShow:   true,
+			wantText:   "⇅ synced just now",
+		},
+		{
 			name:     "clean and synced shows relative time",
 			ss:       git.SyncStatus{HasRemote: true, LastSync: now},
 			wantShow: true,
@@ -83,7 +92,7 @@ func TestSyncCell(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cell, ok := syncCell(tc.ss, tc.dirty, tc.shuttingDown, p)
+			cell, ok := syncCell(tc.ss, tc.dirty, tc.shuttingDown, tc.autoCommit, p)
 			if ok != tc.wantShow {
 				t.Fatalf("show = %v, want %v", ok, tc.wantShow)
 			}

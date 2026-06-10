@@ -2024,7 +2024,7 @@ func (b *Board) renderLogo() string {
 func (b *Board) updateBuiltinCells() {
 	// Sync indicator (id -5): transient spinner while reconciling, else the
 	// persistent remote-sync status. The mapping lives in syncCell.
-	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, b.palette); ok {
+	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, b.cfg.GitAutoCommit, b.palette); ok {
 		b.cells.SetInternal(cell)
 	} else {
 		b.cells.Clear(syncCellID)

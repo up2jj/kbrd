@@ -372,6 +372,7 @@ auto_sync_interval = ""         # empty / "0" disables; e.g. "30s", "5m", "1h"
 generate_readme    = false      # regenerate README.md from the board before each commit
 manual_sync_mode   = "attended" # attended (ff-only, fail loud) | auto (merge + conflict copy)
 sync_on_startup    = true       # reconcile with the remote when the board opens (no-op without a remote)
+auto_commit        = false      # TUI: commit pending edits before each auto-sync (self-sync while editing)
 
 [scripting]
 enabled            = true     # master switch for the Lua VM
@@ -643,8 +644,10 @@ keeps your local version as the card and writes the incoming version to a siblin
 set-aside edit propagates back to every machine on the next push. All **automatic**
 flows (the web daemon and the TUI auto-sync) self-heal this way; the **manual** TUI sync
 follows `git.manual_sync_mode` (`attended` fails loud on divergence, `auto` reconciles
-like the rest). Edits carry a content hash, so a card changed upstream mid-edit is
-flagged instead of silently overwritten.
+like the rest). The TUI auto-sync only runs on a clean tree (a merge can't run over
+uncommitted edits); set `git.auto_commit = true` to have it commit pending edits first
+and keep itself synced while you work. Edits carry a content hash, so a card changed
+upstream mid-edit is flagged instead of silently overwritten.
 
 ### Customizing the web UI
 
