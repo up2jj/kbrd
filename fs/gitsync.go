@@ -91,7 +91,12 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 	if err := GitFetch(repoRoot); err != nil {
 		return nil, err
 	}
-	if _, mErr := gitCombined(repoRoot, "merge", "--no-edit", "@{u}"); mErr == nil {
+	// The identity is injected on the merge too: a clean or fast-forward-blocked
+	// merge auto-creates a merge commit, which would otherwise fail without an
+	// ambient git identity (headless daemon, CI runner).
+	mergeCmd := append(identityArgs(authorName, authorEmail), "merge", "--no-edit", "@{u}")
+	mOut, mErr := gitCombined(repoRoot, mergeCmd...)
+	if mErr == nil {
 		return nil, nil // clean: fast-forward, up-to-date, or auto-merged
 	}
 
@@ -103,7 +108,7 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 		if lsErr != nil {
 			return nil, lsErr
 		}
-		return nil, fmt.Errorf("git merge failed with no conflicts to resolve")
+		return nil, fmt.Errorf("git merge failed with no conflicts to resolve: %s", strings.TrimSpace(mOut))
 	}
 
 	var mappings []string
@@ -235,14 +240,22 @@ func mergeMessage(mappings []string) string {
 		len(mappings), noun, strings.Join(mappings, "\n"))
 }
 
-// commitArgs assembles `commit -m msg`, injecting -c identity flags when a
-// non-empty name/email is given (mirrors GitCommitAll).
-func commitArgs(authorName, authorEmail, msg string) []string {
-	var args []string
-	if authorName != "" || authorEmail != "" {
-		args = append(args, "-c", "user.name="+authorName, "-c", "user.email="+authorEmail)
+// identityArgs returns the leading `-c user.name=/-c user.email=` flags when a
+// non-empty name/email is given, else nil. Prefixed onto any git command that
+// may create a commit so it never depends on an ambient identity (which a
+// headless daemon or CI runner may lack). gitVerb skips these when naming the
+// failing verb in errors.
+func identityArgs(authorName, authorEmail string) []string {
+	if authorName == "" && authorEmail == "" {
+		return nil
 	}
-	return append(args, "commit", "-m", msg)
+	return []string{"-c", "user.name=" + authorName, "-c", "user.email=" + authorEmail}
+}
+
+// commitArgs assembles `commit -m msg`, injecting the identity flags (mirrors
+// GitCommitAll).
+func commitArgs(authorName, authorEmail, msg string) []string {
+	return append(identityArgs(authorName, authorEmail), "commit", "-m", msg)
 }
 
 // GitCloneStreaming clones url into dir like GitClone, but streams git's
