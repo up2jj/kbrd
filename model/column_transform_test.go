@@ -20,10 +20,10 @@ func newTransformBoard(t *testing.T, luaBody string) *Board {
 		t.Fatal(err)
 	}
 	cards := map[string]string{
-		"alpha":   "---\npriority: 2\n---\nbody",
-		"beta":    "---\npriority: 1\n---\nbody",
-		"gamma":   "---\npriority: 3\n---\nbody",
-		"p_first": "pinned body",
+		"alpha": "---\npriority: 2\n---\nbody",
+		"beta":  "---\npriority: 1\n---\nbody",
+		"gamma": "---\npriority: 3\n---\nbody",
+		"first": "---\npinned: true\n---\npinned body",
 	}
 	for name, content := range cards {
 		if err := os.WriteFile(filepath.Join(todo, name+".md"), []byte(content), 0o644); err != nil {

@@ -44,8 +44,8 @@ func TestNewItem(t *testing.T) {
 		}
 	})
 
-	t.Run("pinned file", func(t *testing.T) {
-		path := writeFile(t, dir, "p_urgent.md", "do me first")
+	t.Run("pinned via frontmatter", func(t *testing.T) {
+		path := writeFile(t, dir, "urgent.md", "---\npinned: true\n---\ndo me first")
 		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
 		if err != nil {
 			t.Fatalf("NewItem: %v", err)
@@ -55,6 +55,17 @@ func TestNewItem(t *testing.T) {
 		}
 		if !item.Pinned {
 			t.Errorf("Pinned = false, want true")
+		}
+	})
+
+	t.Run("pinned via frontmatter yes", func(t *testing.T) {
+		path := writeFile(t, dir, "soon.md", "---\npinned: yes\n---\nlater")
+		item, err := NewItem(path, ItemOptions{PreviewLines: 3})
+		if err != nil {
+			t.Fatalf("NewItem: %v", err)
+		}
+		if !item.Pinned {
+			t.Errorf("Pinned = false, want true for `pinned: yes`")
 		}
 	})
 
@@ -346,44 +357,6 @@ func TestItem_HumanSize(t *testing.T) {
 			t.Errorf("HumanSize(%d) = %q, want %q", c.size, got, c.want)
 		}
 	}
-}
-
-func TestItem_TogglePin(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unpinned to pinned", func(t *testing.T) {
-		it := Item{Name: "foo", Pinned: false}
-		it.TogglePin()
-		if !it.Pinned {
-			t.Error("Pinned = false after toggle, want true")
-		}
-		if it.Name != "p_foo" {
-			t.Errorf("Name = %q, want %q", it.Name, "p_foo")
-		}
-	})
-
-	t.Run("pinned to unpinned", func(t *testing.T) {
-		it := Item{Name: "p_foo", Pinned: true}
-		it.TogglePin()
-		if it.Pinned {
-			t.Error("Pinned = true after toggle, want false")
-		}
-		if it.Name != "foo" {
-			t.Errorf("Name = %q, want %q", it.Name, "foo")
-		}
-	})
-
-	t.Run("round trip", func(t *testing.T) {
-		it := Item{Name: "bar", Pinned: false}
-		it.TogglePin()
-		it.TogglePin()
-		if it.Pinned {
-			t.Error("Pinned = true, want false after round trip")
-		}
-		if it.Name != "bar" {
-			t.Errorf("Name = %q, want %q after round trip", it.Name, "bar")
-		}
-	})
 }
 
 func TestItem_Refresh(t *testing.T) {

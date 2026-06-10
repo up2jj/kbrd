@@ -317,8 +317,9 @@ end)
 Payload:
 
 - `ev.column` — the column name.
-- `ev.pinned` — the pinned (`p_*`) items, **read-only context**: they always
-  render on top in default order and cannot be reordered or hidden.
+- `ev.pinned` — the pinned items (those with `pinned: true` frontmatter),
+  **read-only context**: they always render on top in default order and cannot
+  be reordered or hidden.
 - `ev.items` — the unpinned items, the transform target. Each item table has
   `name`, `title`, `pinned`, `tags`, `meta`, `icon`, `accent`, `path`, and
   `data` (the card's full YAML frontmatter, including custom keys like

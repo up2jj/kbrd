@@ -10,12 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"kbrd/board"
 	"kbrd/frontmatter"
 )
-
-// pinPrefix aliases the on-disk pin convention owned by package board.
-const pinPrefix = board.PinPrefix
 
 // ItemOptions bundles the per-board display settings that influence how an item
 // is loaded and labelled. It is owned by the model layer so Item stays
@@ -59,12 +55,7 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		return Item{}, err
 	}
 
-	name := info.Name()
-	name = strings.TrimSuffix(name, ".md")
-	pinned := strings.HasPrefix(name, pinPrefix)
-	if pinned {
-		name = strings.TrimPrefix(name, pinPrefix)
-	}
+	name := strings.TrimSuffix(info.Name(), ".md")
 
 	preview, heading, front, hash, _ := readPreviewAndHeading(fullPath, opts)
 	fm, fmErr := frontmatter.Parse(front) // malformed YAML degrades to no metadata
@@ -75,7 +66,7 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		Title:       resolveTitle(name, heading, opts),
 		Preview:     preview,
 		FullPath:    fullPath,
-		Pinned:      pinned,
+		Pinned:      frontmatter.Bool(fm.Data["pinned"]),
 		Size:        info.Size(),
 		Modified:    info.ModTime(),
 		contentHash: hash,
@@ -144,15 +135,6 @@ func timeAgo(t time.Time) string {
 	}
 }
 
-func (i *Item) TogglePin() {
-	i.Pinned = !i.Pinned
-	if i.Pinned {
-		i.Name = pinPrefix + i.Name
-	} else {
-		i.Name = strings.TrimPrefix(i.Name, pinPrefix)
-	}
-}
-
 func (i *Item) Refresh(opts ItemOptions) error {
 	info, err := os.Stat(i.FullPath)
 	if err != nil {
@@ -169,6 +151,7 @@ func (i *Item) Refresh(opts ItemOptions) error {
 		// Assign unconditionally so removing the frontmatter clears the fields.
 		fm, fmErr := frontmatter.Parse(front)
 		i.BadFM = fmErr != nil
+		i.Pinned = frontmatter.Bool(fm.Data["pinned"])
 		i.Tags = fm.Tags
 		i.Meta = fm.Meta
 		i.Icon = fm.Icon

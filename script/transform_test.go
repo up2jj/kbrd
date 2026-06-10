@@ -9,7 +9,7 @@ import (
 // unpinned items (a, b, c) and one pinned (p) as context.
 func fireItems(h *Host, column string) ColumnItemsResult {
 	pinned := []map[string]interface{}{
-		{"name": "p", "title": "p", "pinned": true, "path": "/col/p_p.md"},
+		{"name": "p", "title": "p", "pinned": true, "path": "/col/p.md"},
 	}
 	unpinned := []map[string]interface{}{
 		{"name": "a", "title": "a", "pinned": false, "path": "/col/a.md", "data": map[string]interface{}{"priority": 2}},

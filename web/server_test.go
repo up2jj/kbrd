@@ -329,22 +329,6 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
-func TestSplitFrontmatter(t *testing.T) {
-	cases := []struct{ raw, block, body string }{
-		{"---\ntags: [a]\n---\nbody\n", "tags: [a]\n", "body\n"},
-		{"no frontmatter\n", "", "no frontmatter\n"},
-		{"---\nunclosed\n", "", "---\nunclosed\n"},
-		{"", "", ""},
-		{"---\n---\nbody", "", "body"},
-	}
-	for _, tc := range cases {
-		block, body := splitFrontmatter(tc.raw)
-		if block != tc.block || body != tc.body {
-			t.Errorf("splitFrontmatter(%q) = (%q, %q), want (%q, %q)", tc.raw, block, body, tc.block, tc.body)
-		}
-	}
-}
-
 func TestApplyConfig_BoardName(t *testing.T) {
 	s, _, _ := newTestServer(t)
 

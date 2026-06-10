@@ -10,6 +10,7 @@ package frontmatter
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -49,6 +50,162 @@ func Parse(block []byte) (Parsed, error) {
 	p.Meta = stringKey(m, "meta")
 	p.Tags = tagsKey(m, "tags")
 	return p, nil
+}
+
+// Bool coerces a frontmatter value into a boolean. A real bool passes through;
+// a string is matched case-insensitively against the truthy set
+// (true/yes/y/on/1) and is false otherwise; any other type is false. The string
+// arm exists because go-yaml v3 follows the YAML 1.2 core schema, where only
+// true/false resolve to a bool — yes/no/on/off stay strings — so a key written
+// as `pinned: yes` arrives here as the string "yes".
+func Bool(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "true", "yes", "y", "on", "1":
+			return true
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// Split separates raw content into its leading YAML frontmatter block (the bytes
+// between the opening "---" fence and the first closing "---"/"..." fence,
+// excluding the fences) and the body that follows. fenced reports whether a
+// complete leading block was found; when it is false block is "" and body is
+// raw unchanged. Only a block that starts the file counts — a "---" later in the
+// document (a horizontal rule, a second block) is left in the body. An opening
+// fence with no closing fence is treated as no block at all (fenced=false), so a
+// malformed file is never mistaken for one carrying metadata. The block is not
+// length-capped: Split operates on an in-memory string, and Set/Delete rebuild
+// from it, so truncation would lose content (the MaxBytes bound belongs to the
+// streaming loader that captures frontmatter for Parse).
+func Split(raw string) (block, body string, fenced bool) {
+	rest, ok := strings.CutPrefix(raw, "---\n")
+	if !ok {
+		return "", raw, false
+	}
+	for i := 0; i <= len(rest); {
+		end := strings.Index(rest[i:], "\n")
+		line := ""
+		next := len(rest)
+		if end >= 0 {
+			line = rest[i : i+end]
+			next = i + end + 1
+		} else {
+			line = rest[i:]
+		}
+		if t := strings.TrimRight(line, " \t\r"); t == "---" || t == "..." {
+			return rest[:i], rest[next:], true
+		}
+		if end < 0 {
+			break
+		}
+		i = next
+	}
+	// No closing fence: not a well-formed block.
+	return "", raw, false
+}
+
+// Set returns raw with the top-level key set to value in its leading
+// frontmatter block. An existing top-level `<key>:` line is replaced in place,
+// preserving every other line; otherwise `<key>: <value>` is appended to the
+// block. When raw has no well-formed leading block one is created
+// ("---\n<key>: <value>\n---\n\n" ahead of the original content). value is
+// written verbatim, so callers pass an already-valid YAML scalar.
+func Set(raw, key, value string) string {
+	line := key + ": " + value
+	block, body, fenced := Split(raw)
+	if !fenced {
+		return "---\n" + line + "\n---\n\n" + raw
+	}
+	lines := blockLines(block)
+	for i, l := range lines {
+		if topLevelKey(l) == key {
+			lines[i] = line
+			return assemble(lines, body)
+		}
+	}
+	return assemble(append(lines, line), body)
+}
+
+// Delete returns raw with any top-level `<key>:` line removed from its leading
+// frontmatter block. Other lines are preserved; if removal empties the block the
+// fences (and a single blank line that followed them) are dropped too. A file
+// with no well-formed block, or no such key, is returned unchanged.
+func Delete(raw, key string) string {
+	block, body, fenced := Split(raw)
+	if !fenced {
+		return raw
+	}
+	lines := blockLines(block)
+	kept := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if topLevelKey(l) == key {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	if len(kept) == len(lines) {
+		return raw // key absent — leave the file untouched
+	}
+	if blockEmpty(kept) {
+		return strings.TrimPrefix(body, "\n") // drop one blank line after the block
+	}
+	return assemble(kept, body)
+}
+
+// blockLines splits a frontmatter block into its content lines. The block
+// (everything between the fences) carries a trailing newline, so a naive
+// strings.Split would yield a spurious empty final element; trimming one
+// trailing "\n" first keeps the line count honest. An empty block yields no
+// lines.
+func blockLines(block string) []string {
+	if block == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+}
+
+// assemble rebuilds raw content from frontmatter block lines and the body,
+// re-adding the fences and the block's trailing newline. The block lines never
+// include the fences themselves.
+func assemble(lines []string, body string) string {
+	block := ""
+	if len(lines) > 0 {
+		block = strings.Join(lines, "\n") + "\n"
+	}
+	return "---\n" + block + "---\n" + body
+}
+
+// blockEmpty reports whether the block lines carry no content (all blank).
+func blockEmpty(lines []string) bool {
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// topLevelKey returns the mapping key a block line declares when it is written
+// at column 0 (no leading indentation), else "". Indented lines belong to a
+// nested mapping or a multi-line value and never match, so those structures are
+// left untouched by Set/Delete.
+func topLevelKey(line string) string {
+	line = strings.TrimRight(line, "\r")
+	if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' {
+		return ""
+	}
+	k, _, ok := strings.Cut(line, ":")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(k)
 }
 
 // stringKey returns m[key] when it is a string, else "".

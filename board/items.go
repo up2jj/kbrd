@@ -9,22 +9,6 @@ import (
 	"time"
 )
 
-// PinPrefix marks a pinned item in its file name (p_task.md). The prefix is
-// part of the on-disk naming convention, so it lives here with the other
-// filesystem semantics; frontends strip it for display via UnpinnedName.
-const PinPrefix = "p_"
-
-// PinnedName reports whether an item name carries the pin prefix.
-func PinnedName(name string) bool {
-	return strings.HasPrefix(name, PinPrefix)
-}
-
-// UnpinnedName returns the item name with any pin prefix stripped — the
-// display form of the name.
-func UnpinnedName(name string) string {
-	return strings.TrimPrefix(name, PinPrefix)
-}
-
 // ItemPath sanitizes name and returns the absolute path of the item file
 // <columnPath>/<name>.md. It does not check whether the file exists.
 func ItemPath(columnPath, name string) (string, error) {

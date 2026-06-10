@@ -410,31 +410,53 @@ func TestColumn_PinItem(t *testing.T) {
 		if err := col.PinItem("task"); err != nil {
 			t.Fatalf("PinItem: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(col.Path, "p_task.md")); err != nil {
-			t.Errorf("pinned file missing: %v", err)
+		// The file name is unchanged; pinning is a frontmatter edit.
+		if _, err := os.Stat(filepath.Join(col.Path, "task.md")); err != nil {
+			t.Errorf("item file missing: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(col.Path, "task.md")); !os.IsNotExist(err) {
-			t.Error("unpinned file still exists")
+		raw, _ := os.ReadFile(filepath.Join(col.Path, "task.md"))
+		if !strings.Contains(string(raw), "pinned: true") {
+			t.Errorf("file = %q, want it to contain `pinned: true`", raw)
 		}
 		if col.TotalCount() != 1 || !col.Items[0].Pinned {
 			t.Errorf("Items = %+v, want one pinned", col.Items)
 		}
+		if sel := col.SelectedItem(); sel == nil || sel.Name != "task" {
+			t.Errorf("selected = %v, want the pinned item to stay selected", sel)
+		}
 	})
 
 	t.Run("unpin previously pinned", func(t *testing.T) {
-		col := newTestColumn(t, map[string]string{"p_urgent": "x"})
-		// After LoadItems, the item appears with Name "urgent", Pinned=true.
+		col := newTestColumn(t, map[string]string{"urgent": "---\npinned: true\n---\nx"})
+		// After LoadItems, the item appears Pinned=true from its frontmatter.
+		if !col.Items[0].Pinned {
+			t.Fatalf("setup: Items[0].Pinned = false, want true")
+		}
 		if err := col.PinItem("urgent"); err != nil {
 			t.Fatalf("PinItem: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(col.Path, "urgent.md")); err != nil {
-			t.Errorf("unpinned file missing: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(col.Path, "p_urgent.md")); !os.IsNotExist(err) {
-			t.Error("pinned file still exists")
+		raw, _ := os.ReadFile(filepath.Join(col.Path, "urgent.md"))
+		if strings.Contains(string(raw), "pinned") {
+			t.Errorf("file = %q, want the pinned key removed", raw)
 		}
 		if col.Items[0].Pinned {
 			t.Error("Items[0].Pinned = true, want false")
+		}
+	})
+
+	t.Run("pinned item stays selected after re-sort", func(t *testing.T) {
+		// zeta sorts last; pinning it should move it to the top and the cursor
+		// should follow it there.
+		col := newTestColumn(t, map[string]string{"alpha": "x", "mid": "x", "zeta": "x"})
+		col.SelectByName("zeta")
+		if err := col.PinItem("zeta"); err != nil {
+			t.Fatalf("PinItem: %v", err)
+		}
+		if col.Items[0].Name != "zeta" {
+			t.Errorf("Items[0] = %q, want zeta on top", col.Items[0].Name)
+		}
+		if sel := col.SelectedItem(); sel == nil || sel.Name != "zeta" {
+			t.Errorf("selected = %v, want zeta to follow to its new position", sel)
 		}
 	})
 

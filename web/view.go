@@ -19,8 +19,8 @@ const previewLines = 3
 
 // Card is the view model for one item file.
 type Card struct {
-	Name    string // real file base name (identifier in URLs), e.g. "p_task"
-	Title   string // display title: frontmatter/H1/name with "p_" stripped
+	Name    string // file base name without ".md" (identifier in URLs)
+	Title   string // display title: H1 heading when present, else the name
 	Icon    string
 	Accent  string
 	Tags    []string
@@ -78,19 +78,19 @@ func loadColumn(boardPath, name string) (Column, error) {
 // bare card (name only) rather than failing the page — mirrors the lenient
 // stance of the TUI loader.
 func loadCard(columnPath, name string) Card {
-	c := Card{Name: name, Pinned: board.PinnedName(name)}
-	c.Title = board.UnpinnedName(name)
+	c := Card{Name: name, Title: name}
 
 	raw, err := board.ReadItem(columnPath, name)
 	if err != nil {
 		c.search = strings.ToLower(c.Title)
 		return c
 	}
-	fmBlock, body := splitFrontmatter(raw)
+	fmBlock, body, _ := frontmatter.Split(raw)
 	if fm, err := frontmatter.Parse([]byte(fmBlock)); err == nil {
 		c.Icon = fm.Icon
 		c.Accent = fm.Accent
 		c.Tags = fm.Tags
+		c.Pinned = frontmatter.Bool(fm.Data["pinned"])
 	}
 
 	for line := range strings.SplitSeq(body, "\n") {
@@ -98,7 +98,7 @@ func loadCard(columnPath, name string) Card {
 		if trimmed == "" {
 			continue
 		}
-		if h, ok := strings.CutPrefix(trimmed, "# "); ok && c.Title == board.UnpinnedName(name) {
+		if h, ok := strings.CutPrefix(trimmed, "# "); ok && c.Title == name {
 			c.Title = strings.TrimSpace(h)
 			continue
 		}
@@ -108,45 +108,6 @@ func loadCard(columnPath, name string) Card {
 	}
 	c.search = strings.ToLower(c.Title + "\n" + strings.Join(c.Tags, "\n") + "\n" + body)
 	return c
-}
-
-// splitFrontmatter splits raw content into the frontmatter block (the bytes
-// between leading "---" fences, without the fences) and the remaining body.
-// Content without a leading fence comes back unchanged as body. The block is
-// capped at frontmatter.MaxBytes, mirroring the TUI loader's bound.
-func splitFrontmatter(raw string) (block, body string) {
-	rest, ok := strings.CutPrefix(raw, "---\n")
-	if !ok {
-		if raw == "---" { // degenerate: fence-only file
-			return "", raw
-		}
-		return "", raw
-	}
-	// Closing fence: a line that is exactly "---".
-	for i := 0; i <= len(rest); {
-		end := strings.Index(rest[i:], "\n")
-		line := ""
-		next := len(rest)
-		if end >= 0 {
-			line = rest[i : i+end]
-			next = i + end + 1
-		} else {
-			line = rest[i:]
-		}
-		if strings.TrimRight(line, " \t\r") == "---" {
-			b := rest[:i]
-			if len(b) > frontmatter.MaxBytes {
-				b = b[:frontmatter.MaxBytes]
-			}
-			return b, rest[next:]
-		}
-		if end < 0 {
-			break
-		}
-		i = next
-	}
-	// No closing fence: treat the whole file as body.
-	return "", raw
 }
 
 // contentHash is the optimistic-concurrency token carried by the edit form.

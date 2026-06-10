@@ -15,6 +15,7 @@ import (
 
 	"kbrd/board"
 	"kbrd/events"
+	"kbrd/frontmatter"
 	kbrdfs "kbrd/fs"
 )
 
@@ -985,20 +986,32 @@ func (c *Column) Rename(newName string) error {
 	return c.LoadItems()
 }
 
+// PinItem toggles an item's pin state by rewriting its `pinned` frontmatter
+// key: pinning sets `pinned: true`, unpinning removes the key. The file name is
+// left untouched. LoadItems re-derives Pinned from the new frontmatter.
 func (c *Column) PinItem(itemName string) error {
 	for i := range c.Items {
 		if c.Items[i].Name == itemName {
-			// Toggle a copy so a failed rename leaves the in-memory item
-			// matching the file on disk.
-			toggled := c.Items[i]
-			toggled.TogglePin()
-			newPath := filepath.Join(c.Path, toggled.Name+".md")
-			// NoClobber matters here: pinning "x" while "p_x" exists must
-			// fail rather than silently overwrite p_x.md.
-			if err := board.RenameNoClobber(c.Items[i].FullPath, newPath); err != nil {
+			raw, err := os.ReadFile(c.Items[i].FullPath)
+			if err != nil {
 				return err
 			}
-			return c.LoadItems()
+			var updated string
+			if c.Items[i].Pinned {
+				updated = frontmatter.Delete(string(raw), "pinned")
+			} else {
+				updated = frontmatter.Set(string(raw), "pinned", "true")
+			}
+			if err := board.ReplaceFileContent(c.Items[i].FullPath, updated); err != nil {
+				return err
+			}
+			if err := c.LoadItems(); err != nil {
+				return err
+			}
+			// Pinning re-sorts the column; keep the cursor on the toggled item
+			// so it stays selected at its new position. The name is unchanged.
+			c.SelectByName(itemName)
+			return nil
 		}
 	}
 	return os.ErrNotExist
