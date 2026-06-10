@@ -427,6 +427,11 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		p.startRemoteInput()
 		return nil
 	}
+	// Sync (pull+push) gates only on having a remote, so it can pull onto a
+	// clean tree — not just when there are local changes to commit+push.
+	if p.hasRemote && key.Matches(km, panelKeys.Sync) {
+		return func() tea.Msg { return gitSyncRequestMsg{} }
+	}
 	if len(p.files) > 0 {
 		switch {
 		case key.Matches(km, panelKeys.Commit):
@@ -438,11 +443,6 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 			}
 			p.startCommitInput(true)
 			return nil
-		case key.Matches(km, panelKeys.Sync):
-			if !p.hasRemote {
-				return nil
-			}
-			return func() tea.Msg { return gitSyncRequestMsg{} }
 		}
 	}
 
@@ -628,8 +628,10 @@ func (p *GitPanel) View() string {
 	} else {
 		if len(p.files) > 0 {
 			add("c", "commit all")
-			if p.hasRemote {
-				add("s", "sync")
+		}
+		if p.hasRemote {
+			add("s", "sync")
+			if len(p.files) > 0 {
 				add("S", "commit all+sync")
 			}
 		}
