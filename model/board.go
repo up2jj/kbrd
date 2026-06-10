@@ -1312,11 +1312,10 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 	first, count := b.visibleColRange()
-	slotIdx := xc / b.slotWidth()
-	if slotIdx < 0 || slotIdx >= count {
+	colIdx := columnAtX(xc, first, count, b.colWidthOf)
+	if colIdx < 0 {
 		return b, nil
 	}
-	colIdx := first + slotIdx
 	col := b.columns[colIdx]
 
 	itemIdx, ok := col.HitTest(msg.Y - b.logoHeight)
@@ -2113,9 +2112,12 @@ func (b *Board) setActivityCell(id int, text string) {
 	b.cells.SetInternal(Cell{ID: id, Text: text, FG: string(b.palette.AccentSoft)})
 }
 
-// slotWidth is the rendered width of one column cell on the row (see
-// layout.go for the geometry).
-func (b *Board) slotWidth() int { return slotWidth(b.cfg.ColumnWidth) }
+// colWidthOf is the content width of column i: its script-set override when one
+// is given, else the configured default. This feeds layout's variable-width
+// geometry so a script-set column can be wider/narrower than its neighbors.
+func (b *Board) colWidthOf(i int) int {
+	return b.columns[i].ContentWidth(b.cfg.ColumnWidth)
+}
 
 // visibleColRange returns the index of the first column to render and the
 // number of columns that fit horizontally. It also adjusts firstVisibleCol so
@@ -2125,9 +2127,9 @@ func (b *Board) visibleColRange() (first, count int) {
 	if len(b.columns) == 0 {
 		return 0, 0
 	}
-	count = visibleCount(b.termWidth, b.slotWidth(), len(b.columns))
-	b.firstVisibleCol = clampFirstVisible(b.firstVisibleCol, b.selectedCol, count, len(b.columns))
-	return b.firstVisibleCol, count
+	first, count = packWindow(b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.colWidthOf)
+	b.firstVisibleCol = first
+	return first, count
 }
 
 func (b *Board) View() string {
@@ -2168,7 +2170,7 @@ func (b *Board) View() string {
 	gap := lipgloss.NewStyle().MarginRight(1)
 	gutterW := gutterWidth(b.mnemonicMaxLen)
 
-	slots, first := computeSlots(b.zoom.Active(), b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.cfg.ColumnWidth)
+	slots, first := computeSlots(b.zoom.Active(), b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.colWidthOf)
 	b.firstVisibleCol = first
 	end := first + len(slots)
 	rendered := make([]string, 0, len(slots)+2)

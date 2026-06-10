@@ -40,25 +40,26 @@ type Slot struct {
 }
 
 // computeSlots returns the slots to render this frame and the adjusted
-// firstVisible. Normal mode yields the visible window of columns at colWidth;
-// zoom mode yields a single wide slot for the selected column (firstVisible
-// passes through untouched so leaving zoom restores the previous window).
-func computeSlots(zoomed bool, termWidth, selected, firstVisible, numCols, colWidth int) ([]Slot, int) {
+// firstVisible. Normal mode yields the visible window of columns, each at its
+// own content width (widthOf); zoom mode yields a single wide slot for the
+// selected column (firstVisible passes through untouched so leaving zoom
+// restores the previous window). widthOf maps a column index to its content
+// width, letting a script-set column be wider/narrower than its neighbors.
+func computeSlots(zoomed bool, termWidth, selected, firstVisible, numCols int, widthOf func(i int) int) ([]Slot, int) {
 	if numCols == 0 {
 		return nil, firstVisible
 	}
 	if zoomed {
 		return []Slot{{
 			Col:          selected,
-			Width:        zoomedColumnWidth(termWidth, colWidth),
+			Width:        zoomedColumnWidth(termWidth, widthOf(selected)),
 			PreviewLines: zoomPreviewLines,
 		}}, firstVisible
 	}
-	count := visibleCount(termWidth, slotWidth(colWidth), numCols)
-	first := clampFirstVisible(firstVisible, selected, count, numCols)
+	first, count := packWindow(termWidth, selected, firstVisible, numCols, widthOf)
 	slots := make([]Slot, 0, count)
 	for i := first; i < first+count; i++ {
-		slots = append(slots, Slot{Col: i, Width: colWidth, PreviewLines: 1})
+		slots = append(slots, Slot{Col: i, Width: widthOf(i), PreviewLines: 1})
 	}
 	return slots, first
 }
@@ -67,27 +68,80 @@ func computeSlots(zoomed bool, termWidth, selected, firstVisible, numCols, colWi
 // content colWidth + 2 for the rounded border + 1 for the right margin.
 func slotWidth(colWidth int) int { return colWidth + columnSlotPadding }
 
-// visibleCount is how many slots of slotW fit in termWidth, at least 1 and at
-// most numCols. termWidth 0 (no WindowSizeMsg yet) falls back to 80.
-func visibleCount(termWidth, slotW, numCols int) int {
+// columnAtX maps an x offset (measured from the left edge of the first visible
+// column) to a column index within the window [first, first+count), walking
+// each column's own slot width so variable widths map correctly. Returns -1
+// when x lands past the last visible column.
+func columnAtX(x, first, count int, widthOf func(i int) int) int {
+	for i := first; i < first+count; i++ {
+		w := slotWidth(widthOf(i))
+		if x < w {
+			return i
+		}
+		x -= w
+	}
+	return -1
+}
+
+// packBudget is the horizontal space available to column slots: the terminal
+// minus the overflow-chip reserve. termWidth 0 (no WindowSizeMsg yet) is 80.
+func packBudget(termWidth int) int {
 	if termWidth == 0 {
 		termWidth = 80
 	}
-	count := max((termWidth-indicatorReserve)/slotW, 1)
-	return min(count, numCols)
+	return termWidth - indicatorReserve
 }
 
-// clampFirstVisible adjusts the window start so the selected column stays
-// within [first, first+count) and the window stays within the column range.
-func clampFirstVisible(firstVisible, selected, count, numCols int) int {
-	if selected < firstVisible {
-		firstVisible = selected
+// packWindow returns the visible window [first, first+count) for variable-width
+// columns. It keeps the firstVisible hint as the left edge when it can, grows
+// right by budget, slides the window right if the selected column fell off the
+// right edge, then pulls in any leftover budget on the left so the window stays
+// full near the right end. The first column is always admitted (count >= 1).
+// On uniform widths it reduces to the old visibleCount/clampFirstVisible math.
+func packWindow(termWidth, selected, firstVisible, numCols int, widthOf func(i int) int) (first, count int) {
+	avail := packBudget(termWidth)
+
+	first = min(max(firstVisible, 0), numCols-1)
+	if selected < first {
+		first = selected // follow the selection leftward past the hint
 	}
-	if selected >= firstVisible+count {
-		firstVisible = selected - count + 1
+
+	// Grow right from first within budget; the left-most column always shows.
+	used, last := 0, first
+	for i := first; i < numCols; i++ {
+		w := slotWidth(widthOf(i))
+		if i > first && used+w > avail {
+			break
+		}
+		used += w
+		last = i
 	}
-	maxFirst := max(numCols-count, 0)
-	return min(max(firstVisible, 0), maxFirst)
+
+	// Selection fell off the right edge: re-anchor on it and fill leftward.
+	if selected > last {
+		used, first, last = slotWidth(widthOf(selected)), selected, selected
+		for i := selected - 1; i >= 0; i-- {
+			w := slotWidth(widthOf(i))
+			if used+w > avail {
+				break
+			}
+			used += w
+			first = i
+		}
+	}
+
+	// Pull leftover budget in from the left so the window stays as full as it
+	// can near the right end (mirrors the old maxFirst clamp).
+	for i := first - 1; i >= 0; i-- {
+		w := slotWidth(widthOf(i))
+		if used+w > avail {
+			break
+		}
+		used += w
+		first = i
+	}
+
+	return first, last - first + 1
 }
 
 // gutterWidth is the mnemonic gutter inside a card: the widest mnemonic plus

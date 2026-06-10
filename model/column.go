@@ -387,6 +387,23 @@ type Column struct {
 	colCmds    []VirtualCmd // column-scoped commands (B)
 	defaultCmd string       // id of the Enter/default command (optional)
 	emptyText  string       // placeholder shown when there are no items
+
+	// Script-set appearance overrides (virtual columns). Zero values mean
+	// "use the cfg/palette default". Width participates in layout geometry;
+	// headerFG/headerBG paint the header bar in renderHeader.
+	Width    int
+	headerFG lipgloss.Color
+	headerBG lipgloss.Color
+}
+
+// ContentWidth is the column's content width: its script-set override when one
+// is given, else the supplied default (cfg.ColumnWidth). Layout owns geometry,
+// so this is the single place an override feeds the slot math.
+func (c *Column) ContentWidth(def int) int {
+	if c.Width > 0 {
+		return c.Width
+	}
+	return def
 }
 
 // VirtualCmd is a column-scoped command surfaced in the X menu / status hints
@@ -439,6 +456,10 @@ func (c *Column) ApplyVirtualSpec(spec events.VirtualColumnSpec) {
 		c.Name = spec.Name
 	}
 	c.emptyText = spec.Empty
+	// set replaces the column wholesale, so an absent field resets to default.
+	c.Width = spec.Width
+	c.headerFG = lipgloss.Color(spec.HeaderFG)
+	c.headerBG = lipgloss.Color(spec.HeaderBG)
 
 	c.colCmds = c.colCmds[:0]
 	c.defaultCmd = ""
@@ -547,39 +568,55 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
 		nameLabel = "◇ " + nameLabel
 		nameFg = c.palette.AccentSoft
 	}
+	// Script-set header colors win over the focus-derived defaults in both
+	// states, giving the column a fixed look. lipgloss resets the background
+	// after each rendered segment, so the bar can't be filled by wrapping the
+	// finished line — every piece (including the plain pad/spacer) must carry
+	// the bg itself, else the gaps between segments show through. withBG adds it
+	// to a styled segment; fill paints a plain run. Both are no-ops when unset.
+	if c.headerFG != "" {
+		nameFg = c.headerFG
+	}
+	withBG := func(s lipgloss.Style) lipgloss.Style {
+		if c.headerBG != "" {
+			return s.Background(c.headerBG)
+		}
+		return s
+	}
+	fill := func(s string) string { return withBG(lipgloss.NewStyle()).Render(s) }
 	countLabel := strconv.Itoa(c.TotalCount())
 	filtered := c.list.IsFiltered() && !c.list.SettingFilter()
 	if filtered {
 		countLabel = strconv.Itoa(len(c.list.VisibleItems())) + "/" + strconv.Itoa(c.TotalCount())
 	}
 
-	indicator := "  "
+	indicator := fill("  ")
 	if isActive {
-		indicator = lipgloss.NewStyle().Foreground(sepColor).Bold(true).Render("▍ ")
+		indicator = withBG(lipgloss.NewStyle().Foreground(sepColor).Bold(true)).Render("▍ ")
 	}
 	if filtered {
-		indicator = lipgloss.NewStyle().Foreground(countFg).Render("⌕ ")
+		indicator = withBG(lipgloss.NewStyle().Foreground(countFg)).Render("⌕ ")
 	}
 
 	leftPadStr := ""
 	if leftPad > 0 {
-		leftPadStr = strings.Repeat(" ", leftPad)
+		leftPadStr = fill(strings.Repeat(" ", leftPad))
 	}
 
-	name := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Render(nameLabel)
+	name := withBG(lipgloss.NewStyle().Bold(true).Foreground(nameFg)).Render(nameLabel)
 	if c.transformed {
 		// ƒ marks a script-defined order (column_items hook), mirroring the
 		// ◇ virtual marker: a soft-accent hint, not a selection cue.
-		name += lipgloss.NewStyle().Foreground(c.palette.AccentSoft).Render(" ƒ")
+		name += withBG(lipgloss.NewStyle().Foreground(c.palette.AccentSoft)).Render(" ƒ")
 	}
-	count := lipgloss.NewStyle().Foreground(countFg).Render(countLabel)
+	count := withBG(lipgloss.NewStyle().Foreground(countFg)).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
 	gap := width - used
 	if gap < 1 {
 		gap = 1
 	}
-	spacer := strings.Repeat(" ", gap)
+	spacer := fill(strings.Repeat(" ", gap))
 
 	header := leftPadStr + indicator + name + spacer + count
 	sep := lipgloss.NewStyle().Foreground(sepColor).Render(strings.Repeat("─", width))

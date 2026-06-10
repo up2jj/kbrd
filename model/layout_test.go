@@ -9,53 +9,86 @@ func TestSlotWidth(t *testing.T) {
 	}
 }
 
-func TestVisibleCount(t *testing.T) {
+// uniform32 is a widthOf that gives every column a 32-wide content (slot 35),
+// reproducing the old fixed-width geometry packWindow must still satisfy.
+func uniform32(int) int { return 32 }
+
+// TestPackWindow_Count covers how many uniform columns fit in a terminal —
+// the contract the old visibleCount held. Selecting column 0 from the left
+// edge isolates the fit count from the keep-selected-visible sliding.
+func TestPackWindow_Count(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name                      string
-		termWidth, slotW, numCols int
-		want                      int
+		name               string
+		termWidth, numCols int
+		want               int
 	}{
-		{"three fit in 120", 120, 35, 10, 3},
-		{"two fit in 80", 80, 35, 10, 2},
-		{"five fit in 200", 200, 35, 10, 5},
-		{"at least one on narrow terminal", 30, 35, 10, 1},
-		{"capped at column count", 500, 35, 3, 3},
-		{"zero width falls back to 80", 0, 35, 10, 2},
+		{"three fit in 120", 120, 10, 3},
+		{"two fit in 80", 80, 10, 2},
+		{"five fit in 200", 200, 10, 5},
+		{"at least one on narrow terminal", 30, 10, 1},
+		{"capped at column count", 500, 3, 3},
+		{"zero width falls back to 80", 0, 10, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := visibleCount(tt.termWidth, tt.slotW, tt.numCols); got != tt.want {
-				t.Errorf("visibleCount(%d, %d, %d) = %d, want %d", tt.termWidth, tt.slotW, tt.numCols, got, tt.want)
+			first, count := packWindow(tt.termWidth, 0, 0, tt.numCols, uniform32)
+			if first != 0 {
+				t.Errorf("first = %d, want 0", first)
+			}
+			if count != tt.want {
+				t.Errorf("packWindow count = %d, want %d", count, tt.want)
 			}
 		})
 	}
 }
 
-func TestClampFirstVisible(t *testing.T) {
+// TestPackWindow_Window covers the keep-selected-visible sliding that the old
+// clampFirstVisible held. termWidth is chosen so a uniform window holds 3
+// columns (120) or 5 (200), matching the counts those cases assumed.
+func TestPackWindow_Window(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name                                   string
-		firstVisible, selected, count, numCols int
-		want                                   int
+		name                              string
+		termWidth, selected, firstVisible int
+		numCols                           int
+		wantFirst, wantCount              int
 	}{
-		{"selection within window", 2, 3, 3, 10, 2},
-		{"selection left of window", 5, 2, 3, 10, 2},
-		{"selection right of window", 0, 7, 3, 10, 5},
-		{"window clamped at end", 9, 9, 3, 10, 7},
-		{"negative first clamps to zero", -2, 0, 3, 10, 0},
-		{"window wider than columns", 1, 0, 5, 3, 0},
+		{"selection within window", 120, 3, 2, 10, 2, 3},
+		{"selection left of window", 120, 2, 5, 10, 2, 3},
+		{"selection right of window", 120, 7, 0, 10, 5, 3},
+		{"window clamped at end", 120, 9, 9, 10, 7, 3},
+		{"negative first clamps to zero", 120, 0, -2, 10, 0, 3},
+		{"window wider than columns", 200, 0, 1, 3, 0, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := clampFirstVisible(tt.firstVisible, tt.selected, tt.count, tt.numCols)
-			if got != tt.want {
-				t.Errorf("clampFirstVisible(%d, %d, %d, %d) = %d, want %d",
-					tt.firstVisible, tt.selected, tt.count, tt.numCols, got, tt.want)
+			first, count := packWindow(tt.termWidth, tt.selected, tt.firstVisible, tt.numCols, uniform32)
+			if first != tt.wantFirst || count != tt.wantCount {
+				t.Errorf("packWindow(%d, sel=%d, fv=%d, n=%d) = (%d, %d), want (%d, %d)",
+					tt.termWidth, tt.selected, tt.firstVisible, tt.numCols, first, count, tt.wantFirst, tt.wantCount)
 			}
 		})
+	}
+}
+
+// TestPackWindow_VariableWidth covers a wide column that crowds out neighbors
+// and stays visible when selected, with the window sliding to fit it.
+func TestPackWindow_VariableWidth(t *testing.T) {
+	t.Parallel()
+	// Column 2 is 60 wide (slot 63); the rest are 32 (slot 35). avail at term
+	// 120 is 114, so the wide column plus only one neighbor fit.
+	widthOf := func(i int) int {
+		if i == 2 {
+			return 60
+		}
+		return 32
+	}
+	first, count := packWindow(120, 2, 0, 5, widthOf)
+	if first != 1 || count != 2 {
+		t.Fatalf("packWindow with wide selected col = (%d, %d), want (1, 2)", first, count)
 	}
 }
 
@@ -93,7 +126,7 @@ func TestZoomedColumnWidth(t *testing.T) {
 
 func TestComputeSlots_Normal(t *testing.T) {
 	t.Parallel()
-	slots, first := computeSlots(false, 120, 4, 2, 10, 32)
+	slots, first := computeSlots(false, 120, 4, 2, 10, uniform32)
 	if first != 2 {
 		t.Fatalf("first = %d, want 2", first)
 	}
@@ -115,7 +148,7 @@ func TestComputeSlots_Normal(t *testing.T) {
 
 func TestComputeSlots_Zoomed(t *testing.T) {
 	t.Parallel()
-	slots, first := computeSlots(true, 120, 4, 2, 10, 32)
+	slots, first := computeSlots(true, 120, 4, 2, 10, uniform32)
 	if first != 2 {
 		t.Errorf("zoom must not disturb firstVisible: got %d, want 2", first)
 	}
@@ -136,7 +169,7 @@ func TestComputeSlots_Zoomed(t *testing.T) {
 
 func TestComputeSlots_NoColumns(t *testing.T) {
 	t.Parallel()
-	slots, first := computeSlots(false, 120, 0, 0, 0, 32)
+	slots, first := computeSlots(false, 120, 0, 0, 0, uniform32)
 	if slots != nil || first != 0 {
 		t.Errorf("computeSlots with no columns = (%v, %d), want (nil, 0)", slots, first)
 	}

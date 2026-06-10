@@ -321,6 +321,9 @@ type VirtualCommand struct {
 type VirtualColumnSpec struct {
 	Name     string
 	Empty    string
+	Width    int    // content-width override; 0 = use the cfg default
+	HeaderFG string // "#rrggbb" or "" for the default header foreground
+	HeaderBG string // "#rrggbb" or "" for the default header background
 	Items    []VirtualItem
 	Commands []VirtualCommand
 }

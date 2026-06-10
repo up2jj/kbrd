@@ -326,9 +326,14 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 	out := events.VirtualColumnSpec{
 		Name:  lua.LVAsString(spec.RawGetString("name")),
 		Empty: lua.LVAsString(spec.RawGetString("empty")),
+		Width: int(lua.LVAsNumber(spec.RawGetString("width"))),
 	}
 	if out.Name == "" {
 		out.Name = id
+	}
+	if h, ok := spec.RawGetString("header").(*lua.LTable); ok {
+		out.HeaderFG = lua.LVAsString(h.RawGetString("fg"))
+		out.HeaderBG = lua.LVAsString(h.RawGetString("bg"))
 	}
 
 	if items, ok := spec.RawGetString("items").(*lua.LTable); ok {

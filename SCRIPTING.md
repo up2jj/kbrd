@@ -731,6 +731,8 @@ to call from a `board_load` hook, an `kbrd.async.run` callback, or a command bod
 kbrd.column.set("tasks", {
   name  = "Tasks",            -- header label (defaults to the id)
   empty = "no open tasks",    -- placeholder shown while there are no items
+  width = 48,                 -- content width override (omit/0 → display.column_width)
+  header = { fg = "#1a1b26", bg = "#e0af68" }, -- header bar colors (hex; omit for default)
   items = {
     { separator = true, title = "Work" },          -- inert grouping row
     { id    = "t1",                                 -- stable key (cursor survives a re-push)
@@ -754,6 +756,13 @@ Item fields are all optional except `title`. `separator = true` makes an inert
 grouping row (only `title`/`accent` apply — no actions, no quick-jump tag, hidden
 from the filter). `id` is the stable cursor key across re-pushes; it falls back
 to `title`.
+
+`width`, `header.fg`, and `header.bg` are optional appearance overrides. `width`
+sets this column's content width independently of the global `display.column_width`
+(the rest of the strip keeps the default); `header.fg`/`header.bg` paint the
+column's header bar (both hex, applied in focused and unfocused states alike).
+Each is reset to its default when a later `kbrd.column.set` for the same id omits
+it.
 
 **Actions.** Virtual items have no built-in mutation keys. Instead:
 

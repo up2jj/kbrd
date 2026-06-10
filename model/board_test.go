@@ -113,7 +113,7 @@ func boardWithNCols(t *testing.T, n, visibleCols int) *Board {
 	}
 	// slotWidth = ColumnWidth + 3 = 23; indicatorReserve = 6.
 	// width = visibleCols * 23 + 6 makes exactly visibleCols fit.
-	b.termWidth = visibleCols*b.slotWidth() + 6
+	b.termWidth = visibleCols*slotWidth(b.cfg.ColumnWidth) + 6
 	b.termHeight = 40
 	b.visibleHeight = 32
 	for _, c := range b.columns {
