@@ -827,6 +827,38 @@ first if needed.
 kbrd.fs.write("scratch/log.md", "hello\n")
 ```
 
+### `kbrd.fs.set_frontmatter(path, key, value)` / `kbrd.fs.set_frontmatter(path, table)`
+
+Set one or more top-level YAML frontmatter keys on the card at `path`, **merging
+them into the existing block** — an existing key is replaced in place, a new key
+is appended, and every other line is preserved (the block is created if the file
+has none). The table form sets all of its keys in a single write, in sorted key
+order. Values may be strings (written verbatim, so a string scalar owns its own
+quoting), numbers, or booleans. The card must exist — a missing path returns
+`nil, err`. Returns `true` or `nil, err`. The change lands on disk; the file
+watcher re-renders the card (or call `kbrd.board.refresh()`).
+
+```lua
+kbrd.fs.set_frontmatter(ctx.path, "accent", "red")
+kbrd.fs.set_frontmatter(ctx.path, "pinned", true)
+
+-- merge several keys at once, keeping any other existing keys intact
+kbrd.fs.set_frontmatter(ctx.path, {
+  accent   = "red",
+  pinned   = true,
+  priority = 1,
+})
+```
+
+### `kbrd.fs.delete_frontmatter(path, key)`
+
+Remove a top-level frontmatter `key` from the card at `path`; an absent key
+leaves the file unchanged. Returns `true` or `nil, err`.
+
+```lua
+kbrd.fs.delete_frontmatter(ctx.path, "pinned")
+```
+
 ### `kbrd.fs.exists(path)`
 
 Returns a boolean.

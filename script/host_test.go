@@ -11,6 +11,7 @@ import (
 
 	"kbrd/config"
 	"kbrd/events"
+	"kbrd/frontmatter"
 )
 
 // fakeAPI captures BoardAPI calls so tests can assert on them without
@@ -1639,6 +1640,135 @@ end)`)
 	_ = h.FireAsync(pending2[0].Token, "B", 0, "")
 	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], "done:A/B") {
 		t.Fatalf("chained async failed: %v", api.notifies)
+	}
+}
+
+// fmCommandHost loads an init script exposing "set"/"del" commands that drive
+// the frontmatter bindings and report success/failure via kbrd.notify, plus a
+// real card file under the api root. It returns the host, the api (for notify
+// assertions), and the card's absolute path.
+func fmCommandHost(t *testing.T, card string) (*Host, *fakeAPI, string) {
+	t.Helper()
+	dir := writeInit(t, `
+kbrd.command("set", "Set", function(ctx)
+  local ok, err
+  if ctx.multi then
+    ok, err = kbrd.fs.set_frontmatter(ctx.path, { accent = "red", priority = 2, pinned = true })
+  else
+    ok, err = kbrd.fs.set_frontmatter(ctx.path, ctx.key, ctx.value)
+  end
+  if ok then kbrd.notify("ok") else kbrd.notify("err:"..tostring(err)) end
+end)
+kbrd.command("del", "Del", function(ctx)
+  local ok, err = kbrd.fs.delete_frontmatter(ctx.path, ctx.key)
+  if ok then kbrd.notify("ok") else kbrd.notify("err:"..tostring(err)) end
+end)`)
+	api := &fakeAPI{root: dir}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	t.Cleanup(func() { h.Close() })
+
+	path := filepath.Join(dir, "card.md")
+	if card != "" {
+		if err := os.WriteFile(path, []byte(card), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return h, api, path
+}
+
+// refByID finds the Lua dispatch ref for a registered command.
+func refByID(t *testing.T, h *Host, id string) string {
+	t.Helper()
+	for _, c := range h.Commands() {
+		if c.ID == id {
+			return c.LuaRef
+		}
+	}
+	t.Fatalf("command %q not registered", id)
+	return ""
+}
+
+// parsedCard reads the card at path and parses its frontmatter for assertions.
+func parsedCard(t *testing.T, path string) frontmatter.Parsed {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _, _ := frontmatter.Split(string(raw))
+	p, err := frontmatter.Parse([]byte(block))
+	if err != nil {
+		t.Fatalf("parse frontmatter: %v", err)
+	}
+	return p
+}
+
+func TestFSSetFrontmatter_ReplacesInPlace(t *testing.T) {
+	h, api, path := fmCommandHost(t, "---\naccent: blue\nicon: star\n---\n\nbody\n")
+	if _, err := h.RunCommand(refByID(t, h, "set"), map[string]string{"path": path, "key": "accent", "value": "red"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.HasSuffix(api.notifies[0], "ok") {
+		t.Fatalf("set failed: %v", api.notifies)
+	}
+	p := parsedCard(t, path)
+	if p.Accent != "red" || p.Icon != "star" {
+		t.Fatalf("expected accent replaced, icon kept; got accent=%q icon=%q", p.Accent, p.Icon)
+	}
+}
+
+func TestFSSetFrontmatter_CreatesBlock(t *testing.T) {
+	h, _, path := fmCommandHost(t, "just a body, no frontmatter\n")
+	if _, err := h.RunCommand(refByID(t, h, "set"), map[string]string{"path": path, "key": "accent", "value": "red"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := parsedCard(t, path).Accent; got != "red" {
+		t.Fatalf("expected accent=red in new block, got %q", got)
+	}
+}
+
+func TestFSSetFrontmatter_MergesMultiple(t *testing.T) {
+	h, _, path := fmCommandHost(t, "---\nicon: star\n---\n\nbody\n")
+	if _, err := h.RunCommand(refByID(t, h, "set"), map[string]string{"path": path, "multi": "1"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	p := parsedCard(t, path)
+	if p.Accent != "red" || p.Icon != "star" {
+		t.Fatalf("merge lost a key: accent=%q icon=%q", p.Accent, p.Icon)
+	}
+	if !frontmatter.Bool(p.Data["pinned"]) {
+		t.Fatalf("expected pinned truthy, got %v", p.Data["pinned"])
+	}
+	if pr, ok := p.Data["priority"].(int); !ok || pr != 2 {
+		t.Fatalf("expected priority=2 (int), got %v (%T)", p.Data["priority"], p.Data["priority"])
+	}
+}
+
+func TestFSSetFrontmatter_MissingFileErrors(t *testing.T) {
+	h, api, _ := fmCommandHost(t, "")
+	missing := filepath.Join(t.TempDir(), "nope.md")
+	if _, err := h.RunCommand(refByID(t, h, "set"), map[string]string{"path": missing, "key": "accent", "value": "red"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(api.notifies) != 1 || !strings.HasPrefix(api.notifies[0], "info:err:") {
+		t.Fatalf("expected error notify for missing file, got %v", api.notifies)
+	}
+}
+
+func TestFSDeleteFrontmatter(t *testing.T) {
+	h, _, path := fmCommandHost(t, "---\naccent: blue\npinned: true\n---\n\nbody\n")
+	if _, err := h.RunCommand(refByID(t, h, "del"), map[string]string{"path": path, "key": "pinned"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	p := parsedCard(t, path)
+	if _, present := p.Data["pinned"]; present {
+		t.Fatalf("expected pinned removed, got %v", p.Data["pinned"])
+	}
+	if p.Accent != "blue" {
+		t.Fatalf("delete clobbered another key: accent=%q", p.Accent)
 	}
 }
 

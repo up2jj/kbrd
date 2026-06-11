@@ -2,11 +2,14 @@ package script
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 
 	"kbrd/events"
+	"kbrd/frontmatter"
 )
 
 // installAPI builds the `kbrd` global on h.L. Called from New, never from
@@ -48,6 +51,8 @@ func (h *Host) installAPI() {
 	fs.RawSetString("exists", L.NewFunction(h.luaFSExists))
 	fs.RawSetString("mkdir", L.NewFunction(h.luaFSMkdir))
 	fs.RawSetString("glob", L.NewFunction(h.luaFSGlob))
+	fs.RawSetString("set_frontmatter", L.NewFunction(h.luaFSSetFrontmatter))
+	fs.RawSetString("delete_frontmatter", L.NewFunction(h.luaFSDeleteFrontmatter))
 	kbrd.RawSetString("fs", fs)
 
 	timer := L.NewTable()
@@ -163,6 +168,112 @@ func (h *Host) luaFSGlob(L *lua.LState) int {
 		t.RawSetInt(i+1, lua.LString(m))
 	}
 	L.Push(t)
+	return 1
+}
+
+// kbrd.fs.set_frontmatter(path, key, value) → true | nil, err
+// kbrd.fs.set_frontmatter(path, { key = value, ... }) → true | nil, err
+//
+// Sets one or more top-level frontmatter keys on the card at path, merging them
+// into the existing block: an existing key is replaced in place and a new key is
+// appended, every other line preserved (frontmatter.Set, folded per key). The
+// table form sets all of its keys in one write, applied in sorted key order for
+// a stable diff. Values may be strings (written verbatim as a YAML scalar),
+// numbers, or booleans; the caller owns any quoting a string scalar needs. The
+// card must exist — reading it first means a missing path returns the read error
+// rather than minting a new file.
+func (h *Host) luaFSSetFrontmatter(L *lua.LState) int {
+	path := L.CheckString(1)
+	raw, err := h.api.FSRead(path)
+	if err != nil {
+		return errResult(L, err)
+	}
+	if tbl, ok := L.Get(2).(*lua.LTable); ok {
+		pairs, err := scalarPairs(tbl)
+		if err != nil {
+			return errResult(L, err)
+		}
+		for _, kv := range pairs {
+			raw = frontmatter.Set(raw, kv.key, kv.value)
+		}
+	} else {
+		key := L.CheckString(2)
+		value, err := luaScalar(L.Get(3))
+		if err != nil {
+			return errResult(L, err)
+		}
+		raw = frontmatter.Set(raw, key, value)
+	}
+	if err := h.api.FSWrite(path, raw); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// fmPair is a resolved frontmatter key and its YAML-scalar value.
+type fmPair struct{ key, value string }
+
+// scalarPairs converts a Lua table of string keys to YAML-scalar value strings,
+// returned in sorted key order so a multi-key write produces a deterministic
+// diff. Non-string keys (e.g. an array table) are skipped; a value that is not a
+// string/number/boolean is a hard error, since silently dropping it would lose a
+// key the caller meant to set.
+func scalarPairs(tbl *lua.LTable) ([]fmPair, error) {
+	vals := map[string]lua.LValue{}
+	var keys []string
+	tbl.ForEach(func(k, v lua.LValue) {
+		if ks, ok := k.(lua.LString); ok {
+			keys = append(keys, string(ks))
+			vals[string(ks)] = v
+		}
+	})
+	sort.Strings(keys)
+	pairs := make([]fmPair, 0, len(keys))
+	for _, k := range keys {
+		s, err := luaScalar(vals[k])
+		if err != nil {
+			return nil, fmt.Errorf("key %q: %w", k, err)
+		}
+		pairs = append(pairs, fmPair{key: k, value: s})
+	}
+	return pairs, nil
+}
+
+// luaScalar renders a Lua value as a YAML scalar for frontmatter.Set. Strings
+// pass through verbatim (the caller owns quoting); booleans and numbers take
+// their YAML form. Other types are rejected so a misuse surfaces as an error.
+func luaScalar(lv lua.LValue) (string, error) {
+	switch v := lv.(type) {
+	case lua.LString:
+		return string(v), nil
+	case lua.LBool:
+		if bool(v) {
+			return "true", nil
+		}
+		return "false", nil
+	case lua.LNumber:
+		return strconv.FormatFloat(float64(v), 'g', -1, 64), nil
+	default:
+		return "", fmt.Errorf("frontmatter value must be a string, number, or boolean, got %s", lv.Type().String())
+	}
+}
+
+// kbrd.fs.delete_frontmatter(path, key) → true | nil, err
+//
+// Removes a top-level frontmatter key from the card at path (frontmatter.Delete);
+// a key that is absent leaves the file unchanged. The card must exist.
+func (h *Host) luaFSDeleteFrontmatter(L *lua.LState) int {
+	path := L.CheckString(1)
+	key := L.CheckString(2)
+	raw, err := h.api.FSRead(path)
+	if err != nil {
+		return errResult(L, err)
+	}
+	if err := h.api.FSWrite(path, frontmatter.Delete(raw, key)); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
 	return 1
 }
 
