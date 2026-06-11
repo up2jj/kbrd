@@ -31,6 +31,16 @@ func TestParse(t *testing.T) {
 			want:  Parsed{Tags: []string{"urgent"}},
 		},
 		{
+			name:  "render list of keys",
+			block: "priority: high\nrender: [priority, assignee]\n",
+			want:  Parsed{Render: []string{"priority", "assignee"}},
+		},
+		{
+			name:  "render single key as string",
+			block: "render: priority\n",
+			want:  Parsed{Render: []string{"priority"}},
+		},
+		{
 			name:  "scalar tags coerced",
 			block: "tags: [1, true, x]\n",
 			want:  Parsed{Tags: []string{"1", "true", "x"}},

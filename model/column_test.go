@@ -621,9 +621,9 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 		files["f"+string(rune('a'+i%26))+string(rune('a'+i/26))] = "x"
 	}
 	col := newTestColumn(t, files)
-	// Item delegate height is 5 + spacing 0 = 5. Set list height to 12 → 2 items per page.
+	// Cards are 5 rows tall; a 12-row viewport shows ~2, leaving the rest below.
 	col.SetHeight(12)
-	// Trigger a render so paginator updates its PerPage/page count.
+	// Trigger a render so the viewport lays out and computes its scroll bounds.
 	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
 	footer := col.renderOverflowFooter(32)
@@ -635,8 +635,7 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	}
 
 	// Jump to the end and re-render.
-	end := len(col.list.VisibleItems()) - 1
-	col.list.Select(end)
+	col.SelectLast()
 	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
 	footer = col.renderOverflowFooter(32)
@@ -683,6 +682,51 @@ func TestColumn_View_Frontmatter(t *testing.T) {
 	}
 	if !strings.Contains(view, "body line") {
 		t.Errorf("view missing preview body:\n%s", view)
+	}
+}
+
+func TestItemHeight_RenderLineAddsRow(t *testing.T) {
+	t.Parallel()
+	plain := Item{Name: "a"}
+	withRender := Item{Name: "b", Render: []string{"priority"}, Data: map[string]any{"priority": "high"}}
+	sep := Item{Name: "s", Separator: true, Render: []string{"priority"}}
+
+	if got, want := itemHeight(plain, 3), cardRows(3); got != want {
+		t.Errorf("itemHeight(plain) = %d, want %d", got, want)
+	}
+	if got, want := itemHeight(withRender, 3), cardRows(3)+1; got != want {
+		t.Errorf("itemHeight(withRender) = %d, want %d (one taller)", got, want)
+	}
+	if got, want := itemHeight(sep, 3), cardRows(3); got != want {
+		t.Errorf("itemHeight(separator) = %d, want %d (separators ignore render)", got, want)
+	}
+}
+
+func TestColumn_View_RenderLine(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"task":  "---\npriority: high\nrender: [priority]\n---\nbody",
+		"plain": "no frontmatter body",
+	})
+	col.SetHeight(40)
+
+	view := col.View(RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 3})
+	if !strings.Contains(view, "priority: high") {
+		t.Errorf("view missing render line 'priority: high':\n%s", view)
+	}
+	// The card that declares render: is one row taller (the required variable
+	// height). Items are sorted by name, so "plain" precedes "task".
+	for _, it := range col.Items {
+		switch it.Name {
+		case "task":
+			if got, want := itemHeight(it, 3), cardRows(3)+1; got != want {
+				t.Errorf("task itemHeight = %d, want %d", got, want)
+			}
+		case "plain":
+			if got, want := itemHeight(it, 3), cardRows(3); got != want {
+				t.Errorf("plain itemHeight = %d, want %d", got, want)
+			}
+		}
 	}
 }
 

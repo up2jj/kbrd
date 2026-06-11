@@ -1286,8 +1286,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return b, nil
 	case key.Matches(msg, Keys.Filter):
-		col.list.SetShowFilter(true)
-		return b, col.UpdateList(msg)
+		return b, col.BeginFilter()
 	case key.Matches(msg, Keys.New):
 		return b, b.editor.OpenNew(b.selectedCol, b.columns[b.selectedCol].Name)
 	case key.Matches(msg, Keys.NewFirst):
@@ -1316,6 +1315,22 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// columnAtMouse maps a mouse X to a visible column index, accounting for the
+// left overflow-chip reserve. ok is false when X lands left of the first column
+// or past the last visible one.
+func (b *Board) columnAtMouse(x int) (int, bool) {
+	xc := x - b.leftIndicatorWidth
+	if xc < 0 {
+		return 0, false
+	}
+	first, count := b.visibleColRange()
+	colIdx := columnAtX(xc, first, count, b.colWidthOf)
+	if colIdx < 0 {
+		return 0, false
+	}
+	return colIdx, true
+}
+
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
@@ -1326,17 +1341,27 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if b.columns[b.selectedCol].IsFiltering() {
 		return b, nil
 	}
+
+	// Mouse wheel scrolls the column under the cursor (content only — the cursor
+	// stays put). The viewport-backed list makes this possible; the old paginated
+	// list ignored the wheel entirely.
+	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+		if colIdx, ok := b.columnAtMouse(msg.X); ok {
+			delta := 3
+			if msg.Button == tea.MouseButtonWheelUp {
+				delta = -3
+			}
+			b.columns[colIdx].ScrollBy(delta)
+		}
+		return b, nil
+	}
+
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return b, nil
 	}
 
-	xc := msg.X - b.leftIndicatorWidth
-	if xc < 0 {
-		return b, nil
-	}
-	first, count := b.visibleColRange()
-	colIdx := columnAtX(xc, first, count, b.colWidthOf)
-	if colIdx < 0 {
+	colIdx, ok := b.columnAtMouse(msg.X)
+	if !ok {
 		return b, nil
 	}
 	col := b.columns[colIdx]

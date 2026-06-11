@@ -2,13 +2,11 @@ package model
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -17,10 +15,13 @@ import (
 	"kbrd/events"
 	"kbrd/frontmatter"
 	kbrdfs "kbrd/fs"
+	"kbrd/vlist"
 )
 
-// itemDelegate renders each kanban item inside a bubbles list.
-type itemDelegate struct {
+// renderConfig is the per-frame render context a column hands its cards. It was
+// previously the fields of the bubbles-list itemDelegate; it now travels in a
+// cardDelegate (see vlist.Delegate) so the list engine stays card-agnostic.
+type renderConfig struct {
 	isActive     bool
 	mnemonicOf   func(name string) string
 	gutterW      int
@@ -30,34 +31,52 @@ type itemDelegate struct {
 	palette      Palette
 }
 
-// cardRows is the fixed height of one card slot for a given preview density:
-// title + N preview rows + meta + 2 border rows. It is the single source of
-// truth shared by delegate.Height() and the renderers, so the declared and
-// drawn heights can never drift apart.
+// cardDelegate adapts a column's items to vlist.Delegate: the list addresses
+// items by index, reads their height/filter/selectable, and asks this delegate
+// to render them. It is rebuilt cheaply each frame to carry fresh renderConfig.
+type cardDelegate struct {
+	items []Item
+	cfg   renderConfig
+}
+
+func (d cardDelegate) Len() int                 { return len(d.items) }
+func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], d.cfg.previewLines) }
+func (d cardDelegate) FilterValue(i int) string { return d.items[i].FilterValue() }
+func (d cardDelegate) Selectable(i int) bool    { return !d.items[i].Separator }
+func (d cardDelegate) Render(i int, selected bool) string {
+	return renderItem(d.items[i], selected, d.cfg)
+}
+
+// cardRows is the base height of one card slot for a given preview density:
+// title + N preview rows + meta + 2 border rows. itemHeight adds the optional
+// frontmatter `render:` row on top.
 func cardRows(previewLines int) int {
 	return max(previewLines, 1) + 4
 }
 
-func (d itemDelegate) Height() int                             { return cardRows(d.previewLines) }
-func (d itemDelegate) Spacing() int                            { return 0 }
-func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	item, ok := listItem.(Item)
-	if !ok {
-		return
+// itemHeight is the rendered height of one item. A non-separator card that
+// declares a frontmatter `render:` list is one row taller (the fields line);
+// this is the variable height vlist stacks. It must match what renderItem draws.
+func itemHeight(item Item, previewLines int) int {
+	h := cardRows(previewLines)
+	if !item.Separator && len(item.Render) > 0 {
+		h++
 	}
-	isSelected := index == m.Index()
+	return h
+}
 
+// renderItem draws one item to a string, dispatching by kind. selected marks the
+// cursor row; cfg carries the per-frame render context.
+func renderItem(item Item, selected bool, cfg renderConfig) string {
 	if item.Separator {
-		d.renderSeparator(w, item)
-		return
+		return renderSeparatorStr(item, cfg)
 	}
 	if item.Virtual {
-		d.renderVirtual(w, item, isSelected)
-		return
+		return renderVirtualStr(item, selected, cfg)
 	}
 
+	isSelected := selected
+	d := cfg
 	gutterW := d.gutterW
 	if gutterW < 2 {
 		gutterW = 2
@@ -189,7 +208,55 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 	metaLine := metaStyle.Render(truncLine(meta, innerW-gutterW))
 
-	fmt.Fprint(w, renderCard(titleLine, previewLine, metaLine, innerW, cardBorder))
+	// A frontmatter `render:` list adds one row above meta — the variable height.
+	// The row is reserved whenever render is declared (even if no key resolves),
+	// matching itemHeight so the drawn and declared heights agree.
+	lines := []string{titleLine, previewLine}
+	if len(item.Render) > 0 {
+		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
+	}
+	lines = append(lines, metaLine)
+	return renderCard(innerW, cardBorder, lines...)
+}
+
+// fieldsRow renders the frontmatter `render:` line ("key: value  ·  …") styled
+// to sit in the card body, mirroring the preview/meta selected treatment.
+func fieldsRow(item Item, selectedActive bool, innerW, gutterW int, detailBg lipgloss.Color, p Palette) string {
+	style := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(p.FgEmphasis)
+	if selectedActive {
+		style = style.Foreground(p.FgSelectedPreview).Background(detailBg)
+	}
+	return style.Render(truncLine(fieldsLine(item.Data, item.Render), innerW-gutterW))
+}
+
+// fieldsLine formats the named keys present in data as "key: value" segments
+// joined by "  ·  ". Missing or nil keys are skipped; scalars use fmt.Sprint and
+// a []any is joined with ", ". Returns "" when nothing resolves. Formatting lives
+// here at the render site, never in package frontmatter.
+func fieldsLine(data map[string]any, keys []string) string {
+	if len(data) == 0 || len(keys) == 0 {
+		return ""
+	}
+	segs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v, ok := data[k]
+		if !ok || v == nil {
+			continue
+		}
+		segs = append(segs, k+": "+formatFieldValue(v))
+	}
+	return strings.Join(segs, "  ·  ")
+}
+
+func formatFieldValue(v any) string {
+	if list, ok := v.([]any); ok {
+		parts := make([]string, len(list))
+		for i, e := range list {
+			parts[i] = fmt.Sprint(e)
+		}
+		return strings.Join(parts, ", ")
+	}
+	return fmt.Sprint(v)
 }
 
 // truncLine clamps s (ANSI-aware) to a single line of at most w cells, ending
@@ -223,9 +290,10 @@ func previewBlock(lines []string, n, innerW, gutterW int, style lipgloss.Style) 
 
 // renderCard wraps the content lines of an item in a rounded border so it
 // reads as a kanban card. The border consumes 2 columns, bringing the total
-// width back to colWidth, and 2 rows (delegate Height is cardRows).
-func renderCard(titleLine, previewLine, metaLine string, innerW int, borderFg lipgloss.Color) string {
-	block := lipgloss.JoinVertical(lipgloss.Left, titleLine, previewLine, metaLine)
+// width back to colWidth, and 2 rows; the body lines determine the rest of the
+// height (title + preview + optional fields + meta).
+func renderCard(innerW int, borderFg lipgloss.Color, lines ...string) string {
+	block := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderFg).
@@ -233,10 +301,10 @@ func renderCard(titleLine, previewLine, metaLine string, innerW int, borderFg li
 		Render(block)
 }
 
-// renderSeparator draws an inert grouping row: a centered label flanked by rule
-// glyphs, vertically padded to fill the fixed cardRows item slot. Separators
+// renderSeparatorStr draws an inert grouping row: a centered label flanked by
+// rule glyphs, vertically padded to fill the cardRows item slot. Separators
 // stay borderless — they are grouping rules, not cards.
-func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
+func renderSeparatorStr(item Item, d renderConfig) string {
 	p := d.palette
 	fg := p.FgMuted
 	if item.Accent != "" {
@@ -257,7 +325,7 @@ func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
 	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
 
-	total := cardRows(d.previewLines)
+	total := itemHeight(item, d.previewLines)
 	ruleRow := total / 2
 	rows := make([]string, 0, total)
 	for i := range total {
@@ -267,13 +335,13 @@ func (d itemDelegate) renderSeparator(w io.Writer, item Item) {
 			rows = append(rows, blank)
 		}
 	}
-	fmt.Fprint(w, strings.Join(rows, "\n"))
+	return strings.Join(rows, "\n")
 }
 
-// renderVirtual draws a script-supplied item in the fixed card frame: icon +
-// title (line 1, tinted by Accent), preview (line 2), and the script-provided
-// Meta string (line 3) in place of the filesystem-only mtime/size/diff line.
-func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
+// renderVirtualStr draws a script-supplied item in the card frame: icon + title
+// (line 1, tinted by Accent), preview, the optional frontmatter `render:` line,
+// and the script-provided Meta string in place of the filesystem meta line.
+func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 	p := d.palette
 	gutterW := d.gutterW
 	if gutterW < 2 {
@@ -350,7 +418,12 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 	}
 	metaLine := metaStyle.Render(truncLine(item.Meta, innerW-gutterW))
 
-	fmt.Fprint(w, renderCard(titleLine, previewLine, metaLine, innerW, cardBorder))
+	lines := []string{titleLine, previewLine}
+	if len(item.Render) > 0 {
+		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
+	}
+	lines = append(lines, metaLine)
+	return renderCard(innerW, cardBorder, lines...)
 }
 
 // Column represents one kanban column backed by a directory.
@@ -358,10 +431,18 @@ type Column struct {
 	Name        string
 	Path        string
 	Items       []Item // unfiltered master list (used by file operations)
-	list        list.Model
+	list        vlist.Model
 	itemOpts    ItemOptions
 	listYOffset int
 	palette     Palette
+
+	// width/height are the last geometry the layout handed this column; renderCfg
+	// is the last per-frame render context. They are kept so the list's delegate
+	// (and so its item heights) stay valid for calls made between frames — e.g.
+	// HitTest during a mouse event, which runs before the next View.
+	width     int
+	height    int
+	renderCfg renderConfig
 
 	// transformed marks a filesystem column whose item order is currently
 	// script-defined (a column_items hook returned a table for it). Rendered
@@ -408,35 +489,44 @@ type VirtualCmd struct {
 	Ref          string
 }
 
+// vlistKeys maps the board's cursor bindings into the list engine so j/k and the
+// arrows are defined in exactly one place (model/keys.go).
+func vlistKeys() vlist.KeyMap {
+	return vlist.KeyMap{Up: Keys.CursorUp, Down: Keys.CursorDown}
+}
+
 // NewColumn builds a column over a directory. Widths are not stored: layout
 // owns geometry, and every render passes the column its width via RenderCtx.
 func NewColumn(name, path string, itemOpts ItemOptions) *Column {
 	palette := DarkPalette()
-	delegate := itemDelegate{palette: palette}
-	l := list.New(nil, delegate, 0, 20)
-	l.SetShowTitle(false)
-	l.SetShowFilter(false)
-	l.SetShowStatusBar(false)
-	l.SetShowPagination(false)
-	l.SetShowHelp(false)
-	l.SetFilteringEnabled(true)
-	l.DisableQuitKeybindings()
-	l.Styles.NoItems = lipgloss.NewStyle().
-		PaddingLeft(2).
-		Foreground(palette.FgDim)
-
-	return &Column{Name: name, Path: path, list: l, itemOpts: itemOpts, palette: palette}
+	c := &Column{
+		Name:      name,
+		Path:      path,
+		list:      vlist.New(vlistKeys()),
+		itemOpts:  itemOpts,
+		palette:   palette,
+		renderCfg: renderConfig{palette: palette, gutterW: 2, previewLines: 1},
+	}
+	c.syncDelegate()
+	return c
 }
 
-// NewVirtualColumn builds an empty script-backed column. It reuses NewColumn's
-// list setup, then flips the virtual flag and clears the filesystem Path.
+// NewVirtualColumn builds an empty script-backed column, then flips the virtual
+// flag and clears the filesystem Path.
 func NewVirtualColumn(vid, name string, palette Palette) *Column {
 	c := NewColumn(name, "", ItemOptions{})
 	c.Virtual = true
 	c.VID = vid
 	c.palette = palette
-	c.list.SetDelegate(itemDelegate{palette: palette})
+	c.renderCfg.palette = palette
+	c.syncDelegate()
 	return c
+}
+
+// syncDelegate hands the list a fresh cardDelegate over the current items and
+// render context. Called whenever items or the render context change.
+func (c *Column) syncDelegate() {
+	c.list.SetDelegate(cardDelegate{items: c.Items, cfg: c.renderCfg})
 }
 
 // ApplyVirtualSpec replaces the column's items and column-scoped commands from a
@@ -475,12 +565,8 @@ func (c *Column) ApplyVirtualSpec(spec events.VirtualColumnSpec) {
 		items = append(items, virtualItemToItem(vi))
 	}
 	c.Items = items // virtual columns control their own order
-
-	listItems := make([]list.Item, len(items))
-	for i, it := range items {
-		listItems[i] = it
-	}
-	c.list.SetItems(listItems)
+	c.syncDelegate()
+	c.list.Reload()
 	c.restoreVirtualCursor(prevName, prevIdx)
 }
 
@@ -490,7 +576,7 @@ func (c *Column) restoreVirtualCursor(prevName string, prevIdx int) {
 	if prevName != "" {
 		for i, it := range c.Items {
 			if it.Name == prevName {
-				c.list.Select(i)
+				c.list.SelectUnderlying(i)
 				return
 			}
 		}
@@ -532,13 +618,24 @@ func virtualItemToItem(vi events.VirtualItem) Item {
 }
 
 func (c *Column) SetHeight(h int) {
-	c.list.SetHeight(h)
+	c.height = h
+	c.list.SetSize(c.width, c.height)
 }
 
 func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
-	c.list, cmd = c.list.Update(msg)
-	return cmd
+	return c.list.Update(msg)
+}
+
+// BeginFilter focuses the filter input; the returned command drives its cursor
+// blink.
+func (c *Column) BeginFilter() tea.Cmd {
+	return c.list.BeginFilter()
+}
+
+// ScrollBy scrolls the list content by n rows (positive = down) without moving
+// the cursor — used by mouse-wheel handling.
+func (c *Column) ScrollBy(n int) {
+	c.list.ScrollBy(n)
 }
 
 func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
@@ -578,9 +675,9 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
 	}
 	fill := func(s string) string { return withBG(lipgloss.NewStyle()).Render(s) }
 	countLabel := strconv.Itoa(c.TotalCount())
-	filtered := c.list.IsFiltered() && !c.list.SettingFilter()
+	filtered := c.list.Filtered() && !c.list.Filtering()
 	if filtered {
-		countLabel = strconv.Itoa(len(c.list.VisibleItems())) + "/" + strconv.Itoa(c.TotalCount())
+		countLabel = strconv.Itoa(len(c.list.Visible())) + "/" + strconv.Itoa(c.TotalCount())
 	}
 
 	indicator := fill("  ")
@@ -629,8 +726,7 @@ type RenderCtx struct {
 }
 
 func (c *Column) View(ctx RenderCtx) string {
-	c.list.SetWidth(ctx.Width)
-	c.list.SetDelegate(itemDelegate{
+	c.renderCfg = renderConfig{
 		isActive:     ctx.Active,
 		mnemonicOf:   ctx.MnemonicOf,
 		gutterW:      ctx.GutterW,
@@ -638,9 +734,10 @@ func (c *Column) View(ctx RenderCtx) string {
 		previewLines: ctx.PreviewLines,
 		statFor:      ctx.StatFor,
 		palette:      c.palette,
-	})
-	c.list.SetShowFilter(c.list.SettingFilter() || c.list.IsFiltered())
-	c.list.Styles.NoItems = lipgloss.NewStyle().PaddingLeft(2).Foreground(c.palette.FgDim)
+	}
+	c.width = ctx.Width
+	c.list.SetSize(c.width, c.height)
+	c.syncDelegate()
 
 	// Virtual columns signal "virtual" via the double-border shape (and the ◇
 	// header glyph), not a high-contrast color — so the border color follows the
@@ -661,17 +758,20 @@ func (c *Column) View(ctx RenderCtx) string {
 	}
 	header := c.renderHeader(ctx.Active, leftPad, ctx.Width)
 	listView := c.list.View()
-	if c.Virtual && len(c.Items) == 0 && c.emptyText != "" {
+	if len(c.Items) == 0 {
+		// vlist draws nothing for an empty list; show the placeholder text the
+		// bubbles list used to ("No items."), or the script-set empty text.
+		text := "No items."
+		if c.Virtual && c.emptyText != "" {
+			text = c.emptyText
+		}
 		listView = lipgloss.NewStyle().
 			PaddingLeft(2).
 			Width(ctx.Width).
 			Foreground(c.palette.FgDim).
-			Render(c.emptyText)
+			Render(text)
 	}
-	c.listYOffset = 1 + lipgloss.Height(header)
-	if c.list.ShowFilter() {
-		c.listYOffset += lipgloss.Height(listView) - c.list.Height()
-	}
+	c.listYOffset = 1 + lipgloss.Height(header) + c.list.HeaderLines()
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		listView,
@@ -695,9 +795,7 @@ func (c *Column) renderOverflowFooter(width int) string {
 		Italic(true).
 		PaddingLeft(2)
 
-	total := len(c.list.VisibleItems())
-	start, end := c.list.Paginator.GetSliceBounds(total)
-	above, below := start, total-end
+	above, below := c.list.AboveBelow()
 	if above <= 0 && below <= 0 {
 		return style.Render("")
 	}
@@ -716,30 +814,14 @@ func (c *Column) renderOverflowFooter(width int) string {
 }
 
 func (c *Column) IsFiltering() bool {
-	return c.list.SettingFilter()
+	return c.list.Filtering()
 }
 
 // HitTest maps a y-coordinate (relative to the top of this column's box) to a
 // visible item index. Returns ok=false when the click lands outside any item
 // (border, header, gap, filter bar, overflow footer, or past the last item).
 func (c *Column) HitTest(yInBox int) (int, bool) {
-	listY := yInBox - c.listYOffset
-	if listY < 0 {
-		return 0, false
-	}
-	d := itemDelegate{}
-	slotH := d.Height() + d.Spacing()
-	viewportIdx := listY / slotH
-	if listY%slotH >= d.Height() {
-		return 0, false
-	}
-	visible := c.list.VisibleItems()
-	start, _ := c.list.Paginator.GetSliceBounds(len(visible))
-	actualIdx := start + viewportIdx
-	if actualIdx < 0 || actualIdx >= len(visible) {
-		return 0, false
-	}
-	return actualIdx, true
+	return c.list.HitTest(yInBox - c.listYOffset)
 }
 
 func (c *Column) SelectIndex(i int) {
@@ -750,43 +832,23 @@ func (c *Column) SelectIndex(i int) {
 func (c *Column) SelectByName(name string) {
 	for i, item := range c.Items {
 		if item.Name == name {
-			c.list.Select(i)
+			c.list.SelectUnderlying(i)
 			return
 		}
 	}
 }
 
-// CursorAtTop reports whether the cursor is on the first visible row.
-func (c *Column) CursorAtTop() bool { return c.list.Index() <= 0 }
+// CursorAtTop reports whether there is no selectable row above the cursor.
+func (c *Column) CursorAtTop() bool { return c.list.AtTop() }
 
-// CursorAtBottom reports whether the cursor is on the last visible row.
-func (c *Column) CursorAtBottom() bool {
-	n := len(c.list.VisibleItems())
-	return n == 0 || c.list.Index() >= n-1
-}
+// CursorAtBottom reports whether there is no selectable row below the cursor.
+func (c *Column) CursorAtBottom() bool { return c.list.AtBottom() }
 
 // SelectFirst selects the first selectable (non-separator) visible item.
-func (c *Column) SelectFirst() {
-	for i, it := range c.list.VisibleItems() {
-		if card, ok := it.(Item); ok && card.Separator {
-			continue
-		}
-		c.list.Select(i)
-		return
-	}
-}
+func (c *Column) SelectFirst() { c.list.SelectFirst() }
 
 // SelectLast selects the last selectable (non-separator) visible item.
-func (c *Column) SelectLast() {
-	items := c.list.VisibleItems()
-	for i := len(items) - 1; i >= 0; i-- {
-		if card, ok := items[i].(Item); ok && card.Separator {
-			continue
-		}
-		c.list.Select(i)
-		return
-	}
-}
+func (c *Column) SelectLast() { c.list.SelectLast() }
 
 func (c *Column) LoadItems() error {
 	return c.loadItems(c.itemsByPath())
@@ -827,12 +889,8 @@ func (c *Column) loadItems(cache itemCache) error {
 	}
 
 	c.Items = SortItems(items)
-
-	listItems := make([]list.Item, len(c.Items))
-	for i, item := range c.Items {
-		listItems[i] = item
-	}
-	c.list.SetItems(listItems)
+	c.syncDelegate()
+	c.list.Reload()
 	return nil
 }
 
@@ -845,11 +903,8 @@ func (c *Column) SetItems(items []Item) {
 		prevName = sel.Name
 	}
 	c.Items = items
-	listItems := make([]list.Item, len(items))
-	for i, item := range items {
-		listItems[i] = item
-	}
-	c.list.SetItems(listItems)
+	c.syncDelegate()
+	c.list.Reload()
 	if prevName != "" {
 		c.SelectByName(prevName)
 	}
@@ -862,26 +917,27 @@ func (c *Column) TotalCount() int {
 // VisibleItems returns the items currently rendered (post filter+sort), in
 // display order.
 func (c *Column) VisibleItems() []Item {
-	li := c.list.VisibleItems()
-	out := make([]Item, 0, len(li))
-	for _, it := range li {
-		if item, ok := it.(Item); ok {
-			out = append(out, item)
+	vis := c.list.Visible()
+	out := make([]Item, 0, len(vis))
+	for _, ui := range vis {
+		if ui >= 0 && ui < len(c.Items) {
+			out = append(out, c.Items[ui])
 		}
 	}
 	return out
 }
 
 func (c *Column) HasSelectedItem() bool {
-	return len(c.Items) > 0 && c.list.SelectedItem() != nil
+	_, ok := c.list.Selected()
+	return len(c.Items) > 0 && ok
 }
 
 func (c *Column) SelectedItem() *Item {
-	li := c.list.SelectedItem()
-	if li == nil {
+	ui, ok := c.list.Selected()
+	if !ok || ui < 0 || ui >= len(c.Items) {
 		return nil
 	}
-	item := li.(Item)
+	item := c.Items[ui]
 	return &item
 }
 

@@ -35,6 +35,7 @@ type Item struct {
 	// to item_changed converge instead of looping. Empty for virtual items.
 	contentHash uint64
 	Tags        []string // frontmatter `tags`; shown as #tag chips, matched by the filter
+	Render      []string // frontmatter `render`: keys surfaced on the card as key: value
 	BadFM       bool     // frontmatter block present but not valid YAML; card shows a ⚠ badge
 
 	// Presentation/payload fields shared by both item kinds: scripts set them
@@ -71,6 +72,7 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 		Modified:    info.ModTime(),
 		contentHash: hash,
 		Tags:        fm.Tags,
+		Render:      fm.Render,
 		Meta:        fm.Meta,
 		Icon:        fm.Icon,
 		Accent:      fm.Accent,
@@ -153,6 +155,7 @@ func (i *Item) Refresh(opts ItemOptions) error {
 		i.BadFM = fmErr != nil
 		i.Pinned = frontmatter.Bool(fm.Data["pinned"])
 		i.Tags = fm.Tags
+		i.Render = fm.Render
 		i.Meta = fm.Meta
 		i.Icon = fm.Icon
 		i.Accent = fm.Accent

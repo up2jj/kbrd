@@ -26,6 +26,7 @@ type Parsed struct {
 	Icon   string         // glyph prefixed on the title line
 	Meta   string         // replaces the filesystem meta line (mtime/size/git)
 	Tags   []string       // rendered as #tag chips and matched by the filter
+	Render []string       // frontmatter keys to surface on the card (`render:`)
 	Data   map[string]any // full map, known + unknown keys; nil when none
 }
 
@@ -49,6 +50,7 @@ func Parse(block []byte) (Parsed, error) {
 	p.Icon = stringKey(m, "icon")
 	p.Meta = stringKey(m, "meta")
 	p.Tags = tagsKey(m, "tags")
+	p.Render = tagsKey(m, "render")
 	return p, nil
 }
 
