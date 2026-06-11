@@ -833,14 +833,12 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorDiscardMsg:
 		b.editor.Close()
-		b.editor = NewEditor()
-		b.editor.palette = b.palette
+		b.resetEditor()
 		return b, nil
 
 	case quitConfirmedMsg:
 		b.editor.Close()
-		b.editor = NewEditor()
-		b.editor.palette = b.palette
+		b.resetEditor()
 		return b.finishShutdown()
 
 	case quickCommandMsg:
@@ -951,6 +949,16 @@ func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
 	return b, tea.Quit
 }
 
+// resetEditor replaces the editor with a fresh instance, re-seeding it with the
+// current palette and terminal size. The size matters because applySize() falls
+// back to a fixed default when termWidth/termHeight are 0, which would otherwise
+// make expand/collapse (ctrl+e) a no-op until the next terminal resize.
+func (b *Board) resetEditor() {
+	b.editor = NewEditor()
+	b.editor.palette = b.palette
+	b.editor.SetTermSize(b.termWidth, b.termHeight)
+}
+
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// While waiting for a sync to finish, a second Ctrl+C force-quits.
 	if b.shuttingDown && key.Matches(msg, Keys.Quit) {
@@ -1010,8 +1018,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd, _ := b.editor.Update(msg)
 		if b.editor.state == editorNone {
-			b.editor = NewEditor()
-			b.editor.palette = b.palette
+			b.resetEditor()
 		}
 		return b, cmd
 	}

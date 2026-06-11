@@ -152,8 +152,12 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	initial := strings.TrimRight(string(content), "\n")
 	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
-	e.initialValue = initial
-	e.resetHistory(initial)
+	// SetValue runs the textarea's sanitizer (tabs -> spaces, CRLF -> LF), so read
+	// the value back to baseline against what the buffer actually holds. Otherwise
+	// any tab/CRLF in the file would read as an unsaved edit the moment it opens.
+	normalized := e.textarea.Value()
+	e.initialValue = normalized
+	e.resetHistory(normalized)
 	e.expanded = true
 	e.applySize()
 	return e.textarea.Focus()
