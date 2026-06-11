@@ -299,10 +299,12 @@ func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.
 
 func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.Model, tea.Cmd) {
 	_ = b.loadColumns()
+	// ExecProcess handed the terminal to the command; Bubble Tea's restore does
+	// not re-arm mouse reporting, so do it ourselves (see git.restoreMouse).
 	if msg.Err != nil {
-		return b, b.notifier.Send(msg.Name+": "+msg.Err.Error(), notifyError)
+		return b, tea.Batch(tea.EnableMouseCellMotion, b.notifier.Send(msg.Name+": "+msg.Err.Error(), notifyError))
 	}
-	return b, b.notifier.Send(msg.Name+" finished", notifySuccess)
+	return b, tea.Batch(tea.EnableMouseCellMotion, b.notifier.Send(msg.Name+" finished", notifySuccess))
 }
 
 type CustomCommandMenu struct {
