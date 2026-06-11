@@ -754,6 +754,38 @@ func (c *Column) SelectByName(name string) {
 	}
 }
 
+// CursorAtTop reports whether the cursor is on the first visible row.
+func (c *Column) CursorAtTop() bool { return c.list.Index() <= 0 }
+
+// CursorAtBottom reports whether the cursor is on the last visible row.
+func (c *Column) CursorAtBottom() bool {
+	n := len(c.list.VisibleItems())
+	return n == 0 || c.list.Index() >= n-1
+}
+
+// SelectFirst selects the first selectable (non-separator) visible item.
+func (c *Column) SelectFirst() {
+	for i, it := range c.list.VisibleItems() {
+		if card, ok := it.(Item); ok && card.Separator {
+			continue
+		}
+		c.list.Select(i)
+		return
+	}
+}
+
+// SelectLast selects the last selectable (non-separator) visible item.
+func (c *Column) SelectLast() {
+	items := c.list.VisibleItems()
+	for i := len(items) - 1; i >= 0; i-- {
+		if card, ok := items[i].(Item); ok && card.Separator {
+			continue
+		}
+		c.list.Select(i)
+		return
+	}
+}
+
 func (c *Column) LoadItems() error {
 	return c.loadItems(c.itemsByPath())
 }

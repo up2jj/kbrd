@@ -1286,6 +1286,18 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.editor.OpenNew(0, b.columns[0].Name)
 	case key.Matches(msg, Keys.NewFromTemplate):
 		return b.openTemplateFlow(col)
+	case key.Matches(msg, Keys.CursorDown):
+		if col.CursorAtBottom() {
+			col.SelectFirst()
+			return b, nil
+		}
+		return b, col.UpdateList(msg)
+	case key.Matches(msg, Keys.CursorUp):
+		if col.CursorAtTop() {
+			col.SelectLast()
+			return b, nil
+		}
+		return b, col.UpdateList(msg)
 	default:
 		return b, col.UpdateList(msg)
 	}
