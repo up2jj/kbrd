@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // newTestColumn creates a column rooted at a temporary directory with the
@@ -614,7 +616,16 @@ func TestNewTestColumn_HelperIsClean(t *testing.T) {
 	}
 }
 
-func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
+// scrollbarLines renders the column's current scrollbar gutter and returns its
+// rows, so tests can locate the thumb (┃) relative to the track (│).
+func scrollbarLines(col *Column) []string {
+	offset, vp, total := col.list.ScrollMetrics()
+	height := lipgloss.Height(col.list.View())
+	bar := col.renderScrollbar(offset, vp, total, height, col.list.HeaderLines(), true)
+	return strings.Split(bar, "\n")
+}
+
+func TestColumn_Scrollbar_ThumbMovesTopToBottom(t *testing.T) {
 	t.Parallel()
 	files := make(map[string]string, 50)
 	for i := 0; i < 50; i++ {
@@ -626,36 +637,39 @@ func TestColumn_OverflowFooter_ShowsBelowThenAbove(t *testing.T) {
 	// Trigger a render so the viewport lays out and computes its scroll bounds.
 	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer := col.renderOverflowFooter(32)
-	if !strings.Contains(footer, "below") {
-		t.Errorf("expected 'below' indicator on first page, got %q", footer)
+	lines := scrollbarLines(col)
+	if !strings.Contains(strings.Join(lines, ""), "┃") {
+		t.Fatalf("expected a thumb (┃) when overflowing, got %q", lines)
 	}
-	if strings.Contains(footer, "above") {
-		t.Errorf("unexpected 'above' indicator on first page: %q", footer)
+	if !strings.Contains(lines[0], "┃") {
+		t.Errorf("expected thumb at the top on first page, got %q", lines)
+	}
+	if strings.Contains(lines[len(lines)-1], "┃") {
+		t.Errorf("unexpected thumb at the bottom on first page, got %q", lines)
 	}
 
 	// Jump to the end and re-render.
 	col.SelectLast()
 	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer = col.renderOverflowFooter(32)
-	if !strings.Contains(footer, "above") {
-		t.Errorf("expected 'above' indicator on last page, got %q", footer)
+	lines = scrollbarLines(col)
+	if !strings.Contains(lines[len(lines)-1], "┃") {
+		t.Errorf("expected thumb at the bottom on last page, got %q", lines)
 	}
-	if strings.Contains(footer, "below") {
-		t.Errorf("unexpected 'below' indicator on last page: %q", footer)
+	if strings.Contains(lines[0], "┃") {
+		t.Errorf("unexpected thumb at the top on last page, got %q", lines)
 	}
 }
 
-func TestColumn_OverflowFooter_BlankWhenAllFit(t *testing.T) {
+func TestColumn_Scrollbar_BlankWhenAllFit(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{"a": "x", "b": "y"})
 	col.SetHeight(40)
 	_ = col.View(RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }})
 
-	footer := col.renderOverflowFooter(32)
-	if strings.Contains(footer, "above") || strings.Contains(footer, "below") {
-		t.Errorf("expected no overflow chips, got %q", footer)
+	bar := strings.Join(scrollbarLines(col), "")
+	if strings.Contains(bar, "┃") || strings.Contains(bar, "│") {
+		t.Errorf("expected a blank gutter when everything fits, got %q", bar)
 	}
 }
 

@@ -173,6 +173,28 @@ func TestAboveBelow(t *testing.T) {
 	}
 }
 
+func TestScrollMetrics(t *testing.T) {
+	// Six 3-row items (18 rows of content) in a 9-row viewport. Scroll midway.
+	items := make([]fakeItem, 6)
+	for i := range items {
+		items[i] = fakeItem{h: 3, sel: true, fv: "x", name: "x"}
+	}
+	m := newModel(fake{items: items}, 20, 9)
+	m.View()
+	m.vp.SetYOffset(6)
+
+	offset, viewport, content := m.ScrollMetrics()
+	if offset != 6 {
+		t.Errorf("offset = %d, want 6", offset)
+	}
+	if viewport != 9 {
+		t.Errorf("viewport = %d, want 9", viewport)
+	}
+	if content != 18 {
+		t.Errorf("content = %d, want 18", content)
+	}
+}
+
 func TestHitTest(t *testing.T) {
 	f := fake{items: []fakeItem{
 		{h: 2, sel: true, fv: "a", name: "a"}, // rows 0-1

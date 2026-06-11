@@ -302,6 +302,18 @@ func (m *Model) AboveBelow() (above, below int) {
 	return above, below
 }
 
+// ScrollMetrics reports vertical scroll geometry for drawing a scrollbar:
+// offset rows scrolled from the top, viewport height in rows, and total content
+// height in rows. content <= viewport means everything fits in the viewport.
+func (m *Model) ScrollMetrics() (offset, viewport, content int) {
+	m.syncViewport()
+	total := 0
+	for vi := range m.visible {
+		total += m.heightOf(vi)
+	}
+	return m.vp.YOffset, m.vp.Height, total
+}
+
 // HeaderLines is the number of rows the filter bar occupies (0 or 1).
 func (m *Model) HeaderLines() int {
 	if m.filterShown() {

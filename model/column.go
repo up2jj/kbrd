@@ -725,18 +725,27 @@ type RenderCtx struct {
 	StatFor      func(absPath string) (kbrdfs.DiffStat, bool)
 }
 
+// scrollGutterW is the column count reserved on the right edge of the list area
+// for the scrollbar. Reserved permanently (even when the column fits) so card
+// text width stays stable as a column crosses the overflow threshold.
+const scrollGutterW = 1
+
 func (c *Column) View(ctx RenderCtx) string {
+	listW := ctx.Width - scrollGutterW
+	if listW < 1 {
+		listW = 1
+	}
 	c.renderCfg = renderConfig{
 		isActive:     ctx.Active,
 		mnemonicOf:   ctx.MnemonicOf,
 		gutterW:      ctx.GutterW,
-		colWidth:     ctx.Width,
+		colWidth:     listW,
 		previewLines: ctx.PreviewLines,
 		statFor:      ctx.StatFor,
 		palette:      c.palette,
 	}
 	c.width = ctx.Width
-	c.list.SetSize(c.width, c.height)
+	c.list.SetSize(listW, c.height)
 	c.syncDelegate()
 
 	// Virtual columns signal "virtual" via the double-border shape (and the ◇
@@ -767,15 +776,21 @@ func (c *Column) View(ctx RenderCtx) string {
 		}
 		listView = lipgloss.NewStyle().
 			PaddingLeft(2).
-			Width(ctx.Width).
+			Width(listW).
 			Foreground(c.palette.FgDim).
 			Render(text)
 	}
 	c.listYOffset = 1 + lipgloss.Height(header) + c.list.HeaderLines()
+
+	// Attach the scrollbar gutter on the right edge of the list area. The bar is
+	// painted only when the column overflows; otherwise the gutter is blank.
+	offset, vp, total := c.list.ScrollMetrics()
+	gutter := c.renderScrollbar(offset, vp, total, lipgloss.Height(listView), c.list.HeaderLines(), ctx.Active)
+	listArea := lipgloss.JoinHorizontal(lipgloss.Top, listView, gutter)
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		listView,
-		c.renderOverflowFooter(ctx.Width),
+		listArea,
 	)
 
 	return lipgloss.NewStyle().
@@ -784,33 +799,55 @@ func (c *Column) View(ctx RenderCtx) string {
 		Render(content)
 }
 
-// renderOverflowFooter shows "▲ N above" / "▼ N below" chips when the current
-// page of items doesn't cover the full visible-items list. Always returns a
-// single-line string (possibly blank) so column heights stay stable.
-func (c *Column) renderOverflowFooter(width int) string {
-	style := lipgloss.NewStyle().
-		Width(width).
-		MaxWidth(width).
-		Foreground(c.palette.FgSubtle).
-		Italic(true).
-		PaddingLeft(2)
-
-	above, below := c.list.AboveBelow()
-	if above <= 0 && below <= 0 {
-		return style.Render("")
+// renderScrollbar draws the scrollbar gutter: a scrollGutterW-wide, height-tall
+// vertical strip. When the content fits the viewport (content <= viewport) the
+// strip is blank — the gutter stays reserved but unpainted. Otherwise a track
+// (│) fills the viewport rows with a proportionally sized, positioned thumb (█).
+// headerLines blank rows are prepended so the painted region lines up with the
+// scrollable viewport, not the filter bar that sits above it.
+func (c *Column) renderScrollbar(offset, viewport, content, height, headerLines int, active bool) string {
+	blank := strings.Repeat(" ", scrollGutterW)
+	rows := make([]string, height)
+	for i := range rows {
+		rows[i] = blank
 	}
 
-	parts := make([]string, 0, 3)
-	if above > 0 {
-		parts = append(parts, fmt.Sprintf("▲ %d above", above))
+	vpRows := height - headerLines
+	if content <= viewport || vpRows <= 0 || content <= 0 {
+		return strings.Join(rows, "\n")
 	}
-	if above > 0 && below > 0 {
-		parts = append(parts, "·")
+
+	thumb := (viewport*vpRows + content/2) / content // round(viewport/content * vpRows)
+	if thumb < 1 {
+		thumb = 1
 	}
-	if below > 0 {
-		parts = append(parts, fmt.Sprintf("▼ %d below", below))
+	if thumb > vpRows {
+		thumb = vpRows
 	}
-	return style.Render(strings.Join(parts, " "))
+	pos := (offset*vpRows + content/2) / content // round(offset/content * vpRows)
+	if pos > vpRows-thumb {
+		pos = vpRows - thumb
+	}
+	if pos < 0 {
+		pos = 0
+	}
+
+	trackStyle := lipgloss.NewStyle().Width(scrollGutterW).Foreground(c.palette.FgDim)
+	thumbFg := c.palette.FgDim
+	if active {
+		thumbFg = c.palette.FgMuted
+	}
+	thumbStyle := lipgloss.NewStyle().Width(scrollGutterW).Foreground(thumbFg)
+	track := strings.Repeat("│", scrollGutterW)
+	bar := strings.Repeat("┃", scrollGutterW)
+	for i := 0; i < vpRows; i++ {
+		if i >= pos && i < pos+thumb {
+			rows[headerLines+i] = thumbStyle.Render(bar)
+		} else {
+			rows[headerLines+i] = trackStyle.Render(track)
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (c *Column) IsFiltering() bool {
