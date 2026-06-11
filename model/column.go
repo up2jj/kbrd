@@ -84,10 +84,6 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		nameFg = p.FgOnAccent
 		cardBorder = p.PrimaryStrong
 		hasRowBg = true
-	case isSelected:
-		mnemFg = p.Warning
-		nameFg = p.FgEmphasis
-		cardBorder = p.BorderActive
 	default:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
@@ -135,8 +131,6 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	case isSelected && d.isActive:
 		previewFg = p.FgSelectedPreview
 		detailBg = p.BgSelectedDetail
-	case isSelected:
-		previewFg = p.FgMuted
 	default:
 		previewFg = p.FgSubtle
 	}
@@ -303,10 +297,6 @@ func (d itemDelegate) renderVirtual(w io.Writer, item Item, isSelected bool) {
 		nameFg = p.FgOnAccent
 		cardBorder = p.PrimaryStrong
 		hasRowBg = true
-	case isSelected:
-		mnemFg = p.Warning
-		nameFg = p.FgEmphasis
-		cardBorder = p.BorderActive
 	default:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
