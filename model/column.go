@@ -400,11 +400,12 @@ func (c *Column) ContentWidth(def int) int {
 // VirtualCmd is a column-scoped command surfaced in the X menu / status hints
 // for a virtual column. Ref is the host dispatch handle.
 type VirtualCmd struct {
-	ID      string
-	Name    string
-	Key     string
-	Default bool
-	Ref     string
+	ID           string
+	Name         string
+	Key          string
+	Default      bool
+	RequiresItem bool // false lets the command run on an empty column
+	Ref          string
 }
 
 // NewColumn builds a column over a directory. Widths are not stored: layout
@@ -456,7 +457,8 @@ func (c *Column) ApplyVirtualSpec(spec events.VirtualColumnSpec) {
 	c.defaultCmd = ""
 	for _, vc := range spec.Commands {
 		c.colCmds = append(c.colCmds, VirtualCmd{
-			ID: vc.ID, Name: vc.Name, Key: vc.Key, Default: vc.Default, Ref: vc.Ref,
+			ID: vc.ID, Name: vc.Name, Key: vc.Key, Default: vc.Default,
+			RequiresItem: vc.RequiresItem, Ref: vc.Ref,
 		})
 		if vc.Default && c.defaultCmd == "" {
 			c.defaultCmd = vc.ID

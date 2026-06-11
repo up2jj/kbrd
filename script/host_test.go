@@ -319,6 +319,41 @@ kbrd.column.set("tasks", {
 	}
 }
 
+func TestVirtualColumnSet_RequiresItemDefault(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.column.set("tasks", {
+  name = "Tasks",
+  commands = {
+    { id = "add",  name = "Add",  requiresItem = false, run = function() end },
+    { id = "done", name = "Done", run = function() end },
+    { id = "edit", name = "Edit", requiresItem = true,  run = function() end },
+  },
+})`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if len(api.vcolSets) != 1 {
+		t.Fatalf("expected 1 VirtualColumnSet, got %d", len(api.vcolSets))
+	}
+	got := map[string]bool{}
+	for _, c := range api.vcolSets[0].Spec.Commands {
+		got[c.ID] = c.RequiresItem
+	}
+	if got["add"] {
+		t.Error("add RequiresItem = true, want false (explicit)")
+	}
+	if !got["done"] {
+		t.Error("done RequiresItem = false, want true (omitted defaults true)")
+	}
+	if !got["edit"] {
+		t.Error("edit RequiresItem = false, want true (explicit)")
+	}
+}
+
 func TestHasCommand(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("archive", "Archive", function() end)

@@ -310,11 +310,12 @@ type VirtualItem struct {
 // VirtualCommand is a column-scoped command (B) declared inside kbrd.column.set.
 // Ref is the opaque dispatch handle the host resolves back to the Lua run fn.
 type VirtualCommand struct {
-	ID      string
-	Name    string
-	Key     string
-	Default bool
-	Ref     string
+	ID           string
+	Name         string
+	Key          string
+	Default      bool
+	RequiresItem bool // resolved at parse time; default true
+	Ref          string
 }
 
 // VirtualColumnSpec is the full payload of a kbrd.column.set call.

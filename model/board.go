@@ -1110,20 +1110,31 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
 		}
 	case key.Matches(msg, Keys.CustomCommands):
-		if col.HasSelectedItem() && !col.SelectedItem().Separator {
-			item := col.SelectedItem()
-			b.loadCommands()
-			var vctx map[string]interface{}
-			switch {
-			case col.Virtual:
-				vctx = b.buildVirtualVars(col, item)
-			case item.Data != nil:
-				// Frontmatter-carrying item: Lua commands get the rich ctx
-				// (nested data table); shell commands still use the flat vars.
-				vctx = b.buildFilesystemCtx(b.selectedCol, item)
-			}
-			b.customCmds.Open(b.commandsForColumn(col), b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
+		// A separator is selected but not a real item: nothing to act on.
+		if col.HasSelectedItem() && col.SelectedItem().Separator {
+			return b, nil
 		}
+		b.loadCommands()
+		// item is nil on an empty column; commandsForColumn then keeps only
+		// requiresItem: false commands, and the menu stays closed if none.
+		cmds := b.commandsForColumn(col)
+		if len(cmds) == 0 {
+			return b, nil
+		}
+		var item *Item
+		if col.HasSelectedItem() {
+			item = col.SelectedItem()
+		}
+		var vctx map[string]interface{}
+		switch {
+		case col.Virtual:
+			vctx = b.buildVirtualVars(col, item)
+		case item != nil && item.Data != nil:
+			// Frontmatter-carrying item: Lua commands get the rich ctx
+			// (nested data table); shell commands still use the flat vars.
+			vctx = b.buildFilesystemCtx(b.selectedCol, item)
+		}
+		b.customCmds.Open(cmds, b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
 		return b, nil
 	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)

@@ -374,12 +374,19 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 			}
 			ref := vcolRefPrefix(id) + cid
 			h.vcolFns[ref] = fn
+			// requiresItem defaults to true; LVAsBool can't tell absent from
+			// false, so only override when the key is actually present.
+			requiresItem := true
+			if v := ct.RawGetString("requiresItem"); v != lua.LNil {
+				requiresItem = lua.LVAsBool(v)
+			}
 			out.Commands = append(out.Commands, events.VirtualCommand{
-				ID:      cid,
-				Name:    lua.LVAsString(ct.RawGetString("name")),
-				Key:     lua.LVAsString(ct.RawGetString("key")),
-				Default: lua.LVAsBool(ct.RawGetString("default")),
-				Ref:     ref,
+				ID:           cid,
+				Name:         lua.LVAsString(ct.RawGetString("name")),
+				Key:          lua.LVAsString(ct.RawGetString("key")),
+				Default:      lua.LVAsBool(ct.RawGetString("default")),
+				RequiresItem: requiresItem,
+				Ref:          ref,
 			})
 		})
 	}

@@ -217,3 +217,48 @@ func TestCommand_Render_BadTemplate(t *testing.T) {
 		t.Fatal("expected parse error, got nil")
 	}
 }
+
+func TestCommand_NeedsItem(t *testing.T) {
+	tru, fls := true, false
+	if !(Command{}).NeedsItem() {
+		t.Error("NeedsItem() = false for omitted requiresItem, want true")
+	}
+	if !(Command{RequiresItem: &tru}).NeedsItem() {
+		t.Error("NeedsItem() = false for requiresItem: true")
+	}
+	if (Command{RequiresItem: &fls}).NeedsItem() {
+		t.Error("NeedsItem() = true for requiresItem: false")
+	}
+}
+
+func TestLoadCommands_RequiresItemParsed(t *testing.T) {
+	globalDir := t.TempDir()
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(globalDir, GlobalCommandsFile), `
+commands:
+  - name: New card
+    id: new-card
+    requiresItem: false
+    command: touch {{.columnPath}}/new.md
+  - name: Edit
+    id: edit
+    command: nano {{.filePath}}
+`)
+	cmds, warns, err := loadCommandsFrom(globalDir, folder)
+	if err != nil {
+		t.Fatalf("loadCommandsFrom: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %v", warns)
+	}
+	byID := map[string]Command{}
+	for _, c := range cmds {
+		byID[c.ID] = c
+	}
+	if byID["new-card"].NeedsItem() {
+		t.Error("new-card NeedsItem() = true, want false (requiresItem: false)")
+	}
+	if !byID["edit"].NeedsItem() {
+		t.Error("edit NeedsItem() = false, want true (omitted defaults true)")
+	}
+}

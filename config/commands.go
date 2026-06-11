@@ -38,6 +38,11 @@ type Command struct {
 	// filesystem columns only), "virtual" (virtual columns only), or "all".
 	// The default keeps file-assuming commands off fileless virtual columns.
 	Scope string `yaml:"scope"`
+	// RequiresItem controls whether the command needs a selected item. nil or
+	// true (the default) keeps item-assuming commands off empty columns; set
+	// requiresItem: false to opt a command into running with no item in context
+	// (e.g. on an empty column). A pointer so omitted != false.
+	RequiresItem *bool `yaml:"requiresItem"`
 	// Source is populated by the loader/registrar; never read from YAML.
 	Source CommandSource `yaml:"-"`
 	// LuaRef is opaque to non-script code; the script subsystem uses it to
@@ -66,6 +71,13 @@ func (c Command) ShowsOnVirtual() bool {
 func (c Command) ShowsOnFiles() bool {
 	s := c.EffectiveScope()
 	return s == "files" || s == "all"
+}
+
+// NeedsItem reports whether the command requires a selected item. Default true
+// (backward compatible); only requiresItem: false opts out so the command can
+// run on an empty column.
+func (c Command) NeedsItem() bool {
+	return c.RequiresItem == nil || *c.RequiresItem
 }
 
 type commandsFile struct {

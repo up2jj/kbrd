@@ -279,6 +279,29 @@ kbrd.command{ id="reveal", name="Reveal", scope="all",
 The same `scope:` key works in YAML command files (`commands.yml` /
 `.kbrd_commands.yml`).
 
+**`requiresItem`** (optional, default `true`) is the orthogonal axis: whether
+the command needs a selected item. The default keeps item-assuming commands off
+**empty columns** (where there is no selection). Set `requiresItem = false` for a
+command that operates on the column itself — creating a card, a column-level
+sync — so it can be invoked with no item in context. When no item is selected,
+only `requiresItem = false` commands appear in the **X** menu, and the item
+fields (`ctx.path`/`ctx.title`/`ctx.data`, or the `{{.filePath}}` template vars)
+are omitted — a template that references them still fails cleanly. Works on both
+filesystem and virtual columns, in Lua and in YAML:
+
+```lua
+kbrd.command{ id="new", name="New card", requiresItem=false,
+  run=function(ctx) kbrd.async.run("touch "..ctx.columnPath.."/new.md") end }
+```
+
+```yaml
+commands:
+  - name: New card
+    id: new-card
+    requiresItem: false
+    command: touch {{.columnPath}}/new.md
+```
+
 ### `kbrd.has_command(id)`
 
 Returns `true` if a Lua command with this id is currently registered, `false`
@@ -774,6 +797,9 @@ it.
   `ctx.path`/`ctx.filePath`, `ctx.title`, `ctx.columnName`, `ctx.vid`.
 - Global `kbrd.command` / YAML commands appear too **only if** they opt in with
   `scope = "virtual"` or `scope = "all"` (see `scope` below).
+- A column command set with `requiresItem = false` also runs on an **empty**
+  column (its `run(ctx)` then gets only `ctx.columnName`/`ctx.vid`, no item
+  fields). If it's also `default = true`, **Enter** fires it on an empty column.
 
 The command does whatever it does (typically writing the *source* file via
 `kbrd.fs.write(ctx.data.path, …)`); to reflect the change, call `kbrd.column.set`

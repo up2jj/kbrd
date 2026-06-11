@@ -59,16 +59,23 @@ func mergeWithLuaCommands(shell, lua []config.Command) []config.Command {
 	return out
 }
 
+// buildCommandVars renders the flat template vars for a command. item may be
+// nil (a requiresItem: false command on an empty column), in which case the
+// file fields are omitted and VarContext.Vars drops them so a template that
+// references filePath fails cleanly.
 func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 	col := b.columns[colIdx]
-	return board.VarContext{
+	vc := board.VarContext{
 		BoardPath:  b.cfg.Path,
 		BoardName:  b.cfg.BoardName,
 		ColumnPath: col.Path,
 		ColumnName: col.Name,
-		FilePath:   item.FullPath,
-		FileName:   item.Name,
-	}.Vars()
+	}
+	if item != nil {
+		vc.FilePath = item.FullPath
+		vc.FileName = item.Name
+	}
+	return vc.Vars()
 }
 
 // buildVirtualVars builds the structured Lua ctx for a command dispatched on a
@@ -76,21 +83,27 @@ func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 // `data` table and a common `path`/`filePath` (set only when the item provided
 // one). The shared `path` lets a scope="all" command serve real and virtual
 // items without branching.
+// buildVirtualVars builds the structured ctx for a virtual-column command. item
+// may be nil (a requiresItem: false command on an empty column); the item-
+// specific fields (title/fileName/path/data) are then omitted, leaving the
+// board/column context.
 func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]interface{} {
 	m := map[string]interface{}{
 		"boardPath":  b.cfg.Path,
 		"boardName":  b.cfg.BoardName,
 		"columnName": col.Name,
 		"vid":        col.VID,
-		"title":      item.Title,
-		"fileName":   item.Name,
 	}
-	if item.FullPath != "" {
-		m["path"] = item.FullPath
-		m["filePath"] = item.FullPath
-	}
-	if item.Data != nil {
-		m["data"] = item.Data
+	if item != nil {
+		m["title"] = item.Title
+		m["fileName"] = item.Name
+		if item.FullPath != "" {
+			m["path"] = item.FullPath
+			m["filePath"] = item.FullPath
+		}
+		if item.Data != nil {
+			m["data"] = item.Data
+		}
 	}
 	return m
 }
@@ -105,29 +118,40 @@ func (b *Board) buildFilesystemCtx(colIdx int, item *Item) map[string]interface{
 	for k, v := range b.buildCommandVars(colIdx, item) {
 		ctx[k] = v
 	}
-	ctx["path"] = item.FullPath
-	ctx["title"] = item.Title
-	ctx["data"] = item.Data
+	if item != nil {
+		ctx["path"] = item.FullPath
+		ctx["title"] = item.Title
+		ctx["data"] = item.Data
+	}
 	return ctx
 }
 
 // commandsForColumn returns the menu command list for the focused column,
 // applying scope: filesystem columns show files/all globals; virtual columns
-// show their own column-scoped commands first, then virtual/all globals.
+// show their own column-scoped commands first, then virtual/all globals. When
+// the column has no selected item, commands that require one are dropped so
+// only requiresItem: false commands remain (possibly none).
 func (b *Board) commandsForColumn(col *Column) []config.Command {
+	hasItem := col.HasSelectedItem()
+	keep := func(c config.Command) bool { return hasItem || !c.NeedsItem() }
 	if col.Virtual {
 		out := make([]config.Command, 0, len(col.colCmds)+len(b.commands))
 		for _, vc := range col.colCmds {
-			out = append(out, config.Command{
-				Name:   vc.Name,
-				ID:     vc.ID,
-				Scope:  "virtual",
-				Source: config.SourceLua,
-				LuaRef: vc.Ref,
-			})
+			requiresItem := vc.RequiresItem
+			c := config.Command{
+				Name:         vc.Name,
+				ID:           vc.ID,
+				Scope:        "virtual",
+				RequiresItem: &requiresItem,
+				Source:       config.SourceLua,
+				LuaRef:       vc.Ref,
+			}
+			if keep(c) {
+				out = append(out, c)
+			}
 		}
 		for _, c := range b.commands {
-			if c.ShowsOnVirtual() {
+			if c.ShowsOnVirtual() && keep(c) {
 				out = append(out, c)
 			}
 		}
@@ -135,7 +159,7 @@ func (b *Board) commandsForColumn(col *Column) []config.Command {
 	}
 	out := make([]config.Command, 0, len(b.commands))
 	for _, c := range b.commands {
-		if c.ShowsOnFiles() {
+		if c.ShowsOnFiles() && keep(c) {
 			out = append(out, c)
 		}
 	}
@@ -154,22 +178,34 @@ func (b *Board) handleVirtualColumnKey(msg tea.KeyMsg, col *Column) (tea.Cmd, bo
 
 	sel := col.SelectedItem()
 	hasItem := sel != nil && !sel.Separator
+	// item carries the selection through to dispatch; nil when the column is
+	// empty so only requiresItem: false commands run.
+	var item *Item
+	if hasItem {
+		item = sel
+	}
 
 	// Enter runs the column's default action.
 	if msg.Type == tea.KeyEnter {
 		if hasItem {
 			return b.runVirtualDefault(col, sel), true
 		}
+		// On an empty column the default action still fires if it opts out of
+		// needing an item.
+		if cmd := b.virtualDefaultNoItem(col); cmd != nil {
+			return cmd, true
+		}
 		return nil, true
 	}
 
 	// A key bound to one of the column's commands wins over built-in actions.
-	if hasItem {
-		s := msg.String()
-		for _, vc := range col.colCmds {
-			if vc.Key != "" && vc.Key == s {
-				return b.dispatchVirtualCommand(col, sel, vc.Ref, vc.Name), true
+	s := msg.String()
+	for _, vc := range col.colCmds {
+		if vc.Key != "" && vc.Key == s {
+			if !hasItem && vc.RequiresItem {
+				return nil, true // needs an item, none selected: swallow
 			}
+			return b.dispatchVirtualCommand(col, item, vc.Ref, vc.Name), true
 		}
 	}
 
@@ -212,6 +248,21 @@ func (b *Board) runVirtualDefault(col *Column, item *Item) tea.Cmd {
 		return func() tea.Msg {
 			err := openFile(path)
 			return customCommandFinishedMsg{Name: "open " + name, Err: err}
+		}
+	}
+	return nil
+}
+
+// virtualDefaultNoItem runs the column's declared default command on an empty
+// column, but only if that command opts out of needing an item. Returns nil
+// otherwise (the file-open fallback in runVirtualDefault needs an item).
+func (b *Board) virtualDefaultNoItem(col *Column) tea.Cmd {
+	if col.defaultCmd == "" {
+		return nil
+	}
+	for _, vc := range col.colCmds {
+		if vc.ID == col.defaultCmd && !vc.RequiresItem {
+			return b.dispatchVirtualCommand(col, nil, vc.Ref, vc.Name)
 		}
 	}
 	return nil

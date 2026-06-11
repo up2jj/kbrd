@@ -156,6 +156,14 @@ func TestVirtualColumn_CursorStableAcrossRepush(t *testing.T) {
 func TestVirtualColumn_ScopeFiltering(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 1, 4)
+	// Give the real column a selected item so scope, not item-presence, is what
+	// the filtering below exercises.
+	if err := os.WriteFile(filepath.Join(b.columns[0].Path, "card.md"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.columns[0].LoadItems(); err != nil {
+		t.Fatalf("LoadItems: %v", err)
+	}
 	b.setVirtualColumn("tasks", events.VirtualColumnSpec{
 		Name:     "Tasks",
 		Items:    []events.VirtualItem{{ID: "a", Title: "a"}},
@@ -186,6 +194,46 @@ func TestVirtualColumn_ScopeFiltering(t *testing.T) {
 	// Column-scoped command ranks first.
 	if names(virt)[0] != "Done" {
 		t.Errorf("column-scoped command not first: %v", names(virt))
+	}
+}
+
+func TestCommandsForColumn_EmptyColumnItemFilter(t *testing.T) {
+	t.Parallel()
+	no := false
+	b := boardWithNCols(t, 1, 4)
+	// An empty virtual column with one item-independent column command and one
+	// that needs an item. The real column (columns[0]) is over an empty dir, so
+	// it has no selected item either.
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{
+		Name: "Tasks",
+		Commands: []events.VirtualCommand{
+			{ID: "add", Name: "Add", RequiresItem: false, Ref: "vcol:tasks:add"},
+			{ID: "done", Name: "Done", RequiresItem: true, Ref: "vcol:tasks:done"},
+		},
+	})
+	b.commands = []config.Command{
+		{ID: "sync", Name: "Sync", Scope: "all", RequiresItem: &no},
+		{ID: "files-add", Name: "FilesAdd", Scope: "files", RequiresItem: &no},
+		{ID: "edit", Name: "Edit", Scope: "all"}, // requires item (default)
+	}
+
+	// Empty real column: only requiresItem: false files/all globals survive.
+	real := b.commandsForColumn(b.columns[0])
+	if !has(real, "Sync") || !has(real, "FilesAdd") {
+		t.Errorf("empty real column dropped item-independent commands: %v", names(real))
+	}
+	if has(real, "Edit") {
+		t.Errorf("empty real column kept an item-requiring command: %v", names(real))
+	}
+
+	// Empty virtual column: item-independent column command + virtual/all
+	// item-independent globals; item-requiring ones gone.
+	virt := b.commandsForColumn(b.columns[1])
+	if !has(virt, "Add") || !has(virt, "Sync") {
+		t.Errorf("empty virtual column dropped item-independent commands: %v", names(virt))
+	}
+	if has(virt, "Done") || has(virt, "Edit") {
+		t.Errorf("empty virtual column kept item-requiring commands: %v", names(virt))
 	}
 }
 
