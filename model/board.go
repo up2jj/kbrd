@@ -1386,6 +1386,7 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "save"})
 	return b, b.notifier.Send("saved "+msg.FileName, notifySuccess)
 }
@@ -1397,6 +1398,7 @@ func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "append"})
 	return b, b.notifier.Send("appended to "+msg.FileName, notifySuccess)
 }
@@ -1408,6 +1410,7 @@ func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "prepend"})
 	return b, b.notifier.Send("prepended to "+msg.FileName, notifySuccess)
 }
@@ -1419,6 +1422,7 @@ func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
 	}
 	b.reloadColumnAfterMutation(col)
+	col.SelectByName(msg.FileName)
 	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
 }
 
@@ -1487,6 +1491,7 @@ func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 	if _, err := b.createItem(col, msg.FileName); err != nil {
 		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
 	}
+	col.SelectByName(msg.FileName)
 	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
 }
 
@@ -1543,12 +1548,7 @@ func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, te
 	if err := b.renameItem(col, msg.OldName, msg.NewName); err != nil {
 		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
 	}
-	for i, it := range col.Items {
-		if it.Name == msg.NewName {
-			col.list.Select(i)
-			break
-		}
-	}
+	col.SelectByName(msg.NewName)
 	return b, b.notifier.Send("renamed "+msg.OldName+" → "+msg.NewName, notifySuccess)
 }
 
