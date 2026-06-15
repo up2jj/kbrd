@@ -10,13 +10,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// frontmatterSubmitMsg carries a finished key/value edit back to the Board. The
-// value is a verbatim YAML scalar, handed straight to frontmatter.Set.
+// frontmatterSubmitMsg carries a finished key edit back to the Board. When
+// Delete is false the key is set to Value (a verbatim YAML scalar handed to
+// frontmatter.Set); when Delete is true the key is removed via
+// frontmatter.Delete and Value is ignored.
 type frontmatterSubmitMsg struct {
 	ColIndex int
 	FileName string
 	Key      string
 	Value    string
+	Delete   bool
 }
 
 // frontmatterKnownKeys are the display keys the loader understands; they seed
@@ -191,6 +194,16 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 
+	// On the value stage the key is already chosen, so ctrl+d removes it
+	// outright. Intercepted before the form so the value Input never sees it.
+	if e.stage == feValue {
+		if k, ok := msg.(tea.KeyMsg); ok && k.String() == "ctrl+d" {
+			out := frontmatterSubmitMsg{ColIndex: e.colIndex, FileName: e.fileName, Key: e.keyVal, Delete: true}
+			e.Close()
+			return func() tea.Msg { return out }
+		}
+	}
+
 	model, cmd := e.form.Update(msg)
 	if f, ok := model.(*huh.Form); ok {
 		e.form = f
@@ -230,11 +243,19 @@ func (e *FrontmatterEditor) View() string {
 		return ""
 	}
 	title := helpTitleStyle.Render("Edit frontmatter")
-	footer := RenderInlineHints([]Shortcut{
+	hints := []Shortcut{
 		{Keys: "ctrl+e", Label: "complete"},
 		{Keys: "enter", Label: "next"},
 		{Keys: "esc esc", Label: "cancel"},
-	})
+	}
+	if e.stage == feValue {
+		hints = []Shortcut{
+			{Keys: "enter", Label: "save"},
+			{Keys: "ctrl+d", Label: "remove key"},
+			{Keys: "esc esc", Label: "cancel"},
+		}
+	}
+	footer := RenderInlineHints(hints)
 	if e.escArmed {
 		footer = lipgloss.NewStyle().Foreground(e.palette.Warning).Italic(true).
 			Render("press esc again to cancel")
@@ -317,6 +338,13 @@ func (b *Board) handleFrontmatterSubmit(msg frontmatterSubmitMsg) (tea.Model, te
 		return b, nil
 	}
 	col := b.columns[msg.ColIndex]
+	if msg.Delete {
+		if err := b.deleteFrontmatter(col, msg.FileName, msg.Key); err != nil {
+			return b, b.notifier.Send("failed to remove "+msg.Key+": "+err.Error(), notifyError)
+		}
+		col.SelectByName(msg.FileName)
+		return b, b.notifier.Send("removed "+msg.Key, notifySuccess)
+	}
 	if err := b.setFrontmatter(col, msg.FileName, msg.Key, msg.Value); err != nil {
 		return b, b.notifier.Send("failed to set "+msg.Key+": "+err.Error(), notifyError)
 	}

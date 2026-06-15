@@ -79,6 +79,25 @@ func (b *Board) deleteItem(col *Column, name string) error {
 // re-applies the column_items transform; UI state (selection, notifier) is the
 // caller's. Shared so the Lua API / MCP can reuse it.
 func (b *Board) setFrontmatter(col *Column, name, key, value string) error {
+	return b.rewriteFrontmatter(col, name, func(raw string) string {
+		return frontmatter.Set(raw, key, value)
+	})
+}
+
+// deleteFrontmatter removes a single top-level frontmatter key from the named
+// card. A key the card does not carry is a no-op (no write). Same FS-change +
+// transform discipline as setFrontmatter.
+func (b *Board) deleteFrontmatter(col *Column, name, key string) error {
+	return b.rewriteFrontmatter(col, name, func(raw string) string {
+		return frontmatter.Delete(raw, key)
+	})
+}
+
+// rewriteFrontmatter reads the named card, applies rewrite to its raw content,
+// and writes the result back — skipping the write (and reload) when rewrite is a
+// no-op, so removing an absent key never touches the file. Shared by
+// set/deleteFrontmatter.
+func (b *Board) rewriteFrontmatter(col *Column, name string, rewrite func(raw string) string) error {
 	if col.Virtual {
 		return errVirtualColumn
 	}
@@ -96,7 +115,10 @@ func (b *Board) setFrontmatter(col *Column, name, key, value string) error {
 	if err != nil {
 		return err
 	}
-	updated := frontmatter.Set(string(raw), key, value)
+	updated := rewrite(string(raw))
+	if updated == string(raw) {
+		return nil // nothing changed (e.g. removing an absent key)
+	}
 	if err := board.ReplaceFileContent(path, updated); err != nil {
 		return err
 	}
