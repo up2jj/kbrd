@@ -300,6 +300,22 @@ type BoardAPI interface {
 	ColumnConfigSet(column, key string, value interface{}) error
 	ColumnConfigAll(column string) (map[string]interface{}, error)
 	ColumnConfigDelete(column, key string) error
+
+	// Per-column header indicator: a short, styled label a script attaches to a
+	// column's header by NAME (the per-column analogue of a header cell). Purely
+	// presentational and script-driven — kbrd never sets it itself. An empty
+	// Opts.Text clears it; ColumnIndicatorClearAll removes every script-set one.
+	ColumnIndicatorSet(column string, opts ColumnIndicatorOpts)
+	ColumnIndicatorClear(column string)
+	ColumnIndicatorClearAll()
+}
+
+// ColumnIndicatorOpts is the content/appearance of a per-column header label set
+// from a script. FG is a "#rrggbb" hex string (or "" for the default accent).
+type ColumnIndicatorOpts struct {
+	Text string
+	FG   string
+	Bold bool
 }
 
 // TemplateInfo describes one card template available to a column, as exposed

@@ -38,8 +38,9 @@ type fakeAPI struct {
 	vcolSets   []vcolSet
 	vcolClears []string
 	vcolWipes  int
-	colCfg     map[string]map[string]interface{} // column → key → value
-	colCfgErr  error                             // forced error for ColumnConfig*
+	colCfg     map[string]map[string]interface{}     // column → key → value
+	colCfgErr  error                                 // forced error for ColumnConfig*
+	indicators map[string]events.ColumnIndicatorOpts // column → indicator
 }
 
 type cellSet struct {
@@ -247,6 +248,27 @@ func (f *fakeAPI) ColumnConfigDelete(column, key string) error {
 	}
 	delete(f.colCfg[column], key)
 	return nil
+}
+
+func (f *fakeAPI) ColumnIndicatorSet(column string, o events.ColumnIndicatorOpts) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.indicators == nil {
+		f.indicators = map[string]events.ColumnIndicatorOpts{}
+	}
+	f.indicators[column] = o
+}
+
+func (f *fakeAPI) ColumnIndicatorClear(column string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.indicators, column)
+}
+
+func (f *fakeAPI) ColumnIndicatorClearAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.indicators = nil
 }
 
 // contains reports whether any element of notifies exactly equals want — the
@@ -458,6 +480,35 @@ kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
 	// On failure the handler returns (nil, message) so scripts can branch.
 	if !contains(api.notifies, "ok=nil,err=boom") {
 		t.Errorf("set error not surfaced as (nil, err): %v", api.notifies)
+	}
+}
+
+func TestColumnIndicator(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.column.indicator("1. To do", "↓ prio")        -- string shorthand
+kbrd.column.indicator("2. In progress", { text = "wip", fg = "#e0af68", bold = true })
+kbrd.column.indicator("archive", "tmp")
+kbrd.column.indicator("archive", nil)               -- nil clears
+kbrd.column.indicator("1. To do", "")               -- empty also clears`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	// String shorthand then cleared by "" → absent.
+	if _, ok := api.indicators["1. To do"]; ok {
+		t.Errorf(`"1. To do" should have been cleared by empty text`)
+	}
+	// Table form carries fg/bold.
+	ip := api.indicators["2. In progress"]
+	if ip.Text != "wip" || ip.FG != "#e0af68" || !ip.Bold {
+		t.Errorf("table-form indicator = %+v", ip)
+	}
+	// nil clears.
+	if _, ok := api.indicators["archive"]; ok {
+		t.Errorf(`"archive" should have been cleared by nil`)
 	}
 }
 

@@ -223,6 +223,10 @@ func (a boardTaskAPI) VirtualColumnSet(string, events.VirtualColumnSpec) {}
 func (a boardTaskAPI) VirtualColumnClear(string)                         {}
 func (a boardTaskAPI) VirtualColumnClearAll()                            {}
 
+func (a boardTaskAPI) ColumnIndicatorSet(string, events.ColumnIndicatorOpts) {}
+func (a boardTaskAPI) ColumnIndicatorClear(string)                           {}
+func (a boardTaskAPI) ColumnIndicatorClearAll()                              {}
+
 // colDir resolves a filesystem column name to its directory for the column
 // config store. The headless server has no virtual columns, so any resolvable
 // column is disk-backed.

@@ -845,6 +845,33 @@ again. The cursor is preserved by `id`.
 
 Remove one virtual column, or all of them.
 
+### `kbrd.column.indicator(name, opts)` — header label
+
+Attach a short, styled label to a **filesystem** column's header (the
+per-column analogue of `kbrd.cell.*`). It renders just after the column title,
+next to the `ƒ`/`◇` markers. Purely cosmetic and entirely script-driven — kbrd
+never sets one itself — so it's the generic way to surface per-column state
+(a sort mode, a sync status, an over-limit warning).
+
+`name` is the column name. The second argument is a **string**, a **table**, or
+**nil**:
+
+```lua
+kbrd.column.indicator("1. To do", "↓ prio")                       -- text, default accent color
+kbrd.column.indicator("1. To do", { text = "↓ prio", fg = "#e0af68", bold = true })
+kbrd.column.indicator("1. To do", nil)                            -- clear (also: "" clears)
+```
+
+- `text` — the label. An empty string (or `nil`) clears the column's indicator.
+- `fg` — `"#rrggbb"`; omitted uses the same soft accent as the `ƒ` marker.
+- `bold` — optional.
+
+The header has flexible width, so the label compresses the spacer before the
+count; keep it short (a couple of glyphs/words) so it doesn't crowd a narrow
+column. The indicator lives in memory and survives column reloads, but not an
+app restart — re-apply it from a `board_load` hook (or wherever you set the
+state it reflects).
+
 ### `kbrd.store.*` — per-column key/value storage
 
 A small persistent key/value store scoped to each **filesystem** column, for

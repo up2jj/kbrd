@@ -76,6 +76,7 @@ func (h *Host) installAPI() {
 	column.RawSetString("set", L.NewFunction(h.luaColumnSet))
 	column.RawSetString("clear", L.NewFunction(h.luaColumnClear))
 	column.RawSetString("clear_all", L.NewFunction(h.luaColumnClearAll))
+	column.RawSetString("indicator", L.NewFunction(h.luaColumnIndicator))
 	kbrd.RawSetString("column", column)
 
 	store := L.NewTable()
@@ -525,6 +526,34 @@ func (h *Host) luaColumnClear(L *lua.LState) int {
 func (h *Host) luaColumnClearAll(L *lua.LState) int {
 	h.vcolFns = make(map[string]*lua.LFunction)
 	h.api.VirtualColumnClearAll()
+	return 0
+}
+
+// kbrd.column.indicator(name, "text" | {text=, fg=, bold=} | nil)
+// Sets a short, styled label on the named column's header. A nil second arg —
+// or an empty text — clears the column's indicator.
+func (h *Host) luaColumnIndicator(L *lua.LState) int {
+	name := L.CheckString(1)
+	v := L.Get(2)
+	var o events.ColumnIndicatorOpts
+	switch v.Type() {
+	case lua.LTNil:
+		// leave o zero → clears below
+	case lua.LTString:
+		o.Text = lua.LVAsString(v)
+	case lua.LTTable:
+		t := v.(*lua.LTable)
+		o.Text = lua.LVAsString(t.RawGetString("text"))
+		o.FG = lua.LVAsString(t.RawGetString("fg"))
+		o.Bold = lua.LVAsBool(t.RawGetString("bold"))
+	default:
+		L.ArgError(2, "expected string, table, or nil")
+	}
+	if o.Text == "" {
+		h.api.ColumnIndicatorClear(name)
+	} else {
+		h.api.ColumnIndicatorSet(name, o)
+	}
 	return 0
 }
 

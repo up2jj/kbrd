@@ -153,7 +153,7 @@ func TestColumnTransform_HeaderMarker(t *testing.T) {
 	if !col.transformed {
 		t.Fatal("marker not set after the hook transformed the column")
 	}
-	if header := col.renderHeader(false, 0, 40); !strings.Contains(header, "ƒ") {
+	if header := col.renderHeader(false, 0, 40, colIndicator{}); !strings.Contains(header, "ƒ") {
 		t.Fatalf("expected ƒ in header, got %q", header)
 	}
 
@@ -164,7 +164,7 @@ func TestColumnTransform_HeaderMarker(t *testing.T) {
 	if col.transformed {
 		t.Fatal("marker not cleared after the hook declined again")
 	}
-	if header := col.renderHeader(false, 0, 40); strings.Contains(header, "ƒ") {
+	if header := col.renderHeader(false, 0, 40, colIndicator{}); strings.Contains(header, "ƒ") {
 		t.Fatalf("ƒ still in header after clearing: %q", header)
 	}
 }

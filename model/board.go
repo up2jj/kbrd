@@ -119,7 +119,8 @@ type Board struct {
 	columnsLeftPad     int // centering pad to the left of the column strip
 	logoHeight         int
 	cells              CellBar
-	mcpStatus          MCPStatus // drives the header MCP chip (off / running / failed-to-bind)
+	indicators         colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
+	mcpStatus          MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -2269,6 +2270,7 @@ func (b *Board) View() string {
 			GutterW:      gutterW,
 			MnemonicOf:   b.mnemonicLookup(s.Col),
 			StatFor:      b.git.StatFor,
+			Indicator:    b.indicators.get(col.Name),
 		})))
 	}
 	if !b.zoom.Active() && end < len(b.columns) {

@@ -641,7 +641,7 @@ func (c *Column) ScrollBy(n int) {
 	c.list.ScrollBy(n)
 }
 
-func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
+func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicator) string {
 	p := c.palette
 	var nameFg, countFg, sepColor lipgloss.Color
 	if isActive {
@@ -702,6 +702,15 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int) string {
 		// ◇ virtual marker: a soft-accent hint, not a selection cue.
 		name += withBG(lipgloss.NewStyle().Foreground(c.palette.AccentSoft)).Render(" ƒ")
 	}
+	if ind.Text != "" {
+		// Script-set per-column label (kbrd.column.indicator). Default to the
+		// same soft accent as ƒ; a script-supplied fg/bold wins.
+		fg := c.palette.AccentSoft
+		if ind.FG != "" {
+			fg = lipgloss.Color(ind.FG)
+		}
+		name += withBG(lipgloss.NewStyle().Foreground(fg).Bold(ind.Bold)).Render(" " + ind.Text)
+	}
 	count := withBG(lipgloss.NewStyle().Foreground(countFg)).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
@@ -726,6 +735,7 @@ type RenderCtx struct {
 	GutterW      int // mnemonic gutter width
 	MnemonicOf   func(name string) string
 	StatFor      func(absPath string) (kbrdfs.DiffStat, bool)
+	Indicator    colIndicator // script-set header label for this column (empty Text = none)
 }
 
 // scrollGutterW is the column count reserved on the right edge of the list area
@@ -768,7 +778,7 @@ func (c *Column) View(ctx RenderCtx) string {
 	if leftPad < 0 {
 		leftPad = 0
 	}
-	header := c.renderHeader(ctx.Active, leftPad, ctx.Width)
+	header := c.renderHeader(ctx.Active, leftPad, ctx.Width, ctx.Indicator)
 	listView := c.list.View()
 	if len(c.Items) == 0 {
 		// vlist draws nothing for an empty list; show the placeholder text the

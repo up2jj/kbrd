@@ -632,3 +632,14 @@ func (a boardScriptAPI) ColumnConfigDelete(column, key string) error {
 		return nil
 	})
 }
+
+// ColumnIndicatorSet/Clear/ClearAll mutate the per-column indicator registry
+// directly, on the Bubble Tea goroutine — the next render reads it back by
+// column name, so no reload or re-projection is needed (mirrors the cells).
+func (a boardScriptAPI) ColumnIndicatorSet(column string, o events.ColumnIndicatorOpts) {
+	a.b.indicators.set(column, colIndicator{Text: o.Text, FG: o.FG, Bold: o.Bold})
+}
+
+func (a boardScriptAPI) ColumnIndicatorClear(column string) { a.b.indicators.clear(column) }
+
+func (a boardScriptAPI) ColumnIndicatorClearAll() { a.b.indicators.clearAll() }
