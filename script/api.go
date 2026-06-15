@@ -78,6 +78,13 @@ func (h *Host) installAPI() {
 	column.RawSetString("clear_all", L.NewFunction(h.luaColumnClearAll))
 	kbrd.RawSetString("column", column)
 
+	store := L.NewTable()
+	store.RawSetString("get", L.NewFunction(h.luaStoreGet))
+	store.RawSetString("set", L.NewFunction(h.luaStoreSet))
+	store.RawSetString("all", L.NewFunction(h.luaStoreAll))
+	store.RawSetString("delete", L.NewFunction(h.luaStoreDelete))
+	kbrd.RawSetString("store", store)
+
 	L.SetGlobal("kbrd", kbrd)
 
 	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
@@ -519,6 +526,58 @@ func (h *Host) luaColumnClearAll(L *lua.LState) int {
 	h.vcolFns = make(map[string]*lua.LFunction)
 	h.api.VirtualColumnClearAll()
 	return 0
+}
+
+// kbrd.store.get(column, key) → value | nil   (nil, err on failure)
+// A present key returns its value; an absent key returns a single nil, so a
+// script can tell "missing" (one return) from "error" (nil + message).
+func (h *Host) luaStoreGet(L *lua.LState) int {
+	column := L.CheckString(1)
+	key := L.CheckString(2)
+	v, ok, err := h.api.ColumnConfigGet(column, key)
+	if err != nil {
+		return errResult(L, err)
+	}
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+	L.Push(toLValue(L, v))
+	return 1
+}
+
+// kbrd.store.set(column, key, value) → true | nil, err
+func (h *Host) luaStoreSet(L *lua.LState) int {
+	column := L.CheckString(1)
+	key := L.CheckString(2)
+	val := fromLValue(L.Get(3))
+	if err := h.api.ColumnConfigSet(column, key, val); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.store.all(column) → { key = value, ... } | nil, err
+func (h *Host) luaStoreAll(L *lua.LState) int {
+	column := L.CheckString(1)
+	m, err := h.api.ColumnConfigAll(column)
+	if err != nil {
+		return errResult(L, err)
+	}
+	L.Push(toLValue(L, m))
+	return 1
+}
+
+// kbrd.store.delete(column, key) → true | nil, err
+func (h *Host) luaStoreDelete(L *lua.LState) int {
+	column := L.CheckString(1)
+	key := L.CheckString(2)
+	if err := h.api.ColumnConfigDelete(column, key); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
 }
 
 // kbrd._uiGuard(name) — called by the kbrd.ui.* Lua wrappers before yielding.

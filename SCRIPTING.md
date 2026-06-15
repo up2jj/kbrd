@@ -845,6 +845,39 @@ again. The cursor is preserved by `id`.
 
 Remove one virtual column, or all of them.
 
+### `kbrd.store.*` — per-column key/value storage
+
+A small persistent key/value store scoped to each **filesystem** column, for
+scripts that need to remember per-column state between runs (a view mode, a
+last-sync timestamp, a cached id). It is **separate from board config**: it
+governs nothing in the app and is never shown in the UI. Each column's store is
+a hidden `<column>/.kbrd.toml` that travels with the column when its directory
+is renamed.
+
+`column` is a filesystem column **name**. Virtual columns (created via
+`kbrd.column.set`) have no directory and return `nil, err`.
+
+```lua
+kbrd.store.set("To Do", "view", "compact")     -- → true | nil, err
+kbrd.store.set("To Do", "last_sync", os.time())
+kbrd.store.set("To Do", "tags", { "urgent", "review" })  -- tables/arrays too
+
+local view = kbrd.store.get("To Do", "view")    -- "compact"; nil if unset
+for k, v in pairs(kbrd.store.all("To Do")) do   -- whole table as a Lua table
+  kbrd.notify(k .. " = " .. tostring(v))
+end
+
+kbrd.store.delete("To Do", "last_sync")          -- → true | nil, err
+```
+
+- `kbrd.store.get(column, key)` returns the value, or a single `nil` when the
+  key is unset (distinct from the `nil, err` pair returned on failure).
+- Values round-trip through TOML. Lua numbers come back as numbers, but note a
+  Lua integer like `3` may persist as `3.0` (Lua has one number type) — `== 3`
+  still holds. Strings, booleans, arrays, and nested tables round-trip as-is.
+- Writes are atomic and serialized per column, so concurrent timer/async
+  callbacks won't corrupt or lose each other's keys.
+
 ### `kbrd.fs.read(path)`
 
 Read a file. Returns the content as a string, or `nil, err`.

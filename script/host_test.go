@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,8 @@ type fakeAPI struct {
 	vcolSets   []vcolSet
 	vcolClears []string
 	vcolWipes  int
+	colCfg     map[string]map[string]interface{} // column → key → value
+	colCfgErr  error                             // forced error for ColumnConfig*
 }
 
 type cellSet struct {
@@ -197,6 +200,68 @@ func (f *fakeAPI) VirtualColumnClearAll() {
 	f.vcolWipes++
 }
 
+func (f *fakeAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.colCfgErr != nil {
+		return nil, false, f.colCfgErr
+	}
+	v, ok := f.colCfg[column][key]
+	return v, ok, nil
+}
+
+func (f *fakeAPI) ColumnConfigSet(column, key string, value interface{}) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.colCfgErr != nil {
+		return f.colCfgErr
+	}
+	if f.colCfg == nil {
+		f.colCfg = map[string]map[string]interface{}{}
+	}
+	if f.colCfg[column] == nil {
+		f.colCfg[column] = map[string]interface{}{}
+	}
+	f.colCfg[column][key] = value
+	return nil
+}
+
+func (f *fakeAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.colCfgErr != nil {
+		return nil, f.colCfgErr
+	}
+	out := map[string]interface{}{}
+	for k, v := range f.colCfg[column] {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (f *fakeAPI) ColumnConfigDelete(column, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.colCfgErr != nil {
+		return f.colCfgErr
+	}
+	delete(f.colCfg[column], key)
+	return nil
+}
+
+// contains reports whether any element of notifies exactly equals want — the
+// fakeAPI stores notifies as "level:msg", but kbrd.notify with no level
+// defaults to "success", so callers pass the bare message and we match on the
+// suffix.
+func contains(notifies []string, want string) bool {
+	for _, n := range notifies {
+		if n == want || strings.HasSuffix(n, ":"+want) {
+			return true
+		}
+	}
+	return false
+}
+
 func writeInit(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -317,6 +382,82 @@ kbrd.column.set("tasks", {
 	_, err = h.RunVirtualCommand(ref, map[string]interface{}{"data": map[string]interface{}{"path": "/a.md"}})
 	if err == nil || !strings.Contains(err.Error(), "unknown lua command") {
 		t.Fatalf("expected unknown-command error after clear, got %v", err)
+	}
+}
+
+func TestStoreSetGet(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.store.set("todo", "view", "compact")
+kbrd.store.set("todo", "count", 3)
+kbrd.store.set("todo", "tags", { "a", "b" })
+kbrd.notify("view="..tostring(kbrd.store.get("todo", "view")))
+kbrd.notify("missing="..tostring(kbrd.store.get("todo", "nope")))`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if got := api.colCfg["todo"]["view"]; got != "compact" {
+		t.Errorf("view = %#v, want \"compact\"", got)
+	}
+	// Lua numbers arrive as float64.
+	if got := api.colCfg["todo"]["count"]; got != float64(3) {
+		t.Errorf("count = %#v, want float64(3)", got)
+	}
+	if got, want := api.colCfg["todo"]["tags"], []interface{}{"a", "b"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("tags = %#v, want %#v", got, want)
+	}
+	if !contains(api.notifies, "view=compact") {
+		t.Errorf("get round-trip missing: %v", api.notifies)
+	}
+	// An absent key returns a single nil, distinct from an error.
+	if !contains(api.notifies, "missing=nil") {
+		t.Errorf("absent key should read nil: %v", api.notifies)
+	}
+}
+
+func TestStoreAllAndDelete(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.store.set("todo", "a", "1")
+kbrd.store.set("todo", "b", "2")
+kbrd.store.delete("todo", "a")
+local n = 0
+for _ in pairs(kbrd.store.all("todo")) do n = n + 1 end
+kbrd.notify("count="..n)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if _, ok := api.colCfg["todo"]["a"]; ok {
+		t.Errorf("deleted key still present")
+	}
+	if _, ok := api.colCfg["todo"]["b"]; !ok {
+		t.Errorf("untouched key lost")
+	}
+	if !contains(api.notifies, "count=1") {
+		t.Errorf("all() should report 1 key: %v", api.notifies)
+	}
+}
+
+func TestStoreSetError(t *testing.T) {
+	dir := writeInit(t, `
+local ok, err = kbrd.store.set("todo", "x", "y")
+kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
+	api := &fakeAPI{colCfgErr: errors.New("boom")}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	// On failure the handler returns (nil, message) so scripts can branch.
+	if !contains(api.notifies, "ok=nil,err=boom") {
+		t.Errorf("set error not surfaced as (nil, err): %v", api.notifies)
 	}
 }
 

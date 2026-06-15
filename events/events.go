@@ -288,6 +288,18 @@ type BoardAPI interface {
 	VirtualColumnSet(id string, spec VirtualColumnSpec)
 	VirtualColumnClear(id string)
 	VirtualColumnClearAll()
+
+	// Column config store — a scripting-only persistent key/value table backing
+	// each filesystem column (a hidden <column>/.kbrd.toml). It is not shown in
+	// the UI and not consulted by app behavior; it exists solely so scripts can
+	// stamp and read back per-column state. column is a filesystem column NAME,
+	// resolved to its directory by the implementation; an unknown or virtual
+	// column (no disk backing) returns an error. Values round-trip through the
+	// script-side Lua<->Go converters.
+	ColumnConfigGet(column, key string) (interface{}, bool, error)
+	ColumnConfigSet(column, key string, value interface{}) error
+	ColumnConfigAll(column string) (map[string]interface{}, error)
+	ColumnConfigDelete(column, key string) error
 }
 
 // TemplateInfo describes one card template available to a column, as exposed

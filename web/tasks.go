@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kbrd/board"
+	"kbrd/colstore"
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
@@ -221,6 +222,60 @@ func (a boardTaskAPI) CellClearAll()                                     {}
 func (a boardTaskAPI) VirtualColumnSet(string, events.VirtualColumnSpec) {}
 func (a boardTaskAPI) VirtualColumnClear(string)                         {}
 func (a boardTaskAPI) VirtualColumnClearAll()                            {}
+
+// colDir resolves a filesystem column name to its directory for the column
+// config store. The headless server has no virtual columns, so any resolvable
+// column is disk-backed.
+func (a boardTaskAPI) colDir(column string) (string, error) {
+	return board.ResolveColumn(a.root, column, false)
+}
+
+func (a boardTaskAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return nil, false, err
+	}
+	s, err := colstore.Read(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	v, ok := s.Get(key)
+	return v, ok, nil
+}
+
+func (a boardTaskAPI) ColumnConfigSet(column, key string, value interface{}) error {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return err
+	}
+	return colstore.Update(dir, func(s *colstore.Store) error {
+		s.Set(key, value)
+		return nil
+	})
+}
+
+func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return nil, err
+	}
+	s, err := colstore.Read(dir)
+	if err != nil {
+		return nil, err
+	}
+	return s.All(), nil
+}
+
+func (a boardTaskAPI) ColumnConfigDelete(column, key string) error {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return err
+	}
+	return colstore.Update(dir, func(s *colstore.Store) error {
+		s.Delete(key)
+		return nil
+	})
+}
 
 // taskScheduler owns a Lua host and drives its timers in a headless server.
 // The Lua VM is single-threaded, so exactly one goroutine (run) ever touches

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"kbrd/board"
+	"kbrd/colstore"
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
@@ -570,3 +571,64 @@ func (a boardScriptAPI) VirtualColumnSet(id string, spec events.VirtualColumnSpe
 func (a boardScriptAPI) VirtualColumnClear(id string) { a.b.clearVirtualColumn(id) }
 
 func (a boardScriptAPI) VirtualColumnClearAll() { a.b.clearAllVirtualColumns() }
+
+// colDir resolves a filesystem column name to its directory for the column
+// config store, rejecting unknown and virtual columns (the latter have no disk
+// backing).
+func (a boardScriptAPI) colDir(name string) (string, error) {
+	col := a.column(name)
+	if col == nil {
+		return "", fmt.Errorf("column %q not found", name)
+	}
+	if col.Virtual {
+		return "", errVirtualColumn
+	}
+	return col.Path, nil
+}
+
+func (a boardScriptAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return nil, false, err
+	}
+	s, err := colstore.Read(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	v, ok := s.Get(key)
+	return v, ok, nil
+}
+
+func (a boardScriptAPI) ColumnConfigSet(column, key string, value interface{}) error {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return err
+	}
+	return colstore.Update(dir, func(s *colstore.Store) error {
+		s.Set(key, value)
+		return nil
+	})
+}
+
+func (a boardScriptAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return nil, err
+	}
+	s, err := colstore.Read(dir)
+	if err != nil {
+		return nil, err
+	}
+	return s.All(), nil
+}
+
+func (a boardScriptAPI) ColumnConfigDelete(column, key string) error {
+	dir, err := a.colDir(column)
+	if err != nil {
+		return err
+	}
+	return colstore.Update(dir, func(s *colstore.Store) error {
+		s.Delete(key)
+		return nil
+	})
+}
