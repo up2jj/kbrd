@@ -35,8 +35,10 @@ func (f fake) Render(i int, selected bool) string {
 
 func testKeys() KeyMap {
 	return KeyMap{
-		Up:   key.NewBinding(key.WithKeys("up", "k")),
-		Down: key.NewBinding(key.WithKeys("down", "j")),
+		Up:       key.NewBinding(key.WithKeys("up", "k")),
+		Down:     key.NewBinding(key.WithKeys("down", "j")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
 	}
 }
 
@@ -70,6 +72,60 @@ func TestCursorSkipsNonSelectable(t *testing.T) {
 	press(&m, "k")
 	if got := m.Index(); got != 0 {
 		t.Fatalf("after up, index = %d, want 0", got)
+	}
+}
+
+func TestPageCursorMovesByPageAndClamps(t *testing.T) {
+	// Ten 1-row cards in a 4-row viewport: a page is ~4 rows.
+	items := make([]fakeItem, 10)
+	for i := range items {
+		items[i] = fakeItem{h: 1, sel: true, fv: "x", name: "x"}
+	}
+	m := newModel(fake{items: items}, 20, 4)
+
+	pgdown := func() { m.Update(tea.KeyMsg{Type: tea.KeyPgDown}) }
+	pgup := func() { m.Update(tea.KeyMsg{Type: tea.KeyPgUp}) }
+
+	if m.Index() != 0 {
+		t.Fatalf("start index = %d, want 0", m.Index())
+	}
+	pgdown() // advance by a page worth of rows (4)
+	if got := m.Index(); got != 4 {
+		t.Fatalf("after pgdown, index = %d, want 4", got)
+	}
+	// Page down past the end clamps on the last card without wrapping.
+	pgdown()
+	pgdown()
+	pgdown()
+	if got := m.Index(); got != 9 {
+		t.Fatalf("after repeated pgdown, index = %d, want 9 (clamped at last)", got)
+	}
+	pgup() // back up by a page
+	if got := m.Index(); got != 5 {
+		t.Fatalf("after pgup, index = %d, want 5", got)
+	}
+	// Page up past the top clamps on the first card without wrapping.
+	pgup()
+	pgup()
+	if got := m.Index(); got != 0 {
+		t.Fatalf("after repeated pgup, index = %d, want 0 (clamped at first)", got)
+	}
+}
+
+func TestPageCursorSnapsToSelectable(t *testing.T) {
+	// A separator sits exactly one page below the cursor; the page move must
+	// land on a real card, not the separator.
+	f := fake{items: []fakeItem{
+		{h: 1, sel: true, fv: "a", name: "a"},   // 0, rows 0
+		{h: 1, sel: true, fv: "b", name: "b"},   // 1, rows 1
+		{h: 1, sel: false, fv: "", name: "sep"}, // 2, rows 2 (one page down)
+		{h: 1, sel: true, fv: "c", name: "c"},   // 3, rows 3
+	}}
+	m := newModel(f, 20, 2) // page ~= 2 rows
+
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	if got := m.Index(); !m.selectableAt(got) {
+		t.Fatalf("pgdown landed on non-selectable index %d", got)
 	}
 }
 

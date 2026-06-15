@@ -12,14 +12,16 @@ type KeyMap struct {
 	Refresh     key.Binding
 
 	// Navigation
-	PrevCol    key.Binding
-	NextCol    key.Binding
-	JumpCol    key.Binding
-	PanLeft    key.Binding
-	PanRight   key.Binding
-	Filter     key.Binding
-	CursorUp   key.Binding
-	CursorDown key.Binding
+	PrevCol     key.Binding
+	NextCol     key.Binding
+	JumpCol     key.Binding
+	PanLeft     key.Binding
+	PanRight    key.Binding
+	Filter      key.Binding
+	CursorUp    key.Binding
+	CursorDown  key.Binding
+	ColPageUp   key.Binding
+	ColPageDown key.Binding
 
 	// Item actions
 	Peek           key.Binding
@@ -122,14 +124,16 @@ var Keys = KeyMap{
 	Refresh:     key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
 	// Navigation
-	PrevCol:    key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column")),
-	NextCol:    key.NewBinding(key.WithKeys("]", "tab", "right"), key.WithHelp("→ / tab / ]", "next column")),
-	JumpCol:    key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to column N")),
-	PanLeft:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "pan columns left")),
-	PanRight:   key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "pan columns right")),
-	Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	CursorUp:   key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑ / k", "move up (wraps)")),
-	CursorDown: key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓ / j", "move down (wraps)")),
+	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column")),
+	NextCol:     key.NewBinding(key.WithKeys("]", "tab", "right"), key.WithHelp("→ / tab / ]", "next column")),
+	JumpCol:     key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to column N")),
+	PanLeft:     key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "pan columns left")),
+	PanRight:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "pan columns right")),
+	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	CursorUp:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑ / k", "move up (wraps)")),
+	CursorDown:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓ / j", "move down (wraps)")),
+	ColPageUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+	ColPageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
 
 	// Item actions
 	Peek:           key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
@@ -248,6 +252,8 @@ func ShortcutGroups() []ShortcutGroup {
 			Items: append(
 				bindingShortcuts(Keys.NextCol, Keys.PrevCol, Keys.JumpCol, Keys.PanLeft, Keys.PanRight),
 				Shortcut{"j / k", "move within column"},
+				bindingShortcut(Keys.ColPageDown),
+				bindingShortcut(Keys.ColPageUp),
 				bindingShortcut(Keys.Filter),
 			),
 		},

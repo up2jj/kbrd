@@ -492,7 +492,10 @@ type VirtualCmd struct {
 // vlistKeys maps the board's cursor bindings into the list engine so j/k and the
 // arrows are defined in exactly one place (model/keys.go).
 func vlistKeys() vlist.KeyMap {
-	return vlist.KeyMap{Up: Keys.CursorUp, Down: Keys.CursorDown}
+	return vlist.KeyMap{
+		Up: Keys.CursorUp, Down: Keys.CursorDown,
+		PageUp: Keys.ColPageUp, PageDown: Keys.ColPageDown,
+	}
 }
 
 // NewColumn builds a column over a directory. Widths are not stored: layout

@@ -42,8 +42,10 @@ type Delegate interface {
 // KeyMap are the bindings vlist consumes for cursor movement. The host injects
 // them so key choices live in one place (the host's own key registry).
 type KeyMap struct {
-	Up   key.Binding
-	Down key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
 }
 
 type filterState int
@@ -132,6 +134,10 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		m.moveCursor(-1)
 	case key.Matches(km, m.keys.Down):
 		m.moveCursor(+1)
+	case key.Matches(km, m.keys.PageUp):
+		m.pageCursor(-1)
+	case key.Matches(km, m.keys.PageDown):
+		m.pageCursor(+1)
 	}
 	return nil
 }
@@ -410,6 +416,34 @@ func (m *Model) moveCursor(dir int) {
 		m.cursor = j
 		m.scrollToCursor = true
 	}
+}
+
+// pageCursor moves the cursor by roughly one viewport height in direction dir
+// (+1 down, -1 up), then snaps to the nearest selectable row. Walking only as
+// far as the ends clamps at the first/last row — it does not wrap.
+func (m *Model) pageCursor(dir int) {
+	if len(m.visible) == 0 {
+		return
+	}
+	page := max(m.vp.Height, 1)
+	target := m.cursor
+	acc := 0
+	for i := m.cursor + dir; i >= 0 && i < len(m.visible); i += dir {
+		target = i
+		acc += max(m.heightOf(i), 1)
+		if acc >= page {
+			break
+		}
+	}
+	m.cursor = target
+	if !m.selectableAt(m.cursor) {
+		if j, ok := m.nextSelectable(m.cursor, dir); ok {
+			m.cursor = j
+		} else if j, ok := m.nextSelectable(m.cursor, -dir); ok {
+			m.cursor = j
+		}
+	}
+	m.scrollToCursor = true
 }
 
 // nextSelectable returns the first selectable visible index strictly past from
