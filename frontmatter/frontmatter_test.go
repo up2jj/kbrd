@@ -296,3 +296,31 @@ func mustBlock(t *testing.T, raw string) string {
 	}
 	return block
 }
+
+func TestValidate(t *testing.T) {
+	ok := []struct{ key, value string }{
+		{"pinned", "true"},
+		{"accent", "blue"},
+		{"tags", "[go, tui]"},    // flow list
+		{"meta", "{a: 1, b: 2}"}, // flow mapping
+		{"title", "hello world"},
+		{"title", `"quoted: colon"`},
+		{"cleared", ""}, // empty -> null, valid
+	}
+	for _, c := range ok {
+		if err := Validate(c.key, c.value); err != nil {
+			t.Errorf("Validate(%q, %q) = %v, want nil", c.key, c.value, err)
+		}
+	}
+
+	bad := []struct{ key, value string }{
+		{"tags", "[1, 2"},         // unbalanced flow list
+		{"meta", "foo: bar"},      // stray colon -> nested mapping
+		{"title", "line1\nline2"}, // embedded newline
+	}
+	for _, c := range bad {
+		if err := Validate(c.key, c.value); err == nil {
+			t.Errorf("Validate(%q, %q) = nil, want error", c.key, c.value)
+		}
+	}
+}

@@ -113,6 +113,29 @@ func Split(raw string) (block, body string, fenced bool) {
 	return "", raw, false
 }
 
+// Validate reports whether setting key to value would produce a well-formed
+// frontmatter line. Set writes value verbatim as `key: value`, so it must be a
+// valid single-line YAML scalar or flow collection; this composes that same line
+// and unmarshals it, returning a descriptive error when it would not parse — an
+// embedded newline, an unbalanced flow list ("[1, 2"), or a stray colon that
+// turns the value into a nested mapping ("foo: bar"). A nil error means Set will
+// write a line that round-trips back to a value under key.
+func Validate(key, value string) error {
+	if strings.ContainsAny(value, "\n\r") {
+		return fmt.Errorf("value must be a single line")
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(key+": "+value), &m); err != nil {
+		return fmt.Errorf("not a valid YAML value: %w", err)
+	}
+	if _, ok := m[key]; !ok {
+		// The line parsed, but not as a single `key:` entry — e.g. value
+		// introduced its own top-level key.
+		return fmt.Errorf("not a valid value for %q", key)
+	}
+	return nil
+}
+
 // Set returns raw with the top-level key set to value in its leading
 // frontmatter block. An existing top-level `<key>:` line is replaced in place,
 // preserving every other line; otherwise `<key>: <value>` is appended to the

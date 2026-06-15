@@ -8,6 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+
+	"kbrd/frontmatter"
 )
 
 // frontmatterSubmitMsg carries a finished key edit back to the Board. When
@@ -51,19 +53,20 @@ const (
 // field's value at build time, so the value field can only be seeded from the
 // key after the key form completes.
 type FrontmatterEditor struct {
-	stage     frontmatterStage
-	colIndex  int
-	fileName  string
-	data      map[string]any    // the card's parsed frontmatter (lookups + suggestions)
-	extraKeys []string          // board-wide + script-suggested keys for completion
-	defaults  map[string]string // script-suggested default value per key
-	keyVal    string            // bound to the key Input
-	valueVal  string            // bound to the value Input
-	form      *huh.Form
-	escArmed  bool // first esc pressed; the next one cancels
-	palette   Palette
-	width     int
-	height    int
+	stage      frontmatterStage
+	colIndex   int
+	fileName   string
+	data       map[string]any    // the card's parsed frontmatter (lookups + suggestions)
+	extraKeys  []string          // board-wide + script-suggested keys for completion
+	defaults   map[string]string // script-suggested default value per key
+	keyVal     string            // bound to the key Input
+	valueVal   string            // bound to the value Input
+	form       *huh.Form
+	escArmed   bool   // first esc pressed; the next one cancels
+	nestedNote string // set when a chosen key resolves to a nested map (uneditable here)
+	palette    Palette
+	width      int
+	height     int
 }
 
 func (e *FrontmatterEditor) Active() bool { return e.stage != feNone }
@@ -77,6 +80,7 @@ func (e *FrontmatterEditor) Close() {
 	e.valueVal = ""
 	e.form = nil
 	e.escArmed = false
+	e.nestedNote = ""
 }
 
 func (e *FrontmatterEditor) SetPalette(p Palette) { e.palette = p }
@@ -109,6 +113,7 @@ func (e *FrontmatterEditor) Open(colIndex int, fileName string, data map[string]
 	e.defaults = defaults
 	e.keyVal = ""
 	e.valueVal = ""
+	e.nestedNote = ""
 	return e.startKeyForm()
 }
 
@@ -146,7 +151,8 @@ func (e *FrontmatterEditor) startValueForm() tea.Cmd {
 			Title(e.keyVal).
 			Description("value for this key").
 			Suggestions(frontmatterValueSuggestions).
-			Value(&e.valueVal),
+			Value(&e.valueVal).
+			Validate(func(s string) error { return frontmatter.Validate(e.keyVal, s) }),
 	)).
 		WithTheme(huhThemeFor(e.palette)).
 		WithShowHelp(false)
@@ -226,6 +232,15 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 			e.keyVal = strings.TrimSpace(e.keyVal)
+			if isNestedValue(e.data[e.keyVal]) {
+				// frontmatter.Set only rewrites top-level lines, so a nested
+				// mapping can't be edited here. Re-prompt with a note instead
+				// of advancing to a value stage that would corrupt it.
+				e.nestedNote = e.keyVal + " is a nested mapping — edit it in the file directly"
+				e.keyVal = ""
+				return e.startKeyForm()
+			}
+			e.nestedNote = ""
 			return e.startValueForm()
 		case feValue:
 			out := frontmatterSubmitMsg{
@@ -263,16 +278,90 @@ func (e *FrontmatterEditor) View() string {
 		}
 	}
 	footer := RenderInlineHints(hints)
+	if e.nestedNote != "" {
+		footer = lipgloss.NewStyle().Foreground(e.palette.Warning).Italic(true).
+			Render(e.nestedNote)
+	}
 	if e.escArmed {
 		footer = lipgloss.NewStyle().Foreground(e.palette.Warning).Italic(true).
 			Render("press esc again to cancel")
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", e.form.View(), footer)
+	fields := e.renderCurrentFields(min(e.width-10, 72))
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", fields, "", e.form.View(), footer)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(e.palette.BorderActive).
 		Padding(1, 3).
 		Render(content)
+}
+
+// renderCurrentFields lists the card's existing frontmatter as aligned
+// `key  value` rows for context. Returns a dim placeholder when the card has
+// none. innerW bounds value truncation so rows never wrap the overlay.
+func (e *FrontmatterEditor) renderCurrentFields(innerW int) string {
+	label := helpDimStyle.Render("current frontmatter")
+	if len(e.data) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, label,
+			helpDimStyle.Render("  (none yet)"))
+	}
+	keys := make([]string, 0, len(e.data))
+	for k := range e.data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	keyW := 0
+	for _, k := range keys {
+		if w := lipgloss.Width(k); w > keyW {
+			keyW = w
+		}
+	}
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(e.palette.FgBase)
+	activeKeyStyle := lipgloss.NewStyle().Bold(true).Foreground(e.palette.Primary)
+	valStyle := lipgloss.NewStyle().Foreground(e.palette.FgMuted)
+	rows := make([]string, 0, len(keys)+1)
+	rows = append(rows, label)
+	for _, k := range keys {
+		ks := keyStyle
+		if e.stage == feValue && k == e.keyVal {
+			ks = activeKeyStyle // the key being edited
+		}
+		padded := fmt.Sprintf("%-*s", keyW, k)
+		var val string
+		if isNestedValue(e.data[k]) {
+			// Nested mappings are read-only here (see Update); show them dimmed
+			// so the panel doesn't imply they can be edited.
+			val = helpDimStyle.Render(nestedSummary(e.data[k]))
+		} else {
+			val = valStyle.Render(truncLine(seedValue(e.data[k]), max(innerW-keyW-2, 4)))
+		}
+		rows = append(rows, ks.Render(padded)+"  "+val)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+// isNestedValue reports whether v is a nested mapping — a structure the flat,
+// line-based frontmatter.Set cannot edit, so the editor surfaces it read-only.
+func isNestedValue(v any) bool {
+	switch v.(type) {
+	case map[string]any, map[any]any:
+		return true
+	}
+	return false
+}
+
+// nestedSummary describes a nested mapping value for the read-only panel row.
+func nestedSummary(v any) string {
+	n := 0
+	switch m := v.(type) {
+	case map[string]any:
+		n = len(m)
+	case map[any]any:
+		n = len(m)
+	}
+	if n == 1 {
+		return "{1 field — edit in file}"
+	}
+	return fmt.Sprintf("{%d fields — edit in file}", n)
 }
 
 // seedValue renders a frontmatter value back into the editable scalar the value
