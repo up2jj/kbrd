@@ -26,7 +26,7 @@ shell commands keep working unchanged.
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
   - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, indicator
-  - [`kbrd.store.*`](#kbrdstore--per-column-keyvalue-storage) — get, set, all, delete
+  - [`kbrd.column.store.*`](#kbrdcolumnstore--per-column-keyvalue-storage) — get, set, all, delete
   - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, set_frontmatter, delete_frontmatter, exists, mkdir, glob
 - [Error handling](#error-handling) · [Auto-disable](#auto-disable-on-consecutive-errors)
 - [What's not yet available](#whats-not-yet-available)
@@ -940,7 +940,7 @@ column. The indicator lives in memory and survives column reloads, but not an
 app restart — re-apply it from a `board_load` hook (or wherever you set the
 state it reflects).
 
-### `kbrd.store.*` — per-column key/value storage
+### `kbrd.column.store.*` — per-column key/value storage
 
 A small persistent key/value store scoped to each **filesystem** column, for
 scripts that need to remember per-column state between runs (a view mode, a
@@ -953,19 +953,19 @@ is renamed.
 `kbrd.column.set`) have no directory and return `nil, err`.
 
 ```lua
-kbrd.store.set("To Do", "view", "compact")     -- → true | nil, err
-kbrd.store.set("To Do", "last_sync", os.time())
-kbrd.store.set("To Do", "tags", { "urgent", "review" })  -- tables/arrays too
+kbrd.column.store.set("To Do", "view", "compact")     -- → true | nil, err
+kbrd.column.store.set("To Do", "last_sync", os.time())
+kbrd.column.store.set("To Do", "tags", { "urgent", "review" })  -- tables/arrays too
 
-local view = kbrd.store.get("To Do", "view")    -- "compact"; nil if unset
-for k, v in pairs(kbrd.store.all("To Do")) do   -- whole table as a Lua table
+local view = kbrd.column.store.get("To Do", "view")    -- "compact"; nil if unset
+for k, v in pairs(kbrd.column.store.all("To Do")) do   -- whole table as a Lua table
   kbrd.notify(k .. " = " .. tostring(v))
 end
 
-kbrd.store.delete("To Do", "last_sync")          -- → true | nil, err
+kbrd.column.store.delete("To Do", "last_sync")          -- → true | nil, err
 ```
 
-- `kbrd.store.get(column, key)` returns the value, or a single `nil` when the
+- `kbrd.column.store.get(column, key)` returns the value, or a single `nil` when the
   key is unset (distinct from the `nil, err` pair returned on failure).
 - Values round-trip through TOML. Lua numbers come back as numbers, but note a
   Lua integer like `3` may persist as `3.0` (Lua has one number type) — `== 3`
@@ -1271,7 +1271,7 @@ end)
 
 A real-world combo of four newer APIs working together: a
 [`kbrd.command`](#kbrdcommandid-name-fn--short-form) cycles a sort mode,
-[`kbrd.store`](#kbrdstore--per-column-keyvalue-storage) remembers the choice
+[`kbrd.column.store`](#kbrdcolumnstore--per-column-keyvalue-storage) remembers the choice
 **per column across restarts**, a [`column_items`](#kbrdoncolumn_items-fn--column-transform-hook)
 transform applies it, and a [`column.indicator`](#kbrdcolumnindicatorname-opts--header-label)
 labels the header with the active sort. Run **Cycle sort** from the `x` menu to
@@ -1305,8 +1305,8 @@ kbrd.command{
   id = "cycle-sort", name = "Cycle sort",
   description = "priority → name → newest, per column",
   run = function(ctx)
-    local nxt = next_mode(kbrd.store.get(ctx.columnName, "sort") or "priority")
-    kbrd.store.set(ctx.columnName, "sort", nxt)
+    local nxt = next_mode(kbrd.column.store.get(ctx.columnName, "sort") or "priority")
+    kbrd.column.store.set(ctx.columnName, "sort", nxt)
     kbrd.notify(ctx.columnName .. " → sort by " .. nxt, "success")
     kbrd.board.refresh()                -- re-runs the transform with the new mode
   end,
@@ -1314,7 +1314,7 @@ kbrd.command{
 
 -- apply the stored mode whenever a column is (re)built
 kbrd.on("column_items", function(ev)
-  local mode = kbrd.store.get(ev.column, "sort")
+  local mode = kbrd.column.store.get(ev.column, "sort")
   kbrd.column.indicator(ev.column, mode and SORT_LABEL[mode] or nil)
   if not mode then return nil end       -- no mode chosen → leave the default order
   table.sort(ev.items, comparator(mode))
@@ -1335,7 +1335,7 @@ local function is_bug(it)
 end
 
 kbrd.on("column_items", function(ev)
-  local cmp = comparator(kbrd.store.get(ev.column, "sort") or "priority")
+  local cmp = comparator(kbrd.column.store.get(ev.column, "sort") or "priority")
   local bugs, rest = {}, {}
   for _, it in ipairs(ev.items) do
     table.insert(is_bug(it) and bugs or rest, it)

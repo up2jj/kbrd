@@ -84,7 +84,9 @@ func (h *Host) installAPI() {
 	store.RawSetString("set", L.NewFunction(h.luaStoreSet))
 	store.RawSetString("all", L.NewFunction(h.luaStoreAll))
 	store.RawSetString("delete", L.NewFunction(h.luaStoreDelete))
-	kbrd.RawSetString("store", store)
+	// Column-scoped: every store call targets a column by name, so it lives under
+	// kbrd.column.* next to indicator/set (column is already on kbrd by reference).
+	column.RawSetString("store", store)
 
 	L.SetGlobal("kbrd", kbrd)
 
@@ -557,7 +559,7 @@ func (h *Host) luaColumnIndicator(L *lua.LState) int {
 	return 0
 }
 
-// kbrd.store.get(column, key) → value | nil   (nil, err on failure)
+// kbrd.column.store.get(column, key) → value | nil   (nil, err on failure)
 // A present key returns its value; an absent key returns a single nil, so a
 // script can tell "missing" (one return) from "error" (nil + message).
 func (h *Host) luaStoreGet(L *lua.LState) int {
@@ -575,7 +577,7 @@ func (h *Host) luaStoreGet(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.store.set(column, key, value) → true | nil, err
+// kbrd.column.store.set(column, key, value) → true | nil, err
 func (h *Host) luaStoreSet(L *lua.LState) int {
 	column := L.CheckString(1)
 	key := L.CheckString(2)
@@ -587,7 +589,7 @@ func (h *Host) luaStoreSet(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.store.all(column) → { key = value, ... } | nil, err
+// kbrd.column.store.all(column) → { key = value, ... } | nil, err
 func (h *Host) luaStoreAll(L *lua.LState) int {
 	column := L.CheckString(1)
 	m, err := h.api.ColumnConfigAll(column)
@@ -598,7 +600,7 @@ func (h *Host) luaStoreAll(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.store.delete(column, key) → true | nil, err
+// kbrd.column.store.delete(column, key) → true | nil, err
 func (h *Host) luaStoreDelete(L *lua.LState) int {
 	column := L.CheckString(1)
 	key := L.CheckString(2)

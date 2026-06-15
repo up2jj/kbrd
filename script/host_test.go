@@ -409,11 +409,11 @@ kbrd.column.set("tasks", {
 
 func TestStoreSetGet(t *testing.T) {
 	dir := writeInit(t, `
-kbrd.store.set("todo", "view", "compact")
-kbrd.store.set("todo", "count", 3)
-kbrd.store.set("todo", "tags", { "a", "b" })
-kbrd.notify("view="..tostring(kbrd.store.get("todo", "view")))
-kbrd.notify("missing="..tostring(kbrd.store.get("todo", "nope")))`)
+kbrd.column.store.set("todo", "view", "compact")
+kbrd.column.store.set("todo", "count", 3)
+kbrd.column.store.set("todo", "tags", { "a", "b" })
+kbrd.notify("view="..tostring(kbrd.column.store.get("todo", "view")))
+kbrd.notify("missing="..tostring(kbrd.column.store.get("todo", "nope")))`)
 	api := &fakeAPI{}
 	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
@@ -442,11 +442,11 @@ kbrd.notify("missing="..tostring(kbrd.store.get("todo", "nope")))`)
 
 func TestStoreAllAndDelete(t *testing.T) {
 	dir := writeInit(t, `
-kbrd.store.set("todo", "a", "1")
-kbrd.store.set("todo", "b", "2")
-kbrd.store.delete("todo", "a")
+kbrd.column.store.set("todo", "a", "1")
+kbrd.column.store.set("todo", "b", "2")
+kbrd.column.store.delete("todo", "a")
 local n = 0
-for _ in pairs(kbrd.store.all("todo")) do n = n + 1 end
+for _ in pairs(kbrd.column.store.all("todo")) do n = n + 1 end
 kbrd.notify("count="..n)`)
 	api := &fakeAPI{}
 	h, err := New(defaultCfg(), api, nil, dir, "")
@@ -468,7 +468,7 @@ kbrd.notify("count="..n)`)
 
 func TestStoreSetError(t *testing.T) {
 	dir := writeInit(t, `
-local ok, err = kbrd.store.set("todo", "x", "y")
+local ok, err = kbrd.column.store.set("todo", "x", "y")
 kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
 	api := &fakeAPI{colCfgErr: errors.New("boom")}
 	h, err := New(defaultCfg(), api, nil, dir, "")
