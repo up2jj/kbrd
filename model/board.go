@@ -116,6 +116,7 @@ type Board struct {
 	commands           []config.Command
 	commandWarnings    []config.CommandLoadWarning
 	leftIndicatorWidth int
+	columnsLeftPad     int // centering pad to the left of the column strip
 	logoHeight         int
 	cells              CellBar
 	mcpStatus          MCPStatus // drives the header MCP chip (off / running / failed-to-bind)
@@ -1326,7 +1327,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // left overflow-chip reserve. ok is false when X lands left of the first column
 // or past the last visible one.
 func (b *Board) columnAtMouse(x int) (int, bool) {
-	xc := x - b.leftIndicatorWidth
+	xc := x - b.leftIndicatorWidth - b.columnsLeftPad
 	if xc < 0 {
 		return 0, false
 	}
@@ -2255,14 +2256,6 @@ func (b *Board) View() string {
 	if !b.zoom.Active() && end < len(b.columns) {
 		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))
 	}
-	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
-	if b.zoom.Active() {
-		// Zoom renders a single column; center it on the row.
-		columnsView = lipgloss.PlaceHorizontal(b.termWidth, lipgloss.Center, columnsView)
-	}
-
-	quickCmdView := b.renderQuickCommand()
-
 	w, h := b.termWidth, b.termHeight
 	if w == 0 {
 		w = 80
@@ -2270,6 +2263,20 @@ func (b *Board) View() string {
 	if h == 0 {
 		h = 24
 	}
+
+	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
+	b.columnsLeftPad = 0
+	if b.zoom.Active() {
+		// Zoom renders a single column; center it on the row.
+		columnsView = lipgloss.PlaceHorizontal(b.termWidth, lipgloss.Center, columnsView)
+	} else if pad := (w - lipgloss.Width(columnsView)) / 2; pad > 0 {
+		// Center the whole strip as a group when it doesn't fill the width.
+		// Computed explicitly so columnAtMouse can subtract the same offset.
+		b.columnsLeftPad = pad
+		columnsView = lipgloss.NewStyle().PaddingLeft(pad).Render(columnsView)
+	}
+
+	quickCmdView := b.renderQuickCommand()
 
 	// Header row: logo on the left, cells strip right-aligned on the same line.
 	b.updateBuiltinCells()
