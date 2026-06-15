@@ -235,6 +235,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `r` | Rename item |
 | `d` | Delete |
 | `x` | Custom commands menu |
+| `~` | Edit a frontmatter key/value (`ctrl+e` completes a key) |
 
 **Create & command**
 
@@ -485,6 +486,12 @@ frontmatter map — including custom keys like `assignee` — is exposed to Lua
 custom commands as `ctx.data`, so scripts can act on it. Malformed YAML never
 breaks a card: it loads without metadata and shows a `⚠ yaml` badge on its
 meta line so the mistake is visible.
+
+Press `~` on a card to edit a single key without leaving the board: type the
+key (`ctrl+e` completes one already used anywhere on the board), then edit its
+value — pre-filled with the card's current value when the key exists. A
+`frontmatter_suggestions` Lua hook can add its own keys and default values to
+the completion list (see [SCRIPTING.md](./SCRIPTING.md)).
 
 ---
 

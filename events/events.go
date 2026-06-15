@@ -49,6 +49,13 @@ const (
 	// the captured response. They only fire under `kbrd serve --scripting`.
 	NameHTTPRequest  = "http_request"
 	NameHTTPResponse = "http_response"
+	// NameFrontmatterSuggestions is the Lua-only hook fired when the frontmatter
+	// editor opens. It receives the target column and item and returns a table of
+	// {key = default_value} suggestions surfaced as key completions (and used to
+	// seed the value field for keys the card does not yet carry). Like the other
+	// transform hooks it expects a return value, so it is never an actionEvent.
+	// Every registered hook contributes; results are merged.
+	NameFrontmatterSuggestions = "frontmatter_suggestions"
 )
 
 // actionEvents is the set of low-frequency "action" events that declarative

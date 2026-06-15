@@ -121,6 +121,7 @@ Currently emitted events:
 | `git_sync_done` | `{ok, stage, error}`                                     | After manual or auto git sync finishes                    |
 | `git_post_commit` | (not yet emitted)                                      | reserved                                                  |
 | `column_items`  | `{column, pinned, items}` — **expects a return value**  | When a filesystem column's items are (re)built — see below |
+| `frontmatter_suggestions` | `{column, item}` — **expects a return value** | When the frontmatter editor (`~`) opens — offers key completions and value defaults — see below |
 | `http_request`  | `{method, path, query, headers, remote_addr}` — **expects a verdict** | `serve` only: before built-in auth, per HTTP request — see below |
 | `http_response` | `{method, path, status, headers, body}` — **expects a verdict** | `serve` only: after the handler, before the response is sent — see below |
 
@@ -367,6 +368,41 @@ their own order via `kbrd.column.set`.
 A column whose order is currently script-defined shows a soft `ƒ` glyph next
 to its header name (the filesystem cousin of the `◇` virtual marker), so a
 hidden or reordered card is always explainable at a glance.
+
+### `kbrd.on("frontmatter_suggestions", fn)` — frontmatter editor completions
+
+Fired when the in-app frontmatter editor opens on a card (the `~` key). Like
+`column_items` this is a **transform**: the hook returns a table of key
+suggestions (or `nil` to decline). The editor surfaces these keys as
+completions in its key field — alongside every key already present on any card
+across the board — and uses each suggestion's default to seed the value field
+**when the card does not already carry that key** (an existing value on the
+card always wins).
+
+The event payload is `{column, item}` (the target column name and the card's
+file name, without `.md`). Two return shapes are accepted:
+
+```lua
+-- Map shape: { key = default_value, ... }. Order is undefined.
+kbrd.on("frontmatter_suggestions", function(ev)
+  return { status = "todo", priority = "2", due = "" }
+end)
+
+-- Array shape: ordered { key=, default= } entries (use when order matters).
+kbrd.on("frontmatter_suggestions", function(ev)
+  if ev.column ~= "TODO" then return nil end
+  return {
+    { key = "status",   default = "todo" },
+    { key = "assignee", default = "" },
+  }
+end)
+```
+
+Unlike `column_items` (first non-nil wins), **every** registered
+`frontmatter_suggestions` hook contributes — the results are merged, so several
+scripts can each add their own keys. Keys with an empty default complete the
+key but leave the value field blank. Errors count toward the hook's
+`error_threshold` exactly like the other hooks.
 
 ### `kbrd.on("http_request", fn)` / `kbrd.on("http_response", fn)` — serve middleware
 

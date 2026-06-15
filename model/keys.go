@@ -24,20 +24,21 @@ type KeyMap struct {
 	ColPageDown key.Binding
 
 	// Item actions
-	Peek           key.Binding
-	Edit           key.Binding
-	Append         key.Binding
-	Prepend        key.Binding
-	Journal        key.Binding
-	Copy           key.Binding
-	Paste          key.Binding
-	OpenExternal   key.Binding
-	Pin            key.Binding
-	MoveNext       key.Binding
-	MoveFirst      key.Binding
-	RenameItem     key.Binding
-	Delete         key.Binding
-	CustomCommands key.Binding
+	Peek            key.Binding
+	Edit            key.Binding
+	Append          key.Binding
+	Prepend         key.Binding
+	Journal         key.Binding
+	Copy            key.Binding
+	Paste           key.Binding
+	OpenExternal    key.Binding
+	Pin             key.Binding
+	MoveNext        key.Binding
+	MoveFirst       key.Binding
+	RenameItem      key.Binding
+	Delete          key.Binding
+	CustomCommands  key.Binding
+	EditFrontmatter key.Binding
 
 	// Create
 	New             key.Binding
@@ -136,20 +137,21 @@ var Keys = KeyMap{
 	ColPageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
 
 	// Item actions
-	Peek:           key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
-	Edit:           key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
-	Append:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
-	Prepend:        key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
-	Journal:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "journal entry")),
-	Copy:           key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-	Paste:          key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
-	OpenExternal:   key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
-	Pin:            key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
-	MoveNext:       key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),
-	MoveFirst:      key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
-	RenameItem:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
-	Delete:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	CustomCommands: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
+	Peek:            key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
+	Edit:            key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	Append:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
+	Prepend:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
+	Journal:         key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "journal entry")),
+	Copy:            key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	Paste:           key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
+	OpenExternal:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
+	Pin:             key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
+	MoveNext:        key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),
+	MoveFirst:       key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
+	RenameItem:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
+	Delete:          key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	CustomCommands:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
+	EditFrontmatter: key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "edit frontmatter")),
 
 	// Create
 	New:             key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item in current folder")),
@@ -263,7 +265,7 @@ func ShortcutGroups() []ShortcutGroup {
 				Keys.Peek, Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal,
 				Keys.Copy, Keys.Paste, Keys.OpenExternal, Keys.Pin,
 				Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem, Keys.Delete,
-				Keys.CustomCommands,
+				Keys.CustomCommands, Keys.EditFrontmatter,
 			),
 		},
 		{

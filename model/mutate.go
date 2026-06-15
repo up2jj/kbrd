@@ -2,8 +2,12 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"os"
 
+	"kbrd/board"
 	"kbrd/events"
+	"kbrd/frontmatter"
 )
 
 // errVirtualColumn is returned when a mutation targets a virtual (script-owned,
@@ -66,6 +70,38 @@ func (b *Board) deleteItem(col *Column, name string) error {
 		return err
 	}
 	b.bus.Publish(events.ItemDeleted{Column: col.Name, Name: name})
+	return nil
+}
+
+// setFrontmatter rewrites a single top-level frontmatter key on the named card,
+// creating the block if absent (frontmatter.Set's create path). value is a
+// verbatim YAML scalar. Like the other primitives it performs the FS change and
+// re-applies the column_items transform; UI state (selection, notifier) is the
+// caller's. Shared so the Lua API / MCP can reuse it.
+func (b *Board) setFrontmatter(col *Column, name, key, value string) error {
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	path := ""
+	for _, item := range col.Items {
+		if item.Name == name {
+			path = item.FullPath
+			break
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("item not found: %s", name)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	updated := frontmatter.Set(string(raw), key, value)
+	if err := board.ReplaceFileContent(path, updated); err != nil {
+		return err
+	}
+	col.LoadItems()
+	b.applyColumnTransform(col)
 	return nil
 }
 

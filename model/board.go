@@ -134,6 +134,7 @@ type Board struct {
 	transformPending bool
 	templateFlow     TemplateFlow
 	templateExec     templateExec
+	frontmatterEdit  FrontmatterEditor
 	hooks            *hookRunner // declarative YAML event hooks; nil when disabled
 
 	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
@@ -251,6 +252,7 @@ func (b *Board) applyPalette() {
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
+	b.frontmatterEdit.SetPalette(b.palette)
 	if b.editor != nil {
 		b.editor.palette = b.palette
 	}
@@ -680,6 +682,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.editor.SetTermSize(b.termWidth, b.termHeight)
 		b.templateFlow.SetSize(b.termWidth, b.termHeight)
+		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.KeyMsg:
@@ -895,6 +898,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case templateSubmitMsg:
 		return b.handleTemplateSubmit(msg)
 
+	case frontmatterSubmitMsg:
+		return b.handleFrontmatterSubmit(msg)
+
 	case templateShellDoneMsg:
 		return b, b.templateExec.done(msg)
 
@@ -904,6 +910,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// list so they don't leak into the list filter.
 		if b.templateFlow.Active() {
 			return b, b.templateFlow.Update(msg)
+		}
+		if b.frontmatterEdit.Active() {
+			return b, b.frontmatterEdit.Update(msg)
 		}
 		// Pass list-internal messages (e.g. FilterMatchesMsg) to the active column
 		if len(b.columns) > 0 {
@@ -1053,6 +1062,11 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle template picker / form
 	if b.templateFlow.Active() {
 		return b, b.templateFlow.Update(msg)
+	}
+
+	// Handle frontmatter editor
+	if b.frontmatterEdit.Active() {
+		return b, b.frontmatterEdit.Update(msg)
 	}
 
 	// Handle git panel
@@ -1247,6 +1261,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, b.notifier.Send(item.Name+" "+pinState, notifySuccess)
 		}
+	case key.Matches(msg, Keys.EditFrontmatter):
+		if col.HasSelectedItem() {
+			return b, b.openFrontmatterEditor(b.selectedCol, col, col.SelectedItem())
+		}
 	case key.Matches(msg, Keys.Delete):
 		if col.HasSelectedItem() {
 			item := col.SelectedItem()
@@ -1343,7 +1361,7 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
+		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -2343,6 +2361,9 @@ func (b *Board) View() string {
 	}
 	if b.templateFlow.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.templateFlow.View())
+	}
+	if b.frontmatterEdit.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.frontmatterEdit.View())
 	}
 	if b.git.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.git.View())
