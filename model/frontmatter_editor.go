@@ -26,6 +26,11 @@ type frontmatterSubmitMsg struct {
 // the key field's completion alongside whatever keys the card already carries.
 var frontmatterKnownKeys = []string{"accent", "icon", "meta", "tags", "render", "pinned"}
 
+// frontmatterValueSuggestions are common scalar values offered as completions in
+// the value field (ctrl+e) — handy for boolean-ish keys like `pinned`. Any other
+// text is still accepted freely.
+var frontmatterValueSuggestions = []string{"true", "false", "yes", "no"}
+
 const (
 	fmKeyField   = "key"
 	fmValueField = "value"
@@ -140,6 +145,7 @@ func (e *FrontmatterEditor) startValueForm() tea.Cmd {
 			Key(fmValueField).
 			Title(e.keyVal).
 			Description("value for this key").
+			Suggestions(frontmatterValueSuggestions).
 			Value(&e.valueVal),
 	)).
 		WithTheme(huhThemeFor(e.palette)).
@@ -251,6 +257,7 @@ func (e *FrontmatterEditor) View() string {
 	if e.stage == feValue {
 		hints = []Shortcut{
 			{Keys: "enter", Label: "save"},
+			{Keys: "ctrl+e", Label: "complete"},
 			{Keys: "ctrl+d", Label: "remove key"},
 			{Keys: "esc esc", Label: "cancel"},
 		}

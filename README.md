@@ -489,7 +489,8 @@ meta line so the mistake is visible.
 
 Press `~` on a card to edit a single key without leaving the board: type the
 key (`ctrl+e` completes one already used anywhere on the board), then edit its
-value — pre-filled with the card's current value when the key exists — or press
+value — pre-filled with the card's current value when the key exists, with
+`ctrl+e` completing common scalars like `true`/`false`/`yes`/`no` — or press
 `ctrl+d` to remove the key. A `frontmatter_suggestions` Lua hook can add its own
 keys and default values to the completion list (see [SCRIPTING.md](./SCRIPTING.md)).
 
