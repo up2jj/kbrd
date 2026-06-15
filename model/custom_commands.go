@@ -1,6 +1,8 @@
 package model
 
 import (
+	"sort"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -316,6 +318,7 @@ type CustomCommandMenu struct {
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
 	vctx     map[string]interface{} // rich Lua ctx for virtual-column dispatch; nil otherwise
+	mru      []string               // command ids in MRU order (index 0 = most recent); session-only
 	palette  Palette
 }
 
@@ -329,7 +332,7 @@ func (m *CustomCommandMenu) commandHaystack(i int) string {
 
 func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]interface{}) {
 	m.active = true
-	m.commands = commands
+	m.commands = sortByUsage(commands, m.mru)
 	m.warnings = warnings
 	m.vars = vars
 	m.vctx = vctx
@@ -350,6 +353,49 @@ func (m *CustomCommandMenu) Close() {
 }
 
 func (m *CustomCommandMenu) Active() bool { return m.active }
+
+// recordUse moves id to the front of the session MRU list so the next Open
+// floats it to the top of the unfiltered list. Session-only; not persisted.
+func (m *CustomCommandMenu) recordUse(id string) {
+	if id == "" {
+		return // virtual/Lua ids aren't guaranteed non-empty
+	}
+	next := []string{id} // most-recent first
+	for _, x := range m.mru {
+		if x != id {
+			next = append(next, x)
+		}
+	}
+	m.mru = next
+}
+
+// sortByUsage returns cmds reordered so previously-used commands lead in MRU
+// order, with never-used commands keeping their original (YAML/Lua) order via a
+// stable sort. Only affects the empty-filter view: filterFuzzy returns indexes
+// in slice order when the query is empty, while a non-empty query is ranked by
+// fuzzy relevance independent of input order.
+func sortByUsage(cmds []config.Command, mru []string) []config.Command {
+	if len(mru) == 0 {
+		return cmds
+	}
+	rank := make(map[string]int, len(mru))
+	for i, id := range mru {
+		rank[id] = i
+	}
+	out := append([]config.Command(nil), cmds...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, oki := rank[out[i].ID]
+		rj, okj := rank[out[j].ID]
+		if oki && okj {
+			return ri < rj // both used: MRU order
+		}
+		if oki != okj {
+			return oki // used before never-used
+		}
+		return false // both unused: stable -> keep original order
+	})
+	return out
+}
 
 func (m *CustomCommandMenu) recompute() {
 	m.matches = filterFuzzy(len(m.commands), m.filter, m.commandHaystack)
@@ -403,6 +449,7 @@ func (m *CustomCommandMenu) Update(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
+	m.recordUse(c.ID)
 	vars := m.vars
 	vctx := m.vctx
 	m.Close()
