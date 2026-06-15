@@ -1374,12 +1374,12 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	col := b.columns[colIdx]
 
-	itemIdx, ok := col.HitTest(msg.Y - b.logoHeight)
-	if !ok {
-		return b, nil
-	}
+	// Clicking anywhere in a column selects it — including an empty column,
+	// whose HitTest never finds an item. Select the card too when one is hit.
 	b.selectedCol = colIdx
-	col.SelectIndex(itemIdx)
+	if itemIdx, ok := col.HitTest(msg.Y - b.logoHeight); ok {
+		col.SelectIndex(itemIdx)
+	}
 	return b, nil
 }
 
