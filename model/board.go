@@ -1359,6 +1359,12 @@ func (b *Board) columnAtMouse(x int) (int, bool) {
 }
 
 func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Peek is a scrollable modal: let it consume the wheel; block everything else.
+	if b.peek.Active() {
+		b.peek.HandleMouse(msg)
+		return b, nil
+	}
+
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
 	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||

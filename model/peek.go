@@ -21,8 +21,13 @@ type Peek struct {
 
 func (p *Peek) Active() bool { return p.active }
 
+// peekScrollbarGutter is the width reserved on the right of the body for the
+// scrollbar (1 bar + 1 gap). Reserved unconditionally so the body wraps to the
+// same width whether or not the bar is showing — keeps the modal height fixed.
+const peekScrollbarGutter = 2
+
 func (p *Peek) Open(title, markdown string, termWidth int) tea.Cmd {
-	innerWidth := peekInnerWidth(termWidth)
+	innerWidth := peekInnerWidth(termWidth) - peekScrollbarGutter
 	rendered := renderMarkdown(markdown, innerWidth)
 	rendered = strings.TrimRight(rendered, "\n")
 	p.active = true
@@ -71,6 +76,63 @@ func (p *Peek) Update(msg tea.KeyMsg) {
 		p.offset = 0
 	case key.Matches(msg, Keys.PeekBottom):
 		p.offset = maxOffset
+	}
+}
+
+func (p *Peek) ScrollBy(delta int) {
+	page := p.pageSize
+	if page <= 0 {
+		page = 1
+	}
+	maxOffset := len(p.lines) - page
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	p.offset += delta
+	if p.offset < 0 {
+		p.offset = 0
+	}
+	if p.offset > maxOffset {
+		p.offset = maxOffset
+	}
+}
+
+// scrollbar returns height rows for a vertical scrollbar, sized and positioned
+// from the current offset. Caller guarantees total > height (content overflows).
+func (p *Peek) scrollbar(height, total int) []string {
+	thumb := height * height / total
+	if thumb < 1 {
+		thumb = 1
+	}
+	maxOffset := total - height
+	pos := (height - thumb) * p.offset / maxOffset
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > height-thumb {
+		pos = height - thumb
+	}
+	// Match the column scrollbar: a thin │ track with a ┃ thumb.
+	track := lipgloss.NewStyle().Foreground(p.palette.FgDim).Render("│")
+	bar := lipgloss.NewStyle().Foreground(p.palette.FgMuted).Render("┃")
+	rows := make([]string, height)
+	for i := range rows {
+		if i >= pos && i < pos+thumb {
+			rows[i] = bar
+		} else {
+			rows[i] = track
+		}
+	}
+	return rows
+}
+
+// HandleMouse scrolls the body on wheel events; other mouse input is ignored.
+func (p *Peek) HandleMouse(msg tea.MouseMsg) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		p.ScrollBy(-3)
+	case tea.MouseButtonWheelDown:
+		p.ScrollBy(3)
 	}
 }
 
@@ -486,7 +548,16 @@ func (p *Peek) View(termWidth, termHeight int) string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.Primary)
 	body := strings.Join(visible, "\n")
-	bodyStyle := lipgloss.NewStyle().Width(innerWidth)
+
+	// The scrollbar gutter is always reserved (see peekScrollbarGutter), so the
+	// body wraps to a constant width and the modal height never changes; the bar
+	// itself only appears once content overflows a page.
+	bodyWidth := innerWidth - peekScrollbarGutter
+	bodyBlock := lipgloss.NewStyle().Width(bodyWidth).Render(body)
+	if len(p.lines) > pageSize {
+		bar := strings.Join(p.scrollbar(pageSize, len(p.lines)), "\n")
+		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
+	}
 
 	hints := []Shortcut{
 		{"j/k", "scroll"},
@@ -505,7 +576,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render(p.title),
 		"",
-		bodyStyle.Render(body),
+		bodyBlock,
 		"",
 		footer,
 	)
