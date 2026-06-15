@@ -8,7 +8,7 @@
 [![Bubble Tea](https://img.shields.io/badge/TUI-Bubble%20Tea-FF75B7)](https://github.com/charmbracelet/bubbletea)
 [![Lua](https://img.shields.io/badge/Scripting-Lua%205.1-000080?logo=lua&logoColor=white)](./SCRIPTING.md)
 [![MCP](https://img.shields.io/badge/MCP-ready-6E56CF)](https://modelcontextprotocol.io)
-![Version](https://img.shields.io/badge/version-v0.5.0-brightgreen)
+![Version](https://img.shields.io/badge/version-v0.10.0-brightgreen)
 
 *Your board is just a folder. Columns are directories. Cards are Markdown files.*
 
@@ -59,9 +59,13 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 
 A quick, scannable rundown of everything kbrd does:
 
+**Files & storage**
+
 - **Plain-files storage** — directories are columns, `.md` files are cards, zero database.
 - **Live reload** — the board updates instantly when files change on disk (`fsnotify`).
-- **Fully keyboard-driven** — every action has a binding; mouse optional.
+
+**Cards**
+
 - **Create cards** — in the current column (`n`) or the first column (`N`).
 - **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`t`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
@@ -73,22 +77,35 @@ A quick, scannable rundown of everything kbrd does:
 - **Pin cards** — float important cards to the top of a column (`!`).
 - **Move cards** — to the next column (`m`) or back to the first (`M`).
 - **Rename & delete** — cards (`r` / `d`) and columns (`R`), with confirmation on delete.
+
+**Search & navigation**
+
+- **Fully keyboard-driven** — every action has a binding; mouse optional.
 - **Global search** — fuzzy full-text search across all recent boards via `ripgrep` (`f`).
 - **Board switcher** — fuzzy switch, pin favorites, and remove boards (`Ctrl+P`).
+- **Help overlay** — discover every shortcut without leaving the app (`?`).
+
+**Git & sync**
+
 - **Git panel** — diff, commit, log, sync (pull+push), and add remotes in-app (`g`).
 - **Auto-sync** — reconciles with the remote when the board opens (and optionally
   on an interval), with automatic upstream setup; it resolves divergence on its
   own, setting aside a conflict copy only when two machines edit the same lines
   (never blocking the sync). A header cell shows the sync state.
 - **README generation** — optionally regenerate `README.md` from the board before commits.
-- **Themes** — toggle light / dark palettes on the fly (quick command `.` → `t`).
-- **Help overlay** — discover every shortcut without leaving the app (`?`).
-- **In-app config menu** — open or scaffold config & command files (`,`).
+
+**Extensibility**
+
 - **Custom shell commands** — run templated shell commands against any card (`x`).
-- **Zellij integration** — inside a [zellij](https://zellij.dev) session, open a card in a floating or tiled editor pane, or a shell scoped to the board (`z`); the tab is named after the board.
 - **Lua scripting** — extend kbrd with commands, event hooks, timers, and async tasks.
 - **Virtual columns** — Lua-driven columns showing a computed view (e.g. open tasks across boards); `tab` switches into them, with script-declared item actions ([example](./examples/tasks/tasks.lua)).
 - **Built-in MCP server** — let external tools and LLM agents operate on your boards.
+
+**Interface & integrations**
+
+- **Themes** — toggle light / dark palettes on the fly (quick command `.` → `t`).
+- **In-app config menu** — open or scaffold config & command files (`,`).
+- **Zellij integration** — inside a [zellij](https://zellij.dev) session, open a card in a floating or tiled editor pane, or a shell scoped to the board (`z`); the tab is named after the board.
 
 ---
 
@@ -129,10 +146,18 @@ A quick, scannable rundown of everything kbrd does:
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/zoom.png" alt="Zoomed single column" width="100%"></td>
-    <td width="50%"></td>
+    <td width="50%"><img src="docs/screenshots/frontmatter.png" alt="In-app frontmatter editor" width="100%"></td>
   </tr>
   <tr>
     <td align="center"><em>Zoom a single column for focused reading (<code>+</code>)</em></td>
+    <td align="center"><em>Edit a card's frontmatter in-app (<code>~</code>)</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/filter.png" alt="Filtering a column by tag" width="100%"></td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Filter a column by text or <code>#tag</code> (<code>/</code>)</em></td>
     <td></td>
   </tr>
 </table>

@@ -24,7 +24,30 @@ Show
 Sleep 1s
 Screenshot docs/screenshots/board.png
 
-# 2. Zoom a single column (+/= toggles, - exits)
+# 2. Frontmatter editor (`~`): edit one key on the selected card. Type an
+# existing key so the value stage opens pre-filled with its current value.
+Type "~"
+Sleep 800ms
+Type "tags"
+Sleep 400ms
+Enter
+Sleep 800ms
+Screenshot docs/screenshots/frontmatter.png
+Escape
+Escape
+Sleep 500ms
+
+# 3. Column filter (`/`): narrow the column by text or #tag. "ui" matches the
+# two Backlog cards tagged #ui.
+Type "/"
+Sleep 500ms
+Type "ui"
+Sleep 800ms
+Screenshot docs/screenshots/filter.png
+Escape
+Sleep 500ms
+
+# 4. Zoom a single column (+/= toggles, - exits)
 Type "+"
 Sleep 1s
 Screenshot docs/screenshots/zoom.png

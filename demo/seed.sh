@@ -12,6 +12,12 @@ rm -rf "$board"
 mkdir -p "$board/Backlog" "$board/In Progress" "$board/Done"
 
 cat > "$board/Backlog/Polish the theme palette.md" <<'EOF'
+---
+accent: "#e06c75"
+icon: "🎨"
+meta: due Fri
+tags: [ui, design]
+---
 # Polish the theme palette
 
 Tune contrast for the **dark** theme and verify the light theme is
@@ -23,6 +29,11 @@ readable on a white terminal.
 EOF
 
 cat > "$board/Backlog/Investigate file watcher races.md" <<'EOF'
+---
+accent: "#e5c07b"
+icon: "🐛"
+tags: [bug, core]
+---
 # Investigate file watcher races
 
 Rapid external edits occasionally land before the previous reload
@@ -30,6 +41,11 @@ finishes. Add a short debounce around `fsnotify` events.
 EOF
 
 cat > "$board/Backlog/Document the Lua API.md" <<'EOF'
+---
+accent: "#61afef"
+icon: "📝"
+tags: [ui, docs]
+---
 # Document the Lua API
 
 Expand `SCRIPTING.md` with end-to-end examples for `kbrd.on`,

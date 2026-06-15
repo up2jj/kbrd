@@ -74,6 +74,7 @@ release version:
     echo "Pushed $tag — the release workflow will now build and publish it."
 
 # Seed demo data and capture all README screenshots with VHS (requires vhs installed).
-screenshots:
+# Depends on `build` so the tape never captures a stale ./kbrd binary.
+screenshots: build
     demo/seed.sh
     vhs demo/screenshots.tape
