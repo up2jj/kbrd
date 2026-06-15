@@ -10,6 +10,31 @@ shell commands keep working unchanged.
 
 ---
 
+## Contents
+
+- [Quick start](#quick-start)
+- [Configuration](#configuration) · [Environment variables](#environment-variables)
+- [Two ways to plug in](#two-ways-to-plug-in) — [menu commands](#1-menu-commands--kbrdcommand), [event hooks](#2-event-hooks--kbrdon)
+- [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
+- [The `ctx` table](#the-ctx-table)
+- [API reference](#api-reference)
+  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [on](#kbrdonevent-fn)
+  - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
+  - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
+  - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
+  - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
+  - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
+  - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
+  - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, indicator
+  - [`kbrd.store.*`](#kbrdstore--per-column-keyvalue-storage) — get, set, all, delete
+  - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, set_frontmatter, delete_frontmatter, exists, mkdir, glob
+- [Error handling](#error-handling) · [Auto-disable](#auto-disable-on-consecutive-errors)
+- [What's not yet available](#whats-not-yet-available)
+- [Recipes](#recipes)
+- [Debugging tips](#debugging-tips)
+
+---
+
 ## Quick start
 
 Create one of these files and kbrd will load it at boot:
@@ -238,6 +263,36 @@ to `"info"`). Uses your configured `notify.backend` (osascript / OSC9 / OSC777).
 
 ```lua
 kbrd.notify("hello", "success")
+```
+
+### `kbrd.status(msg, ttl)`
+
+Write a message to the **status line** (the bottom bar), rather than a transient
+toast. `ttl` is optional — a duration after which the message clears, given as a
+number of milliseconds or a Go duration string (`"5s"`, `"500ms"`); omit it (or
+pass `0`) to leave the message until something else replaces it.
+
+```lua
+kbrd.status("indexing…")
+kbrd.status("done", "3s")     -- clears itself after 3 seconds
+kbrd.status("done", 3000)     -- same, milliseconds
+```
+
+Use `kbrd.notify` for one-off events worth a toast; use `kbrd.status` for
+ambient state you want to linger in view.
+
+### `kbrd.instance.name`
+
+A read-only string identifying **this** running kbrd process (a machine-local
+name; empty when none is configured). It lets the *same* board script behave
+differently per machine — most usefully to route an instance-scoped timer so a
+periodic job runs on only one of several machines syncing the board (see the
+`instance` option on [`kbrd.timer.every`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn)).
+
+```lua
+if kbrd.instance.name == "laptop" then
+  kbrd.notify("running on the laptop")
+end
 ```
 
 ### `kbrd.command(id, name, fn)` — short form
@@ -652,6 +707,19 @@ end)
 kbrd.timer.after(2000, function()
   kbrd.notify("reminder")
 end)
+```
+
+**Instance routing (optional third arg).** Pass `{instance = "<name>"}` to make a
+timer fire **only** on the machine whose [`kbrd.instance.name`](#kbrdinstancename)
+matches. On every other machine the call is a no-op (you still get a handle back),
+so a board synced across several machines can run a periodic job on exactly one of
+them — without branching the script per host.
+
+```lua
+-- only the machine named "server" runs this hourly job
+kbrd.timer.every(3600000, function()
+  kbrd.async.run("./scripts/backup.sh")
+end, { instance = "server" })
 ```
 
 Semantics:
@@ -1154,7 +1222,7 @@ kbrd.timer.every(30000, function()
       table.insert(lines, name .. ": " .. #items)
     end
   end
-  kbrd.fs.write("/tmp/kbdr-stats.txt", table.concat(lines, "\n") .. "\n")
+  kbrd.fs.write("/tmp/kbrd-stats.txt", table.concat(lines, "\n") .. "\n")
 end)
 ```
 
@@ -1188,11 +1256,99 @@ end)
 
 ### Auto-pin on item open
 
+Pinning is just a `pinned: true` frontmatter key, so a hook can pin the card you
+open so it floats to the top of its column. Paths in `kbrd.fs.*` resolve against
+the board root, so `column/name.md` is enough.
+
 ```lua
 kbrd.on("item_open", function(evt)
-  -- pin recently-edited items so they float to the top of the column
-  -- (illustrative — needs kbrd.board.pin which is planned)
-  kbrd.notify("opened: " .. evt.item.name)
+  local path = evt.item.column .. "/" .. evt.item.name .. ".md"
+  kbrd.fs.set_frontmatter(path, "pinned", true)
+end)
+```
+
+### Cyclable, persisted column sort
+
+A real-world combo of four newer APIs working together: a
+[`kbrd.command`](#kbrdcommandid-name-fn--short-form) cycles a sort mode,
+[`kbrd.store`](#kbrdstore--per-column-keyvalue-storage) remembers the choice
+**per column across restarts**, a [`column_items`](#kbrdoncolumn_items-fn--column-transform-hook)
+transform applies it, and a [`column.indicator`](#kbrdcolumnindicatorname-opts--header-label)
+labels the header with the active sort. Run **Cycle sort** from the `x` menu to
+rotate priority → name → newest on the focused column; the order survives a
+restart because the mode lives in the column's hidden `.kbrd.toml`.
+
+```lua
+local SORT_MODES = { "priority", "name", "newest" }
+local SORT_LABEL = { priority = "↓ prio", name = "A→Z", newest = "↓ new" }
+
+local function next_mode(cur)
+  for i, m in ipairs(SORT_MODES) do
+    if m == cur then return SORT_MODES[(i % #SORT_MODES) + 1] end
+  end
+  return SORT_MODES[1]
+end
+
+-- a table.sort comparator for the given mode
+local function comparator(mode)
+  if mode == "name" then
+    return function(a, b) return a.name < b.name end
+  elseif mode == "newest" then          -- ISO `created:` date sorts fine as text
+    return function(a, b) return (a.data.created or "") > (b.data.created or "") end
+  else                                  -- "priority": lower number floats up
+    return function(a, b) return (a.data.priority or 99) < (b.data.priority or 99) end
+  end
+end
+
+-- `x` menu entry: cycle the focused column's mode and persist it
+kbrd.command{
+  id = "cycle-sort", name = "Cycle sort",
+  description = "priority → name → newest, per column",
+  run = function(ctx)
+    local nxt = next_mode(kbrd.store.get(ctx.columnName, "sort") or "priority")
+    kbrd.store.set(ctx.columnName, "sort", nxt)
+    kbrd.notify(ctx.columnName .. " → sort by " .. nxt, "success")
+    kbrd.board.refresh()                -- re-runs the transform with the new mode
+  end,
+}
+
+-- apply the stored mode whenever a column is (re)built
+kbrd.on("column_items", function(ev)
+  local mode = kbrd.store.get(ev.column, "sort")
+  kbrd.column.indicator(ev.column, mode and SORT_LABEL[mode] or nil)
+  if not mode then return nil end       -- no mode chosen → leave the default order
+  table.sort(ev.items, comparator(mode))
+  return ev.items
+end)
+```
+
+**Banding with separators.** A `column_items` transform can also inject inert
+`{separator = true, title = ...}` rows to group a column. Swap the hook body
+above for this to float bug cards (named `bug-*` or tagged `bug`) into their own
+band, sorted within each group by the same comparator:
+
+```lua
+local function is_bug(it)
+  if it.name:match("^bug%-") then return true end
+  for _, t in ipairs(it.tags or {}) do if t == "bug" then return true end end
+  return false
+end
+
+kbrd.on("column_items", function(ev)
+  local cmp = comparator(kbrd.store.get(ev.column, "sort") or "priority")
+  local bugs, rest = {}, {}
+  for _, it in ipairs(ev.items) do
+    table.insert(is_bug(it) and bugs or rest, it)
+  end
+  table.sort(bugs, cmp); table.sort(rest, cmp)
+
+  local out = {}
+  if #bugs > 0 then
+    out[#out + 1] = { separator = true, title = "🐞 bugs" }
+    for _, it in ipairs(bugs) do out[#out + 1] = it end
+  end
+  for _, it in ipairs(rest) do out[#out + 1] = it end
+  return out
 end)
 ```
 
