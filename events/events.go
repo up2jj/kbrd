@@ -114,7 +114,7 @@ func IsReserved(name string) bool { return reservedNames[name] }
 // deferral applies to it unchanged.
 type Custom struct {
 	Name string
-	Data map[string]interface{}
+	Data map[string]any
 }
 
 func (Custom) eventTag() {}
@@ -295,7 +295,7 @@ type BoardAPI interface {
 	// CreateItemFromTemplate renders the named template with the given field
 	// values and creates the resulting card in the named column. Field
 	// defaults apply for omitted keys; required fields must be non-empty.
-	CreateItemFromTemplate(column, template string, values map[string]interface{}) error
+	CreateItemFromTemplate(column, template string, values map[string]any) error
 	// RenameItem renames the item identified by item to newName (same column).
 	RenameItem(item ItemRef, newName string) error
 	// DeleteItem deletes the item identified by item.
@@ -343,9 +343,9 @@ type BoardAPI interface {
 	// resolved to its directory by the implementation; an unknown or virtual
 	// column (no disk backing) returns an error. Values round-trip through the
 	// script-side Lua<->Go converters.
-	ColumnConfigGet(column, key string) (interface{}, bool, error)
-	ColumnConfigSet(column, key string, value interface{}) error
-	ColumnConfigAll(column string) (map[string]interface{}, error)
+	ColumnConfigGet(column, key string) (any, bool, error)
+	ColumnConfigSet(column, key string, value any) error
+	ColumnConfigAll(column string) (map[string]any, error)
 	ColumnConfigDelete(column, key string) error
 
 	// Per-column header indicator: a short, styled label a script attaches to a
@@ -386,7 +386,7 @@ type VirtualItem struct {
 	Accent    string
 	Path      string
 	Separator bool
-	Data      map[string]interface{}
+	Data      map[string]any
 }
 
 // VirtualCommand is a column-scoped command (B) declared inside kbrd.column.set.

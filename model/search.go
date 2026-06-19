@@ -376,7 +376,7 @@ type rgEvent struct {
 
 func parseRipgrep(out []byte, roots []recents.Entry) []searchResult {
 	results := make([]searchResult, 0, 32)
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if line == "" {
 			continue
 		}
@@ -456,10 +456,7 @@ func boardForPath(fp string, roots []recents.Entry) (path, name string) {
 // doesn't grow/shrink with the length of the query or the matched lines.
 func searchBoxWidth(termWidth int) int {
 	const max = 100
-	w := termWidth - 8
-	if w > max {
-		w = max
-	}
+	w := min(termWidth-8, max)
 	if w < 40 {
 		w = 40
 	}
@@ -573,7 +570,7 @@ func matchIndexes(col, length int) []int {
 		return nil
 	}
 	out := make([]int, 0, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		out = append(out, col+i)
 	}
 	return out

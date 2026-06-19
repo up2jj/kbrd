@@ -89,14 +89,8 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 
 	isSelected := selected
 	d := cfg
-	gutterW := d.gutterW
-	if gutterW < 2 {
-		gutterW = 2
-	}
-	innerW := d.colWidth - 2
-	if innerW < 1 {
-		innerW = 1
-	}
+	gutterW := max(d.gutterW, 2)
+	innerW := max(d.colWidth-2, 1)
 	mnemonic := ""
 	if d.mnemonicOf != nil {
 		mnemonic = d.mnemonicOf(item.Name)
@@ -130,10 +124,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 	// background so they fuse into one continuous bar. A wrapped title spans
 	// several rest rows; only the first carries the gutter (mnemonic / cursor).
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := innerW - gutterW
-	if restWidth < 1 {
-		restWidth = 1
-	}
+	restWidth := max(innerW-gutterW, 1)
 	restStyle := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Width(restWidth).MaxWidth(restWidth)
 	if hasRowBg {
 		gutterStyle = gutterStyle.Background(rowBg)
@@ -298,18 +289,9 @@ func composeTitle(item Item) string {
 // titleWidth is the cell budget the title text has on one row: the inner card
 // width minus the (clamped) mnemonic gutter. It mirrors restWidth in renderItem.
 func titleWidth(cfg renderConfig) int {
-	gutterW := cfg.gutterW
-	if gutterW < 2 {
-		gutterW = 2
-	}
-	innerW := cfg.colWidth - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	w := innerW - gutterW
-	if w < 1 {
-		w = 1
-	}
+	gutterW := max(cfg.gutterW, 2)
+	innerW := max(cfg.colWidth-2, 1)
+	w := max(innerW-gutterW, 1)
 	return w
 }
 
@@ -391,10 +373,7 @@ func renderSeparatorStr(item Item, d renderConfig) string {
 	if label != "" {
 		label = " " + strings.ToUpper(label) + " "
 	}
-	dashes := d.colWidth - lipgloss.Width(label) - 2
-	if dashes < 0 {
-		dashes = 0
-	}
+	dashes := max(d.colWidth-lipgloss.Width(label)-2, 0)
 	left := dashes / 2
 	right := dashes - left
 	line = strings.Repeat("─", left) + label + strings.Repeat("─", right)
@@ -419,14 +398,8 @@ func renderSeparatorStr(item Item, d renderConfig) string {
 // and the script-provided Meta string in place of the filesystem meta line.
 func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 	p := d.palette
-	gutterW := d.gutterW
-	if gutterW < 2 {
-		gutterW = 2
-	}
-	innerW := d.colWidth - 2
-	if innerW < 1 {
-		innerW = 1
-	}
+	gutterW := max(d.gutterW, 2)
+	innerW := max(d.colWidth-2, 1)
 	mnemonic := ""
 	if d.mnemonicOf != nil {
 		mnemonic = d.mnemonicOf(item.Name)
@@ -451,10 +424,7 @@ func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 	}
 
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := innerW - gutterW
-	if restWidth < 1 {
-		restWidth = 1
-	}
+	restWidth := max(innerW-gutterW, 1)
 	restStyle := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Width(restWidth).MaxWidth(restWidth)
 	if hasRowBg {
 		gutterStyle = gutterStyle.Background(rowBg)
@@ -874,10 +844,7 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicato
 	count := withBG(lipgloss.NewStyle().Foreground(countFg)).Render(countLabel)
 
 	used := lipgloss.Width(leftPadStr) + lipgloss.Width(indicator) + lipgloss.Width(name) + lipgloss.Width(count)
-	gap := width - used
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(width-used, 1)
 	spacer := fill(strings.Repeat(" ", gap))
 
 	header := leftPadStr + indicator + name + spacer + count
@@ -914,10 +881,7 @@ func (c *Column) View(ctx RenderCtx) string {
 		return c.viewCollapsed(ctx)
 	}
 
-	listW := ctx.Width - scrollGutterW
-	if listW < 1 {
-		listW = 1
-	}
+	listW := max(ctx.Width-scrollGutterW, 1)
 	c.renderCfg = renderConfig{
 		isActive:      ctx.Active,
 		mnemonicOf:    ctx.MnemonicOf,
@@ -946,10 +910,7 @@ func (c *Column) View(ctx RenderCtx) string {
 		borderColor = c.palette.BorderActive
 	}
 
-	leftPad := ctx.GutterW - 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
+	leftPad := max(ctx.GutterW-2, 0)
 	header := c.renderHeader(ctx.Active, leftPad, ctx.Width, ctx.Indicator)
 	listView := c.list.View()
 	if len(c.Items) == 0 {
@@ -1002,10 +963,7 @@ func (c *Column) viewCollapsed(ctx RenderCtx) string {
 
 	// Inner height matches the expanded column's content: 2 header rows + the
 	// list area, so both wrap to the same bordered height under JoinHorizontal.
-	innerH := c.height + 2
-	if innerH < 1 {
-		innerH = 1
-	}
+	innerH := max(c.height+2, 1)
 
 	nameRunes := []rune(strings.ToUpper(c.Name))
 	countRunes := []rune(strconv.Itoa(c.TotalCount()))
@@ -1073,20 +1031,16 @@ func (c *Column) renderScrollbar(offset, viewport, content, height, headerLines 
 		return strings.Join(rows, "\n")
 	}
 
-	thumb := (viewport*vpRows + content/2) / content // round(viewport/content * vpRows)
-	if thumb < 1 {
-		thumb = 1
-	}
-	if thumb > vpRows {
-		thumb = vpRows
-	}
-	pos := (offset*vpRows + content/2) / content // round(offset/content * vpRows)
-	if pos > vpRows-thumb {
-		pos = vpRows - thumb
-	}
-	if pos < 0 {
-		pos = 0
-	}
+	thumb := min(
+		// round(viewport/content * vpRows)
+		max(
+
+			(viewport*vpRows+content/2)/content, 1), vpRows)
+	pos := max(
+		// round(offset/content * vpRows)
+		min(
+
+			(offset*vpRows+content/2)/content, vpRows-thumb), 0)
 
 	trackStyle := lipgloss.NewStyle().Width(scrollGutterW).Foreground(c.palette.FgDim)
 	thumbFg := c.palette.FgDim
@@ -1096,7 +1050,7 @@ func (c *Column) renderScrollbar(offset, viewport, content, height, headerLines 
 	thumbStyle := lipgloss.NewStyle().Width(scrollGutterW).Foreground(thumbFg)
 	track := strings.Repeat("│", scrollGutterW)
 	bar := strings.Repeat("┃", scrollGutterW)
-	for i := 0; i < vpRows; i++ {
+	for i := range vpRows {
 		if i >= pos && i < pos+thumb {
 			rows[headerLines+i] = thumbStyle.Render(bar)
 		} else {

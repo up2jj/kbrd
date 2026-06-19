@@ -17,7 +17,7 @@ func generateMnemonics(n int, alphabet string) []string {
 	k := len(alphabet)
 	if n <= k {
 		out := make([]string, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] = string(alphabet[i])
 		}
 		return out
@@ -25,10 +25,7 @@ func generateMnemonics(n int, alphabet string) []string {
 
 	// expansion = number of trailing 1-char slots that must be expanded into
 	// k-many 2-char slots so that total capacity >= n.
-	expansion := ceilDiv(n-k, k-1)
-	if expansion > k {
-		expansion = k
-	}
+	expansion := min(ceilDiv(n-k, k-1), k)
 
 	short := alphabet[:k-expansion]
 	longPrefixes := alphabet[k-expansion:]

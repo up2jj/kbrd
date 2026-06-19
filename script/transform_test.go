@@ -8,13 +8,13 @@ import (
 // fireItems is a small helper: fire column_items for a column with three
 // unpinned items (a, b, c) and one pinned (p) as context.
 func fireItems(h *Host, column string) ColumnItemsResult {
-	pinned := []map[string]interface{}{
+	pinned := []map[string]any{
 		{"name": "p", "title": "p", "pinned": true, "path": "/col/p.md"},
 	}
-	unpinned := []map[string]interface{}{
-		{"name": "a", "title": "a", "pinned": false, "path": "/col/a.md", "data": map[string]interface{}{"priority": 2}},
-		{"name": "b", "title": "b", "pinned": false, "path": "/col/b.md", "data": map[string]interface{}{"priority": 1}},
-		{"name": "c", "title": "c", "pinned": false, "path": "/col/c.md", "data": map[string]interface{}{"priority": 3}},
+	unpinned := []map[string]any{
+		{"name": "a", "title": "a", "pinned": false, "path": "/col/a.md", "data": map[string]any{"priority": 2}},
+		{"name": "b", "title": "b", "pinned": false, "path": "/col/b.md", "data": map[string]any{"priority": 1}},
+		{"name": "c", "title": "c", "pinned": false, "path": "/col/c.md", "data": map[string]any{"priority": 3}},
 	}
 	return h.FireColumnItems(column, pinned, unpinned)
 }

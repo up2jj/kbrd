@@ -107,7 +107,7 @@ func numstatByPath(repoRoot string) map[string]DiffStat {
 		return map[string]DiffStat{}
 	}
 	stats := map[string]DiffStat{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if line == "" {
 			continue
 		}
@@ -281,11 +281,8 @@ func pairUnstagedRenamesByHash(repoRoot string, files []FileChange) []FileChange
 		// Deterministic pairing order so multi-rename results are stable.
 		sort.Slice(db.idx, func(i, j int) bool { return files[db.idx[i]].Path < files[db.idx[j]].Path })
 		sort.Slice(nb.idx, func(i, j int) bool { return files[nb.idx[i]].Path < files[nb.idx[j]].Path })
-		n := len(db.idx)
-		if len(nb.idx) < n {
-			n = len(nb.idx)
-		}
-		for k := 0; k < n; k++ {
+		n := min(len(nb.idx), len(db.idx))
+		for k := range n {
 			d := files[db.idx[k]]
 			u := files[nb.idx[k]]
 			drop[db.idx[k]] = true
@@ -324,17 +321,17 @@ func indexBlobHashes(repoRoot string, paths []string) map[string]string {
 		return nil
 	}
 	res := map[string]string{}
-	for _, rec := range strings.Split(strings.TrimRight(out, "\x00"), "\x00") {
+	for rec := range strings.SplitSeq(strings.TrimRight(out, "\x00"), "\x00") {
 		if rec == "" {
 			continue
 		}
 		// Format: "<mode> <sha> <stage>\t<path>"
-		tab := strings.IndexByte(rec, '\t')
-		if tab < 0 {
+		before, after, ok := strings.Cut(rec, "\t")
+		if !ok {
 			continue
 		}
-		header := rec[:tab]
-		path := rec[tab+1:]
+		header := before
+		path := after
 		fields := strings.Fields(header)
 		if len(fields) < 2 {
 			continue
@@ -378,7 +375,6 @@ func workingTreeBlobHashes(repoRoot string, paths []string) map[string]string {
 // small slop), we collapse the pair into a synthetic worktree-side rename
 // (" R") so the panel and inline badges treat them as a single moved entry.
 func pairUnstagedMoves(files []FileChange) []FileChange {
-	type idx struct{ pos int }
 	deleted := map[string][]int{}   // basename -> indices into files
 	untracked := map[string][]int{} // basename -> indices into files
 	for i, f := range files {
@@ -395,11 +391,8 @@ func pairUnstagedMoves(files []FileChange) []FileChange {
 	var pairs []FileChange
 	for base, dIdxs := range deleted {
 		uIdxs := untracked[base]
-		n := len(dIdxs)
-		if len(uIdxs) < n {
-			n = len(uIdxs)
-		}
-		for k := 0; k < n; k++ {
+		n := min(len(uIdxs), len(dIdxs))
+		for k := range n {
 			d := files[dIdxs[k]]
 			u := files[uIdxs[k]]
 			drop[dIdxs[k]] = true

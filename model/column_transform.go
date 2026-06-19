@@ -44,11 +44,11 @@ func (b *Board) applyColumnTransform(col *Column) {
 			unpinned = append(unpinned, it)
 		}
 	}
-	pt := make([]map[string]interface{}, len(pinned))
+	pt := make([]map[string]any, len(pinned))
 	for i, it := range pinned {
 		pt[i] = itemHookTable(it)
 	}
-	ut := make([]map[string]interface{}, len(unpinned))
+	ut := make([]map[string]any, len(unpinned))
 	for i, it := range unpinned {
 		ut[i] = itemHookTable(it)
 	}
@@ -119,8 +119,8 @@ func (b *Board) reloadColumnAfterMutation(col *Column) {
 // itemHookTable is the Lua-facing view of one item handed to the column_items
 // hook. The keys are stable API surface; data round-trips the item's full
 // frontmatter map (including unknown keys like priority).
-func itemHookTable(it Item) map[string]interface{} {
-	return map[string]interface{}{
+func itemHookTable(it Item) map[string]any {
+	return map[string]any{
 		"name":   it.Name,
 		"title":  it.Title,
 		"pinned": it.Pinned,

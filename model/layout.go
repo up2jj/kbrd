@@ -101,10 +101,9 @@ func packBudget(termWidth int) int {
 func packWindow(termWidth, selected, firstVisible, numCols int, widthOf func(i int) int) (first, count int) {
 	avail := packBudget(termWidth)
 
-	first = min(max(firstVisible, 0), numCols-1)
-	if selected < first {
-		first = selected // follow the selection leftward past the hint
-	}
+	first = min(selected,
+		// follow the selection leftward past the hint
+		min(max(firstVisible, 0), numCols-1))
 
 	// Grow right from first within budget; the left-most column always shows.
 	used, last := 0, first

@@ -6,7 +6,6 @@ import (
 
 type Watcher struct {
 	watcher *fsnotify.Watcher
-	paths   []string
 }
 
 func NewWatcher(paths []string) (*Watcher, error) {

@@ -54,8 +54,7 @@ func run(ctx context.Context, dir, script, stdin string) (Result, error) {
 			// Deadline or cancellation; the exec error is just "signal: killed".
 			return res, ErrTimeout
 		}
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			res.ExitCode = ee.ExitCode()
 			return res, nil
 		}

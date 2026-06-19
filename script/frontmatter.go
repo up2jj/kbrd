@@ -43,7 +43,7 @@ func (h *Host) FireFrontmatterSuggestions(column, item string) FrontmatterSugges
 		return FrontmatterSuggestionsResult{Skipped: true}
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"column": column,
 		"item":   item,
 	}

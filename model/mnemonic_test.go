@@ -119,7 +119,7 @@ func TestGenerateMnemonics_UsesHomeRow(t *testing.T) {
 	t.Parallel()
 	// Every character used must come from the home-row alphabet.
 	allowed := map[byte]bool{}
-	for i := 0; i < len("asdfghjkl"); i++ {
+	for i := range len("asdfghjkl") {
 		allowed["asdfghjkl"[i]] = true
 	}
 	for _, tag := range GenerateMnemonics(50) {

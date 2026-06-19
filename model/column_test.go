@@ -632,7 +632,7 @@ func scrollbarLines(col *Column) []string {
 func TestColumn_Scrollbar_ThumbMovesTopToBottom(t *testing.T) {
 	t.Parallel()
 	files := make(map[string]string, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		files["f"+string(rune('a'+i%26))+string(rune('a'+i/26))] = "x"
 	}
 	col := newTestColumn(t, files)
@@ -927,7 +927,7 @@ func TestCollapse_VerticalBar(t *testing.T) {
 	// Every row is the bar's content width plus the two border cells, so no line
 	// should exceed that.
 	maxW := collapsedContentWidth + 2
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if w := len([]rune(line)); w > maxW {
 			t.Fatalf("collapsed bar line too wide (%d, want <=%d): %q", w, maxW, line)
 		}

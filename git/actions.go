@@ -104,10 +104,7 @@ func (c *Controller) runGitDiff(tool string, diffArgs []string, emptyText string
 	args = append(args, diffArgs...)
 	cmd := kbrdfs.GitCommand(c.repoRoot, args...)
 	if tool == "difft" {
-		width := c.termW - 8
-		if width < 40 {
-			width = 40
-		}
+		width := max(c.termW-8, 40)
 		cmd.Env = append(os.Environ(),
 			"GIT_EXTERNAL_DIFF=difft",
 			"DFT_COLOR=always",

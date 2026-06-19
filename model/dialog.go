@@ -46,10 +46,7 @@ func (d *Dialog) Open(opts DialogOptions) {
 	d.body = opts.Body
 	d.buttons = opts.Buttons
 	d.mnemonics = computeDialogMnemonics(opts.Buttons)
-	idx := opts.DefaultIndex
-	if idx < 0 {
-		idx = 0
-	}
+	idx := max(opts.DefaultIndex, 0)
 	if idx >= len(opts.Buttons) {
 		idx = len(opts.Buttons) - 1
 	}

@@ -9,6 +9,7 @@
 package colstore
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -36,14 +37,14 @@ func lockFor(dir string) *sync.Mutex {
 // touching Store directly, so locking is handled for them.
 type Store struct {
 	dir    string
-	values map[string]interface{}
+	values map[string]any
 }
 
 // load reads and parses dir/FileName. A missing file yields an empty store (no
 // error) — absent means "no config yet". Invalid TOML is a real error so a
 // script learns its file is corrupt rather than silently losing data.
 func load(dir string) (*Store, error) {
-	s := &Store{dir: dir, values: map[string]interface{}{}}
+	s := &Store{dir: dir, values: map[string]any{}}
 	data, err := os.ReadFile(filepath.Join(dir, FileName))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -55,7 +56,7 @@ func load(dir string) (*Store, error) {
 		return nil, err
 	}
 	if s.values == nil {
-		s.values = map[string]interface{}{}
+		s.values = map[string]any{}
 	}
 	return s, nil
 }
@@ -88,23 +89,21 @@ func Update(dir string, fn func(*Store) error) error {
 // Get returns the value for key and whether it was present. Values are the
 // go-toml-decoded Go types: string, int64, float64, bool, []interface{}, or
 // map[string]interface{} for nested tables.
-func (s *Store) Get(key string) (interface{}, bool) {
+func (s *Store) Get(key string) (any, bool) {
 	v, ok := s.values[key]
 	return v, ok
 }
 
 // All returns a copy of every key/value pair; the caller may mutate it freely.
-func (s *Store) All() map[string]interface{} {
-	out := make(map[string]interface{}, len(s.values))
-	for k, v := range s.values {
-		out[k] = v
-	}
+func (s *Store) All() map[string]any {
+	out := make(map[string]any, len(s.values))
+	maps.Copy(out, s.values)
 	return out
 }
 
 // Set assigns value to key in memory. value may be any go-toml-marshalable
 // type: scalars, []interface{}, or map[string]interface{} (nested tables).
-func (s *Store) Set(key string, value interface{}) { s.values[key] = value }
+func (s *Store) Set(key string, value any) { s.values[key] = value }
 
 // Delete removes key in memory (no error if absent).
 func (s *Store) Delete(key string) { delete(s.values, key) }

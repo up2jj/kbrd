@@ -98,7 +98,7 @@ func (h *Host) FireHTTPRequest(data HTTPRequestData) HTTPRequestVerdict {
 		return HTTPRequestVerdict{Skipped: true}
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"method":      data.Method,
 		"path":        data.Path,
 		"query":       data.RawQuery,
@@ -160,7 +160,7 @@ func (h *Host) FireHTTPResponse(data HTTPResponseData) HTTPResponseVerdict {
 		return HTTPResponseVerdict{Skipped: true}
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"method":  data.Method,
 		"path":    data.Path,
 		"status":  data.Status,
@@ -282,8 +282,8 @@ func decodeStringSlice(v lua.LValue) []string {
 // headersToIface widens a canonical header map into the nested
 // map[string]interface{}{key: []string{...}} shape toLValue understands, so Lua
 // sees each header as an array of its values.
-func headersToIface(h map[string][]string) map[string]interface{} {
-	out := make(map[string]interface{}, len(h))
+func headersToIface(h map[string][]string) map[string]any {
+	out := make(map[string]any, len(h))
 	for k, vals := range h {
 		out[k] = vals
 	}

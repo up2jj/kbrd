@@ -240,7 +240,7 @@ func (a boardTaskAPI) colDir(column string) (string, error) {
 	return board.ResolveColumn(a.root, column, false)
 }
 
-func (a boardTaskAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+func (a boardTaskAPI) ColumnConfigGet(column, key string) (any, bool, error) {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return nil, false, err
@@ -253,7 +253,7 @@ func (a boardTaskAPI) ColumnConfigGet(column, key string) (interface{}, bool, er
 	return v, ok, nil
 }
 
-func (a boardTaskAPI) ColumnConfigSet(column, key string, value interface{}) error {
+func (a boardTaskAPI) ColumnConfigSet(column, key string, value any) error {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return err
@@ -264,7 +264,7 @@ func (a boardTaskAPI) ColumnConfigSet(column, key string, value interface{}) err
 	})
 }
 
-func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]any, error) {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return nil, err

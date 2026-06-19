@@ -96,7 +96,7 @@ type quitConfirmedMsg struct{}
 
 // scriptDebugf appends to /tmp/kbrd-script.log when KBRD_SCRIPT_DEBUG=1.
 // Stays a no-op otherwise so production runs aren't affected.
-func scriptDebugf(format string, args ...interface{}) {
+func scriptDebugf(format string, args ...any) {
 	if os.Getenv("KBRD_SCRIPT_DEBUG") == "" {
 		return
 	}
@@ -105,7 +105,7 @@ func scriptDebugf(format string, args ...interface{}) {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintf(f, "%s "+format+"\n", append([]interface{}{time.Now().Format("15:04:05.000")}, args...)...)
+	fmt.Fprintf(f, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05.000")}, args...)...)
 }
 
 // collectTimerCmds drains any timer schedules accumulated since the last
@@ -489,7 +489,7 @@ func (a boardScriptAPI) ListTemplates(column string) ([]events.TemplateInfo, err
 	return infos, nil
 }
 
-func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values map[string]interface{}) error {
+func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values map[string]any) error {
 	col := a.column(column)
 	if col == nil {
 		return fmt.Errorf("column %q not found", column)
@@ -625,7 +625,7 @@ func (a boardScriptAPI) colDir(name string) (string, error) {
 	return col.Path, nil
 }
 
-func (a boardScriptAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+func (a boardScriptAPI) ColumnConfigGet(column, key string) (any, bool, error) {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return nil, false, err
@@ -638,7 +638,7 @@ func (a boardScriptAPI) ColumnConfigGet(column, key string) (interface{}, bool, 
 	return v, ok, nil
 }
 
-func (a boardScriptAPI) ColumnConfigSet(column, key string, value interface{}) error {
+func (a boardScriptAPI) ColumnConfigSet(column, key string, value any) error {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return err
@@ -649,7 +649,7 @@ func (a boardScriptAPI) ColumnConfigSet(column, key string, value interface{}) e
 	})
 }
 
-func (a boardScriptAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+func (a boardScriptAPI) ColumnConfigAll(column string) (map[string]any, error) {
 	dir, err := a.colDir(column)
 	if err != nil {
 		return nil, err

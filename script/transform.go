@@ -39,7 +39,7 @@ func (h *Host) Busy() bool { return h != nil && h.running }
 // registration order; the first one returning a table wins (a nil return means
 // "declined — try the next hook"). Errors count against the hook's
 // consecutive-error budget exactly like fireHook. UI goroutine only.
-func (h *Host) FireColumnItems(column string, pinned, unpinned []map[string]interface{}) ColumnItemsResult {
+func (h *Host) FireColumnItems(column string, pinned, unpinned []map[string]any) ColumnItemsResult {
 	if h == nil || h.L == nil {
 		return ColumnItemsResult{}
 	}
@@ -51,7 +51,7 @@ func (h *Host) FireColumnItems(column string, pinned, unpinned []map[string]inte
 		return ColumnItemsResult{Skipped: true}
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"column": column,
 		"pinned": itemMapsToIface(pinned),
 		"items":  itemMapsToIface(unpinned),
@@ -122,8 +122,8 @@ func decodeColumnItems(tbl *lua.LTable) ColumnItemsResult {
 
 // itemMapsToIface widens []map[string]interface{} to []interface{} so toLValue
 // can convert it into a Lua array of tables.
-func itemMapsToIface(in []map[string]interface{}) []interface{} {
-	out := make([]interface{}, len(in))
+func itemMapsToIface(in []map[string]any) []any {
+	out := make([]any, len(in))
 	for i, m := range in {
 		out[i] = m
 	}

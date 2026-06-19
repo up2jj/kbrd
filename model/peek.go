@@ -50,10 +50,7 @@ func (p *Peek) Update(msg tea.KeyMsg) {
 	if page <= 0 {
 		page = 1
 	}
-	maxOffset := len(p.lines) - page
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := max(len(p.lines)-page, 0)
 	switch {
 	case key.Matches(msg, Keys.PeekClose):
 		p.Close()
@@ -84,10 +81,7 @@ func (p *Peek) ScrollBy(delta int) {
 	if page <= 0 {
 		page = 1
 	}
-	maxOffset := len(p.lines) - page
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := max(len(p.lines)-page, 0)
 	p.offset += delta
 	if p.offset < 0 {
 		p.offset = 0
@@ -100,18 +94,9 @@ func (p *Peek) ScrollBy(delta int) {
 // scrollbar returns height rows for a vertical scrollbar, sized and positioned
 // from the current offset. Caller guarantees total > height (content overflows).
 func (p *Peek) scrollbar(height, total int) []string {
-	thumb := height * height / total
-	if thumb < 1 {
-		thumb = 1
-	}
+	thumb := max(height*height/total, 1)
 	maxOffset := total - height
-	pos := (height - thumb) * p.offset / maxOffset
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > height-thumb {
-		pos = height - thumb
-	}
+	pos := min(max((height-thumb)*p.offset/maxOffset, 0), height-thumb)
 	// Match the column scrollbar: a thin │ track with a ┃ thumb.
 	track := lipgloss.NewStyle().Foreground(p.palette.FgDim).Render("│")
 	bar := lipgloss.NewStyle().Foreground(p.palette.FgMuted).Render("┃")
@@ -137,13 +122,7 @@ func (p *Peek) HandleMouse(msg tea.MouseMsg) {
 }
 
 func peekInnerWidth(termWidth int) int {
-	w := termWidth - 4
-	if w > 120 {
-		w = 120
-	}
-	if w < 20 {
-		w = 20
-	}
+	w := max(min(termWidth-4, 120), 20)
 	// account for borders (2) + padding (2*2) = 6
 	return w - 6
 }
@@ -275,8 +254,8 @@ func renderMarkdown(src string, width int) string {
 		}
 
 		// blockquote
-		if strings.HasPrefix(trimmed, "> ") {
-			body := strings.TrimPrefix(trimmed, "> ")
+		if after, ok := strings.CutPrefix(trimmed, "> "); ok {
+			body := after
 			styled := mdQuoteStyle.Render("│ " + applyInline(body))
 			out = append(out, wrapAnsiLine(styled, width)...)
 			i++
@@ -397,7 +376,7 @@ func renderTable(rows [][]string, width int) []string {
 	// total width = sum + 3 per col (" | ") + 2 outer
 	formatRow := func(r []string, header bool) string {
 		cells := make([]string, cols)
-		for i := 0; i < cols; i++ {
+		for i := range cols {
 			val := ""
 			if i < len(r) {
 				val = applyInline(r[i])
@@ -405,10 +384,7 @@ func renderTable(rows [][]string, width int) []string {
 			if header {
 				val = mdTableHeader.Render(val)
 			}
-			pad := colW[i] - lipgloss.Width(val)
-			if pad < 0 {
-				pad = 0
-			}
+			pad := max(colW[i]-lipgloss.Width(val), 0)
 			cells[i] = val + strings.Repeat(" ", pad)
 		}
 		sep := mdTableBorder.Render(" │ ")
@@ -416,7 +392,7 @@ func renderTable(rows [][]string, width int) []string {
 	}
 	separator := func() string {
 		segs := make([]string, cols)
-		for i := 0; i < cols; i++ {
+		for i := range cols {
 			segs[i] = strings.Repeat("─", colW[i])
 		}
 		return mdTableBorder.Render(strings.Join(segs, "─┼─"))
@@ -505,46 +481,29 @@ func (p *Peek) View(termWidth, termHeight int) string {
 		return ""
 	}
 
-	outerWidth := termWidth - 4
-	if outerWidth > 120 {
-		outerWidth = 120
-	}
-	if outerWidth < 24 {
-		outerWidth = 24
-	}
-	outerHeight := termHeight - 4
-	if outerHeight < 8 {
-		outerHeight = 8
-	}
+	outerWidth := max(min(termWidth-4, 120), 24)
+	outerHeight := max(termHeight-4, 8)
 
 	innerWidth := outerWidth - 6
-	pageSize := outerHeight - 2 /*borders*/ - 2 /*padding*/ - 4 /*title+blanks+footer*/
-	if pageSize < 1 {
-		pageSize = 1
-	}
+	pageSize := max(
+		/*borders*/
+		/*padding*/
+		/*title+blanks+footer*/
+		outerHeight-2-2-4, 1)
 	p.pageSize = pageSize
 
 	if p.offset >= len(p.lines) {
 		p.offset = 0
 	}
-	end := p.offset + pageSize
-	if end > len(p.lines) {
-		end = len(p.lines)
-	}
+	end := min(p.offset+pageSize, len(p.lines))
 	visible := p.lines[p.offset:end]
 
 	for len(visible) < pageSize {
 		visible = append(visible, "")
 	}
 
-	totalPages := (len(p.lines) + pageSize - 1) / pageSize
-	if totalPages < 1 {
-		totalPages = 1
-	}
-	currentPage := p.offset/pageSize + 1
-	if currentPage > totalPages {
-		currentPage = totalPages
-	}
+	totalPages := max((len(p.lines)+pageSize-1)/pageSize, 1)
+	currentPage := min(p.offset/pageSize+1, totalPages)
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.Primary)
 	body := strings.Join(visible, "\n")
@@ -567,10 +526,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	}
 	footerLeft := RenderInlineHints(hints)
 	footerRight := helpDimStyle.Render(fmt.Sprintf("%d/%d", currentPage, totalPages))
-	gap := innerWidth - lipgloss.Width(footerLeft) - lipgloss.Width(footerRight)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(innerWidth-lipgloss.Width(footerLeft)-lipgloss.Width(footerRight), 1)
 	footer := footerLeft + strings.Repeat(" ", gap) + footerRight
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

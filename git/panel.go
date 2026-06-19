@@ -191,34 +191,23 @@ func (p *GitPanel) dims() (innerW, innerH, leftW, rightW int) {
 	if innerH < 10 {
 		innerH = 10
 	}
-	leftW = innerW * 3 / 5
-	if leftW > 60 {
-		leftW = 60
-	}
-	if leftW < 36 {
-		leftW = 36
-	}
-	rightW = innerW - leftW - 3 // 3 chars for separator + padding
-	if rightW < 20 {
-		rightW = 20
-	}
+	leftW = max(min(innerW*3/5, 60), 36)
+	rightW = max(
+		// 3 chars for separator + padding
+		innerW-leftW-3, 20)
 	return
 }
 
 func (p *GitPanel) rebuild() {
 	_, innerH, leftW, rightW := p.dims()
-	bodyH := innerH - 4 // leave room for title + footer
-	if bodyH < 5 {
-		bodyH = 5
-	}
+	bodyH := max(
+		// leave room for title + footer
+		innerH-4, 5)
 
 	// Pane has 2-char border + 2-char inner padding, and the table itself adds
 	// 1-char cell padding on both sides of every column (so 6 chars overhead
 	// for three columns). St=3, +/-=7 → file column = leftW - 4 - 6 - 3 - 7.
-	pathW := leftW - 20
-	if pathW < 10 {
-		pathW = 10
-	}
+	pathW := max(leftW-20, 10)
 	cols := []table.Column{
 		{Title: "St", Width: 3},
 		{Title: "File", Width: pathW},
@@ -265,10 +254,7 @@ func (p *GitPanel) rebuild() {
 	// The pane's Padding(0,1) leaves rightW-2 usable columns; reserve 1 more for
 	// the scrollbar. Sizing the viewport any wider makes its space-padded lines
 	// overflow the content area and wrap, doubling the pane's height.
-	vpW := rightW - 3
-	if vpW < 10 {
-		vpW = 10
-	}
+	vpW := max(rightW-3, 10)
 	vp := viewport.New(vpW, bodyH-1) // -1 to make room for the title row
 	vp.SetContent(p.rightContent)
 	if p.rightTitle == "" {
@@ -323,13 +309,6 @@ func (p *GitPanel) CurrentFile() (kbrdfs.FileChange, bool) {
 		return kbrdfs.FileChange{}, false
 	}
 	return p.files[idx], true
-}
-
-func (p *GitPanel) currentPath() string {
-	if f, ok := p.CurrentFile(); ok {
-		return f.Path
-	}
-	return ""
 }
 
 func (p *GitPanel) RightView() gitPanelRightView { return p.rightView }
@@ -488,14 +467,14 @@ func (p *GitPanel) startCommitInput(thenSync bool) {
 }
 
 func joinSep(parts []string, sep string) string {
-	out := ""
+	var out strings.Builder
 	for i, s := range parts {
 		if i > 0 {
-			out += sep
+			out.WriteString(sep)
 		}
-		out += s
+		out.WriteString(s)
 	}
-	return out
+	return out.String()
 }
 
 func (p *GitPanel) startRemoteInput() {
@@ -525,21 +504,9 @@ func (p *GitPanel) renderScrollbar(height int) string {
 		return strings.Join(lines, "\n")
 	}
 
-	thumbN := height * height / total
-	if thumbN < 1 {
-		thumbN = 1
-	}
-	if thumbN > height {
-		thumbN = height
-	}
+	thumbN := min(max(height*height/total, 1), height)
 	// Round to nearest cell: (x*2+1)/2 with integer math.
-	pos := int((float64(height-thumbN)*p.right.ScrollPercent())*2+1) / 2
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > height-thumbN {
-		pos = height - thumbN
-	}
+	pos := min(max(int((float64(height-thumbN)*p.right.ScrollPercent())*2+1)/2, 0), height-thumbN)
 
 	thumb := lipgloss.NewStyle().Background(p.palette.Primary).Render(" ")
 	lines := make([]string, height)
@@ -591,18 +558,14 @@ func (p *GitPanel) View() string {
 	} else if p.right.TotalLineCount() > 0 {
 		scroll = "all"
 	}
-	titleW := rightW - 4 // border 2 + padding 2
-	if titleW < 10 {
-		titleW = 10
-	}
+	titleW := max(
+		// border 2 + padding 2
+		rightW-4, 10)
 	leftTitle := p.rightTitle
 	if w := titleW - len(scroll) - 1; w > 0 && len(leftTitle) > w {
 		leftTitle = leftTitle[:w-1] + "…"
 	}
-	pad := titleW - len(leftTitle) - len(scroll)
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(titleW-len(leftTitle)-len(scroll), 1)
 	rightTitle := gitDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
 	bar := p.renderScrollbar(p.right.Height)
 	diffWithBar := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), bar)

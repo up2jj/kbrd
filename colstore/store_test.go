@@ -28,8 +28,8 @@ func TestRoundTripTypes(t *testing.T) {
 		s.Set("int", int64(42))
 		s.Set("float", 3.14)
 		s.Set("bool", true)
-		s.Set("arr", []interface{}{"a", "b"})
-		s.Set("nested", map[string]interface{}{"k": "v"})
+		s.Set("arr", []any{"a", "b"})
+		s.Set("nested", map[string]any{"k": "v"})
 		return nil
 	})
 	if err != nil {
@@ -41,13 +41,13 @@ func TestRoundTripTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	cases := map[string]interface{}{
+	cases := map[string]any{
 		"str":    "hello",
 		"int":    int64(42),
 		"float":  3.14,
 		"bool":   true,
-		"arr":    []interface{}{"a", "b"},
-		"nested": map[string]interface{}{"k": "v"},
+		"arr":    []any{"a", "b"},
+		"nested": map[string]any{"k": "v"},
 	}
 	for k, want := range cases {
 		got, ok := s.Get(k)

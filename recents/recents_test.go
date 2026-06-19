@@ -25,7 +25,7 @@ func TestTouch_DedupesAndMovesToFront(t *testing.T) {
 
 func TestTouch_CapsAtMax(t *testing.T) {
 	s := Store{}
-	for i := 0; i < MaxEntries+5; i++ {
+	for i := range MaxEntries + 5 {
 		s.Touch(filepath.Join("/p", string(rune('a'+i))), "")
 	}
 	if len(s.Entries) != MaxEntries {
@@ -106,7 +106,7 @@ func TestTouch_PreservesPinned(t *testing.T) {
 func TestTouch_CapDoesNotEvictPinned(t *testing.T) {
 	s := Store{}
 	s.SetPinned("/pin", "P", true)
-	for i := 0; i < MaxEntries+5; i++ {
+	for i := range MaxEntries + 5 {
 		s.Touch(filepath.Join("/p", string(rune('a'+i))), "")
 	}
 	// All pinned survive; unpinned capped at MaxEntries.

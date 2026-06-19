@@ -565,7 +565,7 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 				Separator: lua.LVAsBool(it.RawGetString("separator")),
 			}
 			if d, ok := it.RawGetString("data").(*lua.LTable); ok {
-				if m, ok := fromLValue(d).(map[string]interface{}); ok {
+				if m, ok := fromLValue(d).(map[string]any); ok {
 					item.Data = m
 				}
 			}
@@ -875,9 +875,9 @@ func (h *Host) luaHasCommand(L *lua.LState) int {
 // itself emits is fine, bounded by an internal recursion cap.
 func (h *Host) luaEmit(L *lua.LState) int {
 	name := L.CheckString(1)
-	var data map[string]interface{}
+	var data map[string]any
 	if tbl := L.OptTable(2, nil); tbl != nil {
-		if m, ok := fromLValue(tbl).(map[string]interface{}); ok {
+		if m, ok := fromLValue(tbl).(map[string]any); ok {
 			data = m
 		}
 	}
@@ -1007,9 +1007,9 @@ func (h *Host) luaBoardTemplates(L *lua.LState) int {
 func (h *Host) luaBoardCreateFromTemplate(L *lua.LState) int {
 	column := L.CheckString(1)
 	template := L.CheckString(2)
-	values := map[string]interface{}{}
+	values := map[string]any{}
 	if tbl := L.OptTable(3, nil); tbl != nil {
-		if m, ok := fromLValue(tbl).(map[string]interface{}); ok {
+		if m, ok := fromLValue(tbl).(map[string]any); ok {
 			values = m
 		}
 	}

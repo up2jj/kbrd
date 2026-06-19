@@ -282,7 +282,7 @@ func (h *Host) RunCommand(ref string, ctx map[string]string) (*UIRequest, error)
 // `data` table plus `path`/`title`/`columnName` — converted to a Lua table so
 // the script can read ctx.data, ctx.path, etc. Same return contract as
 // RunCommand.
-func (h *Host) RunVirtualCommand(ref string, ctx map[string]interface{}) (*UIRequest, error) {
+func (h *Host) RunVirtualCommand(ref string, ctx map[string]any) (*UIRequest, error) {
 	if h == nil {
 		return nil, nil
 	}
@@ -313,7 +313,7 @@ func (h *Host) runByRef(ref string, arg lua.LValue) (*UIRequest, error) {
 //   - string: pick choice or prompt text
 //   - bool:   confirm answer
 //   - nil:    user cancelled (pick/prompt -> nil; confirm -> false handled by caller)
-func (h *Host) ResumeWith(token string, result interface{}) (*UIRequest, error) {
+func (h *Host) ResumeWith(token string, result any) (*UIRequest, error) {
 	if h == nil {
 		return nil, nil
 	}
@@ -402,7 +402,7 @@ func (h *Host) FireAsync(token, out string, exitCode int, errStr string) error {
 			h.OnEvent(ev)
 		}
 	}()
-	err := h.invokeHook(fn, map[string]interface{}{
+	err := h.invokeHook(fn, map[string]any{
 		"out":      out,
 		"exitCode": exitCode,
 		"error":    errStr,
@@ -443,7 +443,7 @@ func (h *Host) FireTimer(token string) error {
 		// scheduling new timers.
 		h.inTimer = false
 	}()
-	err := h.invokeHook(e.fn, map[string]interface{}{"token": token})
+	err := h.invokeHook(e.fn, map[string]any{"token": token})
 	if err != nil {
 		e.consecutiveErrors++
 		h.logger.Log("error", "timer "+token, err.Error())
@@ -563,7 +563,7 @@ func parseUIRequest(vals []lua.LValue) *UIRequest {
 	if !ok {
 		return nil
 	}
-	if lua.LVAsBool(t.RawGetString("_uiReq")) != true {
+	if !lua.LVAsBool(t.RawGetString("_uiReq")) {
 		return nil
 	}
 	req := &UIRequest{
@@ -594,7 +594,7 @@ const maxEmitDepth = 32
 // and fired after the current invocation returns, exactly like a bus-published
 // event — never re-entering the VM mid-run. The rare not-running case (e.g. a
 // top-level emit in init.lua) fires immediately.
-func (h *Host) Emit(name string, data map[string]interface{}) error {
+func (h *Host) Emit(name string, data map[string]any) error {
 	if h == nil {
 		return nil
 	}
@@ -628,56 +628,56 @@ func (h *Host) OnEvent(ev events.Event) {
 	}
 	switch e := ev.(type) {
 	case events.GitSyncDone:
-		h.fireHook(events.NameGitSyncDone, map[string]interface{}{
+		h.fireHook(events.NameGitSyncDone, map[string]any{
 			"ok":    e.OK,
 			"stage": e.Stage,
 			"error": e.Err,
 		})
 	case events.ItemMoved:
-		h.fireHook(events.NameItemMoved, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemMoved, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 			"from": e.From,
 			"to":   e.To,
 		})
 	case events.BoardLoad:
-		h.fireHook(events.NameBoardLoad, map[string]interface{}{})
+		h.fireHook(events.NameBoardLoad, map[string]any{})
 	case events.BoardRefresh:
-		h.fireHook(events.NameBoardRefresh, map[string]interface{}{"reason": e.Reason})
+		h.fireHook(events.NameBoardRefresh, map[string]any{"reason": e.Reason})
 	case events.ItemSelect:
-		h.fireHook(events.NameItemSelect, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
-			"prev": map[string]interface{}{"column": e.Prev.Column, "name": e.Prev.Name},
+		h.fireHook(events.NameItemSelect, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
+			"prev": map[string]any{"column": e.Prev.Column, "name": e.Prev.Name},
 		})
 	case events.ColumnChange:
-		h.fireHook(events.NameColumnChange, map[string]interface{}{
+		h.fireHook(events.NameColumnChange, map[string]any{
 			"column": e.Column,
 			"prev":   e.Prev,
 		})
 	case events.ItemOpen:
-		h.fireHook(events.NameItemOpen, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemOpen, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 			"kind": e.Kind,
 		})
 	case events.ItemSaved:
-		h.fireHook(events.NameItemSaved, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemSaved, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 			"kind": e.Kind,
 		})
 	case events.ItemChanged:
-		h.fireHook(events.NameItemChanged, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemChanged, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 		})
 	case events.ItemCreated:
-		h.fireHook(events.NameItemCreated, map[string]interface{}{
-			"item": map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemCreated, map[string]any{
+			"item": map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 		})
 	case events.ItemRenamed:
-		h.fireHook(events.NameItemRenamed, map[string]interface{}{
-			"item":    map[string]interface{}{"column": e.Item.Column, "name": e.Item.Name},
+		h.fireHook(events.NameItemRenamed, map[string]any{
+			"item":    map[string]any{"column": e.Item.Column, "name": e.Item.Name},
 			"oldName": e.OldName,
 		})
 	case events.ItemDeleted:
-		h.fireHook(events.NameItemDeleted, map[string]interface{}{
+		h.fireHook(events.NameItemDeleted, map[string]any{
 			"column": e.Column,
 			"name":   e.Name,
 		})
@@ -686,7 +686,7 @@ func (h *Host) OnEvent(ev events.Event) {
 	}
 }
 
-func (h *Host) fireHook(name string, payload map[string]interface{}) {
+func (h *Host) fireHook(name string, payload map[string]any) {
 	entries := h.hooks[name]
 	if len(entries) == 0 {
 		return
@@ -759,7 +759,7 @@ func (h *Host) pruneHooks(name string, disable []int) {
 }
 
 // invokeHook runs a hook function via PCall (no coroutine).
-func (h *Host) invokeHook(fn *lua.LFunction, arg interface{}) error {
+func (h *Host) invokeHook(fn *lua.LFunction, arg any) error {
 	_, err := h.callHook(fn, arg, 0)
 	return err
 }
@@ -767,13 +767,13 @@ func (h *Host) invokeHook(fn *lua.LFunction, arg interface{}) error {
 // invokeHookValue runs a hook function via PCall and returns its single return
 // value. Used by transform hooks (column_items) where the script's return is
 // the result, not just a side effect.
-func (h *Host) invokeHookValue(fn *lua.LFunction, arg interface{}) (lua.LValue, error) {
+func (h *Host) invokeHookValue(fn *lua.LFunction, arg any) (lua.LValue, error) {
 	return h.callHook(fn, arg, 1)
 }
 
 // callHook is the shared PCall core behind invokeHook/invokeHookValue. nret is
 // 0 (fire-and-forget) or 1 (collect one return value).
-func (h *Host) callHook(fn *lua.LFunction, arg interface{}, nret int) (lua.LValue, error) {
+func (h *Host) callHook(fn *lua.LFunction, arg any, nret int) (lua.LValue, error) {
 	if h.L == nil {
 		return lua.LNil, fmt.Errorf("lua VM closed")
 	}

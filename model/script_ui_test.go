@@ -52,7 +52,7 @@ func makeBoard(t *testing.T, luaInit string) (*Board, string) {
 // returned tea.Cmd, so we end up with the steady-state model+side effects.
 func runMsg(t *testing.T, b *Board, msg tea.Msg) {
 	t.Helper()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		_, cmd := b.Update(msg)
 		if cmd == nil {
 			return

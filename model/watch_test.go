@@ -67,7 +67,7 @@ func TestBoard_WatchEvent_CoalescesStorm(t *testing.T) {
 	col := b.columns[0].Path
 
 	// Simulate a storm: each event bumps watchSeq and records its path.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		b.updateInner(watchEventMsg{Path: card(col, "a")})
 	}
 	if b.watchSeq != 10 {

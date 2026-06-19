@@ -13,7 +13,7 @@ import (
 type scriptResumeMsg struct {
 	Name   string // command name, for error reporting
 	Token  string // coroutine token returned by Host.RunCommand / ResumeWith
-	Result interface{}
+	Result any
 }
 
 // scriptUIKind matches script.UIRequest.Kind.

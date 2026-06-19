@@ -70,33 +70,15 @@ func (e *Editor) applySize() {
 		e.textarea.SetHeight(editorDefaultHeight)
 		return
 	}
-	maxW := e.termWidth - 4
-	if maxW < 20 {
-		maxW = 20
-	}
-	maxH := e.termHeight - 6
-	if maxH < 4 {
-		maxH = 4
-	}
+	maxW := max(e.termWidth-4, 20)
+	maxH := max(e.termHeight-6, 4)
 	var w, h int
 	if e.expanded {
-		w = maxW
-		if w > editorMaxWidth {
-			w = editorMaxWidth
-		}
-		h = maxH
-		if h < editorDefaultHeight {
-			h = editorDefaultHeight
-		}
+		w = min(maxW, editorMaxWidth)
+		h = max(maxH, editorDefaultHeight)
 	} else {
-		w = editorDefaultWidth
-		if w > maxW {
-			w = maxW
-		}
-		h = editorDefaultHeight
-		if h > maxH {
-			h = maxH
-		}
+		w = min(editorDefaultWidth, maxW)
+		h = min(editorDefaultHeight, maxH)
 	}
 	e.textarea.SetWidth(w)
 	e.textarea.SetHeight(h)

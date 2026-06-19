@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"maps"
 	"net/http"
 	"strconv"
 
@@ -126,9 +127,7 @@ func (c *captureWriter) flush(w http.ResponseWriter, verdict script.HTTPResponse
 	body := c.buf.Bytes()
 
 	dst := w.Header()
-	for k, vals := range c.header {
-		dst[k] = vals
-	}
+	maps.Copy(dst, c.header)
 	if ok && verdict.Changed && !verdict.Skipped {
 		for k, v := range verdict.SetHeaders {
 			dst.Set(k, v)

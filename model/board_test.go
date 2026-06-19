@@ -101,7 +101,7 @@ func TestBoard_CreateDefaultColumns(t *testing.T) {
 func boardWithNCols(t *testing.T, n, visibleCols int) *Board {
 	t.Helper()
 	dir := t.TempDir()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		name := filepath.Join(dir, "c"+string(rune('0'+i)))
 		if err := os.Mkdir(name, 0o755); err != nil {
 			t.Fatal(err)

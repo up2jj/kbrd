@@ -43,11 +43,11 @@ type Item struct {
 	// Virtual/Separator stay script-only; for virtual items Name doubles as the
 	// stable cursor key (set from the item id, else title).
 	Virtual   bool
-	Separator bool                   // inert grouping row — no actions, no mnemonic
-	Meta      string                 // replaces the filesystem meta line (line 3)
-	Icon      string                 // optional glyph prefixed on line 1
-	Accent    string                 // color key/name for the title/icon
-	Data      map[string]interface{} // opaque payload, round-trips into command ctx
+	Separator bool           // inert grouping row — no actions, no mnemonic
+	Meta      string         // replaces the filesystem meta line (line 3)
+	Icon      string         // optional glyph prefixed on line 1
+	Accent    string         // color key/name for the title/icon
+	Data      map[string]any // opaque payload, round-trips into command ctx
 }
 
 func NewItem(fullPath string, opts ItemOptions) (Item, error) {

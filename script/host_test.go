@@ -2,6 +2,7 @@ package script
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,7 +42,7 @@ type fakeAPI struct {
 	vcolSets   []vcolSet
 	vcolClears []string
 	vcolWipes  int
-	colCfg     map[string]map[string]interface{}     // column → key → value
+	colCfg     map[string]map[string]any             // column → key → value
 	colCfgErr  error                                 // forced error for ColumnConfig*
 	indicators map[string]events.ColumnIndicatorOpts // column → indicator
 }
@@ -62,7 +63,7 @@ type move struct {
 
 type tmplCreate struct {
 	Column, Template string
-	Values           map[string]interface{}
+	Values           map[string]any
 }
 
 func (f *fakeAPI) Notify(msg, level string) {
@@ -91,7 +92,7 @@ func (f *fakeAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
 	return f.tmplInfos, f.tmplErr
 }
 
-func (f *fakeAPI) CreateItemFromTemplate(column, template string, values map[string]interface{}) error {
+func (f *fakeAPI) CreateItemFromTemplate(column, template string, values map[string]any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tmplCalls = append(f.tmplCalls, tmplCreate{Column: column, Template: template, Values: values})
@@ -218,7 +219,7 @@ func (f *fakeAPI) VirtualColumnClearAll() {
 	f.vcolWipes++
 }
 
-func (f *fakeAPI) ColumnConfigGet(column, key string) (interface{}, bool, error) {
+func (f *fakeAPI) ColumnConfigGet(column, key string) (any, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.colCfgErr != nil {
@@ -228,32 +229,30 @@ func (f *fakeAPI) ColumnConfigGet(column, key string) (interface{}, bool, error)
 	return v, ok, nil
 }
 
-func (f *fakeAPI) ColumnConfigSet(column, key string, value interface{}) error {
+func (f *fakeAPI) ColumnConfigSet(column, key string, value any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.colCfgErr != nil {
 		return f.colCfgErr
 	}
 	if f.colCfg == nil {
-		f.colCfg = map[string]map[string]interface{}{}
+		f.colCfg = map[string]map[string]any{}
 	}
 	if f.colCfg[column] == nil {
-		f.colCfg[column] = map[string]interface{}{}
+		f.colCfg[column] = map[string]any{}
 	}
 	f.colCfg[column][key] = value
 	return nil
 }
 
-func (f *fakeAPI) ColumnConfigAll(column string) (map[string]interface{}, error) {
+func (f *fakeAPI) ColumnConfigAll(column string) (map[string]any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.colCfgErr != nil {
 		return nil, f.colCfgErr
 	}
-	out := map[string]interface{}{}
-	for k, v := range f.colCfg[column] {
-		out[k] = v
-	}
+	out := map[string]any{}
+	maps.Copy(out, f.colCfg[column])
 	return out, nil
 }
 
@@ -406,9 +405,9 @@ kbrd.column.set("tasks", {
 
 	// Dispatch the column command with a structured ctx — ctx.data round-trips.
 	ref := set.Spec.Commands[0].Ref
-	if _, err := h.RunVirtualCommand(ref, map[string]interface{}{
+	if _, err := h.RunVirtualCommand(ref, map[string]any{
 		"title": "first",
-		"data":  map[string]interface{}{"path": "/a.md"},
+		"data":  map[string]any{"path": "/a.md"},
 	}); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -418,7 +417,7 @@ kbrd.column.set("tasks", {
 
 	// Clearing drops the run closure so the ref no longer resolves.
 	h.clearVcolFns("tasks")
-	_, err = h.RunVirtualCommand(ref, map[string]interface{}{"data": map[string]interface{}{"path": "/a.md"}})
+	_, err = h.RunVirtualCommand(ref, map[string]any{"data": map[string]any{"path": "/a.md"}})
 	if err == nil || !strings.Contains(err.Error(), "unknown lua command") {
 		t.Fatalf("expected unknown-command error after clear, got %v", err)
 	}
@@ -445,7 +444,7 @@ kbrd.notify("missing="..tostring(kbrd.column.store.get("todo", "nope")))`)
 	if got := api.colCfg["todo"]["count"]; got != float64(3) {
 		t.Errorf("count = %#v, want float64(3)", got)
 	}
-	if got, want := api.colCfg["todo"]["tags"], []interface{}{"a", "b"}; !reflect.DeepEqual(got, want) {
+	if got, want := api.colCfg["todo"]["tags"], []any{"a", "b"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("tags = %#v, want %#v", got, want)
 	}
 	if !contains(api.notifies, "view=compact") {
@@ -716,7 +715,7 @@ end)`)
 	if call.Values["title"] != "Crash" || call.Values["regression"] != true {
 		t.Errorf("values: %#v", call.Values)
 	}
-	areas, ok := call.Values["areas"].([]interface{})
+	areas, ok := call.Values["areas"].([]any)
 	if !ok || len(areas) != 2 || areas[0] != "UI" || areas[1] != "data" {
 		t.Errorf("areas: %#v", call.Values["areas"])
 	}
@@ -1475,7 +1474,7 @@ func TestTimerThresholdZeroNeverDisables(t *testing.T) {
 	}
 	defer h.Close()
 	token := h.PendingTimers()[0].Token
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = h.FireTimer(token)
 	}
 	if _, still := h.timers[token]; !still {

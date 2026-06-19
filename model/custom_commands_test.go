@@ -62,7 +62,7 @@ func TestBuildFilesystemCtx_CarriesFrontmatterData(t *testing.T) {
 			t.Errorf("ctx[%q] = %v, want %q (flat var parity)", k, ctx[k], v)
 		}
 	}
-	data, ok := ctx["data"].(map[string]interface{})
+	data, ok := ctx["data"].(map[string]any)
 	if !ok || data["assignee"] != "kuba" {
 		t.Errorf("ctx data = %+v, want frontmatter map with assignee", ctx["data"])
 	}

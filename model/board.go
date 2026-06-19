@@ -675,10 +675,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
 		b.git.SetSize(msg.Width, msg.Height)
-		b.visibleHeight = msg.Height - 11
-		if b.visibleHeight < 1 {
-			b.visibleHeight = 1
-		}
+		b.visibleHeight = max(msg.Height-11, 1)
 		for _, col := range b.columns {
 			col.SetHeight(b.visibleHeight)
 		}
@@ -1149,7 +1146,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if col.HasSelectedItem() {
 			item = col.SelectedItem()
 		}
-		var vctx map[string]interface{}
+		var vctx map[string]any
 		switch {
 		case col.Virtual:
 			vctx = b.buildVirtualVars(col, item)
@@ -1199,10 +1196,7 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, Keys.PanRight):
 		_, count := b.visibleColRange()
-		maxFirst := len(b.columns) - count
-		if maxFirst < 0 {
-			maxFirst = 0
-		}
+		maxFirst := max(len(b.columns)-count, 0)
 		if b.firstVisibleCol < maxFirst {
 			b.firstVisibleCol++
 		}
@@ -2331,10 +2325,7 @@ func (b *Board) View() string {
 	if !b.cells.Empty() {
 		avail := w - lipgloss.Width(logo) - 2
 		if strip := b.cells.render(avail); lipgloss.Width(strip) > 0 {
-			pad := w - lipgloss.Width(logo) - lipgloss.Width(strip)
-			if pad < 1 {
-				pad = 1
-			}
+			pad := max(w-lipgloss.Width(logo)-lipgloss.Width(strip), 1)
 			header = logo + strings.Repeat(" ", pad) + strip
 		}
 	}
@@ -2454,7 +2445,6 @@ func (b *Board) renderEditor() string {
 	return b.editor.View()
 }
 
-type quickCommandOpenMsg struct{}
 type quickCommandMsg struct {
 	Command string
 }

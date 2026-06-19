@@ -15,7 +15,7 @@ import (
 //   - []interface{} and []string
 //
 // Anything else is stringified.
-func toLValue(L *lua.LState, v interface{}) lua.LValue {
+func toLValue(L *lua.LState, v any) lua.LValue {
 	switch x := v.(type) {
 	case nil:
 		return lua.LNil
@@ -42,13 +42,13 @@ func toLValue(L *lua.LState, v interface{}) lua.LValue {
 			t.RawSetString(k, lua.LString(val))
 		}
 		return t
-	case map[string]interface{}:
+	case map[string]any:
 		t := L.NewTable()
 		for k, val := range x {
 			t.RawSetString(k, toLValue(L, val))
 		}
 		return t
-	case []interface{}:
+	case []any:
 		t := L.NewTable()
 		for i, val := range x {
 			t.RawSetInt(i+1, toLValue(L, val))
@@ -70,7 +70,7 @@ func toLValue(L *lua.LState, v interface{}) lua.LValue {
 // map[string]interface{} (string keys) or []interface{} (1..n integer keys);
 // everything else maps to its Go scalar. Nested tables recurse. Functions,
 // userdata, and other non-data values become nil.
-func fromLValue(v lua.LValue) interface{} {
+func fromLValue(v lua.LValue) any {
 	switch x := v.(type) {
 	case lua.LBool:
 		return bool(x)
@@ -91,13 +91,13 @@ func fromLValue(v lua.LValue) interface{} {
 			}
 		})
 		if isArray && count == maxN {
-			arr := make([]interface{}, 0, maxN)
+			arr := make([]any, 0, maxN)
 			for i := 1; i <= maxN; i++ {
 				arr = append(arr, fromLValue(x.RawGetInt(i)))
 			}
 			return arr
 		}
-		m := make(map[string]interface{})
+		m := make(map[string]any)
 		x.ForEach(func(k, val lua.LValue) {
 			if ks, ok := k.(lua.LString); ok {
 				m[string(ks)] = fromLValue(val)

@@ -18,7 +18,7 @@ type runCustomCommandMsg struct {
 	// VCtx is set only when the command runs against a virtual-column item. It
 	// carries the rich Lua ctx (nested `data` table, path, title, vid) that a
 	// plain string-var map can't hold. nil for filesystem columns.
-	VCtx map[string]interface{}
+	VCtx map[string]any
 }
 
 type customCommandFinishedMsg struct {
@@ -89,8 +89,8 @@ func (b *Board) buildCommandVars(colIdx int, item *Item) map[string]string {
 // may be nil (a requiresItem: false command on an empty column); the item-
 // specific fields (title/fileName/path/data) are then omitted, leaving the
 // board/column context.
-func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]interface{} {
-	m := map[string]interface{}{
+func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]any {
+	m := map[string]any{
 		"boardPath":  b.cfg.Path,
 		"boardName":  b.cfg.BoardName,
 		"columnName": col.Name,
@@ -115,8 +115,8 @@ func (b *Board) buildVirtualVars(col *Column, item *Item) map[string]interface{}
 // flat string vars (so scripts reading ctx.fileDir etc. keep working) plus
 // `title`, the shared `path`, and the nested `data` table that a string map
 // can't hold. Items without frontmatter keep the plain string-vars flow.
-func (b *Board) buildFilesystemCtx(colIdx int, item *Item) map[string]interface{} {
-	ctx := map[string]interface{}{}
+func (b *Board) buildFilesystemCtx(colIdx int, item *Item) map[string]any {
+	ctx := map[string]any{}
 	for k, v := range b.buildCommandVars(colIdx, item) {
 		ctx[k] = v
 	}
@@ -317,8 +317,8 @@ type CustomCommandMenu struct {
 	matches  []FuzzyMatch
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
-	vctx     map[string]interface{} // rich Lua ctx for virtual-column dispatch; nil otherwise
-	mru      []string               // command ids in MRU order (index 0 = most recent); session-only
+	vctx     map[string]any // rich Lua ctx for virtual-column dispatch; nil otherwise
+	mru      []string       // command ids in MRU order (index 0 = most recent); session-only
 	palette  Palette
 }
 
@@ -330,7 +330,7 @@ func (m *CustomCommandMenu) commandHaystack(i int) string {
 	return c.Name
 }
 
-func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]interface{}) {
+func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]any) {
 	m.active = true
 	m.commands = sortByUsage(commands, m.mru)
 	m.warnings = warnings

@@ -10,6 +10,7 @@
 package vlist
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -195,7 +196,7 @@ func (m *Model) SelectFirst() {
 }
 
 func (m *Model) SelectLast() {
-	for vi := len(m.visible) - 1; vi >= 0; vi-- {
+	for vi := range slices.Backward(m.visible) {
 		if m.selectableAt(vi) {
 			m.Select(vi)
 			return
