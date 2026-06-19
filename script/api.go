@@ -28,6 +28,7 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
 	kbrd.RawSetString("emit", L.NewFunction(h.luaEmit))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
+	kbrd.RawSetString("_remoteFetch", L.NewFunction(h.luaRemoteFetch))
 
 	// kbrd.instance.name is this process's machine-local name, used to route
 	// instance-scoped timers (kbrd.timer.every(.., { instance = "..." })) and
@@ -126,6 +127,28 @@ end
 -- Defang os.exit globally — scripts have no legitimate need to kill the kbrd
 -- process, and an accidental call would tear down the TUI mid-render.
 os.exit = function() error("os.exit is disabled in kbrd scripts") end
+
+-- Remote require: a searcher at the front of package.loaders that handles
+-- module names looking like https:// or github:owner/repo/path@ref. It defers
+-- the fetch/cache to the Go side (kbrd._remoteFetch) and compiles the source
+-- into the SAME VM, so a remote module sees the global kbrd table and can call
+-- kbrd.on(...) at load time. Non-remote names return nil so the built-in
+-- searchers handle them as usual.
+local function kbrd_remote_searcher(name)
+  if not (name:match("^https?://") or name:match("^github:")) then
+    return nil
+  end
+  local src, err = kbrd._remoteFetch(name)
+  if not src then
+    return "\n\t[kbrd remote] " .. tostring(err)
+  end
+  local chunk, lerr = loadstring(src, "@" .. name)
+  if not chunk then
+    error("kbrd: compiling remote module '" .. name .. "': " .. tostring(lerr))
+  end
+  return chunk
+end
+table.insert(package.loaders, 1, kbrd_remote_searcher)
 `
 
 // errResult pushes a (nil, errMsg) tuple — the conventional Lua return

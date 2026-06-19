@@ -15,6 +15,7 @@ shell commands keep working unchanged.
 - [Quick start](#quick-start)
 - [Configuration](#configuration) · [Environment variables](#environment-variables)
 - [Two ways to plug in](#two-ways-to-plug-in) — [menu commands](#1-menu-commands--kbrdcommand), [event hooks](#2-event-hooks--kbrdon)
+- [Remote scripts (`require` from a URL)](#remote-scripts-require-from-a-url)
 - [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
 - [The `ctx` table](#the-ctx-table)
 - [API reference](#api-reference)
@@ -80,6 +81,7 @@ command_timeout_ms = 2000     # wall-clock budget for kbrd.command callbacks
 hook_timeout_ms    = 500      # stricter budget for event hooks (they fire on hot paths)
 instruction_limit  = 10000000 # backstop against pure-CPU infinite loops
 error_threshold    = 3        # auto-disable a timer/hook after N consecutive errors (0 = never)
+remote_require     = false    # allow require() of scripts from remote URLs — see "Remote scripts"
 ```
 
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
@@ -178,6 +180,119 @@ Notes:
 - Like engine events, listeners fire **after** the emitting script returns
   (deferred), so a listener that itself calls `kbrd.emit` is safe. A runaway
   ping-pong between two listeners is capped and dropped rather than hanging.
+
+---
+
+## Remote scripts (`require` from a URL)
+
+You can `require` a script straight from a remote location — handy for sharing a
+helper across boards and machines without copy-pasting. The fetched module runs
+in the **same** VM, so it has the full `kbrd` API and can register commands,
+hooks, and timers at load time.
+
+This is **off by default**. A remote module runs with the same trust level as
+your own `init.lua` — it is arbitrary code execution. Opt in explicitly:
+
+```toml
+[scripting]
+remote_require = true
+```
+
+> **⚠️ Pin what you trust.** Prefer a tag or commit SHA (`@v1.2.3`, `@a1b2c3d`)
+> over a moving branch, and only `require` URLs you control or have reviewed. See
+> **[SECURITY.md](./SECURITY.md)**.
+
+### Two syntaxes
+
+```lua
+-- Raw URL (you build the raw.githubusercontent.com link yourself):
+require("https://raw.githubusercontent.com/owner/repo/v1.0/util.lua")
+
+-- github: shorthand → expands to raw.githubusercontent.com. @ref is a branch,
+-- tag, or commit SHA; omit it to use the repo's default branch (HEAD):
+require("github:owner/repo/util.lua@v1.0")
+```
+
+### Library style — module returns a table
+
+The module `return`s a table; the caller keeps the handle and calls its functions:
+
+```lua
+-- util.lua (remote)
+local M = {}
+function M.is_overdue(item)
+  local due = kbrd.fs.get_frontmatter(item.path, "due")
+  return due ~= nil and kbrd.date.parse(due) < os.time()
+end
+return M
+```
+
+```lua
+-- your .kbrd.lua
+local util = require("github:owner/repo/util.lua@v1.0")
+kbrd.on("item_moved", function(ev)
+  if util.is_overdue(ev.item) then kbrd.notify("overdue: " .. ev.item.name) end
+end)
+```
+
+### Side-effect style — module registers things itself
+
+The module just calls `kbrd.*` at load time and returns nothing; you `require` it
+purely for the registration:
+
+```lua
+-- my-module.lua (remote)
+kbrd.on("item_moved", function(ev) kbrd.notify("moved " .. ev.item.name) end)
+kbrd.command("rc", "Remote command", function() kbrd.status("hello from a remote script") end)
+```
+
+```lua
+-- your .kbrd.lua
+require("https://example.com/my-module.lua")
+```
+
+Because `require` uses Lua's `package.loaded` memoization, requiring the same URL
+twice returns the **same** table — it's fetched, compiled, and run once.
+
+### Caching and purging
+
+Fetched modules are cached on disk (under your OS cache dir, or `$KBRD_CACHE_DIR`
+if set) and reused on every later start, so only the first load touches the
+network. The cache is **purge-only**: a pinned tag/SHA never changes, but a
+branch ref like `@main` won't pick up upstream changes until you clear the cache.
+
+```sh
+kbrd cache script list    # show cached modules and their original URLs
+kbrd cache script purge   # remove them all (they re-fetch on next use)
+```
+
+The cache files are an opaque implementation detail (content-addressed names) —
+don't edit them; a purge wipes them and a branch ref re-fetches over them. To
+customize a remote module:
+
+- **Runtime override** — monkeypatch the returned table from your own init file:
+  ```lua
+  local m = require("github:owner/repo/util.lua@v1.0")
+  local orig = m.is_overdue
+  m.is_overdue = function(item) return orig(item) and not item.snoozed end
+  ```
+- **Vendor** — for a permanent fork, copy the file into your board and
+  `require("./vendor/util.lua")` (a local path); it's then a normal local script
+  with no remote dependency.
+
+### When a remote require fails
+
+A failed fetch (network error, timeout, non-200) caches nothing, so a transient
+blip can't get stuck — the next load just retries. A fetch/compile error during
+load propagates like any Lua error: it stops **that** init file at the failing
+line (anything registered earlier stays active) and is surfaced to you; the rest
+of kbrd keeps running. If you'd rather a remote dependency's failure not abort the
+rest of your init file, guard it:
+
+```lua
+local ok, util = pcall(require, "github:owner/repo/util.lua@v1.0")
+if not ok then kbrd.notify("util unavailable, skipping", "warn") end
+```
 
 ---
 

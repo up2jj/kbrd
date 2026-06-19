@@ -128,6 +128,11 @@ type ScriptingConfig struct {
 	// failing timer or hook. 0 means "never auto-disable" — useful if you
 	// want a periodically-flaky script to keep retrying forever. Default 3.
 	ErrorThreshold int
+	// RemoteRequire enables require() of scripts from remote URLs
+	// (https:// or the github: shorthand). Off by default: a remote module
+	// runs with the same trust level as the user's own init file, so it must
+	// be opted into explicitly. See SCRIPTING.md "Remote scripts".
+	RemoteRequire bool
 }
 
 // ResolveInstanceName picks this process's machine-local instance name from
@@ -176,6 +181,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.hook_timeout_ms", 500)
 	v.SetDefault("scripting.instruction_limit", 10000000)
 	v.SetDefault("scripting.error_threshold", 3)
+	v.SetDefault("scripting.remote_require", false)
 	v.SetDefault("hooks.enabled", true)
 	v.SetDefault("hooks.timeout_ms", 2000)
 	v.SetDefault("mcp.enabled", false)
@@ -247,6 +253,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
 			InstructionLimit: v.GetInt("scripting.instruction_limit"),
 			ErrorThreshold:   v.GetInt("scripting.error_threshold"),
+			RemoteRequire:    v.GetBool("scripting.remote_require"),
 		},
 		Hooks: HooksConfig{
 			Enabled:   v.GetBool("hooks.enabled"),
