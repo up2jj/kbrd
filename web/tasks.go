@@ -164,6 +164,12 @@ func (a boardTaskAPI) DeleteItem(item events.ItemRef) error {
 	return a.commit(fmt.Sprintf("kbrd: delete %s/%s", item.Column, item.Name))
 }
 
+// Navigation has no meaning in a headless server (there is no cursor to move),
+// so focus/select are accepted and ignored — same posture as the presentation-
+// only surfaces below.
+func (a boardTaskAPI) FocusColumn(string) error        { return nil }
+func (a boardTaskAPI) SelectItem(string, string) error { return nil }
+
 func (a boardTaskAPI) FSRead(path string) (string, error) {
 	data, err := os.ReadFile(a.resolvePath(path))
 	if err != nil {

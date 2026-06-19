@@ -53,6 +53,55 @@ func TestMutationHelpers_PublishEvents(t *testing.T) {
 	}
 }
 
+// TestScriptAPINavigation locks in the navigation contract: FocusColumn /
+// SelectItem mutate only selection state and publish NOTHING themselves — the
+// board's emitSelectionChanges diff is what turns the move into a single
+// column_change + item_select. Double-firing here would be the bug.
+func TestScriptAPINavigation(t *testing.T) {
+	colA := newTestColumn(t, map[string]string{"a1": "x"})
+	colB := newTestColumn(t, map[string]string{"b1": "x", "b2": "y"})
+	b := &Board{columns: []*Column{colA, colB}, selectedCol: 0}
+	colA.SelectByName("a1")
+	rec := &recordingSub{}
+	b.bus.Subscribe(rec)
+	api := boardScriptAPI{b: b}
+
+	// FocusColumn alone publishes nothing; the wrapper's diff does.
+	prevCol, prevItem := b.snapshotSelection()
+	if err := api.FocusColumn(colB.Name); err != nil {
+		t.Fatalf("FocusColumn: %v", err)
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("selectedCol = %d, want 1", b.selectedCol)
+	}
+	if len(rec.evs) != 0 {
+		t.Fatalf("FocusColumn published %+v, want nothing (the diff emits)", rec.evs)
+	}
+	b.emitSelectionChanges(prevCol, prevItem)
+	if len(rec.evs) != 2 {
+		t.Fatalf("after diff got %d events, want 2 (column_change + item_select): %+v", len(rec.evs), rec.evs)
+	}
+
+	// SelectItem moves the cursor onto the named card.
+	if err := api.SelectItem(colB.Name, "b2"); err != nil {
+		t.Fatalf("SelectItem: %v", err)
+	}
+	if sel := colB.SelectedItem(); sel == nil || sel.Name != "b2" {
+		t.Fatalf("SelectedItem = %+v, want b2", sel)
+	}
+
+	// Errors are clear and leave selection put.
+	if err := api.FocusColumn("ghost"); err == nil {
+		t.Fatal("FocusColumn(ghost) should error")
+	}
+	if err := api.SelectItem(colB.Name, "missing"); err == nil {
+		t.Fatal("SelectItem(missing) should error")
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("selectedCol after failed nav = %d, want 1 (unchanged)", b.selectedCol)
+	}
+}
+
 // TestScriptAPICreateItemFromTemplate exercises the full Lua-facing path:
 // a real template file on disk, defaults applied, render, create, and the
 // ItemCreated event — without a running Lua VM.

@@ -154,6 +154,29 @@ Events fired by script-driven mutations (e.g. `kbrd.board.move` inside a
 command callback) are **deferred** until the script returns, then dispatched
 in order. This prevents re-entering the Lua VM mid-call.
 
+#### Custom events — `kbrd.emit(name, payload)`
+
+Scripts can talk to each other. `kbrd.emit` publishes a custom event that every
+`kbrd.on(name, ...)` listener receives, with the optional `payload` table passed
+as the listener's argument:
+
+```lua
+kbrd.on("indexed", function(p) kbrd.status("indexed " .. p.count .. " cards") end)
+
+kbrd.command("reindex", "Reindex", function()
+  -- ...do work...
+  kbrd.emit("indexed", { count = 42 })
+end)
+```
+
+Notes:
+
+- Built-in event names (the table above) are **reserved** — `kbrd.emit` returns
+  `nil, err` if you try to spoof one. Pick your own names.
+- Like engine events, listeners fire **after** the emitting script returns
+  (deferred), so a listener that itself calls `kbrd.emit` is safe. A runaway
+  ping-pong between two listeners is capped and dropped rather than hanging.
+
 ---
 
 ## Declarative hooks (no Lua) — `hooks.yml`
@@ -642,6 +665,26 @@ Create a new column directory under the board root, then refresh. Returns
 
 ```lua
 kbrd.board.createColumn("archive")
+```
+
+### `kbrd.board.focus(column)`
+
+Move the board's focus to the named column. Returns `true` or `nil, err` (the
+column must exist). The resulting `column_change` / `item_select` hooks fire
+after the script returns, so a focus hook won't re-enter mid-call.
+
+```lua
+kbrd.board.focus("Done")
+```
+
+### `kbrd.board.select(column, name)`
+
+Focus `column` and move its cursor onto the item `name`. Returns `true` or
+`nil, err` (both the column and the item must exist).
+
+```lua
+local ok, err = kbrd.board.select("Todo", "buy-milk")
+if not ok then kbrd.notify(err, "error") end
 ```
 
 ### `kbrd.ui.pick(title, choices)`

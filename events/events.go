@@ -80,6 +80,45 @@ var actionEvents = map[string]bool{
 // name. See actionEvents for the rationale behind the allowed set.
 func IsHookable(name string) bool { return actionEvents[name] }
 
+// reservedNames is every built-in event name. kbrd.emit rejects these so a
+// script can't publish a custom event that spoofs a real one (e.g. faking an
+// item_moved that other hooks treat as authoritative).
+var reservedNames = map[string]bool{
+	NameBoardLoad:              true,
+	NameBoardRefresh:           true,
+	NameItemSelect:             true,
+	NameColumnChange:           true,
+	NameItemOpen:               true,
+	NameItemSaved:              true,
+	NameItemChanged:            true,
+	NameItemCreated:            true,
+	NameItemRenamed:            true,
+	NameItemDeleted:            true,
+	NameItemMoved:              true,
+	NameColumnCreated:          true,
+	NameGitSyncDone:            true,
+	NameColumnItems:            true,
+	NameHTTPRequest:            true,
+	NameHTTPResponse:           true,
+	NameFrontmatterSuggestions: true,
+}
+
+// IsReserved reports whether name is a built-in event name, which kbrd.emit
+// must refuse so custom script events can't masquerade as engine events.
+func IsReserved(name string) bool { return reservedNames[name] }
+
+// Custom is a script-emitted event (kbrd.emit). Name is the user-chosen event
+// key — never one of the reserved built-in names — and Data is the optional
+// payload passed verbatim to every kbrd.on(Name, ...) listener. It rides the
+// same Bus/OnEvent path as the built-in events, so the host's re-entrancy
+// deferral applies to it unchanged.
+type Custom struct {
+	Name string
+	Data map[string]interface{}
+}
+
+func (Custom) eventTag() {}
+
 // GitSyncDone fires after a git sync attempt (auto or manual) finishes.
 type GitSyncDone struct {
 	OK    bool
@@ -261,6 +300,14 @@ type BoardAPI interface {
 	RenameItem(item ItemRef, newName string) error
 	// DeleteItem deletes the item identified by item.
 	DeleteItem(item ItemRef) error
+
+	// FocusColumn moves the board's focus to the named column. SelectItem
+	// additionally places that column's cursor on the named item. Both are pure
+	// UI-state changes with no disk mutation; the implementation MUST NOT publish
+	// item_select / column_change itself — the board's own selection diff emits
+	// those once after the script returns, so publishing here would double-fire.
+	FocusColumn(column string) error
+	SelectItem(column, name string) error
 
 	// Filesystem primitives.
 	FSRead(path string) (string, error)

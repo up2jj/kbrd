@@ -25,6 +25,7 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
 	kbrd.RawSetString("has_command", L.NewFunction(h.luaHasCommand))
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
+	kbrd.RawSetString("emit", L.NewFunction(h.luaEmit))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
 
 	// kbrd.instance.name is this process's machine-local name, used to route
@@ -43,6 +44,8 @@ func (h *Host) installAPI() {
 	board.RawSetString("delete", L.NewFunction(h.luaBoardDelete))
 	board.RawSetString("refresh", L.NewFunction(h.luaBoardRefresh))
 	board.RawSetString("createColumn", L.NewFunction(h.luaBoardCreateColumn))
+	board.RawSetString("focus", L.NewFunction(h.luaBoardFocus))
+	board.RawSetString("select", L.NewFunction(h.luaBoardSelect))
 	kbrd.RawSetString("board", board)
 
 	fs := L.NewTable()
@@ -290,6 +293,32 @@ func (h *Host) luaFSDeleteFrontmatter(L *lua.LState) int {
 // kbrd.board.refresh() → true | nil, err
 func (h *Host) luaBoardRefresh(L *lua.LState) int {
 	if err := h.api.Refresh(); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.board.focus(column) → true | nil, err
+// Moves the board's focus to the named column. The resulting column_change /
+// item_select hooks fire after the script returns (via the board's selection
+// diff), so a focus hook won't re-enter mid-run.
+func (h *Host) luaBoardFocus(L *lua.LState) int {
+	column := L.CheckString(1)
+	if err := h.api.FocusColumn(column); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.board.select(column, name) → true | nil, err
+// Focuses the named column and moves its cursor onto the named item. Errors if
+// the column or item doesn't exist.
+func (h *Host) luaBoardSelect(L *lua.LState) int {
+	column := L.CheckString(1)
+	name := L.CheckString(2)
+	if err := h.api.SelectItem(column, name); err != nil {
 		return errResult(L, err)
 	}
 	L.Push(lua.LTrue)
@@ -756,6 +785,28 @@ func (h *Host) luaHasCommand(L *lua.LState) int {
 		}
 	}
 	L.Push(lua.LFalse)
+	return 1
+}
+
+// kbrd.emit(name [, payload]) → true | nil, err
+//
+// Publishes a custom event that every kbrd.on(name, fn) listener receives, with
+// the optional payload table passed as the listener's argument. Built-in event
+// names are reserved and rejected. Listeners fire after the current script
+// returns (deferred), so emit never re-enters the VM mid-run — a listener that
+// itself emits is fine, bounded by an internal recursion cap.
+func (h *Host) luaEmit(L *lua.LState) int {
+	name := L.CheckString(1)
+	var data map[string]interface{}
+	if tbl := L.OptTable(2, nil); tbl != nil {
+		if m, ok := fromLValue(tbl).(map[string]interface{}); ok {
+			data = m
+		}
+	}
+	if err := h.Emit(name, data); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
 	return 1
 }
 

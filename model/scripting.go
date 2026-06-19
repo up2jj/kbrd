@@ -549,6 +549,41 @@ func (a boardScriptAPI) DeleteItem(item events.ItemRef) error {
 	return a.b.deleteItem(col, item.Name)
 }
 
+// FocusColumn moves the board's focus to the named column. It only mutates
+// b.selectedCol; the Update wrapper's emitSelectionChanges diff turns the move
+// into a single column_change/item_select after the script returns, so this
+// deliberately publishes nothing itself.
+func (a boardScriptAPI) FocusColumn(column string) error {
+	for i, c := range a.b.columns {
+		if c.Name == column {
+			a.b.selectedCol = i
+			return nil
+		}
+	}
+	return fmt.Errorf("column %q not found", column)
+}
+
+// SelectItem focuses the named column and places its cursor on the named item.
+// Like FocusColumn it only mutates selection state and leaves event emission to
+// the Update wrapper's selection diff. The item is looked up first so a missing
+// name returns a clear error rather than silently leaving the cursor put.
+func (a boardScriptAPI) SelectItem(column, name string) error {
+	for i, c := range a.b.columns {
+		if c.Name != column {
+			continue
+		}
+		for _, it := range c.Items {
+			if it.Name == name {
+				a.b.selectedCol = i
+				c.SelectByName(name)
+				return nil
+			}
+		}
+		return fmt.Errorf("item %q not found in column %q", name, column)
+	}
+	return fmt.Errorf("column %q not found", column)
+}
+
 // CellSet/CellClear/CellClearAll mutate the header cell registry directly. Like
 // the other boardScriptAPI methods they run on the Bubble Tea goroutine and
 // never call back into the host, so direct map mutation is safe. The next

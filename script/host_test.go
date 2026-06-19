@@ -30,6 +30,9 @@ type fakeAPI struct {
 	tmplErr    error
 	renames    []string
 	deletes    []string
+	focuses    []string
+	selects    []string
+	navErr     error // forced error for FocusColumn/SelectItem
 	refreshes  int
 	columns    []string
 	cellSets   []cellSet
@@ -107,6 +110,20 @@ func (f *fakeAPI) DeleteItem(item events.ItemRef) error {
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, item.Column+"/"+item.Name)
 	return nil
+}
+
+func (f *fakeAPI) FocusColumn(column string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.focuses = append(f.focuses, column)
+	return f.navErr
+}
+
+func (f *fakeAPI) SelectItem(column, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.selects = append(f.selects, column+"/"+name)
+	return f.navErr
 }
 
 func (f *fakeAPI) resolve(p string) string {

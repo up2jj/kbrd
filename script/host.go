@@ -74,6 +74,13 @@ type Host struct {
 	running  bool
 	deferred []events.Event
 
+	// emitDepth tracks how deeply fireHook is nested via the deferred-event
+	// drain. A custom event (kbrd.emit) whose hook emits again recurses through
+	// this drain; the depth cap (maxEmitDepth) is a runaway-loop backstop set far
+	// above any real hook chain, so two scripts pinging each other terminate
+	// instead of growing the Go stack without bound.
+	emitDepth int
+
 	timers        map[string]*timerEntry
 	pendingTimers []TimerSchedule
 
@@ -573,6 +580,38 @@ func parseUIRequest(vals []lua.LValue) *UIRequest {
 	return req
 }
 
+// maxEmitDepth caps how deeply custom events may chain (a kbrd.emit whose hook
+// emits, whose hook emits, ...). It is a safety backstop against accidental
+// ping-pong loops, not a feature limit — set well beyond any sane hook chain.
+const maxEmitDepth = 32
+
+// Emit publishes a custom script event (kbrd.emit), invoking every hook
+// registered via kbrd.on(name, ...). Reserved built-in names are rejected so a
+// script cannot spoof an engine event.
+//
+// Emit is normally called from inside a running script (a command, timer, hook,
+// or async callback), where h.running is true: the event is queued on h.deferred
+// and fired after the current invocation returns, exactly like a bus-published
+// event — never re-entering the VM mid-run. The rare not-running case (e.g. a
+// top-level emit in init.lua) fires immediately.
+func (h *Host) Emit(name string, data map[string]interface{}) error {
+	if h == nil {
+		return nil
+	}
+	if name == "" {
+		return fmt.Errorf("event name is required")
+	}
+	if events.IsReserved(name) {
+		return fmt.Errorf("event name %q is reserved", name)
+	}
+	if h.running {
+		h.deferred = append(h.deferred, events.Custom{Name: name, Data: data})
+		return nil
+	}
+	h.OnEvent(events.Custom{Name: name, Data: data})
+	return nil
+}
+
 // OnEvent implements events.Subscriber. Hooks run via PCall (not coroutine);
 // they cannot use kbrd.ui.* — a yield from a hook is dropped with a log line.
 //
@@ -642,6 +681,8 @@ func (h *Host) OnEvent(ev events.Event) {
 			"column": e.Column,
 			"name":   e.Name,
 		})
+	case events.Custom:
+		h.fireHook(e.Name, e.Data)
 	}
 }
 
@@ -650,6 +691,14 @@ func (h *Host) fireHook(name string, payload map[string]interface{}) {
 	if len(entries) == 0 {
 		return
 	}
+	// Runaway-loop backstop: the deferred drain below re-enters fireHook for any
+	// event a hook emits, so a kbrd.emit ping-pong would recurse unbounded. Stop
+	// once the nesting passes maxEmitDepth (kept incremented across the drain).
+	if h.emitDepth >= maxEmitDepth {
+		h.logger.Log("error", "emit "+name, "event chain too deep; dropping (possible emit loop)")
+		return
+	}
+	h.emitDepth++
 	// Hooks run via PCall; their bodies may publish events. Mark the host
 	// as running so those events queue rather than re-entering OnEvent
 	// while we're mid-invocation.
@@ -661,6 +710,9 @@ func (h *Host) fireHook(name string, payload map[string]interface{}) {
 		for _, ev := range pending {
 			h.OnEvent(ev)
 		}
+		// Decrement last: nested fireHook calls in the drain above see the
+		// incremented depth, so a self-feeding emit chain trips the cap.
+		h.emitDepth--
 	}()
 	// Track which entries to drop after the iteration (we can't mutate the
 	// slice mid-loop and keep behavior obvious). Indices are into entries.
