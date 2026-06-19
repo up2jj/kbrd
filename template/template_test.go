@@ -216,6 +216,48 @@ func TestRenderTemplateVarsAndFuncs(t *testing.T) {
 	}
 }
 
+func TestRenderTemplateDateFunc(t *testing.T) {
+	vctx := board.VarContext{BoardPath: "/b", BoardName: "b"}
+
+	// "today" with the default layout resolves to the current date.
+	path := writeTemplate(t, t.TempDir(), "t.md", "---\nfilename: x\n---\n{{date \"today\"}}\n")
+	tmpl, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body, err := Render(tmpl, vctx, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Now().Format("2006-01-02") + "\n"; body != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+
+	// An optional Go layout is honored (Polish phrase, custom format).
+	path = writeTemplate(t, t.TempDir(), "t2.md", "---\nfilename: x\n---\n{{date \"dziś\" \"2006/01/02\"}}\n")
+	tmpl, err = Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body, err = Render(tmpl, vctx, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Now().Format("2006/01/02") + "\n"; body != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+
+	// An unparseable phrase fails the render.
+	path = writeTemplate(t, t.TempDir(), "t3.md", "---\nfilename: x\n---\n{{date \"florble\"}}\n")
+	tmpl, err = Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Render(tmpl, vctx, map[string]any{}); err == nil {
+		t.Error("expected error for unparseable phrase")
+	}
+}
+
 func TestRenderTemplateMissingKey(t *testing.T) {
 	path := writeTemplate(t, t.TempDir(), "t.md", "---\nfilename: x\n---\n{{.undeclared}}\n")
 	tmpl, err := Parse(path)

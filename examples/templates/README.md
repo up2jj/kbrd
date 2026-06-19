@@ -16,6 +16,10 @@ What they demonstrate:
   as `{{join .areas ", "}}` and as a `{{checklist .areas}}` task list, `confirm`, and
   validation (`required`, `min_len`, and a `pattern` with a friendly `pattern_hint`
   on the optional ticket field).
+- **[`due.md`](./due.md)** — natural-language dates: the user types a phrase
+  (`next friday`, `za 2 tygodnie`) and `{{date .when}}` resolves it to a date.
+  English and Polish both work; see
+  [TEMPLATES.md](../../TEMPLATES.md#natural-language-dates-date).
 - **[`summary.md`](./summary.md)** — `{{shell}}` exec: calls an LLM CLI to fill in a
   summary section after the card is created. Needs `[template] exec = true` and a CLI on
   your PATH; see [TEMPLATES.md](../../TEMPLATES.md#shell-commands-shell).

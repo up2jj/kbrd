@@ -44,6 +44,14 @@ hooks:
     command: |-
       osascript -e 'display notification "{{.fileName}} — {{.fromColumn}} → {{.toColumn}}" with title "kbrd hook"'
 
+  # Stamp a natural-language due date on the moved card. {{date "..."}} resolves
+  # English/Polish phrases (here "in 2 weeks") to a date — see TEMPLATES.md.
+  - name: Log due date on move
+    id: log-due-on-move
+    event: item_moved
+    command: |-
+      echo "$(date '+%H:%M:%S') '{{.fileName}}' review by {{date "in 2 weeks"}}" >> "{{.boardPath}}/.kbrd_hooks.log"
+
   # --- the remaining action events ---
   - name: Log rename
     id: log-rename

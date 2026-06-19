@@ -193,6 +193,7 @@ Form field keys may not reuse these names — that's rejected at load time.
 | `{{join .areas ", "}}` | Join a multiselect's values |
 | `{{checklist .areas}}` | Multiselect values as markdown tasks: `- [ ] UI`, one per line |
 | `{{now "2006-01-02"}}` | Current local time in a [Go layout](https://pkg.go.dev/time#pkg-constants) — works in `filename` too |
+| `{{date "next friday"}}` | A [natural-language date](#natural-language-dates-date) (English/Polish) in a Go layout — layout optional (defaults to `2006-01-02`) |
 | `{{default "unset" .sev}}` | Fallback when the value is empty (pipes: `{{.sev \| default "unset"}}`) |
 | `{{upper .v}}` / `{{lower .v}}` / `{{title .v}}` | Case conversion (`title` capitalizes each word) |
 | `{{trim .v}}` | Strip surrounding whitespace |
@@ -202,6 +203,43 @@ Form field keys may not reuse these names — that's rejected at load time.
 
 Referencing an undeclared variable is an error (`missingkey=error`), so typos fail loudly
 at creation instead of rendering blanks.
+
+### Natural-language dates (`date`)
+
+`{{date "<phrase>"}}` resolves a natural-language date relative to now and formats it.
+The phrase may be **English or Polish** — both are understood out of the box. The
+second argument is an optional [Go layout](https://pkg.go.dev/time#pkg-constants);
+without it the result is `2006-01-02` (e.g. `2026-06-19`).
+
+```
+filename: task-{{date "next friday"}}
+Due: {{date "za 2 tygodnie"}}
+Meeting: {{date "wednesday at 19:09" "2006-01-02 15:04"}}
+```
+
+A date-only phrase keeps the current time of day; a phrase with a time overrides it.
+An **unparseable phrase fails the render** (like `missingkey=error`), so a typo is caught
+at creation rather than producing a wrong date. The same `date` function is available in
+[custom commands and declarative hooks](./SCRIPTING.md#declarative-hooks-no-lua--hooksyml)
+and as [`kbrd.date.parse`](./SCRIPTING.md#kbrddateparsephrase-layout) in Lua.
+
+Supported phrasings (English / Polish):
+
+| Kind | English | Polish |
+| --- | --- | --- |
+| keywords | `today`, `tomorrow`, `yesterday` | `dziś`/`dzisiaj`, `jutro`, `wczoraj`, `pojutrze`, `przedwczoraj` |
+| weekdays | `monday`, `mon`, `tue` … | `poniedziałek`, `pon`, `wt`, `środa` … |
+| this / next | `this friday`, `next monday` | `w piątek`, `przyszły poniedziałek` |
+| last (past) | `last friday`, `last week` | `zeszły piątek`, `w zeszłym tygodniu`, `ostatni poniedziałek` |
+| relative + | `in 2 weeks`, `3 days from now` | `za 2 tygodnie`, `za 5 dni` |
+| relative − | `2 weeks ago`, `3 days ago` | `2 tygodnie temu`, `3 dni temu` |
+| periods | `next week`, `this month`, `last year` | `przyszły tydzień`, `w tym miesiącu`, `w zeszłym roku` |
+| time of day | `at 19:09`, `at 7pm` | `o 19:09` |
+| combined | `wednesday at 19:09` | `środa o 19:09` |
+| absolute | `2026-06-24`, `2026/06/24` | `24.06.2026`, `24.06` (this year) |
+
+Polish numeral-noun agreement is handled (`tydzień`/`tygodnie`/`tygodni` all mean weeks).
+The week starts on Monday, so `next week` is the upcoming Monday-based week.
 
 ### Syntax in 60 seconds
 

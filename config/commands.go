@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"text/template"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"kbrd/natdate"
 )
 
 //go:embed commands_template.yml
@@ -213,12 +216,12 @@ func (c Command) Render(vars map[string]string) (string, error) {
 }
 
 // renderTemplate is the shared text/template expansion used by both custom
-// commands and declarative hooks: it exposes the {{env "VAR"}} func and treats
-// a reference to a missing variable as an error (so a template that needs an
-// item fails cleanly when none is in context).
+// commands and declarative hooks: it exposes the {{env "VAR"}} and {{date "..."}}
+// funcs and treats a reference to a missing variable as an error (so a template
+// that needs an item fails cleanly when none is in context).
 func renderTemplate(tmplStr string, vars map[string]string) (string, error) {
 	tmpl, err := template.New("tmpl").
-		Funcs(template.FuncMap{"env": os.Getenv}).
+		Funcs(template.FuncMap{"env": os.Getenv, "date": dateFunc}).
 		Option("missingkey=error").
 		Parse(tmplStr)
 	if err != nil {
@@ -229,4 +232,20 @@ func renderTemplate(tmplStr string, vars map[string]string) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// dateFunc backs {{date "..."}} in command and hook templates: it resolves a
+// natural-language phrase (English or Polish) relative to now and formats it with
+// an optional Go layout (default 2006-01-02). An unparseable phrase errors the
+// render. Mirrors the template package's helper of the same name.
+func dateFunc(phrase string, layout ...string) (string, error) {
+	t, err := natdate.Parse(phrase, time.Now())
+	if err != nil {
+		return "", err
+	}
+	lay := "2006-01-02"
+	if len(layout) > 0 && layout[0] != "" {
+		lay = layout[0]
+	}
+	return t.Format(lay), nil
 }

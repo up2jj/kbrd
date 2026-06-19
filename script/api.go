@@ -10,6 +10,7 @@ import (
 
 	"kbrd/events"
 	"kbrd/frontmatter"
+	"kbrd/natdate"
 )
 
 // installAPI builds the `kbrd` global on h.L. Called from New, never from
@@ -90,6 +91,10 @@ func (h *Host) installAPI() {
 	// Column-scoped: every store call targets a column by name, so it lives under
 	// kbrd.column.* next to indicator/set (column is already on kbrd by reference).
 	column.RawSetString("store", store)
+
+	date := L.NewTable()
+	date.RawSetString("parse", L.NewFunction(h.luaDateParse))
+	kbrd.RawSetString("date", date)
 
 	L.SetGlobal("kbrd", kbrd)
 
@@ -687,6 +692,22 @@ func (h *Host) luaStatus(L *lua.LState) int {
 	}
 	h.pendingStatus = append(h.pendingStatus, StatusMsg{Text: msg, TTL: ttl})
 	return 0
+}
+
+// kbrd.date.parse(phrase [, layout]) → string | nil, err
+//
+// Resolves a natural-language date phrase (English or Polish) relative to now and
+// formats it with an optional Go layout (default "2006-01-02"). On an unparseable
+// phrase it returns (nil, message), following the API's error-tuple convention.
+func (h *Host) luaDateParse(L *lua.LState) int {
+	phrase := L.CheckString(1)
+	layout := L.OptString(2, "2006-01-02")
+	t, err := natdate.Parse(phrase, time.Now())
+	if err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LString(t.Format(layout)))
+	return 1
 }
 
 // luaDuration interprets a Lua value as a time.Duration: a number is taken as

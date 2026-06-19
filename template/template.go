@@ -29,6 +29,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"kbrd/board"
+	"kbrd/natdate"
 )
 
 // Dir is the subfolder (of a column or the board root) that holds card
@@ -418,6 +419,22 @@ func funcMap() texttemplate.FuncMap {
 		// {{now "2006-01-02"}} → 2026-06-05. Makes renders intentionally
 		// non-deterministic; parse-time compile checks stay syntax-only.
 		"now": func(layout string) string { return time.Now().Format(layout) },
+
+		// date resolves a natural-language phrase (English or Polish) relative to
+		// now and formats it; the layout is optional and defaults to 2006-01-02:
+		// {{date "next friday"}} or {{date "środa o 19:09" "2006-01-02 15:04"}}.
+		// An unparseable phrase fails the render (consistent with missingkey=error).
+		"date": func(phrase string, layout ...string) (string, error) {
+			t, err := natdate.Parse(phrase, time.Now())
+			if err != nil {
+				return "", err
+			}
+			lay := "2006-01-02"
+			if len(layout) > 0 && layout[0] != "" {
+				lay = layout[0]
+			}
+			return t.Format(lay), nil
+		},
 
 		// checklist renders a multiselect's values as markdown task items:
 		// {{checklist .areas}} → "- [ ] UI\n- [ ] backend".

@@ -483,6 +483,11 @@ Templates live in `<board>/.kbrd_templates/` (every column) and
 `<board>/<column>/.kbrd_templates/` (column-only; shadows board templates with the same
 name). Created cards fire the normal `item_created` event, so hooks apply.
 
+Template bodies and filenames can resolve natural-language dates with
+`{{date "next friday"}}` / `{{date "za 2 tygodnie"}}` — English and Polish, with an
+optional Go layout. The same `date` function is available in custom commands, hooks,
+and Lua (`kbrd.date.parse`).
+
 See **[TEMPLATES.md](./TEMPLATES.md)** for the full format reference and
 [`examples/templates/`](./examples/templates/) for worked examples.
 

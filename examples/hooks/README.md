@@ -11,6 +11,9 @@ often want from hooks:
   and confirm the "AFTER the 1s sleep" line always lands last.
 - **Desktop notification.** `Notify on move` fires an `osascript` notification
   when a card changes columns.
+- **Natural-language dates.** `Log due date on move` uses `{{date "in 2 weeks"}}`
+  to write a resolved date into the log — phrases work in English and Polish
+  ([reference](../../TEMPLATES.md#natural-language-dates-date)).
 
 ## Install
 

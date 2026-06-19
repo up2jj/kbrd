@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadCommands_BothMissing(t *testing.T) {
@@ -188,6 +189,34 @@ func TestCommand_Render_Env(t *testing.T) {
 	}
 	if out != "hi" {
 		t.Errorf("got %q want %q", out, "hi")
+	}
+}
+
+func TestCommand_Render_Date(t *testing.T) {
+	// Natural-language phrase (EN + PL) resolves and formats; default layout.
+	c := Command{Template: `{{date "today"}}`}
+	out, err := c.Render(map[string]string{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if want := time.Now().Format("2006-01-02"); out != want {
+		t.Errorf("got %q want %q", out, want)
+	}
+
+	// Custom layout argument is honored.
+	c = Command{Template: `{{date "dziś" "2006/01/02"}}`}
+	out, err = c.Render(map[string]string{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if want := time.Now().Format("2006/01/02"); out != want {
+		t.Errorf("got %q want %q", out, want)
+	}
+
+	// Unparseable phrase fails the render.
+	c = Command{Template: `{{date "florble"}}`}
+	if _, err := c.Render(map[string]string{}); err == nil {
+		t.Error("expected error for unparseable phrase")
 	}
 }
 

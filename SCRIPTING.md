@@ -98,7 +98,9 @@ Scripts inherit kbrd's environment, and there are three ways to read it:
 - **Shell commands run by a script** (`kbrd.async.run`) and **YAML shell commands** execute via
   `sh -c`, so plain `$VAR` expands normally.
 - **YAML command templates** can substitute a value before the shell runs with `{{env "VAR"}}`
-  (empty string if unset).
+  (empty string if unset) or resolve a natural-language date with `{{date "next friday"}}`
+  (English/Polish; optional Go layout — see the [phrase reference](./TEMPLATES.md#natural-language-dates-date)).
+  The same funcs work in [declarative hooks](#declarative-hooks-no-lua--hooksyml).
 
 ---
 
@@ -212,7 +214,11 @@ How they behave:
 
 Variables are the same shared set as custom commands (`{{.boardPath}}`,
 `{{.fileName}}`, `{{.columnName}}`, …, and `{{env "VAR"}}`), plus per-event
-extras. Only these low-frequency **action** events can be hooked from YAML:
+extras. The `{{date "..."}}` function is available here too — resolve a
+natural-language date (English/Polish) with an optional Go layout, e.g.
+`kbrd-cli set "{{.filePath}}" due "{{date "in 2 weeks"}}"` (see the
+[phrase reference](./TEMPLATES.md#natural-language-dates-date)). Only these
+low-frequency **action** events can be hooked from YAML:
 
 | Event           | Extra variables                          |
 | --------------- | ---------------------------------------- |
@@ -1096,6 +1102,32 @@ end
 paths. Relative paths are resolved against the **board root** (the directory
 kbrd was opened in), *not* the process cwd. This matches how YAML shell
 commands run with `cwd = boardPath`.
+
+### `kbrd.date.parse(phrase [, layout])`
+
+Resolves a natural-language date `phrase` (**English or Polish**) relative to now
+and returns it formatted with an optional Go `layout` (default `"2006-01-02"`). On
+an unparseable phrase it returns `nil, err` (the standard error tuple), so a typo
+surfaces rather than producing a wrong date.
+
+```lua
+kbrd.command("d", "Set due date", function(ctx)
+  local phrase = kbrd.ui.prompt("Due (e.g. 'next friday', 'za 2 tygodnie'):", "")
+  if not phrase or phrase == "" then return end
+  local due, err = kbrd.date.parse(phrase)
+  if not due then
+    kbrd.notify("bad date: " .. err, "error")
+    return
+  end
+  kbrd.fs.set_frontmatter(ctx.filePath, "due", due)
+  kbrd.notify("due " .. due, "success")
+end)
+```
+
+See the [phrase reference](./TEMPLATES.md#natural-language-dates-date) for the full
+list of supported forms (keywords, weekdays, `next/last`, `in N`/`za N`, `N ago`/`N temu`,
+periods, and times). The same `date` function is also available in card templates and in
+YAML commands/hooks.
 
 ---
 
