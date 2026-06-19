@@ -576,6 +576,10 @@ func (a boardScriptAPI) SelectItem(column, name string) error {
 			if it.Name == name {
 				a.b.selectedCol = i
 				c.SelectByName(name)
+				// An explicit scripted selection is "show me this item", so
+				// open a collapsed column for real rather than leaving it to
+				// re-collapse on the next keypress.
+				c.Expand()
 				return nil
 			}
 		}

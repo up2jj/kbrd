@@ -1,10 +1,11 @@
 // Package colstore is a per-column persistent key/value store for kbrd scripts.
 //
 // Each filesystem column directory gets a hidden TOML file (FileName) that Lua
-// scripts read and write via kbrd.column.store.*. It is deliberately separate from
-// board config: it governs nothing in the app, it is pure scripting state and
-// is never shown in the UI. This package owns parsing and on-disk concurrency
-// only — it knows nothing about board roots, column names, or display.
+// scripts read and write via kbrd.column.store.*. It is mostly scripting state
+// that governs nothing in the app and is never shown in the UI, with one
+// app-owned reserved key: "collapsed" (bool) persists a column's collapse intent
+// (model.Column). This package owns parsing and on-disk concurrency only — it
+// knows nothing about board roots, column names, or display.
 package colstore
 
 import (

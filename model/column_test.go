@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"kbrd/config"
 )
 
 // newTestColumn creates a column rooted at a temporary directory with the
@@ -873,5 +876,171 @@ func TestColumn_View_PreviewDensity(t *testing.T) {
 		if !strings.Contains(zoomed, want) {
 			t.Errorf("zoomed view missing %q:\n%s", want, zoomed)
 		}
+	}
+}
+
+// TestCollapse_AutoExpandWidth locks the auto-expand-on-focus rule: a column
+// marked collapsed renders thin only while it is *not* the selection. colWidthOf
+// is the single seam layout reads, so testing it covers packing/geometry too.
+func TestCollapse_AutoExpandWidth(t *testing.T) {
+	t.Parallel()
+	a := NewColumn("A", "", ItemOptions{})
+	b := NewColumn("B", "", ItemOptions{})
+	b.Collapsed = true
+	board := &Board{
+		columns:     []*Column{a, b},
+		selectedCol: 0,
+		cfg:         config.Config{ColumnWidth: 30},
+	}
+
+	if got := board.colWidthOf(1); got != collapsedContentWidth {
+		t.Fatalf("collapsed + unfocused width = %d, want %d", got, collapsedContentWidth)
+	}
+	board.selectedCol = 1 // focus the collapsed column
+	if got := board.colWidthOf(1); got != 30 {
+		t.Fatalf("collapsed + focused width = %d, want 30 (auto-expand)", got)
+	}
+	if got := board.colWidthOf(0); got != 30 {
+		t.Fatalf("ordinary column width = %d, want 30", got)
+	}
+}
+
+// TestCollapse_VerticalBar checks the collapsed bar stacks the name top-to-bottom
+// and shows the item count.
+func TestCollapse_VerticalBar(t *testing.T) {
+	t.Parallel()
+	c := newTestColumn(t, map[string]string{"one": "x", "two": "y", "three": "z"})
+	c.Name = "Done"
+	c.SetHeight(8)
+
+	out := c.viewCollapsed(RenderCtx{Width: collapsedContentWidth})
+
+	// Name runs one rune per line, so each letter appears on its own row.
+	for _, r := range "DONE" {
+		if !strings.Contains(out, string(r)) {
+			t.Fatalf("collapsed bar missing name rune %q:\n%s", r, out)
+		}
+	}
+	if !strings.Contains(out, "3") {
+		t.Fatalf("collapsed bar missing item count:\n%s", out)
+	}
+	// Every row is the bar's content width plus the two border cells, so no line
+	// should exceed that.
+	maxW := collapsedContentWidth + 2
+	for _, line := range strings.Split(out, "\n") {
+		if w := len([]rune(line)); w > maxW {
+			t.Fatalf("collapsed bar line too wide (%d, want <=%d): %q", w, maxW, line)
+		}
+	}
+}
+
+// TestCollapse_Persist round-trips the collapse intent through the column's
+// colstore so it survives a rebuild.
+func TestCollapse_Persist(t *testing.T) {
+	t.Parallel()
+	c := newTestColumn(t, map[string]string{"a": "x"})
+
+	c.ToggleCollapse() // -> true, persisted
+	if !c.Collapsed {
+		t.Fatal("ToggleCollapse did not set Collapsed")
+	}
+
+	// A fresh column over the same dir restores the intent.
+	reopened := NewColumn(c.Name, c.Path, ItemOptions{})
+	reopened.RestoreCollapsed()
+	if !reopened.Collapsed {
+		t.Fatal("RestoreCollapsed did not load persisted collapse")
+	}
+
+	c.ToggleCollapse() // -> false, persisted
+	reopened2 := NewColumn(c.Name, c.Path, ItemOptions{})
+	reopened2.RestoreCollapsed()
+	if reopened2.Collapsed {
+		t.Fatal("RestoreCollapsed should have loaded expanded state")
+	}
+}
+
+// TestCollapse_VirtualSessionOnly confirms a virtual column (no backing dir)
+// toggles in-session without attempting persistence.
+func TestCollapse_VirtualSessionOnly(t *testing.T) {
+	t.Parallel()
+	v := NewVirtualColumn("vid", "Virtual", DarkPalette())
+	v.ToggleCollapse()
+	if !v.Collapsed {
+		t.Fatal("virtual column did not toggle collapse")
+	}
+	v.RestoreCollapsed() // no dir: must be a no-op, leaving the session state
+	if !v.Collapsed {
+		t.Fatal("RestoreCollapsed clobbered virtual column session state")
+	}
+}
+
+// TestCollapseFocusShift covers the pure index rule: collapsing shifts focus to
+// a neighbour (previous at the right edge, otherwise next), and stays put with a
+// lone column.
+func TestCollapseFocusShift(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ selected, n, want int }{
+		{0, 3, 1}, // left/middle -> next
+		{1, 3, 2}, // middle -> next
+		{2, 3, 1}, // right edge -> previous
+		{0, 1, 0}, // lone column -> stays
+	}
+	for _, c := range cases {
+		if got := collapseFocusShift(c.selected, c.n); got != c.want {
+			t.Errorf("collapseFocusShift(%d,%d) = %d, want %d", c.selected, c.n, got, c.want)
+		}
+	}
+}
+
+// TestCollapse_ToggleKeyShiftsFocus drives the "|" key end-to-end: folding the
+// focused column reveals the bar at once by shifting focus to a neighbour, and
+// re-expanding keeps focus on the now-open column.
+func TestCollapse_ToggleKeyShiftsFocus(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	pipe := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("|")}
+
+	// Collapse the left column: focus advances off the bar to the next one.
+	b.handleKey(pipe)
+	if !b.columns[0].Collapsed {
+		t.Fatal("| should collapse the focused column")
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("selectedCol = %d, want 1 (focus shifted off the bar)", b.selectedCol)
+	}
+
+	// Re-expand the same column: focus stays on it, now open.
+	b.selectedCol = 0 // focusing a collapsed column auto-expands it transiently
+	b.handleKey(pipe)
+	if b.columns[0].Collapsed {
+		t.Fatal("| should expand the collapsed focused column")
+	}
+	if b.selectedCol != 0 {
+		t.Fatalf("selectedCol = %d, want 0 (focus stays on the expanded column)", b.selectedCol)
+	}
+}
+
+// TestCollapse_ScriptSelectExpands locks that a scripted SelectItem opens a
+// collapsed target column (and doesn't overwrite the persisted preference).
+func TestCollapse_ScriptSelectExpands(t *testing.T) {
+	t.Parallel()
+	colA := newTestColumn(t, map[string]string{"a1": "x"})
+	colB := newTestColumn(t, map[string]string{"b1": "x", "b2": "y"})
+	colB.ToggleCollapse() // collapsed + persisted
+	b := &Board{columns: []*Column{colA, colB}, selectedCol: 0}
+	api := boardScriptAPI{b: b}
+
+	if err := api.SelectItem(colB.Name, "b2"); err != nil {
+		t.Fatalf("SelectItem: %v", err)
+	}
+	if colB.Collapsed {
+		t.Fatal("scripted SelectItem should expand the collapsed column")
+	}
+	// Expand is session-only: the user's saved preference is untouched.
+	reopened := NewColumn(colB.Name, colB.Path, ItemOptions{})
+	reopened.RestoreCollapsed()
+	if !reopened.Collapsed {
+		t.Fatal("scripted expand must not overwrite the persisted collapse preference")
 	}
 }

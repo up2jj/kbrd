@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/board"
+	"kbrd/colstore"
 	"kbrd/events"
 	"kbrd/frontmatter"
 	kbrdfs "kbrd/fs"
@@ -545,7 +546,24 @@ type Column struct {
 	Width    int
 	headerFG lipgloss.Color
 	headerBG lipgloss.Color
+
+	// Collapsed is the user's persisted intent to shrink this column to a thin
+	// vertical bar (toggled with "|", restored from colstore on load). It is
+	// intent, not the rendered state: the focused column auto-expands, so the
+	// live decision is made in Board.colWidthOf (Collapsed && not selected),
+	// which drives both the bar width and Column.View's collapsed path.
+	Collapsed bool
 }
+
+// collapsedContentWidth is the content width of a collapsed column's bar: wide
+// enough to set the vertical name/count off the border with a cell of padding
+// each side. Its on-screen width is this plus columnSlotPadding (border +
+// margin).
+const collapsedContentWidth = 3
+
+// collapsedStoreKey is the colstore key that persists a filesystem column's
+// collapse intent across restarts.
+const collapsedStoreKey = "collapsed"
 
 // ContentWidth is the column's content width: its script-set override when one
 // is given, else the supplied default (cfg.ColumnWidth). Layout owns geometry,
@@ -555,6 +573,69 @@ func (c *Column) ContentWidth(def int) int {
 		return c.Width
 	}
 	return def
+}
+
+// ToggleCollapse flips this column's collapse intent and persists it. The board
+// only dispatches the key; the flag, its persistence, and how a collapsed column
+// renders all live here in the column component.
+func (c *Column) ToggleCollapse() {
+	c.Collapsed = !c.Collapsed
+	c.persistCollapsed()
+}
+
+// collapseFocusShift returns the column index to focus after collapsing the one
+// at `selected` (of `n` columns). The focused column always auto-expands, so the
+// just-folded bar only shows once focus leaves it; this keeps focus adjacent —
+// the previous column at the right edge, otherwise the next. With a single
+// column there is nowhere to go, so focus stays put.
+func collapseFocusShift(selected, n int) int {
+	switch {
+	case n <= 1:
+		return selected
+	case selected == n-1:
+		return selected - 1
+	default:
+		return selected + 1
+	}
+}
+
+// Expand clears the column's collapse intent for this session when something
+// explicitly surfaces its content — e.g. a script selecting one of its items —
+// so the column opens and stays open instead of re-collapsing on the next
+// keypress (unlike the transient auto-expand a focused column gets). It does not
+// persist: a script revealing an item must not overwrite the user's saved
+// collapse preference, which returns on the next launch.
+func (c *Column) Expand() { c.Collapsed = false }
+
+// persistCollapsed best-effort writes the collapse intent to the column's
+// colstore. Virtual columns have no backing dir, so their collapse is
+// session-only. A failed write only means the state won't survive a restart, so
+// it is swallowed rather than surfaced.
+func (c *Column) persistCollapsed() {
+	if c.Virtual || c.Path == "" {
+		return
+	}
+	_ = colstore.Update(c.Path, func(s *colstore.Store) error {
+		s.Set(collapsedStoreKey, c.Collapsed)
+		return nil
+	})
+}
+
+// RestoreCollapsed loads the persisted collapse intent for a filesystem column.
+// Missing/invalid state leaves the column expanded. Called once at build time.
+func (c *Column) RestoreCollapsed() {
+	if c.Virtual || c.Path == "" {
+		return
+	}
+	s, err := colstore.Read(c.Path)
+	if err != nil {
+		return
+	}
+	if v, ok := s.Get(collapsedStoreKey); ok {
+		if b, ok := v.(bool); ok {
+			c.Collapsed = b
+		}
+	}
 }
 
 // VirtualCmd is a column-scoped command surfaced in the X menu / status hints
@@ -825,6 +906,14 @@ type RenderCtx struct {
 const scrollGutterW = 1
 
 func (c *Column) View(ctx RenderCtx) string {
+	// A collapsed column is allotted collapsedContentWidth by layout; render it
+	// as a thin vertical bar instead of the normal header/list (which a width-1
+	// box can't hold). Keyed off the incoming width so View stays self-contained
+	// — it never needs to know which column is selected.
+	if ctx.Width <= collapsedContentWidth {
+		return c.viewCollapsed(ctx)
+	}
+
 	listW := ctx.Width - scrollGutterW
 	if listW < 1 {
 		listW = 1
@@ -893,6 +982,77 @@ func (c *Column) View(ctx RenderCtx) string {
 		Border(border).
 		BorderForeground(borderColor).
 		Render(content)
+}
+
+// viewCollapsed renders a collapsed column as a one-cell-wide bar: the column
+// name stacked top-to-bottom (centered), with its item count at the bottom
+// under a rule. It mirrors the normal column's height and border so it sits
+// flush beside its expanded neighbors. A collapsed column is never the focused
+// one (the focus auto-expands), so it always paints in the muted palette.
+func (c *Column) viewCollapsed(ctx RenderCtx) string {
+	c.width = ctx.Width
+
+	p := c.palette
+	nameFg := p.FgMuted
+	if c.headerFG != "" {
+		nameFg = c.headerFG
+	} else if c.Virtual {
+		nameFg = p.AccentSoft
+	}
+
+	// Inner height matches the expanded column's content: 2 header rows + the
+	// list area, so both wrap to the same bordered height under JoinHorizontal.
+	innerH := c.height + 2
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	nameRunes := []rune(strings.ToUpper(c.Name))
+	countRunes := []rune(strconv.Itoa(c.TotalCount()))
+
+	// Reserve the bottom for the count under a rule, but only when at least one
+	// name row would still fit above it.
+	var bottom []string
+	if len(countRunes)+2 <= innerH {
+		bottom = append(bottom, strings.Repeat("─", collapsedContentWidth))
+		for _, r := range countRunes {
+			bottom = append(bottom, string(r))
+		}
+	}
+
+	nameBudget := innerH - len(bottom)
+	if len(nameRunes) > nameBudget {
+		// The bar is a hint; the full name is one keystroke away on expand.
+		nameRunes = nameRunes[:nameBudget]
+	}
+
+	rows := make([]string, 0, innerH)
+	pad := (nameBudget - len(nameRunes)) / 2
+	for range pad {
+		rows = append(rows, " ")
+	}
+	for _, r := range nameRunes {
+		rows = append(rows, string(r))
+	}
+	for len(rows)+len(bottom) < innerH {
+		rows = append(rows, " ")
+	}
+	rows = append(rows, bottom...)
+
+	body := lipgloss.NewStyle().
+		Foreground(nameFg).
+		Width(collapsedContentWidth).
+		Align(lipgloss.Center).
+		Render(strings.Join(rows, "\n"))
+
+	border := lipgloss.RoundedBorder()
+	if c.Virtual {
+		border = lipgloss.DoubleBorder()
+	}
+	return lipgloss.NewStyle().
+		Border(border).
+		BorderForeground(p.BorderMuted).
+		Render(body)
 }
 
 // renderScrollbar draws the scrollbar gutter: a scrollGutterW-wide, height-tall

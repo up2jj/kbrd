@@ -386,6 +386,7 @@ func buildColumn(path, name string, cfg config.Config, palette Palette, cache it
 	if err := col.loadItems(cache); err != nil {
 		return nil
 	}
+	col.RestoreCollapsed()
 	return col
 }
 
@@ -1163,6 +1164,14 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
 	case key.Matches(msg, Keys.ZoomToggle):
 		b.zoom.Toggle()
+		return b, nil
+	case key.Matches(msg, Keys.CollapseCol):
+		// The focused column auto-expands, so shift focus off a fresh collapse
+		// to reveal the bar at once (see collapseFocusShift).
+		col.ToggleCollapse()
+		if col.Collapsed {
+			b.selectedCol = collapseFocusShift(b.selectedCol, len(b.columns))
+		}
 		return b, nil
 	case key.Matches(msg, Keys.ZoomOff) && b.zoom.Active():
 		// Only consume -/esc while zoomed; otherwise they fall through to the
@@ -2199,7 +2208,14 @@ func (b *Board) setActivityCell(id int, text string) {
 // is given, else the configured default. This feeds layout's variable-width
 // geometry so a script-set column can be wider/narrower than its neighbors.
 func (b *Board) colWidthOf(i int) int {
-	return b.columns[i].ContentWidth(b.cfg.ColumnWidth)
+	c := b.columns[i]
+	// A collapsed column shrinks to a thin bar — except the focused one, which
+	// auto-expands so its cards stay readable. This single seam keeps the bar's
+	// width and Column.View's collapsed rendering (keyed off width) in lockstep.
+	if c.Collapsed && i != b.selectedCol {
+		return collapsedContentWidth
+	}
+	return c.ContentWidth(b.cfg.ColumnWidth)
 }
 
 // visibleColRange returns the index of the first column to render and the
