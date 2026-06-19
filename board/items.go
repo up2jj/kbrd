@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"kbrd/natdate"
 )
 
 // ItemPath sanitizes name and returns the absolute path of the item file
@@ -97,10 +99,37 @@ func PrependLine(path, text string) error {
 	return os.WriteFile(path, append([]byte(text+"\n"), content...), 0o644)
 }
 
-// JournalLine appends text prefixed with a "2006-01-02 15:04:05" timestamp —
-// the journal entry format shared by all frontends.
-func JournalLine(path, text string) error {
-	return AppendLine(path, time.Now().Format("2006-01-02 15:04:05")+" - "+text)
+// JournalLine appends text prefixed with an "at" timestamp formatted as
+// "2006-01-02 15:04:05" — the journal entry format shared by all frontends. The
+// caller supplies the time so the stamp can reflect a date detected in the entry
+// (see DetectDate), not just time.Now().
+func JournalLine(path string, at time.Time, text string) error {
+	return AppendLine(path, at.Format("2006-01-02 15:04:05")+" - "+text)
+}
+
+// DetectDate splits a leading natural-language date phrase off text, returning the
+// resolved timestamp and the remaining entry body. It scans successively longer
+// leading token-prefixes (natdate.Parse is fail-closed, so it rejects any phrase
+// with a non-date token) and keeps the longest that parses. With no leading date —
+// or when stripping it would leave an empty body — it returns now and text
+// unchanged.
+func DetectDate(text string, now time.Time) (time.Time, string) {
+	fields := strings.Fields(text)
+	bestN := 0
+	var bestT time.Time
+	for n := 1; n <= len(fields); n++ {
+		if t, err := natdate.Parse(strings.Join(fields[:n], " "), now); err == nil {
+			bestN, bestT = n, t
+		}
+	}
+	if bestN == 0 {
+		return now, text
+	}
+	remainder := strings.TrimSpace(strings.Join(fields[bestN:], " "))
+	if remainder == "" {
+		return now, text
+	}
+	return bestT, remainder
 }
 
 // RenameNoClobber renames a file or directory, failing with os.ErrExist when

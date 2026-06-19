@@ -25,6 +25,12 @@
 # enabled = false           # built-in MCP server; off by default (start with --mcp or enabled = true)
 # addr    = "127.0.0.1:7777" # Streamable HTTP listen address
 
+[journal]
+# detect_date = true        # read a leading natural-language date ("yesterday ...",
+#                           #   "next monday ...", "2 weeks ago ...") from a journal entry
+#                           #   and stamp it with that date instead of now; the date phrase
+#                           #   is dropped from the text. EN + PL. false = always use now.
+
 [template]
 # exec               = false # allow {{shell}} in card templates to run commands (off by default;
 #                            #   the command inherits kbrd's full environment — see SECURITY.md.

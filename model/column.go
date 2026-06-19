@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1069,12 +1070,12 @@ func (c *Column) ReplaceFile(itemName, text string) error {
 	return board.ReplaceFileContent(fullPath, text)
 }
 
-func (c *Column) JournalText(itemName, text string) error {
+func (c *Column) JournalText(itemName string, at time.Time, text string) error {
 	fullPath := c.fullPathFor(itemName)
 	if fullPath == "" {
 		return os.ErrNotExist
 	}
-	return board.JournalLine(fullPath, text)
+	return board.JournalLine(fullPath, at, text)
 }
 
 func (c *Column) CopyContent(itemName string) ([]byte, error) {

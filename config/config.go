@@ -56,6 +56,7 @@ type Config struct {
 	MCP       MCPConfig
 	Template  TemplateConfig
 	Serve     ServeConfig
+	Journal   JournalConfig
 
 	// InstanceName is this process's machine-local name, used to route
 	// instance-scoped Lua timers (and exposed as kbrd.instance.name). It is set
@@ -105,6 +106,15 @@ type MCPConfig struct {
 type TemplateConfig struct {
 	Exec             bool
 	CommandTimeoutMs int
+}
+
+// JournalConfig controls journal entries. When DetectDate is true (the default),
+// a leading natural-language date in an entry ("yesterday fixed the bug",
+// "next monday call client") is parsed and used as the entry's timestamp, and the
+// date phrase is dropped from the recorded text. When false, journal entries always
+// use the current time and the text is kept verbatim.
+type JournalConfig struct {
+	DetectDate bool
 }
 
 // ScriptingConfig controls the embedded Lua scripting subsystem.
@@ -170,6 +180,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("hooks.timeout_ms", 2000)
 	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
+	v.SetDefault("journal.detect_date", true)
 	v.SetDefault("template.exec", false)
 	v.SetDefault("template.command_timeout_ms", 20000)
 	v.SetDefault("serve.addr", "")
@@ -248,6 +259,9 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		Template: TemplateConfig{
 			Exec:             v.GetBool("template.exec"),
 			CommandTimeoutMs: v.GetInt("template.command_timeout_ms"),
+		},
+		Journal: JournalConfig{
+			DetectDate: v.GetBool("journal.detect_date"),
 		},
 		Serve: ServeConfig{
 			Addr:         v.GetString("serve.addr"),

@@ -1498,7 +1498,8 @@ func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 
 func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	col := b.columns[msg.ColIndex]
-	err := col.JournalText(msg.FileName, msg.Text)
+	at, body := b.journalStamp(msg.Text)
+	err := col.JournalText(msg.FileName, at, body)
 	if err != nil {
 		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
 	}
@@ -2061,7 +2062,8 @@ func (b *Board) pasteToItem(colIdx int, fileName string, mode pasteMode) tea.Cmd
 			err = col.PrependText(fileName, text)
 			verb = "prepended to "
 		case pasteJournal:
-			err = col.JournalText(fileName, text)
+			at, body := b.journalStamp(text)
+			err = col.JournalText(fileName, at, body)
 			verb = "journaled to "
 		case pasteReplace:
 			err = col.ReplaceFile(fileName, text)

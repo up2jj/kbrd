@@ -299,7 +299,7 @@ func TestColumn_ReplaceFile(t *testing.T) {
 func TestColumn_JournalText(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{"log": ""})
-	if err := col.JournalText("log", "did the thing"); err != nil {
+	if err := col.JournalText("log", time.Now(), "did the thing"); err != nil {
 		t.Fatalf("JournalText: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(col.Path, "log.md"))

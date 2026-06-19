@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestItemPathSanitizes(t *testing.T) {
@@ -121,7 +122,7 @@ func TestJournalLine(t *testing.T) {
 	path := filepath.Join(root, "todo", "a.md")
 	os.WriteFile(path, []byte("body\n"), 0o644)
 
-	if err := JournalLine(path, "did a thing"); err != nil {
+	if err := JournalLine(path, time.Now(), "did a thing"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
@@ -130,6 +131,41 @@ func TestJournalLine(t *testing.T) {
 	last := lines[len(lines)-1]
 	if !strings.HasSuffix(last, " - did a thing") || len(last) != len("2006-01-02 15:04:05 - did a thing") {
 		t.Fatalf("journal line %q", last)
+	}
+}
+
+func TestDetectDate(t *testing.T) {
+	// Fixed reference: Friday 2026-06-19, 14:30. Date-only phrases inherit this
+	// wall clock, so detected dates keep 14:30:00.
+	now := time.Date(2026, 6, 19, 14, 30, 0, 0, time.UTC)
+	dateOnly := func(y int, m time.Month, d int) time.Time {
+		return time.Date(y, m, d, 14, 30, 0, 0, time.UTC)
+	}
+
+	tests := []struct {
+		name     string
+		text     string
+		wantTime time.Time
+		wantBody string
+	}{
+		{"no date", "fixed the login bug", now, "fixed the login bug"},
+		{"yesterday", "yesterday fixed the bug", dateOnly(2026, 6, 18), "fixed the bug"},
+		{"next monday two-token strip", "next monday call client", dateOnly(2026, 6, 22), "call client"},
+		{"longest prefix wins", "2 weeks ago reviewed pr", dateOnly(2026, 6, 5), "reviewed pr"},
+		{"date only, empty body falls back", "tomorrow", now, "tomorrow"},
+		{"polish", "wczoraj naprawiłem bug", dateOnly(2026, 6, 18), "naprawiłem bug"},
+		{"absolute date", "2026-01-02 shipped release", dateOnly(2026, 1, 2), "shipped release"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTime, gotBody := DetectDate(tt.text, now)
+			if !gotTime.Equal(tt.wantTime) {
+				t.Errorf("time = %s, want %s", gotTime, tt.wantTime)
+			}
+			if gotBody != tt.wantBody {
+				t.Errorf("body = %q, want %q", gotBody, tt.wantBody)
+			}
+		})
 	}
 }
 
