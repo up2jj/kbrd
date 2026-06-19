@@ -27,7 +27,7 @@ shell commands keep working unchanged.
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
   - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, indicator
   - [`kbrd.column.store.*`](#kbrdcolumnstore--per-column-keyvalue-storage) — get, set, all, delete
-  - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, set_frontmatter, delete_frontmatter, exists, mkdir, glob
+  - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, get_frontmatter, set_frontmatter, delete_frontmatter, exists, mkdir, glob
 - [Error handling](#error-handling) · [Auto-disable](#auto-disable-on-consecutive-errors)
 - [What's not yet available](#whats-not-yet-available)
 - [Recipes](#recipes)
@@ -1038,6 +1038,36 @@ first if needed.
 
 ```lua
 kbrd.fs.write("scratch/log.md", "hello\n")
+```
+
+### `kbrd.fs.get_frontmatter(path)` / `kbrd.fs.get_frontmatter(path, key)`
+
+Read a card's frontmatter **without modifying it**. With a `key`, returns just that
+key's value (`nil` if absent); without a key, returns a table of every top-level key
+(an empty table when the card has no frontmatter). YAML scalars come back as Lua
+strings / numbers / booleans. An unquoted date such as `due: 2026-06-24` is returned
+as the string `"2026-06-24"`, ready to hand to [`kbrd.date.parse`](#kbrddateparsephrase-layout).
+A read error (e.g. a missing file) or malformed YAML returns `nil, err`.
+
+```lua
+local due = kbrd.fs.get_frontmatter(ctx.path, "due")   -- "next friday" | "2026-06-24" | nil
+local fm  = kbrd.fs.get_frontmatter(ctx.path)          -- { due = "...", pinned = true, ... }
+```
+
+This pairs with `set_frontmatter` to resolve a natural-language date field in place —
+read the phrase, parse it, write the concrete date back (idempotent, since a resolved
+ISO date re-parses to itself):
+
+```lua
+kbrd.on("item_saved", function(ctx)
+  local path = ctx.item.column .. "/" .. ctx.item.name .. ".md"  -- resolved vs board root
+  local phrase = kbrd.fs.get_frontmatter(path, "due")
+  if not phrase then return end
+  local resolved = kbrd.date.parse(phrase)               -- "2006-01-02"
+  if resolved and resolved ~= phrase then
+    kbrd.fs.set_frontmatter(path, "due", resolved)
+  end
+end)
 ```
 
 ### `kbrd.fs.set_frontmatter(path, key, value)` / `kbrd.fs.set_frontmatter(path, table)`

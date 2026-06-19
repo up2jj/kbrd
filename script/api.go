@@ -55,6 +55,7 @@ func (h *Host) installAPI() {
 	fs.RawSetString("exists", L.NewFunction(h.luaFSExists))
 	fs.RawSetString("mkdir", L.NewFunction(h.luaFSMkdir))
 	fs.RawSetString("glob", L.NewFunction(h.luaFSGlob))
+	fs.RawSetString("get_frontmatter", L.NewFunction(h.luaFSGetFrontmatter))
 	fs.RawSetString("set_frontmatter", L.NewFunction(h.luaFSSetFrontmatter))
 	fs.RawSetString("delete_frontmatter", L.NewFunction(h.luaFSDeleteFrontmatter))
 	kbrd.RawSetString("fs", fs)
@@ -186,6 +187,39 @@ func (h *Host) luaFSGlob(L *lua.LState) int {
 		t.RawSetInt(i+1, lua.LString(m))
 	}
 	L.Push(t)
+	return 1
+}
+
+// kbrd.fs.get_frontmatter(path)       → table (every top-level key) | nil, err
+// kbrd.fs.get_frontmatter(path, key)  → value | nil [, err]
+//
+// Reads the card's frontmatter without modifying it. With a key, returns just that
+// key's value (nil if the key is absent); without a key, returns a table of every
+// top-level key (empty table when the card has no frontmatter). YAML scalars come
+// back as Lua strings/numbers/booleans; an unquoted date like `due: 2026-06-24`
+// is returned as the string "2026-06-24" (ready for kbrd.date.parse). A read error
+// (e.g. missing file) or malformed YAML returns nil, err.
+func (h *Host) luaFSGetFrontmatter(L *lua.LState) int {
+	path := L.CheckString(1)
+	raw, err := h.api.FSRead(path)
+	if err != nil {
+		return errResult(L, err)
+	}
+	block, _, _ := frontmatter.Split(raw)
+	parsed, err := frontmatter.Parse([]byte(block))
+	if err != nil {
+		return errResult(L, err)
+	}
+	if L.GetTop() >= 2 {
+		key := L.CheckString(2)
+		L.Push(toLValue(L, parsed.Data[key]))
+		return 1
+	}
+	if parsed.Data == nil {
+		L.Push(L.NewTable())
+		return 1
+	}
+	L.Push(toLValue(L, parsed.Data))
 	return 1
 }
 

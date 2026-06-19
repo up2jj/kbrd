@@ -1,6 +1,8 @@
 package script
 
 import (
+	"time"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -8,6 +10,7 @@ import (
 // model) into a Lua value for handoff to a script. Supported inputs:
 //   - nil               → lua.LNil
 //   - string / int / bool / float64
+//   - time.Time         → string ("2006-01-02" if midnight, else RFC3339)
 //   - map[string]string and map[string]interface{}
 //   - []interface{} and []string
 //
@@ -20,6 +23,13 @@ func toLValue(L *lua.LState, v interface{}) lua.LValue {
 		return lua.LString(x)
 	case bool:
 		return lua.LBool(x)
+	case time.Time:
+		// YAML decodes an unquoted date like `due: 2026-06-24` to time.Time;
+		// hand it back as the string a script (and kbrd.date.parse) expects.
+		if x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 {
+			return lua.LString(x.Format("2006-01-02"))
+		}
+		return lua.LString(x.Format(time.RFC3339))
 	case int:
 		return lua.LNumber(x)
 	case int64:
