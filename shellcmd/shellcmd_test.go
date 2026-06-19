@@ -22,6 +22,38 @@ func TestRun_CapturesCombinedOutput(t *testing.T) {
 	}
 }
 
+// RunStdinStdout pipes stdin to the command and captures stdout only — stderr
+// must not leak into the result, since stdout replaces the edited line.
+func TestRunStdinStdout_StdoutOnly(t *testing.T) {
+	t.Parallel()
+	res, err := RunStdinStdout(context.Background(), "", "tr a-z A-Z; echo noise 1>&2", "hello")
+	if err != nil {
+		t.Fatalf("RunStdinStdout: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", res.ExitCode)
+	}
+	if strings.TrimSpace(res.Output) != "HELLO" {
+		t.Errorf("Output = %q, want %q (stderr must be excluded)", res.Output, "HELLO")
+	}
+}
+
+// On a non-zero exit, stderr is surfaced in Output so the caller has something to
+// report, and ExitCode is non-zero so the line is left unchanged.
+func TestRunStdinStdout_FailureSurfacesStderr(t *testing.T) {
+	t.Parallel()
+	res, err := RunStdinStdout(context.Background(), "", "echo boom 1>&2; exit 2", "x")
+	if err != nil {
+		t.Fatalf("RunStdinStdout returned error for non-zero exit: %v", err)
+	}
+	if res.ExitCode != 2 {
+		t.Errorf("ExitCode = %d, want 2", res.ExitCode)
+	}
+	if !strings.Contains(res.Output, "boom") {
+		t.Errorf("Output = %q, want it to contain the stderr text", res.Output)
+	}
+}
+
 func TestRun_NonZeroExitIsNotAnError(t *testing.T) {
 	t.Parallel()
 	res, err := Run(context.Background(), "", "echo boom; exit 3")

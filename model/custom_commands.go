@@ -320,6 +320,13 @@ type CustomCommandMenu struct {
 	vctx     map[string]any // rich Lua ctx for virtual-column dispatch; nil otherwise
 	mru      []string       // command ids in MRU order (index 0 = most recent); session-only
 	palette  Palette
+
+	// lineMode marks the menu as the in-editor line-command picker: run() emits
+	// runLineCommandMsg (which splices the result into the editor) instead of the
+	// board-mutating runCustomCommandMsg. line is the current editor line, also
+	// mirrored into vars["line"] for shell templates.
+	lineMode bool
+	line     string
 }
 
 func (m *CustomCommandMenu) commandHaystack(i int) string {
@@ -341,6 +348,15 @@ func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.Co
 	m.recompute()
 }
 
+// OpenLine opens the menu as the in-editor line-command picker. line is the
+// current editor line, handed to the command as ctx.line / vars["line"]; the
+// command's return value replaces that line.
+func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []config.CommandLoadWarning, line string, vars map[string]string) {
+	m.Open(commands, warnings, vars, nil)
+	m.lineMode = true
+	m.line = line
+}
+
 func (m *CustomCommandMenu) Close() {
 	m.active = false
 	m.commands = nil
@@ -350,6 +366,8 @@ func (m *CustomCommandMenu) Close() {
 	m.vctx = nil
 	m.selected = 0
 	m.filter = ""
+	m.lineMode = false
+	m.line = ""
 }
 
 func (m *CustomCommandMenu) Active() bool { return m.active }
@@ -452,7 +470,14 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	m.recordUse(c.ID)
 	vars := m.vars
 	vctx := m.vctx
+	lineMode := m.lineMode
+	line := m.line
 	m.Close()
+	if lineMode {
+		return func() tea.Msg {
+			return runLineCommandMsg{Cmd: c, Line: line, Vars: vars}
+		}
+	}
 	return func() tea.Msg {
 		return runCustomCommandMsg{Cmd: c, Vars: vars, VCtx: vctx}
 	}

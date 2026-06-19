@@ -1033,6 +1033,89 @@ end)`)
 	}
 }
 
+// A line command's return value is captured for the editor-splice path. ctx.line
+// is the input; the returned string is what TakeReturn hands back.
+func TestTakeReturnDirect(t *testing.T) {
+	dir := writeInit(t, `kbrd.command({id="upper", name="Upper", scope="line",
+  run=function(ctx) return ctx.line:upper() end})`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	// The "line" scope must survive registration (a normalizeScope that doesn't
+	// know "line" would silently downgrade it to "files" and the command would
+	// never reach the editor's line-command menu).
+	if got := h.Commands()[0].Scope; got != "line" {
+		t.Fatalf("registered scope = %q, want %q", got, "line")
+	}
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, map[string]string{"line": "hello"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	out, ok := h.TakeReturn()
+	if !ok || out != "HELLO" {
+		t.Fatalf("TakeReturn = (%q, %v), want (%q, true)", out, ok, "HELLO")
+	}
+	// Draining clears it so a later no-return command doesn't inherit a stale value.
+	if out, ok := h.TakeReturn(); ok {
+		t.Fatalf("second TakeReturn = (%q, %v), want empty/false", out, ok)
+	}
+}
+
+// A line command may prompt the user mid-run; its return value (computed after
+// the prompt resolves) is still captured once the coroutine completes.
+func TestTakeReturnAfterPrompt(t *testing.T) {
+	dir := writeInit(t, `kbrd.command({id="ask", name="Ask", scope="line",
+  run=function(ctx)
+    local suffix = kbrd.ui.prompt("Suffix", "")
+    return ctx.line .. suffix
+  end})`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, map[string]string{"line": "task"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if req == nil || req.Kind != "prompt" {
+		t.Fatalf("expected prompt yield, got %+v", req)
+	}
+	// Nothing captured yet — the command hasn't returned.
+	if _, ok := h.TakeReturn(); ok {
+		t.Fatal("TakeReturn set before the command completed")
+	}
+	if _, err := h.ResumeWith(req.Token, " done"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	out, ok := h.TakeReturn()
+	if !ok || out != "task done" {
+		t.Fatalf("TakeReturn = (%q, %v), want (%q, true)", out, ok, "task done")
+	}
+}
+
+// A command that returns nothing leaves TakeReturn unset, so the line is left
+// unchanged.
+func TestTakeReturnNoValue(t *testing.T) {
+	dir := writeInit(t, `kbrd.command({id="noop", name="Noop", scope="line",
+  run=function(ctx) kbrd.notify("ran") end})`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, map[string]string{"line": "x"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if out, ok := h.TakeReturn(); ok {
+		t.Fatalf("TakeReturn = (%q, %v), want empty/false", out, ok)
+	}
+}
+
 func TestUIPickCancel(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("p", "Pick", function()

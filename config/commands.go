@@ -37,9 +37,10 @@ type Command struct {
 	ID          string `yaml:"id"`
 	Description string `yaml:"description"`
 	Template    string `yaml:"command"`
-	// Scope controls which columns a command appears on: "files" (default —
-	// filesystem columns only), "virtual" (virtual columns only), or "all".
-	// The default keeps file-assuming commands off fileless virtual columns.
+	// Scope controls where a command appears: "files" (default — filesystem
+	// columns only), "virtual" (virtual columns only), "all" (both), or "line"
+	// (the in-editor line-command menu only, never the board's x menu). The
+	// default keeps file-assuming commands off fileless virtual columns.
 	Scope string `yaml:"scope"`
 	// RequiresItem controls whether the command needs a selected item. nil or
 	// true (the default) keeps item-assuming commands off empty columns; set
@@ -57,7 +58,7 @@ type Command struct {
 // normalized to "files" (the backward-compatible default).
 func (c Command) EffectiveScope() string {
 	switch c.Scope {
-	case "virtual", "all":
+	case "virtual", "all", "line":
 		return c.Scope
 	default:
 		return "files"
@@ -74,6 +75,14 @@ func (c Command) ShowsOnVirtual() bool {
 func (c Command) ShowsOnFiles() bool {
 	s := c.EffectiveScope()
 	return s == "files" || s == "all"
+}
+
+// IsLine reports whether the command is a line command — one that runs against
+// the current editor line and replaces it with its return value. Line commands
+// appear only in the in-editor line-command menu, never on the board's x menu
+// (ShowsOnFiles/ShowsOnVirtual both exclude them).
+func (c Command) IsLine() bool {
+	return c.EffectiveScope() == "line"
 }
 
 // NeedsItem reports whether the command requires a selected item. Default true

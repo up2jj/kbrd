@@ -841,10 +841,11 @@ func (h *Host) luaCommand(L *lua.LState) int {
 
 // normalizeScope canonicalizes a command scope string. The empty/unknown value
 // maps to "files" (the backward-compatible default: shown only on filesystem
-// columns).
+// columns). "line" is the in-editor line-command scope (kept off every column
+// menu; surfaced only by the editor's ctrl+l picker).
 func normalizeScope(s string) string {
 	switch s {
-	case "virtual", "all":
+	case "virtual", "all", "line":
 		return s
 	default:
 		return "files"

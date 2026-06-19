@@ -99,6 +99,15 @@ type Host struct {
 	// that callback's side effects), which would otherwise let users build
 	// exponentially-growing timer pyramids by mistake.
 	inTimer bool
+
+	// lastReturn holds the first return value of the most recently completed
+	// command coroutine, recorded when driveResume reaches ResumeOK. Line
+	// commands drain it via TakeReturn to learn what to splice into the editor
+	// buffer. lastReturnSet is false when the script returned nothing or nil.
+	// Reset at the top of every runDuringCall so a prior command's value never
+	// leaks into one that returns nothing.
+	lastReturn    string
+	lastReturnSet bool
 }
 
 // timerEntry holds a Lua callback function registered via kbrd.timer.every
@@ -326,6 +335,21 @@ func (h *Host) ResumeWith(token string, result any) (*UIRequest, error) {
 	return h.runDuringCall(p.co, p.name, nil, args)
 }
 
+// TakeReturn reads and clears the return value captured from the most recently
+// completed command coroutine. ok is false when the command returned nothing or
+// nil (line commands treat that as "leave the line unchanged"). The model calls
+// this right after a line command finishes (req == nil), so the value is the one
+// from the just-completed run regardless of how many UI yields preceded it.
+func (h *Host) TakeReturn() (out string, ok bool) {
+	if h == nil {
+		return "", false
+	}
+	out, ok = h.lastReturn, h.lastReturnSet
+	h.lastReturn = ""
+	h.lastReturnSet = false
+	return out, ok
+}
+
 // CancelPending drops a suspended coroutine without resuming it. Used when
 // the host is torn down or a board switch happens with a UI still open.
 func (h *Host) CancelPending() {
@@ -475,6 +499,10 @@ func (h *Host) FireTimer(token string) error {
 // instead of firing hooks immediately. Hooks firing inside a Resume on the
 // same VM would corrupt VM state; deferring them is the safe choice.
 func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, args []lua.LValue) (*UIRequest, error) {
+	// Clear any captured return from a previous command so a command that
+	// returns nothing doesn't inherit a stale value (line-command apply path).
+	h.lastReturn = ""
+	h.lastReturnSet = false
 	h.running = true
 	req, err := h.driveResume(co, name, fn, args)
 	// If the script yielded (req != nil), it's suspended waiting for UI —
@@ -534,6 +562,12 @@ func (h *Host) driveResume(co *lua.LState, name string, fn *lua.LFunction, args 
 	case lua.ResumeError:
 		return nil, fmt.Errorf("lua error in %s", name)
 	case lua.ResumeOK:
+		// Record the coroutine's first return value for the line-command apply
+		// path (drained via TakeReturn). A nil/absent return means "no change".
+		if len(rets) > 0 && rets[0] != lua.LNil {
+			h.lastReturn = lua.LVAsString(rets[0])
+			h.lastReturnSet = true
+		}
 		return nil, nil
 	}
 	// ResumeYield

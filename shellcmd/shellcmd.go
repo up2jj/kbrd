@@ -63,6 +63,40 @@ func run(ctx context.Context, dir, script, stdin string) (Result, error) {
 	return res, nil
 }
 
+// RunStdinStdout runs `sh -c script` in dir with stdin fed from the given string,
+// capturing stdout only — unlike Run/RunStdin, stderr is kept out of Output so it
+// can't corrupt the result. This is the line-filter path: stdout becomes the
+// replacement for the edited line. A non-zero exit is reported as a result (nil
+// error, non-zero ExitCode) with stderr folded into Output so the caller can show
+// it; only start/IO failures (and timeout) propagate as an error.
+func RunStdinStdout(ctx context.Context, dir, script, stdin string) (Result, error) {
+	c := exec.CommandContext(ctx, "sh", "-c", script)
+	c.Dir = dir
+	if stdin == "" {
+		c.Stdin = nil // /dev/null
+	} else {
+		c.Stdin = strings.NewReader(stdin)
+	}
+	out, err := c.Output()
+	res := Result{Output: string(out)}
+	if err != nil {
+		if ctx.Err() != nil {
+			return res, ErrTimeout
+		}
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+			res.ExitCode = ee.ExitCode()
+			// On failure stdout is usually empty; surface stderr so the caller
+			// has something to report instead of a blank message.
+			if len(ee.Stderr) > 0 {
+				res.Output = string(ee.Stderr)
+			}
+			return res, nil
+		}
+		return res, err
+	}
+	return res, nil
+}
+
 // Command builds the non-captured *exec.Cmd for `sh -c script` in dir, for
 // callers that drive it interactively (e.g. Bubble Tea's tea.ExecProcess, which
 // hands the terminal over). No timeout is applied: an interactive command may

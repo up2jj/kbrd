@@ -124,6 +124,11 @@ type Board struct {
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
+	// lineApplyPending marks a Lua line command in flight: when its coroutine
+	// completes (possibly after kbrd.ui.* yields), handleScriptResult drains the
+	// return value and splices it into the editor's current line.
+	lineApplyPending bool
+
 	scriptStatus    string // transient kbrd.status message shown in the status bar
 	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks
 
@@ -867,6 +872,15 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)
 
+	case openLineCommandsMsg:
+		return b, b.openLineCommands(msg)
+
+	case runLineCommandMsg:
+		return b.handleRunLineCommand(msg)
+
+	case lineShellDoneMsg:
+		return b.handleLineShellDone(msg)
+
 	case customCommandFinishedMsg:
 		return b.handleCustomCommandFinished(msg)
 
@@ -1019,6 +1033,17 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.dialog.Update(msg)
 	}
 
+	// Handle custom commands menu and script-driven UI before the editor: a line
+	// command's menu (and any kbrd.ui.pick/prompt it then yields) opens as an
+	// overlay while the editor stays open underneath, so they must win key
+	// routing until they close. (Confirms go through Dialog, already handled above.)
+	if b.customCmds.Active() {
+		return b, b.customCmds.Update(msg)
+	}
+	if b.scriptUI.Active() {
+		return b, b.scriptUI.Update(msg)
+	}
+
 	// Handle editor
 	if b.editor.state != editorNone {
 		if key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
@@ -1046,16 +1071,6 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle global search
 	if b.search.Active() {
 		return b, b.search.HandleKey(msg)
-	}
-
-	// Handle custom commands menu
-	if b.customCmds.Active() {
-		return b, b.customCmds.Update(msg)
-	}
-
-	// Handle script-driven UI (kbrd.ui.pick / prompt). Confirms go through Dialog.
-	if b.scriptUI.Active() {
-		return b, b.scriptUI.Update(msg)
 	}
 
 	// Handle template picker / form
@@ -2359,6 +2374,15 @@ func (b *Board) View() string {
 	if dialogView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
 	}
+	// The command menu and script UI are checked before the editor: a line
+	// command's menu (and any kbrd.ui.pick/prompt it yields) opens over a
+	// still-open editor and must render on top (mirrors the key routing).
+	if b.customCmds.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
+	}
+	if b.scriptUI.Active() {
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
+	}
 	editorView := b.renderEditor()
 	if editorView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
@@ -2371,12 +2395,6 @@ func (b *Board) View() string {
 	}
 	if b.search.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.search.View(w, h))
-	}
-	if b.customCmds.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
-	}
-	if b.scriptUI.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
 	}
 	if b.templateFlow.Active() {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.templateFlow.View())
