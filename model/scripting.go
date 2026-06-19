@@ -262,12 +262,21 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 	asyncCmd := b.collectAsyncCmds()
 	var resultCmd tea.Cmd
 	if err != nil {
+		b.lineApplyPending = false // command died; nothing to splice
 		resultCmd = func() tea.Msg {
 			return customCommandFinishedMsg{Name: name, Err: err}
 		}
 	} else if req == nil {
-		resultCmd = func() tea.Msg {
-			return customCommandFinishedMsg{Name: name, Err: nil}
+		// Coroutine finished. A line command (possibly after kbrd.ui.* yields)
+		// applies its return value to the editor here — the single completion
+		// chokepoint both the synchronous and resume paths funnel through.
+		if b.lineApplyPending {
+			b.lineApplyPending = false
+			resultCmd = b.applyLineReturn()
+		} else {
+			resultCmd = func() tea.Msg {
+				return customCommandFinishedMsg{Name: name, Err: nil}
+			}
 		}
 	} else {
 		resultCmd = b.openScriptUI(name, req)

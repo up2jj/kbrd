@@ -212,6 +212,71 @@ func (e *Editor) OpenRenameColumn(colIdx int, colName string) tea.Cmd {
 	return e.textinput.Focus()
 }
 
+// CurrentLine returns the text of the logical line the cursor is on (the line
+// a line command runs against). Empty when there is no buffer.
+func (e *Editor) CurrentLine() string {
+	lines := strings.Split(e.textarea.Value(), "\n")
+	row := e.textarea.Line()
+	if row < 0 || row >= len(lines) {
+		return ""
+	}
+	return lines[row]
+}
+
+// ReplaceCurrentLine swaps the cursor's logical line for s (which may itself
+// contain newlines, splitting it into several lines) and leaves the cursor at
+// the end of the replacement. The swap is a single undo step: one ctrl+z
+// restores the line as it was before the command ran.
+func (e *Editor) ReplaceCurrentLine(s string) {
+	prev := e.textarea.Value()
+	lines := strings.Split(prev, "\n")
+	row := e.textarea.Line()
+	if row < 0 || row >= len(lines) {
+		return
+	}
+	// Fold any uncommitted typing into history first, then record prev so a
+	// single undo reverts exactly this replacement (mirrors the commit model in
+	// Update: lastCommitted is the baseline the buffer reverts to).
+	if e.lastCommitted != prev {
+		e.pushUndo(e.lastCommitted)
+		e.lastCommitted = prev
+	}
+	e.pushUndo(prev)
+
+	lines[row] = s
+	e.textarea.SetValue(strings.Join(lines, "\n"))
+	// SetValue runs the sanitizer (tabs/CRLF), so baseline against what the
+	// buffer actually holds — otherwise the next keystroke reads as a phantom edit.
+	e.lastCommitted = e.textarea.Value()
+	e.lastCommitAt = time.Now()
+
+	// SetValue parks the cursor at the buffer end; walk it back onto the last
+	// row of the replacement, then to that row's end.
+	desired := row + strings.Count(s, "\n")
+	for e.textarea.Line() > desired {
+		e.textarea.CursorUp()
+	}
+	e.textarea.SetCursor(1 << 30) // clamps to end of the current line
+
+	// SetValue runs the textarea's Reset, which jumps the viewport to the top.
+	// The viewport only re-follows the cursor inside textarea.Update (never in
+	// View), so without this nudge the editor stays scrolled to the first line
+	// even though the cursor is back on the edited line.
+	e.repositionViewport()
+}
+
+// repositionViewport forces the textarea to scroll its viewport back onto the
+// current cursor line. The textarea exposes no method for this, so feed it a
+// benign message: Update ignores an unknown message but still calls its internal
+// repositionView at the end.
+func (e *Editor) repositionViewport() {
+	e.textarea, _ = e.textarea.Update(editorRepositionMsg{})
+}
+
+// editorRepositionMsg is the inert message used to trigger a viewport reposition
+// (see repositionViewport). The textarea's Update switch ignores it.
+type editorRepositionMsg struct{}
+
 func (e *Editor) IsDirty() bool {
 	if e.state == editorNone {
 		return false
@@ -262,6 +327,15 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 			if !isInputState(e.state) {
 				e.toggleExpanded()
 				return nil, nil
+			}
+		case key.Matches(keyMsg, Keys.EditorCommand):
+			if !isInputState(e.state) {
+				// Hand the current line to the board, which opens the line-command
+				// menu over the still-open editor. No buffer mutation here.
+				line, col, fn := e.CurrentLine(), e.ColIndex, e.FileName
+				return func() tea.Msg {
+					return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line}
+				}, nil
 			}
 		}
 	}
@@ -378,7 +452,7 @@ func (e *Editor) View() string {
 	if e.expanded {
 		expandLabel = "collapse"
 	}
-	textareaHints = append(textareaHints, Shortcut{"ctrl+e", expandLabel}, Shortcut{"esc", "cancel"})
+	textareaHints = append(textareaHints, Shortcut{"ctrl+e", expandLabel}, Shortcut{"ctrl+l", "line cmd"}, Shortcut{"esc", "cancel"})
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName
@@ -425,6 +499,15 @@ func (e *Editor) View() string {
 	return dirtyMark + headerStyle.Render(label) + "\n" +
 		boxStyle.Render(input) + "\n" +
 		RenderInlineHints(hints)
+}
+
+// openLineCommandsMsg asks the board to open the line-command menu over the
+// still-open editor. Line is the current line's text, handed to the command as
+// ctx.line; the command's return value (if any) replaces that line.
+type openLineCommandsMsg struct {
+	ColIndex int
+	FileName string
+	Line     string
 }
 
 type editorSaveMsg struct {

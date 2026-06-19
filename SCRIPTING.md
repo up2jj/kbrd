@@ -466,6 +466,7 @@ iterating on a script).
 | `"files"`   | filesystem columns only — **the default** |
 | `"virtual"` | [virtual columns](#kbrdcolumnsetid-spec--virtual-columns) only |
 | `"all"`     | both                                       |
+| `"line"`    | the in-editor [line-command menu](#line-commands--scope-line) only |
 
 The default keeps file-assuming commands (which read `ctx.filePath` or call
 `kbrd.board.move`) off fileless virtual columns. Set `scope = "all"` for a
@@ -478,6 +479,50 @@ kbrd.command{ id="reveal", name="Reveal", scope="all",
 
 The same `scope:` key works in YAML command files (`commands.yml` /
 `.kbrd_commands.yml`).
+
+### Line commands — `scope = "line"`
+
+A **line command** runs against the line your cursor is on **inside the editor**
+(edit / append / prepend / journal). Press **ctrl+l** while editing to open a
+menu of line commands; the selected command receives the current line as
+`ctx.line` and its **return value replaces that line**. Line commands appear only
+in this menu — never in the board's **X** menu.
+
+```lua
+kbrd.command{ id="upper", name="Uppercase line", scope="line",
+  run=function(ctx) return ctx.line:upper() end }
+```
+
+Return semantics:
+
+- **Return a string** → it replaces the line. A string containing `\n` splits the
+  line into several.
+- **Return `nil`** (or nothing) → the line is left unchanged.
+
+A line command may call `kbrd.ui.prompt` / `pick` / `confirm` and *then* return —
+the result is applied once the prompt is answered:
+
+```lua
+kbrd.command{ id="tag", name="Append tag", scope="line",
+  run=function(ctx)
+    local tag = kbrd.ui.prompt("Tag", "")
+    if tag == "" then return end          -- nil/"" leaves the line as-is
+    return ctx.line .. " #" .. tag
+  end }
+```
+
+**Shell line filters** work too: the line is fed on **stdin** and as `{{.line}}`,
+and the command's **stdout** replaces the line (stderr is shown on failure, and a
+non-zero exit leaves the line untouched). The replacement is undoable with one
+`ctrl+z`.
+
+```yaml
+commands:
+  - name: Format date
+    id: fmt-date
+    scope: line
+    command: date -d "{{.line}}" +%Y-%m-%d
+```
 
 **`requiresItem`** (optional, default `true`) is the orthogonal axis: whether
 the command needs a selected item. The default keeps item-assuming commands off

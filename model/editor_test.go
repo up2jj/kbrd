@@ -1,8 +1,10 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +26,97 @@ func TestOpenEditTabbedFileNotDirty(t *testing.T) {
 
 	if e.IsDirty() {
 		t.Fatalf("editor reports dirty immediately on open of a tabbed file; value=%q initial=%q", e.textarea.Value(), e.initialValue)
+	}
+}
+
+// openEditorWith writes content to a temp file and opens it for editing with the
+// cursor parked at the end (OpenEdit calls CursorEnd), i.e. on the last line.
+func openEditorWith(t *testing.T, content string) *Editor {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	e := NewEditor()
+	e.SetTermSize(120, 40)
+	e.OpenEdit(0, "note", path)
+	return e
+}
+
+// A line command reads the cursor's line via CurrentLine and writes it back via
+// ReplaceCurrentLine; the swap is one undo step.
+func TestReplaceCurrentLine(t *testing.T) {
+	e := openEditorWith(t, "alpha\nbravo\ncharlie\n")
+
+	if got := e.CurrentLine(); got != "charlie" {
+		t.Fatalf("CurrentLine = %q, want %q", got, "charlie")
+	}
+	e.ReplaceCurrentLine("CHARLIE")
+	if got := e.textarea.Value(); got != "alpha\nbravo\nCHARLIE" {
+		t.Fatalf("after replace, value = %q", got)
+	}
+	// One undo restores the line exactly.
+	e.undoOnce()
+	if got := e.textarea.Value(); got != "alpha\nbravo\ncharlie" {
+		t.Fatalf("after undo, value = %q", got)
+	}
+}
+
+// ReplaceCurrentLine targets whichever logical line the cursor is on, not just
+// the last one.
+func TestReplaceMiddleLine(t *testing.T) {
+	e := openEditorWith(t, "alpha\nbravo\ncharlie\n")
+	e.Update(tea.KeyMsg{Type: tea.KeyUp}) // move from charlie up to bravo
+
+	if got := e.CurrentLine(); got != "bravo" {
+		t.Fatalf("CurrentLine = %q, want %q", got, "bravo")
+	}
+	e.ReplaceCurrentLine("B")
+	if got := e.textarea.Value(); got != "alpha\nB\ncharlie" {
+		t.Fatalf("after replace, value = %q", got)
+	}
+}
+
+// A replacement containing a newline splits the line into several.
+func TestReplaceCurrentLineMultiLine(t *testing.T) {
+	e := openEditorWith(t, "alpha\nbravo\ncharlie\n")
+	e.ReplaceCurrentLine("c1\nc2")
+	if got := e.textarea.Value(); got != "alpha\nbravo\nc1\nc2" {
+		t.Fatalf("after multi-line replace, value = %q", got)
+	}
+	// Cursor lands on the last line of the replacement.
+	if got := e.CurrentLine(); got != "c2" {
+		t.Fatalf("CurrentLine after multi-line replace = %q, want %q", got, "c2")
+	}
+}
+
+// Replacing a line far down a buffer that overflows the viewport must keep that
+// line visible — SetValue resets the viewport to the top, so the splice has to
+// scroll it back onto the cursor (otherwise the editor "bumps to the first line").
+func TestReplaceCurrentLineKeepsLineVisible(t *testing.T) {
+	var sb strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&sb, "line-%02d\n", i)
+	}
+	e := openEditorWith(t, sb.String()) // cursor parked at the last line
+	e.SetTermSize(120, 16)              // small viewport so the buffer scrolls
+	// Establish the real precondition: a render has primed the viewport content
+	// (so it knows its scroll bounds) and the cursor is followed at the bottom.
+	_ = e.textarea.View()
+	e.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if got := e.CurrentLine(); got != "line-59" {
+		t.Fatalf("CurrentLine = %q, want line-59", got)
+	}
+	if strings.Contains(e.textarea.View(), "line-00") {
+		t.Fatalf("precondition: viewport should be scrolled past the top")
+	}
+
+	e.ReplaceCurrentLine("DONE-59")
+
+	view := e.textarea.View()
+	if !strings.Contains(view, "DONE-59") {
+		t.Fatalf("edited line not visible after replace — viewport stuck at top:\n%s", view)
 	}
 }
 
