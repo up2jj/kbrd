@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -705,14 +706,105 @@ func TestItemHeight_RenderLineAddsRow(t *testing.T) {
 	withRender := Item{Name: "b", Render: []string{"priority"}, Data: map[string]any{"priority": "high"}}
 	sep := Item{Name: "s", Separator: true, Render: []string{"priority"}}
 
-	if got, want := itemHeight(plain, 3), cardRows(3); got != want {
+	cfg := renderConfig{previewLines: 3}
+	if got, want := itemHeight(plain, cfg), cardRows(3); got != want {
 		t.Errorf("itemHeight(plain) = %d, want %d", got, want)
 	}
-	if got, want := itemHeight(withRender, 3), cardRows(3)+1; got != want {
+	if got, want := itemHeight(withRender, cfg), cardRows(3)+1; got != want {
 		t.Errorf("itemHeight(withRender) = %d, want %d (one taller)", got, want)
 	}
-	if got, want := itemHeight(sep, 3), cardRows(3); got != want {
+	if got, want := itemHeight(sep, cfg), cardRows(3); got != want {
 		t.Errorf("itemHeight(separator) = %d, want %d (separators ignore render)", got, want)
+	}
+}
+
+func TestWrapTitle(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		title    string
+		width    int
+		maxLines int
+		wrap     bool
+		want     []string
+	}{
+		{"disabled truncates", "the quick brown fox", 9, 2, false, []string{"the quic…"}},
+		{"maxLines<=1 truncates", "the quick brown fox", 9, 1, true, []string{"the quic…"}},
+		{"fits one line", "short", 20, 2, true, []string{"short"}},
+		{"wraps on word boundary", "the quick brown fox", 10, 2, true, []string{"the quick", "brown fox"}},
+		{"caps and ellipsizes overflow", "alpha beta gamma delta", 6, 2, true, []string{"alpha", "beta …"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := wrapTitle(tc.title, tc.width, tc.maxLines, tc.wrap)
+			if len(got) > tc.maxLines && tc.wrap && tc.maxLines > 1 {
+				t.Fatalf("wrapTitle returned %d rows, exceeds maxLines %d: %q", len(got), tc.maxLines, got)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("wrapTitle(%q, %d, %d, %v) = %q, want %q", tc.title, tc.width, tc.maxLines, tc.wrap, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestItemHeight_WrappedTitleAddsRows(t *testing.T) {
+	t.Parallel()
+	// colWidth 20: innerW = 18, gutter 2 → titleWidth = 16.
+	long := Item{Name: "a", Title: "this title is definitely much longer than one row"}
+	wrapped := renderConfig{previewLines: 1, gutterW: 2, colWidth: 20, wrapTitles: true, titleMaxLines: 2}
+	off := renderConfig{previewLines: 1, gutterW: 2, colWidth: 20, wrapTitles: false, titleMaxLines: 2}
+
+	if got, want := itemHeight(long, wrapped), cardRows(1)+1; got != want {
+		t.Errorf("wrapped itemHeight = %d, want %d (one extra title row, capped at 2)", got, want)
+	}
+	if got, want := itemHeight(long, off), cardRows(1); got != want {
+		t.Errorf("wrap-off itemHeight = %d, want %d (single-line regression guard)", got, want)
+	}
+	// Separators never grow on a long title.
+	sep := Item{Name: "s", Title: "this title is definitely much longer than one row", Separator: true}
+	if got, want := itemHeight(sep, wrapped), cardRows(1); got != want {
+		t.Errorf("separator itemHeight = %d, want %d", got, want)
+	}
+}
+
+func TestColumn_View_WrappedCardHeightMatchesItemHeight(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"longone": "body",
+	})
+	col.SetHeight(40)
+	// Force a long title so it must wrap within the column width.
+	col.Items[0].Title = "a deliberately long card title that cannot fit on one row"
+
+	ctx := RenderCtx{Active: true, Width: 24, GutterW: 2, PreviewLines: 1, WrapTitles: true, TitleMaxLines: 2}
+	_ = col.View(ctx)
+
+	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24 - scrollGutterW, wrapTitles: true, titleMaxLines: 2}
+	declared := itemHeight(col.Items[0], cfg)
+	drawn := lipgloss.Height(renderItem(col.Items[0], false, cfg))
+	if declared != drawn {
+		t.Errorf("declared itemHeight %d != drawn card height %d (sync invariant broken)", declared, drawn)
+	}
+	if declared <= cardRows(1) {
+		t.Errorf("expected wrapped card taller than base %d, got %d", cardRows(1), declared)
+	}
+}
+
+func TestItemHeight_VirtualWrappedTitleMatchesDraw(t *testing.T) {
+	t.Parallel()
+	// Virtual (script-supplied) cards wrap their titles too; the declared and
+	// drawn heights must stay in sync exactly as they do for regular cards.
+	v := Item{Name: "v", Virtual: true, Title: "a long virtual card title that overflows one row", Meta: "x"}
+	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24, wrapTitles: true, titleMaxLines: 2}
+
+	declared := itemHeight(v, cfg)
+	drawn := lipgloss.Height(renderItem(v, false, cfg))
+	if declared != drawn {
+		t.Errorf("virtual declared itemHeight %d != drawn %d", declared, drawn)
+	}
+	if declared != cardRows(1)+1 {
+		t.Errorf("virtual itemHeight = %d, want %d (one extra title row)", declared, cardRows(1)+1)
 	}
 }
 
@@ -733,11 +825,11 @@ func TestColumn_View_RenderLine(t *testing.T) {
 	for _, it := range col.Items {
 		switch it.Name {
 		case "task":
-			if got, want := itemHeight(it, 3), cardRows(3)+1; got != want {
+			if got, want := itemHeight(it, renderConfig{previewLines: 3}), cardRows(3)+1; got != want {
 				t.Errorf("task itemHeight = %d, want %d", got, want)
 			}
 		case "plain":
-			if got, want := itemHeight(it, 3), cardRows(3); got != want {
+			if got, want := itemHeight(it, renderConfig{previewLines: 3}), cardRows(3); got != want {
 				t.Errorf("plain itemHeight = %d, want %d", got, want)
 			}
 		}

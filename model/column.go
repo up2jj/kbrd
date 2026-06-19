@@ -23,13 +23,15 @@ import (
 // previously the fields of the bubbles-list itemDelegate; it now travels in a
 // cardDelegate (see vlist.Delegate) so the list engine stays card-agnostic.
 type renderConfig struct {
-	isActive     bool
-	mnemonicOf   func(name string) string
-	gutterW      int
-	colWidth     int
-	previewLines int // preview rows per card; <=1 means the compact default
-	statFor      func(absPath string) (kbrdfs.DiffStat, bool)
-	palette      Palette
+	isActive      bool
+	mnemonicOf    func(name string) string
+	gutterW       int
+	colWidth      int
+	previewLines  int  // preview rows per card; <=1 means the compact default
+	wrapTitles    bool // word-wrap titles across rows instead of truncating
+	titleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
+	statFor       func(absPath string) (kbrdfs.DiffStat, bool)
+	palette       Palette
 }
 
 // cardDelegate adapts a column's items to vlist.Delegate: the list addresses
@@ -41,7 +43,7 @@ type cardDelegate struct {
 }
 
 func (d cardDelegate) Len() int                 { return len(d.items) }
-func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], d.cfg.previewLines) }
+func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], d.cfg) }
 func (d cardDelegate) FilterValue(i int) string { return d.items[i].FilterValue() }
 func (d cardDelegate) Selectable(i int) bool    { return !d.items[i].Separator }
 func (d cardDelegate) Render(i int, selected bool) string {
@@ -55,12 +57,20 @@ func cardRows(previewLines int) int {
 	return max(previewLines, 1) + 4
 }
 
-// itemHeight is the rendered height of one item. A non-separator card that
-// declares a frontmatter `render:` list is one row taller (the fields line);
-// this is the variable height vlist stacks. It must match what renderItem draws.
-func itemHeight(item Item, previewLines int) int {
-	h := cardRows(previewLines)
-	if !item.Separator && len(item.Render) > 0 {
+// itemHeight is the rendered height of one item. A card that declares a
+// frontmatter `render:` list is one row taller (the fields line), and a wrapped
+// title adds one row per extra title line; these are the variable heights vlist
+// stacks. It must match what renderItem / renderVirtualStr draw — both derive
+// the title row count from wrapTitle, so they cannot disagree. Separators keep
+// their single-line rule layout.
+func itemHeight(item Item, cfg renderConfig) int {
+	h := cardRows(cfg.previewLines)
+	if item.Separator {
+		return h
+	}
+	extraTitleRows := len(wrapTitle(composeTitle(item), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles)) - 1
+	h += extraTitleRows
+	if len(item.Render) > 0 {
 		h++
 	}
 	return h
@@ -115,13 +125,9 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 		nameFg = lipgloss.Color(item.Accent)
 	}
 
-	pinIcon := ""
-	if item.Pinned {
-		pinIcon = "📌 "
-	}
-
-	// Build line 1 as gutter + rest, each rendered with the same row background
-	// so they fuse into one continuous bar.
+	// Build the title row(s) as gutter + rest, each rendered with the same row
+	// background so they fuse into one continuous bar. A wrapped title spans
+	// several rest rows; only the first carries the gutter (mnemonic / cursor).
 	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
 	restWidth := innerW - gutterW
 	if restWidth < 1 {
@@ -139,11 +145,15 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 			gutterText = ">"
 		}
 	}
-	title := pinIcon + item.Title
-	if item.Icon != "" {
-		title = item.Icon + " " + title
+	titleRows := wrapTitle(composeTitle(item), restWidth, d.titleMaxLines, d.wrapTitles)
+	titleLines := make([]string, len(titleRows))
+	for i, row := range titleRows {
+		gt := ""
+		if i == 0 {
+			gt = gutterText
+		}
+		titleLines[i] = gutterStyle.Render(gt) + restStyle.Render(row)
 	}
-	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(title, restWidth))
 
 	// Preview block — N rows depending on the layout's density.
 	var previewFg, detailBg lipgloss.Color
@@ -212,7 +222,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 	// A frontmatter `render:` list adds one row above meta — the variable height.
 	// The row is reserved whenever render is declared (even if no key resolves),
 	// matching itemHeight so the drawn and declared heights agree.
-	lines := []string{titleLine, previewLine}
+	lines := append(titleLines, previewLine)
 	if len(item.Render) > 0 {
 		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
 	}
@@ -268,6 +278,70 @@ func truncLine(s string, w int) string {
 		w = 1
 	}
 	return ansi.Truncate(s, w, "…")
+}
+
+// composeTitle builds the full title string drawn on a card's first line(s):
+// the pin icon, optional frontmatter icon, then the title text. itemHeight and
+// renderItem both call it so the height they compute and draw stay identical.
+func composeTitle(item Item) string {
+	title := item.Title
+	if item.Pinned {
+		title = "📌 " + title
+	}
+	if item.Icon != "" {
+		title = item.Icon + " " + title
+	}
+	return title
+}
+
+// titleWidth is the cell budget the title text has on one row: the inner card
+// width minus the (clamped) mnemonic gutter. It mirrors restWidth in renderItem.
+func titleWidth(cfg renderConfig) int {
+	gutterW := cfg.gutterW
+	if gutterW < 2 {
+		gutterW = 2
+	}
+	innerW := cfg.colWidth - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	w := innerW - gutterW
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// wrapTitle splits title into the rows a card draws for it. When wrap is false
+// (or maxLines <= 1) it returns a single ellipsis-truncated line, preserving the
+// original behavior. Otherwise it word-wraps to width and returns at most
+// maxLines rows, ellipsis-truncating the last kept row when content overflows.
+// It is the single source of truth for title row count: itemHeight measures the
+// returned length and renderItem draws the returned rows.
+func wrapTitle(title string, width, maxLines int, wrap bool) []string {
+	if width < 1 {
+		width = 1
+	}
+	if !wrap || maxLines <= 1 {
+		return []string{truncLine(title, width)}
+	}
+	wrapped := ansi.Wordwrap(title, width, " -/")
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) <= maxLines {
+		for i, ln := range lines {
+			lines[i] = truncLine(ln, width)
+		}
+		return lines
+	}
+	kept := lines[:maxLines]
+	// The last visible row absorbs everything that didn't fit, then truncates,
+	// so the ellipsis signals there is more title than shown.
+	rest := strings.Join(lines[maxLines-1:], " ")
+	kept[maxLines-1] = truncLine(rest, width)
+	for i := range maxLines - 1 {
+		kept[i] = truncLine(kept[i], width)
+	}
+	return kept
 }
 
 // previewBlock renders exactly max(n,1) preview rows from lines, padding with
@@ -326,7 +400,7 @@ func renderSeparatorStr(item Item, d renderConfig) string {
 	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
 	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
 
-	total := itemHeight(item, d.previewLines)
+	total := itemHeight(item, d)
 	ruleRow := total / 2
 	rows := make([]string, 0, total)
 	for i := range total {
@@ -389,11 +463,15 @@ func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 	if gutterText == "" && isSelected && d.isActive {
 		gutterText = ">"
 	}
-	title := item.Title
-	if item.Icon != "" {
-		title = item.Icon + " " + title
+	titleRows := wrapTitle(composeTitle(item), restWidth, d.titleMaxLines, d.wrapTitles)
+	titleLines := make([]string, len(titleRows))
+	for i, row := range titleRows {
+		gt := ""
+		if i == 0 {
+			gt = gutterText
+		}
+		titleLines[i] = gutterStyle.Render(gt) + restStyle.Render(row)
 	}
-	titleLine := gutterStyle.Render(gutterText) + restStyle.Render(truncLine(title, restWidth))
 
 	var previewFg, detailBg lipgloss.Color
 	switch {
@@ -419,7 +497,7 @@ func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 	}
 	metaLine := metaStyle.Render(truncLine(item.Meta, innerW-gutterW))
 
-	lines := []string{titleLine, previewLine}
+	lines := append(titleLines, previewLine)
 	if len(item.Render) > 0 {
 		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
 	}
@@ -730,13 +808,15 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicato
 // RenderCtx is the render environment Board hands a column for one frame:
 // focus, geometry (from layout), and the board-level lookups cards need.
 type RenderCtx struct {
-	Active       bool
-	Width        int // content width allotted by layout (excludes border)
-	PreviewLines int // preview rows per card (Slot.PreviewLines)
-	GutterW      int // mnemonic gutter width
-	MnemonicOf   func(name string) string
-	StatFor      func(absPath string) (kbrdfs.DiffStat, bool)
-	Indicator    colIndicator // script-set header label for this column (empty Text = none)
+	Active        bool
+	Width         int  // content width allotted by layout (excludes border)
+	PreviewLines  int  // preview rows per card (Slot.PreviewLines)
+	WrapTitles    bool // word-wrap titles across rows instead of truncating
+	TitleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
+	GutterW       int  // mnemonic gutter width
+	MnemonicOf    func(name string) string
+	StatFor       func(absPath string) (kbrdfs.DiffStat, bool)
+	Indicator     colIndicator // script-set header label for this column (empty Text = none)
 }
 
 // scrollGutterW is the column count reserved on the right edge of the list area
@@ -750,13 +830,15 @@ func (c *Column) View(ctx RenderCtx) string {
 		listW = 1
 	}
 	c.renderCfg = renderConfig{
-		isActive:     ctx.Active,
-		mnemonicOf:   ctx.MnemonicOf,
-		gutterW:      ctx.GutterW,
-		colWidth:     listW,
-		previewLines: ctx.PreviewLines,
-		statFor:      ctx.StatFor,
-		palette:      c.palette,
+		isActive:      ctx.Active,
+		mnemonicOf:    ctx.MnemonicOf,
+		gutterW:       ctx.GutterW,
+		colWidth:      listW,
+		previewLines:  ctx.PreviewLines,
+		wrapTitles:    ctx.WrapTitles,
+		titleMaxLines: ctx.TitleMaxLines,
+		statFor:       ctx.StatFor,
+		palette:       c.palette,
 	}
 	c.width = ctx.Width
 	c.list.SetSize(listW, c.height)

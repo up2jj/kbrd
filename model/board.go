@@ -2272,13 +2272,15 @@ func (b *Board) View() string {
 	for _, s := range slots {
 		col := b.columns[s.Col]
 		rendered = append(rendered, gap.Render(col.View(RenderCtx{
-			Active:       s.Col == b.selectedCol,
-			Width:        s.Width,
-			PreviewLines: s.PreviewLines,
-			GutterW:      gutterW,
-			MnemonicOf:   b.mnemonicLookup(s.Col),
-			StatFor:      b.git.StatFor,
-			Indicator:    b.indicators.get(col.Name),
+			Active:        s.Col == b.selectedCol,
+			Width:         s.Width,
+			PreviewLines:  s.PreviewLines,
+			WrapTitles:    b.cfg.WrapTitles,
+			TitleMaxLines: b.cfg.TitleMaxLines,
+			GutterW:       gutterW,
+			MnemonicOf:    b.mnemonicLookup(s.Col),
+			StatFor:       b.git.StatFor,
+			Indicator:     b.indicators.get(col.Name),
 		})))
 	}
 	if !b.zoom.Active() && end < len(b.columns) {

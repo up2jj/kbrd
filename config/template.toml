@@ -4,6 +4,8 @@
 # column_width  = 32
 # preview_lines = 3
 # title_from_heading = false # use the first "# " heading as the card title
+# wrap_titles   = true      # wrap long card titles instead of truncating
+# title_max_lines = 2       # max wrapped title rows before ellipsis
 # theme         = "dark"    # "light" | "dark"
 
 [notify]

@@ -27,9 +27,15 @@ const (
 type Config struct {
 	Path string
 
-	ColumnWidth         int
-	PreviewLines        int
-	TitleFromHeading    bool
+	ColumnWidth      int
+	PreviewLines     int
+	TitleFromHeading bool
+	// WrapTitles word-wraps card titles across multiple rows (up to
+	// TitleMaxLines) instead of truncating to one line. Default true.
+	WrapTitles bool
+	// TitleMaxLines caps the wrapped title height; the last row is
+	// ellipsis-truncated when the title still overflows. Default 2.
+	TitleMaxLines       int
 	Theme               string
 	NotifyBackend       string
 	BoardName           string
@@ -168,6 +174,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.column_width", 32)
 	v.SetDefault("display.preview_lines", 3)
 	v.SetDefault("display.title_from_heading", false)
+	v.SetDefault("display.wrap_titles", true)
+	v.SetDefault("display.title_max_lines", 2)
 	v.SetDefault("display.theme", "dark")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("git.diff_tool", "auto")
@@ -238,6 +246,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		ColumnWidth:         v.GetInt("display.column_width"),
 		PreviewLines:        v.GetInt("display.preview_lines"),
 		TitleFromHeading:    v.GetBool("display.title_from_heading"),
+		WrapTitles:          v.GetBool("display.wrap_titles"),
+		TitleMaxLines:       v.GetInt("display.title_max_lines"),
 		Theme:               v.GetString("display.theme"),
 		NotifyBackend:       v.GetString("notify.backend"),
 		BoardName:           v.GetString("board.name"),
