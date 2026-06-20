@@ -19,7 +19,7 @@ shell commands keep working unchanged.
 - [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
 - [The `ctx` table](#the-ctx-table)
 - [API reference](#api-reference)
-  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn), [on](#kbrdonevent-fn)
+  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
   - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
@@ -559,32 +559,71 @@ if not kbrd.has_command("archive") then
 end
 ```
 
-### `kbrd.register(name, fn)`
+### `kbrd.register(name, fn)` / `kbrd.register(name, fn, usage)`
 
 Register a **named function** that kbrd can invoke later by *evaluating an
-expression string* — for example `indent(2)`. Unlike `kbrd.command`, a registered
-function takes **its own arguments** and never appears in any menu; the only way
-to call it is by evaling an expression that references it by name.
+expression string* — for example `indent(2)`. The primary caller is the editor's
+`:lua` command (see [EDITOR.md](./EDITOR.md)). Unlike `kbrd.command`, a
+registered function takes **its own arguments** and never appears in a board menu;
+the only way to call it is by evaling an expression that references it by name.
 
 ```lua
+-- ctx carries the editor operand; the typed args are the parameters
 kbrd.register("indent", function(n)
-  return string.rep(" ", n) .. line
+  return string.rep(" ", n) .. ctx.line
 end)
+
+-- optional usage string drives the :lua autocomplete hint
+kbrd.register("wrap", function(width) return wrapText(ctx.line, width) end,
+  "wrap(width) — hard-wrap the line")
+
+-- table form
+kbrd.register{ name = "bullets", usage = "bullets()", fn = function()
+  local out = {}
+  for _, l in ipairs(ctx.lines) do out[#out+1] = "- " .. l end
+  return table.concat(out, "\n")
+end }
 ```
 
-The expression runs in a small environment where every registered name is visible
-alongside the standard library (`string`, `math`, …) and the `kbrd` global, so a
-function body can call other registered functions and use `kbrd.fs`, `kbrd.status`,
-etc. Re-registering the same name **replaces** the previous function, so reloads
-are safe.
+When called from the editor's `:lua`, a `ctx` table is in scope describing the
+operand:
 
-The expression's first return value is what kbrd uses (today: the editor splices
-it in, the same way a `scope = "line"` command's return replaces the current line).
-A `nil`/absent return means "no result". Registration is rejected from inside a
-timer callback, like `kbrd.command`.
+| field | single line (no selection) | range (`V`-select or `:N,M`) |
+|---|---|---|
+| `ctx.line`  | the current line (string) | nil |
+| `ctx.lines` | nil | array of selected lines |
+| `ctx.text`  | the line | selected lines joined with `\n` |
+| `ctx.range` | nil | `{from, to}` (1-based, inclusive) |
+| `ctx.fileName` / `ctx.filePath` / `ctx.columnName` / `ctx.boardName` / `ctx.data` | the edited card's context | same |
+
+For convenience, `line`, `lines`, and `text` are also exposed as bare globals, so
+`string.rep(" ", n) .. line` works too. The expression runs in a small environment
+where every registered name is visible alongside the standard library (`string`,
+`math`, …) and the `kbrd` global, so a function body can call other registered
+functions and use `kbrd.fs`, `kbrd.status`, etc. Re-registering the same name
+**replaces** the previous function, so reloads are safe.
+
+The first return value (a string) **replaces the operand** — the current line, or
+the selected range. A `nil`/absent return leaves the buffer unchanged.
+Registration is rejected from inside a timer callback, like `kbrd.command`.
 
 > Evaluation is driven from kbrd itself — there is no `kbrd.eval` you call from
 > Lua. `kbrd.register` only makes a function *available* to be evaled.
+
+### `kbrd.editor.open(target[, line])`
+
+Open a card in the editor, optionally at a specific 1-based line. `target` is a
+path string (matched against full path, basename, or card name), or a table:
+
+```lua
+kbrd.editor.open("ideas.md", 12)                       -- by path/name, at line 12
+kbrd.editor.open{ column = "Todo", name = "ideas", line = 12 }
+kbrd.editor.open{ path = "/abs/path/ideas.md" }        -- line omitted = top
+```
+
+With no resolvable target (empty table) it opens the current selection. Handy from
+a command or hook to jump straight to a heading or a search hit. The editor opens
+after the script finishes (it is queued like `kbrd.status`).
 
 ### `kbrd.on(event, fn)`
 

@@ -1,14 +1,19 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"kbrd/vimbuf"
 )
 
 const (
@@ -49,6 +54,17 @@ type Editor struct {
 	termWidth     int
 	termHeight    int
 	palette       Palette
+
+	// vim modal editor (used for text states when cfg.Editor.Vim is true).
+	vim              bool
+	buf              *vimbuf.Buffer
+	showHelp         bool                       // vim cheatsheet overlay (:help) is open
+	headerReserve    int                        // rows the board reserves above/below (header+keybar)
+	status           string                     // transient status line (errors, :q hint)
+	swapFile         string                     // crash-recovery sidecar path ("" = disabled)
+	swapWriteFailed  bool                       // last swap flush failed — crash recovery is unavailable
+	pendingSaveClose bool                       // a save is in flight that should close the editor on success
+	evalCompletions  func() []vimbuf.Completion // injected by the board for :lua autocomplete
 }
 
 const (
@@ -81,6 +97,31 @@ func (e *Editor) applySize() {
 	}
 	e.textarea.SetWidth(w)
 	e.textarea.SetHeight(h)
+	if e.vim && e.buf != nil {
+		e.buf.SetSize(e.vimSize())
+	}
+}
+
+// vimSize returns the buffer's content (width, height) for the modal. It is a
+// fixed generous fraction of the terminal (not fit-to-content) so the editor is
+// a consistently large modal regardless of how much text it holds, while a cap
+// leaves a margin on big terminals so the board stays visible around it. Long
+// files scroll within it; ctrl+e makes it even roomier.
+func (e *Editor) vimSize() (int, int) {
+	if e.termWidth <= 0 || e.termHeight <= 0 {
+		return editorDefaultWidth, editorDefaultHeight
+	}
+	wCap, hCap := 100, 36
+	if e.expanded {
+		wCap, hCap = 130, 60
+	}
+	w := max(min(e.termWidth-8, wCap), 20)
+	// Reserve the board's header/keybar rows so the modal fits the band it is
+	// composited into; headerReserve is set by the board and is stable, so the
+	// height is identical at scroll-time and render-time (no off-by-one at the
+	// bottom).
+	h := max(min(e.termHeight-9-e.headerReserve, hCap), 6)
+	return w, h
 }
 
 func (e *Editor) toggleExpanded() {
@@ -111,7 +152,7 @@ func isCommitBoundary(key string) bool {
 	return false
 }
 
-func NewEditor() *Editor {
+func NewEditor(vim bool) *Editor {
 	ta := textarea.New()
 	ta.ShowLineNumbers = false
 	ta.SetWidth(editorDefaultWidth)
@@ -122,7 +163,71 @@ func NewEditor() *Editor {
 	ti.Width = 60
 	ti.Placeholder = "filename (without .md)"
 
-	return &Editor{textarea: ta, textinput: ti, palette: DarkPalette()}
+	return &Editor{textarea: ta, textinput: ti, palette: DarkPalette(), vim: vim}
+}
+
+// usesTextarea reports whether the current state is driven by the plain textarea
+// (or single-line input) rather than the vim buffer. The board uses this to keep
+// the esc→discard-confirm interception for non-vim paths while letting vim
+// handle esc itself.
+func (e *Editor) usesTextarea() bool { return !e.vim || isInputState(e.state) }
+
+// SetEvalCompletionsFunc injects a provider of :lua autocomplete candidates
+// (registered function names + usage), called when a vim buffer is opened.
+func (e *Editor) SetEvalCompletionsFunc(fn func() []vimbuf.Completion) { e.evalCompletions = fn }
+
+func (e *Editor) seedCompletions() {
+	if e.buf != nil && e.evalCompletions != nil {
+		e.buf.SetEvalCompletions(e.evalCompletions())
+	}
+}
+
+// currentText returns the editable text regardless of backing widget.
+func (e *Editor) currentText() string {
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		return e.buf.Text()
+	}
+	if isInputState(e.state) {
+		return e.textinput.Value()
+	}
+	return e.textarea.Value()
+}
+
+// setStatus sets the transient status line (shown in the vim footer).
+func (e *Editor) setStatus(s string) tea.Cmd {
+	e.status = s
+	return nil
+}
+
+// HandleMouse scrolls the vim buffer on wheel events (mirrors Peek.HandleMouse).
+// Other mouse input is ignored; the textarea path has no wheel handling.
+func (e *Editor) HandleMouse(msg tea.MouseMsg) {
+	if !e.vim || e.buf == nil {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		e.buf.Scroll(-3)
+	case tea.MouseButtonWheelDown:
+		e.buf.Scroll(3)
+	}
+}
+
+// GoToLine positions the cursor on the given 1-based line (used when opening the
+// editor at a specific line, e.g. from Lua). No-op for the single-line inputs.
+func (e *Editor) GoToLine(line int) {
+	if line <= 0 || isInputState(e.state) {
+		return
+	}
+	if e.vim && e.buf != nil {
+		e.buf.GoToLine(line)
+		return
+	}
+	// textarea path: walk the cursor to the requested row.
+	e.textarea.CursorStart()
+	for range line - 1 {
+		e.textarea.CursorDown()
+	}
 }
 
 func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
@@ -131,6 +236,13 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	e.FileName = fileName
 	content, _ := os.ReadFile(fullPath)
 	initial := strings.TrimRight(string(content), "\n")
+	if e.vim {
+		e.initialValue = initial
+		e.setSwapTarget(fullPath)
+		e.expanded = false
+		e.status = ""
+		return e.startVim(initial, false)
+	}
 	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
 	// SetValue runs the textarea's sanitizer (tabs -> spaces, CRLF -> LF), so read
@@ -148,6 +260,13 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	e.state = editorAppend
 	e.ColIndex = colIdx
 	e.FileName = fileName
+	if e.vim {
+		e.initialValue = ""
+		e.swapFile = ""
+		e.expanded = false
+		e.status = ""
+		return e.startVim("", true)
+	}
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
@@ -160,6 +279,13 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	e.state = editorPrepend
 	e.ColIndex = colIdx
 	e.FileName = fileName
+	if e.vim {
+		e.initialValue = ""
+		e.swapFile = ""
+		e.expanded = false
+		e.status = ""
+		return e.startVim("", true)
+	}
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
@@ -172,6 +298,13 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	e.state = editorJournal
 	e.ColIndex = colIdx
 	e.FileName = fileName
+	if e.vim {
+		e.initialValue = ""
+		e.swapFile = ""
+		e.expanded = false
+		e.status = ""
+		return e.startVim("", true)
+	}
 	e.textarea.SetValue("")
 	e.initialValue = ""
 	e.resetHistory("")
@@ -214,6 +347,9 @@ func (e *Editor) OpenRenameColumn(colIdx int, colName string) tea.Cmd {
 // CurrentLine returns the text of the logical line the cursor is on (the line
 // a line command runs against). Empty when there is no buffer.
 func (e *Editor) CurrentLine() string {
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		return e.buf.CurrentLine()
+	}
 	lines := strings.Split(e.textarea.Value(), "\n")
 	row := e.textarea.Line()
 	if row < 0 || row >= len(lines) {
@@ -227,6 +363,11 @@ func (e *Editor) CurrentLine() string {
 // the end of the replacement. The swap is a single undo step: one ctrl+z
 // restores the line as it was before the command ran.
 func (e *Editor) ReplaceCurrentLine(s string) {
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		e.buf.ReplaceCurrentLine(s)
+		e.flushSwap()
+		return
+	}
 	prev := e.textarea.Value()
 	lines := strings.Split(prev, "\n")
 	row := e.textarea.Line()
@@ -283,7 +424,19 @@ func (e *Editor) IsDirty() bool {
 	if isInputState(e.state) {
 		return e.textinput.Value() != e.initialValue
 	}
+	if e.vim && e.buf != nil {
+		return e.buf.Text() != e.initialValue
+	}
 	return e.textarea.Value() != e.initialValue
+}
+
+// ReplaceLineRange replaces buffer rows [start,end] (inclusive, 0-based) with s
+// as one undo step — used by a range :lua command. No-op outside the vim path.
+func (e *Editor) ReplaceLineRange(start, end int, s string) {
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		e.buf.ReplaceLineRange(start, end, s)
+		e.flushSwap()
+	}
 }
 
 func (e *Editor) Close() {
@@ -300,6 +453,9 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 	keyStr := ""
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		keyStr = keyMsg.String()
+		if e.vim && !isInputState(e.state) {
+			return e.updateVim(keyMsg, keyStr)
+		}
 		switch {
 		case key.Matches(keyMsg, Keys.EditorCancel):
 			e.Close()
@@ -343,6 +499,12 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 		ti, cmd := e.textinput.Update(msg)
 		e.textinput = ti
 		return cmd, nil
+	}
+
+	if e.vim {
+		// The vim buffer consumes only key messages (handled above); other
+		// messages (resize, ticks) have no per-frame state to update here.
+		return nil, nil
 	}
 
 	prev := e.textarea.Value()
@@ -436,9 +598,368 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 	return func() tea.Msg { return msg }, nil
 }
 
+// startVim builds the vim buffer for the current state, seeds autocomplete, sizes
+// it, and (for an existing file) checks for a recoverable swap.
+func (e *Editor) startVim(initial string, insert bool) tea.Cmd {
+	e.buf = vimbuf.New(initial)
+	if insert {
+		e.buf.StartInsert()
+	}
+	e.seedCompletions()
+	e.applySize()
+	return e.openSwapCheck()
+}
+
+// updateVim routes a key in the vim path: chrome chords first, then the buffer.
+func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) {
+	// The cheatsheet swallows the next key to dismiss itself.
+	if e.showHelp {
+		e.showHelp = false
+		return nil, nil
+	}
+	// Bracketed paste (terminal cmd/ctrl+v): insert the pasted text literally.
+	if keyMsg.Paste {
+		e.buf.InsertText(string(keyMsg.Runes))
+		e.flushSwap()
+		return nil, nil
+	}
+	// ctrl+v pastes the system clipboard at the cursor.
+	if keyStr == "ctrl+v" {
+		if text, err := clipboard.ReadAll(); err == nil && text != "" {
+			e.buf.InsertText(text)
+			e.flushSwap()
+		}
+		return nil, nil
+	}
+	// esc closes the editor from Normal mode (a convenience over vim's :q); in
+	// Insert/Visual/Command it falls through to the buffer, which returns to
+	// Normal. A dirty buffer prompts the discard confirm instead of closing.
+	if key.Matches(keyMsg, Keys.EditorCancel) && e.buf.Mode() == vimbuf.ModeNormal {
+		if e.IsDirty() {
+			return func() tea.Msg { return editorConfirmDiscardMsg{} }, nil
+		}
+		e.clearSwap()
+		e.Close()
+		return nil, nil
+	}
+	switch {
+	case key.Matches(keyMsg, Keys.EditorSave): // ctrl+s = save (and stay, for edit)
+		return e.vimSave(false), nil
+	case key.Matches(keyMsg, Keys.EditorToggleExpand):
+		e.toggleExpanded()
+		return nil, nil
+	case key.Matches(keyMsg, Keys.EditorCommand): // ctrl+l line command menu
+		line, col, fn := e.buf.CurrentLine(), e.ColIndex, e.FileName
+		return func() tea.Msg {
+			return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line}
+		}, nil
+	}
+	e.status = ""
+	// A KeyRunes message can carry several runes at once — fast typing, an IME
+	// commit, or an unbracketed paste that arrives without the Paste flag. The
+	// per-key handlers (insert-mode rune insert, normal-mode dispatch) take one
+	// key at a time and would otherwise drop a multi-rune chunk entirely, so feed
+	// the runes individually. Special keys arrive with a non-Runes Type and are
+	// unaffected.
+	if keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) > 1 {
+		var eff vimbuf.Effect
+		for _, r := range keyMsg.Runes {
+			eff = e.buf.HandleKey(string(r))
+		}
+		return e.applyVimEffect(eff)
+	}
+	eff := e.buf.HandleKey(keyStr)
+	return e.applyVimEffect(eff)
+}
+
+// applyVimEffect carries out the host-level Effect a key produced.
+func (e *Editor) applyVimEffect(eff vimbuf.Effect) (tea.Cmd, tea.Msg) {
+	if eff.Status != "" {
+		e.status = eff.Status
+	}
+	if eff.Yank != "" {
+		_ = clipboard.WriteAll(eff.Yank) // mirror yanks to the system clipboard
+	}
+	switch {
+	case eff.Help:
+		e.showHelp = true
+		return nil, nil
+	case eff.ForceQuit:
+		e.Close() // swap left in place for next-open recovery
+		return nil, nil
+	case eff.Submit && eff.Quit:
+		return e.vimSave(true), nil
+	case eff.Submit:
+		return e.vimSave(false), nil
+	case eff.Quit:
+		if e.IsDirty() {
+			e.status = "unsaved changes — :w to save, :q! to discard"
+			return nil, nil
+		}
+		e.clearSwap()
+		e.Close()
+		return nil, nil
+	case eff.EvalExpr != "":
+		expr := eff.EvalExpr
+		var rng *evalRange
+		if eff.EvalRange != nil {
+			rng = &evalRange{Start: eff.EvalRange.Start, End: eff.EvalRange.End}
+		}
+		return func() tea.Msg { return editorEvalMsg{Expr: expr, Range: rng} }, nil
+	}
+	e.flushSwap()
+	return nil, nil
+}
+
+// vimSave emits the save message for the current state. It does NOT clear the
+// swap, rebaseline the dirty marker, or close the editor — those happen only in
+// confirmSaved, after the board has actually written the file. Otherwise a failed
+// write would leave the editor open but marked clean with its recovery swap gone,
+// so :q could silently discard the unsaved buffer. forceClose records that a
+// successful save should also close (e.g. :wq).
+func (e *Editor) vimSave(forceClose bool) tea.Cmd {
+	m := e.saveMsg()
+	if m == nil {
+		e.Close()
+		return nil
+	}
+	e.pendingSaveClose = forceClose
+	return func() tea.Msg { return m }
+}
+
+// confirmSaved finalizes a vim-path save after the board has successfully written
+// the file: it drops the crash-recovery swap, rebaselines the dirty marker, and
+// closes the editor for one-shot (append/prepend/journal) or forced (:wq) saves.
+// No-op once the editor is closed (the textarea path closes before its write) or
+// outside the vim path.
+func (e *Editor) confirmSaved() {
+	if e == nil || e.state == editorNone || !e.vim || e.buf == nil {
+		return
+	}
+	e.clearSwap()
+	if e.pendingSaveClose || e.state != editorEdit {
+		e.Close()
+	} else {
+		e.initialValue = e.buf.Text()
+	}
+	e.pendingSaveClose = false
+}
+
+func (e *Editor) saveMsg() tea.Msg {
+	text := e.buf.Text()
+	switch e.state {
+	case editorEdit:
+		return editorSaveMsg{ColIndex: e.ColIndex, FileName: e.FileName, Content: text}
+	case editorAppend:
+		return editorAppendMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+	case editorPrepend:
+		return editorPrependMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+	case editorJournal:
+		return editorJournalMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+	}
+	return nil
+}
+
+func (e *Editor) vimView() string {
+	e.applySize() // re-fit the modal height to the current content before rendering
+	// The frame's content area is its Width minus the horizontal padding, so add
+	// that padding back to keep the buffer's full content width unwrapped.
+	frameW := e.buf.Width() + 2*overlayPadH
+	if e.showHelp {
+		return OverlayFrame{
+			Title:   "Vim cheatsheet",
+			Body:    vimCheatsheet(e.palette, e.buf.Width()),
+			Footer:  lipgloss.NewStyle().Foreground(e.palette.FgMuted).Render("press any key to close"),
+			Width:   frameW,
+			Palette: e.palette,
+		}.Render()
+	}
+	label := e.vimLabel()
+	if e.IsDirty() {
+		label = "● " + label
+	}
+	body := e.buf.View(e.palette)
+	return OverlayFrame{Title: label, Body: body, Footer: e.vimFooter(), Width: frameW, Palette: e.palette}.Render()
+}
+
+// vimCheatsheet renders a grouped, two-column reference of the editor's vim
+// coverage, sized to width.
+func vimCheatsheet(p Palette, width int) string {
+	type row struct{ keys, desc string }
+	type group struct {
+		title string
+		rows  []row
+	}
+	groups := []group{
+		{"Modes", []row{
+			{"i a / I A", "insert (at / after · BOL / EOL)"},
+			{"o O", "open line below / above"},
+			{"v V", "visual char / line"},
+			{": ", "command-line"},
+			{"esc", "→ Normal · close from Normal"},
+		}},
+		{"Motion", []row{
+			{"h j k l", "left down up right"},
+			{"w b e", "word fwd / back / end"},
+			{"0 ^ $", "line start / first / end"},
+			{"gg G", "first / last line"},
+			{"{ }", "paragraph up / down"},
+			{"f F t T", "find char ; , to repeat"},
+		}},
+		{"Edit", []row{
+			{"x dd yy", "del char / line · yank line"},
+			{"p P", "paste after / before"},
+			{"C D s S cc", "change/del EOL · subst"},
+			{"r J ~", "replace char · join · case"},
+			{"u  ctrl+r", "undo / redo"},
+			{".", "repeat last change"},
+		}},
+		{"Operators", []row{
+			{"d c y", "delete change yank +motion"},
+			{"> <", "indent / dedent"},
+			{"gu gU g~", "lower / upper / toggle"},
+			{"iw i\" i( ip", "text objects (i=inner a=around)"},
+			{"ctrl+a ctrl+x", "increment / decrement"},
+		}},
+		{"Surround / Markdown", []row{
+			{"S{c} (visual)", "wrap selection"},
+			{"ds{c} cs{o}{n}", "delete / change surround"},
+			{"tab", "toggle [ ] checkbox"},
+			{"enter o", "continue list / checkbox"},
+		}},
+		{"Search / Command", []row{
+			{"/pat ?pat n N", "search · next / prev"},
+			{":w :q :q! :wq", "save / quit"},
+			{":N  :N,M", "goto line · select range"},
+			{":s/p/r/g  :%s", "substitute · & repeats"},
+			{":lua expr", "eval Lua (ctx.line/lines)"},
+		}},
+		{"Editor", []row{
+			{"ctrl+s", "save (stays open)"},
+			{"ctrl+l", "line command menu"},
+			{"ctrl+e", "expand / shrink modal"},
+			{":help :h", "this cheatsheet"},
+		}},
+	}
+
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+
+	colW := 17
+	render := func(g group) string {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render(g.title) + "\n")
+		for _, r := range g.rows {
+			keys := r.keys
+			if lipgloss.Width(keys) < colW {
+				keys += strings.Repeat(" ", colW-lipgloss.Width(keys))
+			}
+			b.WriteString(keyStyle.Render(keys) + descStyle.Render(r.desc) + "\n")
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+
+	// Two columns of groups side by side.
+	cols := []string{"", ""}
+	for i, g := range groups {
+		blk := render(g)
+		if cols[i%2] != "" {
+			cols[i%2] += "\n\n"
+		}
+		cols[i%2] += blk
+	}
+	gap := "    "
+	return lipgloss.JoinHorizontal(lipgloss.Top, cols[0], gap, cols[1])
+}
+
+func (e *Editor) vimLabel() string {
+	switch e.state {
+	case editorEdit:
+		return "Edit: " + e.FileName
+	case editorAppend:
+		return "Append to: " + e.FileName
+	case editorPrepend:
+		return "Prepend to: " + e.FileName
+	case editorJournal:
+		return "Journal entry for: " + e.FileName
+	}
+	return e.FileName
+}
+
+func (e *Editor) vimFooter() string {
+	p := e.palette
+	badge := e.modeBadge()
+	var rest string
+	switch {
+	case e.buf.Mode() == vimbuf.ModeCommand:
+		cl := e.buf.CommandLine()
+		prompt, text := ":", cl
+		if strings.HasPrefix(cl, "/") || strings.HasPrefix(cl, "?") {
+			prompt, text = string(cl[0]), cl[1:]
+		}
+		// Render the command-line prominently: a bright prompt + bold text + a
+		// block caret so it reads as an active input, not a status hint.
+		rest = lipgloss.NewStyle().Bold(true).Foreground(p.Primary).Render(prompt) +
+			lipgloss.NewStyle().Bold(true).Foreground(p.FgStrong).Render(text) +
+			lipgloss.NewStyle().Foreground(p.Highlight).Render("▏")
+		if name, usage := e.buf.CompletionHint(); name != "" {
+			hint := usage
+			if hint == "" {
+				hint = name
+			}
+			rest += lipgloss.NewStyle().Foreground(p.FgMuted).Render("   " + hint)
+		}
+	case e.status != "":
+		rest = lipgloss.NewStyle().Foreground(p.Warning).Render(e.status)
+	}
+	status := badge
+	if rest != "" {
+		status += "  " + rest
+	}
+	if pc := e.buf.PendingCommand(); pc != "" {
+		status += "  " + lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Render(pc)
+	}
+	cur := e.buf.Cursor()
+	pos := fmt.Sprintf("Ln %d/%d, Col %d", cur.Row+1, e.buf.LineCount(), cur.Col+1)
+	status += "   " + lipgloss.NewStyle().Foreground(p.FgMuted).Render(pos)
+	if e.swapWriteFailed {
+		status += "  " + lipgloss.NewStyle().Bold(true).Foreground(p.Danger).
+			Render("⚠ swap write failed — crash recovery off")
+	}
+	hints := RenderInlineHints([]Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+l", "line cmd"}, {":help", "keys"}})
+	return status + "\n" + hints
+}
+
+// modeBadge renders the current mode as a bright, padded, per-mode-colored pill
+// so the active mode is unmistakable at a glance.
+func (e *Editor) modeBadge() string {
+	p := e.palette
+	var bg lipgloss.Color
+	switch e.buf.Mode() {
+	case vimbuf.ModeInsert:
+		bg = p.Success
+	case vimbuf.ModeVisual, vimbuf.ModeVisualLine:
+		bg = p.Warning
+	case vimbuf.ModeCommand:
+		bg = p.AccentAlt
+	default:
+		bg = p.Primary
+	}
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(p.FgOnAccent).
+		Background(bg).
+		Padding(0, 1).
+		Render(e.buf.ModeName())
+}
+
 func (e *Editor) View() string {
 	if e.state == editorNone {
 		return ""
+	}
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		return e.vimView()
 	}
 
 	var label string
@@ -529,6 +1050,10 @@ type editorNewMsg struct {
 }
 
 type editorDiscardMsg struct{}
+
+// editorConfirmDiscardMsg asks the board to open the discard-confirm dialog when
+// esc is pressed on a dirty vim buffer in Normal mode.
+type editorConfirmDiscardMsg struct{}
 
 type deleteConfirmMsg struct {
 	ColIndex int

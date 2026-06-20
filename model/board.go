@@ -176,7 +176,7 @@ func NewBoard(cfg config.Config) *Board {
 	b := &Board{
 		cfg:           cfg,
 		visibleHeight: 20,
-		editor:        NewEditor(),
+		editor:        NewEditor(cfg.Editor.Vim),
 		notifier:      NewNotifier(cfg.NotifyBackend),
 		quickCmdInput: ti,
 		theme:         cfg.Theme,
@@ -190,6 +190,7 @@ func NewBoard(cfg config.Config) *Board {
 	b.initScripting()
 	b.loadCommands()
 	b.initHooks()
+	b.wireEditorCompletions()
 	return b
 }
 
@@ -656,6 +657,9 @@ func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if scmd := b.collectStatusCmd(); scmd != nil {
 		cmd = batchCmd(cmd, scmd)
 	}
+	if ecmd := b.collectEditorOpenCmd(); ecmd != nil {
+		cmd = batchCmd(cmd, ecmd)
+	}
 	// Re-apply any column_items transform that was skipped while a script was
 	// running (the script has finished by the time the wrapper runs).
 	b.drainColumnTransform()
@@ -841,10 +845,31 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case renameColumnConfirmMsg:
 		return b.handleRenameColumnConfirm(msg)
 
+	case editorConfirmDiscardMsg:
+		b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
+		return b, nil
+
 	case editorDiscardMsg:
+		// An explicit "Discard" throws the edits away on purpose, so remove the
+		// crash-recovery swap too — otherwise the discarded content would be
+		// offered for recovery the next time this card is opened. (No-op for the
+		// textarea path, which never sets a swap file.)
+		b.editor.clearSwap()
 		b.editor.Close()
 		b.resetEditor()
 		return b, nil
+
+	case editorEvalMsg:
+		return b.handleEditorEval(msg)
+
+	case recoverEditorMsg:
+		return b.handleRecoverEditor(msg)
+
+	case recoverApplyMsg:
+		return b.handleRecoverApply(msg)
+
+	case recoverDiscardMsg:
+		return b.handleRecoverDiscard()
 
 	case quitConfirmedMsg:
 		b.editor.Close()
@@ -979,9 +1004,10 @@ func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
 // back to a fixed default when termWidth/termHeight are 0, which would otherwise
 // make expand/collapse (ctrl+e) a no-op until the next terminal resize.
 func (b *Board) resetEditor() {
-	b.editor = NewEditor()
+	b.editor = NewEditor(b.cfg.Editor.Vim)
 	b.editor.palette = b.palette
 	b.editor.SetTermSize(b.termWidth, b.termHeight)
+	b.wireEditorCompletions()
 }
 
 func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1042,7 +1068,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle editor
 	if b.editor.state != editorNone {
-		if key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
+		// The textarea path treats esc as cancel (with a discard confirm when
+		// dirty); the vim path handles esc itself (insert→normal) and quits via
+		// :q/:q!, so only guard the textarea path here.
+		if b.editor.usesTextarea() && key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
 			b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
 			return b, nil
 		}
@@ -1380,10 +1409,17 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	// The editor is a scrollable modal too: let the vim buffer consume the wheel.
+	if b.editor.state != editorNone {
+		b.editor.HandleMouse(msg)
+		return b, nil
+	}
+
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
-	if b.helpMenu.Active() || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
-		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
+	// (peek and the editor are already handled by the early returns above.)
+	if b.helpMenu.Active() || b.configMenuOpen || b.dialog.active ||
+		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
@@ -1487,6 +1523,7 @@ func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
 	if err := board.ReplaceFileContent(fullPath, msg.Content); err != nil {
 		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
 	}
+	b.editor.confirmSaved() // write succeeded: drop the swap, rebaseline, close if requested
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "save"})
@@ -1499,6 +1536,7 @@ func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
 	}
+	b.editor.confirmSaved()
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "append"})
@@ -1511,6 +1549,7 @@ func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
 	}
+	b.editor.confirmSaved()
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "prepend"})
@@ -1524,6 +1563,7 @@ func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
 	}
+	b.editor.confirmSaved()
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
 	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
@@ -2370,13 +2410,34 @@ func (b *Board) View() string {
 	// reads as a persistent bar. An active overlay is composited on top, centered
 	// in the band between the header and the keybar, so both stay visible behind
 	// it — instead of replacing the whole screen.
+	// The open editor is a modal with its own footer (mode badge + command line +
+	// hints), so the board's keybar is suppressed while it is open to avoid two
+	// competing footers.
 	statusBar := b.renderStatusBar()
+	if b.editor.state != editorNone {
+		statusBar = ""
+	}
 	headerH := lipgloss.Height(header)
-	barH := lipgloss.Height(statusBar)
+	barH := 0
+	if statusBar != "" {
+		barH = lipgloss.Height(statusBar)
+	}
 	if pad := h - lipgloss.Height(result) - barH; pad > 0 {
 		result += strings.Repeat("\n", pad)
 	}
-	base := result + "\n" + statusBar
+	base := result
+	if statusBar != "" {
+		base += "\n" + statusBar
+	}
+
+	// Reserve the header/keybar rows so the editor modal fits the band it is
+	// composited into (below the header) instead of overflowing off-screen. This
+	// reserve is stable, so the buffer height matches at scroll-time and
+	// render-time — avoiding an off-by-one that strands the last line.
+	if b.editor.state != editorNone {
+		b.editor.headerReserve = headerH + barH
+		b.editor.applySize()
+	}
 
 	overlay := b.activeOverlay(w, h)
 	if overlay == "" {

@@ -33,6 +33,11 @@
 #                           #   and stamp it with that date instead of now; the date phrase
 #                           #   is dropped from the text. EN + PL. false = always use now.
 
+[editor]
+# vim = true                 # modal, vim-like card editor (Normal/Insert/Visual modes,
+#                            #   line numbers, :w/:q, and :lua <expr> evaluation).
+#                            #   false = the plain textarea editor.
+
 [template]
 # exec               = false # allow {{shell}} in card templates to run commands (off by default;
 #                            #   the command inherits kbrd's full environment — see SECURITY.md.

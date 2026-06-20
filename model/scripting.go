@@ -160,6 +160,72 @@ func (b *Board) collectStatusCmd() tea.Cmd {
 	})
 }
 
+// collectEditorOpenCmd drains kbrd.editor.open requests and opens the editor for
+// the resolved target at the requested line (focusing its column/item).
+func (b *Board) collectEditorOpenCmd() tea.Cmd {
+	if b.scripts == nil {
+		return nil
+	}
+	reqs := b.scripts.PendingEditorOpen()
+	if len(reqs) == 0 {
+		return nil
+	}
+	req := reqs[len(reqs)-1] // the last request wins (only one editor)
+	// Refuse to replace an editor that has unsaved changes — opening another file
+	// would silently discard them (a plausible path: kbrd.editor.open from inside
+	// :lua, drained right after the eval while the dirty editor is still open). The
+	// request is dropped; the user saves (:w) or discards (:q!) and re-issues it.
+	if b.editor.state != editorNone && b.editor.IsDirty() {
+		return b.notifier.Send("editor.open: unsaved changes — save or discard first", notifyError)
+	}
+	colIdx, item := b.resolveEditorTarget(req)
+	if item == nil {
+		return b.notifier.Send("editor.open: item not found", notifyError)
+	}
+	b.selectedCol = colIdx
+	b.columns[colIdx].SelectByName(item.Name)
+	cmd := b.editor.OpenEdit(colIdx, item.Name, item.FullPath)
+	b.editor.GoToLine(req.Line)
+	return cmd
+}
+
+// resolveEditorTarget finds the column index and item for an editor-open request:
+// by path (full path, basename, or item name), by column+name, or — when the
+// target is empty — the current selection.
+func (b *Board) resolveEditorTarget(req script.EditorOpenReq) (int, *Item) {
+	if req.Path != "" {
+		for ci, col := range b.columns {
+			for i := range col.Items {
+				it := &col.Items[i]
+				if it.FullPath == req.Path || filepath.Base(it.FullPath) == req.Path || it.Name == req.Path {
+					return ci, it
+				}
+			}
+		}
+		return -1, nil
+	}
+	if req.Column != "" || req.Name != "" {
+		for ci, col := range b.columns {
+			if req.Column != "" && col.Name != req.Column {
+				continue
+			}
+			for i := range col.Items {
+				if col.Items[i].Name == req.Name {
+					return ci, &col.Items[i]
+				}
+			}
+		}
+		return -1, nil
+	}
+	if b.selectedCol >= 0 && b.selectedCol < len(b.columns) {
+		col := b.columns[b.selectedCol]
+		if col.HasSelectedItem() {
+			return b.selectedCol, col.SelectedItem()
+		}
+	}
+	return -1, nil
+}
+
 // handleScriptStatusExpire clears the status-bar message if no newer one has
 // replaced it since this expiry tick was armed.
 func (b *Board) handleScriptStatusExpire(msg scriptStatusExpireMsg) (tea.Model, tea.Cmd) {

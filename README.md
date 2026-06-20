@@ -70,9 +70,9 @@ A quick, scannable rundown of everything kbrd does:
 - **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`t`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
-- **Edit inline** — with undo/redo and an expand toggle, or open in `$EDITOR` (`o`).
+- **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
-- **Journal entries** — append timestamped notes to a card (`J`).
+- **Journal entries** — append timestamped notes to a card (`b`).
 - **Copy / paste** — move text between cards, persists across sessions (`c` / `v`).
 - **Pin cards** — float important cards to the top of a column (`!`).
 - **Move cards** — to the next column (`m`) or back to the first (`M`).
@@ -252,7 +252,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `space` | Peek (rendered Markdown) |
 | `e` | Edit |
 | `a` / `p` | Append / prepend content |
-| `J` | Journal entry |
+| `b` | Journal entry |
 | `c` / `v` | Copy / paste |
 | `o` | Open in `$EDITOR` |
 | `!` | Pin / unpin |
@@ -290,14 +290,24 @@ All bindings below are the defaults from the in-app help (`?`).
 | `?` | Toggle help |
 | `Ctrl+C` | Quit |
 
-### Inline editor
+### Inline editor (vim-like)
+
+The card editor is a **modal, vim-like** editor: Normal / Insert / Visual modes,
+motions and operators, `:` command-line, markdown list/checkbox helpers, system
+clipboard, and `:lua` evaluation. Press **`:help`** inside the editor for the full
+cheatsheet, or see **[EDITOR.md](./EDITOR.md)**. Set `[editor] vim = false` to fall
+back to a plain textarea editor.
 
 | Keys | Action |
 | --- | --- |
-| `ctrl+s` / `enter` | Save / confirm |
-| `ctrl+z` / `ctrl+y` | Undo / redo |
-| `ctrl+e` | Toggle expanded view |
-| `esc` | Cancel |
+| `i` `a` `o` / `v` `V` / `:` | Insert / Visual / Command-line |
+| `:w` `:q` `:q!` `:wq` · `ctrl+s` | Save / quit (`ctrl+s` saves and stays) |
+| `esc` | Back to Normal · close from Normal |
+| `:lua <expr>` | Evaluate Lua against the line/selection (see [SCRIPTING.md](./SCRIPTING.md)) |
+| `ctrl+l` | Run a line command · `ctrl+e` expand · `ctrl+v` paste |
+
+> The non-vim fallback (`[editor] vim = false`) uses `ctrl+s`/`enter` to save,
+> `ctrl+z`/`ctrl+y` to undo/redo, `ctrl+e` to expand, and `esc` to cancel.
 
 ### Peek
 

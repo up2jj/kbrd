@@ -88,6 +88,10 @@ type Host struct {
 	// (PendingStatus), shows the latest in the status bar, and arms an expiry.
 	pendingStatus []StatusMsg
 
+	// pendingEditorOpen holds requests from kbrd.editor.open; the model drains
+	// them (PendingEditorOpen) and opens the editor at the requested line.
+	pendingEditorOpen []EditorOpenReq
+
 	// asyncCallbacks holds the Lua callbacks registered via kbrd.async.run;
 	// FireAsync looks them up by token and pops them after invocation.
 	asyncCallbacks   map[string]*lua.LFunction
@@ -117,6 +121,29 @@ type Host struct {
 	// listing — e.g. an editor expression completer.
 	evalEnv   *lua.LTable
 	evalNames []string
+	// evalUsage holds the optional usage/signature hint for a registered name,
+	// supplied via kbrd.register(name, fn, usage). Used for command-line hints.
+	evalUsage map[string]string
+}
+
+// EvalCompletion is one autocomplete candidate for the editor's :lua line: a
+// registered function name and its optional usage hint.
+type EvalCompletion struct {
+	Name  string
+	Usage string
+}
+
+// EvalCompletions returns the registered eval functions (in registration order)
+// with their usage hints, for the editor's command-line autocomplete.
+func (h *Host) EvalCompletions() []EvalCompletion {
+	if h == nil {
+		return nil
+	}
+	out := make([]EvalCompletion, 0, len(h.evalNames))
+	for _, n := range h.evalNames {
+		out = append(out, EvalCompletion{Name: n, Usage: h.evalUsage[n]})
+	}
+	return out
 }
 
 // timerEntry holds a Lua callback function registered via kbrd.timer.every
@@ -263,6 +290,7 @@ func (h *Host) Close() {
 	h.timers = nil
 	h.pendingTimers = nil
 	h.pendingStatus = nil
+	h.pendingEditorOpen = nil
 	h.asyncCallbacks = nil
 	h.pendingAsyncCmds = nil
 	h.deferred = nil
@@ -376,6 +404,14 @@ func (h *Host) TakeReturn() (out string, ok bool) {
 // expression can also call string/math/etc. The host's command timeout and
 // instruction limit bound the run; a Lua error or panic is returned as err.
 func (h *Host) Eval(expr string) (out string, ok bool, err error) {
+	return h.EvalWithContext(expr, nil)
+}
+
+// EvalWithContext is Eval with a `ctx` table injected into the eval environment
+// (the editor's operand + board/file metadata for the in-editor `:lua` command).
+// ctx is exposed as the global `ctx` for the duration of the call and removed
+// afterward so a later bare Eval does not see stale context.
+func (h *Host) EvalWithContext(expr string, evalCtx map[string]any) (out string, ok bool, err error) {
 	if h == nil || h.L == nil {
 		return "", false, nil
 	}
@@ -387,6 +423,25 @@ func (h *Host) Eval(expr string) (out string, ok bool, err error) {
 	// Run the chunk in evalEnv so bare names like `indent` resolve to registered
 	// functions (with _G as fallback via evalEnv's metatable).
 	h.L.SetFEnv(fn, h.evalEnv)
+
+	if evalCtx != nil {
+		// Set ctx on the real globals (not just evalEnv) so it is visible both to
+		// the eval chunk and to the registered functions it calls (whose own
+		// environment resolves globals via _G). Cleared afterward so a later bare
+		// Eval never sees stale context. The common operand fields are also
+		// exposed as bare globals (line/lines/text) for convenience.
+		prevCtx := h.L.GetGlobal("ctx")
+		h.L.SetGlobal("ctx", toLValue(h.L, evalCtx))
+		defer h.L.SetGlobal("ctx", prevCtx)
+		for _, k := range []string{"line", "lines", "text"} {
+			if v, ok := evalCtx[k]; ok {
+				name := k
+				prev := h.L.GetGlobal(name)
+				h.L.SetGlobal(name, toLValue(h.L, v))
+				defer h.L.SetGlobal(name, prev)
+			}
+		}
+	}
 
 	timeout := time.Duration(h.cfg.CommandTimeoutMs) * time.Millisecond
 	var cancel context.CancelFunc
@@ -462,6 +517,28 @@ func (h *Host) PendingStatus() []StatusMsg {
 	}
 	out := h.pendingStatus
 	h.pendingStatus = nil
+	return out
+}
+
+// EditorOpenReq is a request from kbrd.editor.open to open a card's editor,
+// optionally at a specific line. The target is identified by Path, or by
+// Column+Name; an empty target means the current selection. Line is 1-based
+// (0 = top).
+type EditorOpenReq struct {
+	Path   string
+	Column string
+	Name   string
+	Line   int
+}
+
+// PendingEditorOpen drains editor-open requests made via kbrd.editor.open since
+// the last call. The model resolves the target and opens the editor at the line.
+func (h *Host) PendingEditorOpen() []EditorOpenReq {
+	if h == nil {
+		return nil
+	}
+	out := h.pendingEditorOpen
+	h.pendingEditorOpen = nil
 	return out
 }
 

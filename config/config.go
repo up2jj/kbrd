@@ -63,6 +63,7 @@ type Config struct {
 	Template  TemplateConfig
 	Serve     ServeConfig
 	Journal   JournalConfig
+	Editor    EditorConfig
 
 	// InstanceName is this process's machine-local name, used to route
 	// instance-scoped Lua timers (and exposed as kbrd.instance.name). It is set
@@ -141,6 +142,13 @@ type ScriptingConfig struct {
 	RemoteRequire bool
 }
 
+// EditorConfig controls the in-app text editor. When Vim is true (the default)
+// the editor is a modal, vim-like buffer; when false it falls back to the plain
+// textarea editor.
+type EditorConfig struct {
+	Vim bool
+}
+
 // ResolveInstanceName picks this process's machine-local instance name from
 // the precedence flag > KBRD_INSTANCE env > hostname. It never consults TOML:
 // the name must differ per machine, but kbrd.toml travels with the board over
@@ -195,6 +203,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 	v.SetDefault("journal.detect_date", true)
+	v.SetDefault("editor.vim", true)
 	v.SetDefault("template.exec", false)
 	v.SetDefault("template.command_timeout_ms", 20000)
 	v.SetDefault("serve.addr", "")
@@ -279,6 +288,9 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		},
 		Journal: JournalConfig{
 			DetectDate: v.GetBool("journal.detect_date"),
+		},
+		Editor: EditorConfig{
+			Vim: v.GetBool("editor.vim"),
 		},
 		Serve: ServeConfig{
 			Addr:         v.GetString("serve.addr"),

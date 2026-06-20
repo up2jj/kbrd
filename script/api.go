@@ -51,6 +51,10 @@ func (h *Host) installAPI() {
 	board.RawSetString("select", L.NewFunction(h.luaBoardSelect))
 	kbrd.RawSetString("board", board)
 
+	editor := L.NewTable()
+	editor.RawSetString("open", L.NewFunction(h.luaEditorOpen))
+	kbrd.RawSetString("editor", editor)
+
 	fs := L.NewTable()
 	fs.RawSetString("read", L.NewFunction(h.luaFSRead))
 	fs.RawSetString("write", L.NewFunction(h.luaFSWrite))
@@ -737,6 +741,30 @@ func (h *Host) luaNotify(L *lua.LState) int {
 // way to surface periodic-job activity ("synced 12:00:03"). ttl is optional —
 // a number of milliseconds or a duration string ("5s"); omit it for the
 // default. The model picks the message up from the queue and arms its expiry.
+// luaEditorOpen implements kbrd.editor.open{path=..., line=...} (or
+// {column=, name=, line=}). It queues a request the model drains to open the
+// editor at the given 1-based line. A string argument is treated as a path.
+func (h *Host) luaEditorOpen(L *lua.LState) int {
+	req := EditorOpenReq{}
+	switch v := L.CheckAny(1).(type) {
+	case lua.LString:
+		req.Path = string(v)
+		req.Line = L.OptInt(2, 0)
+	case *lua.LTable:
+		req.Path = lua.LVAsString(v.RawGetString("path"))
+		req.Column = lua.LVAsString(v.RawGetString("column"))
+		req.Name = lua.LVAsString(v.RawGetString("name"))
+		if ln, ok := v.RawGetString("line").(lua.LNumber); ok {
+			req.Line = int(ln)
+		}
+	default:
+		L.RaiseError("kbrd.editor.open: expected a path string or a table")
+		return 0
+	}
+	h.pendingEditorOpen = append(h.pendingEditorOpen, req)
+	return 0
+}
+
 func (h *Host) luaStatus(L *lua.LState) int {
 	msg := L.CheckString(1)
 	var ttl time.Duration
@@ -850,8 +878,24 @@ func (h *Host) luaRegister(L *lua.LState) int {
 		L.RaiseError("kbrd.register: cannot register from inside a timer callback (register from init.lua or a command body)")
 		return 0
 	}
-	name := L.CheckString(1)
-	fn := L.CheckFunction(2)
+
+	var name, usage string
+	var fn *lua.LFunction
+	// Table form: kbrd.register{ name=, fn=, usage= }.
+	if tbl, ok := L.Get(1).(*lua.LTable); ok {
+		name = lua.LVAsString(tbl.RawGetString("name"))
+		if f, ok := tbl.RawGetString("fn").(*lua.LFunction); ok {
+			fn = f
+		} else {
+			L.RaiseError("kbrd.register: fn must be a function")
+			return 0
+		}
+		usage = lua.LVAsString(tbl.RawGetString("usage"))
+	} else {
+		name = L.CheckString(1)
+		fn = L.CheckFunction(2)
+		usage = L.OptString(3, "")
+	}
 	if name == "" {
 		L.RaiseError("kbrd.register: name is required")
 		return 0
@@ -861,6 +905,12 @@ func (h *Host) luaRegister(L *lua.LState) int {
 		h.evalNames = append(h.evalNames, name)
 	}
 	h.evalEnv.RawSetString(name, fn)
+	if usage != "" {
+		if h.evalUsage == nil {
+			h.evalUsage = map[string]string{}
+		}
+		h.evalUsage[name] = usage
+	}
 	return 0
 }
 

@@ -20,7 +20,7 @@ func TestOpenEditTabbedFileNotDirty(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	e := NewEditor()
+	e := NewEditor(false)
 	e.SetTermSize(120, 40)
 	e.OpenEdit(0, "note", path)
 
@@ -38,7 +38,7 @@ func openEditorWith(t *testing.T, content string) *Editor {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	e := NewEditor()
+	e := NewEditor(false)
 	e.SetTermSize(120, 40)
 	e.OpenEdit(0, "note", path)
 	return e
@@ -129,7 +129,7 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	e := NewEditor()
+	e := NewEditor(false)
 	e.SetTermSize(120, 40)
 	e.OpenEdit(0, "note", path)
 
