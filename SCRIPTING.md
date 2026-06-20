@@ -19,7 +19,7 @@ shell commands keep working unchanged.
 - [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
 - [The `ctx` table](#the-ctx-table)
 - [API reference](#api-reference)
-  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [on](#kbrdonevent-fn)
+  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
   - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
@@ -558,6 +558,33 @@ if not kbrd.has_command("archive") then
   kbrd.command("archive", "Archive", function(ctx) ... end)
 end
 ```
+
+### `kbrd.register(name, fn)`
+
+Register a **named function** that kbrd can invoke later by *evaluating an
+expression string* — for example `indent(2)`. Unlike `kbrd.command`, a registered
+function takes **its own arguments** and never appears in any menu; the only way
+to call it is by evaling an expression that references it by name.
+
+```lua
+kbrd.register("indent", function(n)
+  return string.rep(" ", n) .. line
+end)
+```
+
+The expression runs in a small environment where every registered name is visible
+alongside the standard library (`string`, `math`, …) and the `kbrd` global, so a
+function body can call other registered functions and use `kbrd.fs`, `kbrd.status`,
+etc. Re-registering the same name **replaces** the previous function, so reloads
+are safe.
+
+The expression's first return value is what kbrd uses (today: the editor splices
+it in, the same way a `scope = "line"` command's return replaces the current line).
+A `nil`/absent return means "no result". Registration is rejected from inside a
+timer callback, like `kbrd.command`.
+
+> Evaluation is driven from kbrd itself — there is no `kbrd.eval` you call from
+> Lua. `kbrd.register` only makes a function *available* to be evaled.
 
 ### `kbrd.on(event, fn)`
 

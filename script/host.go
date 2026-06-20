@@ -108,6 +108,15 @@ type Host struct {
 	// leaks into one that returns nothing.
 	lastReturn    string
 	lastReturnSet bool
+
+	// evalEnv is the environment in which Eval runs expression strings (e.g.
+	// "indent(2)"). Functions registered via kbrd.register live here rather than
+	// in _G, so they never collide with globals; the table's __index metamethod
+	// falls back to _G so registered functions can still use string/math/kbrd.
+	// evalNames tracks the registered names (in registration order) for later
+	// listing — e.g. an editor expression completer.
+	evalEnv   *lua.LTable
+	evalNames []string
 }
 
 // timerEntry holds a Lua callback function registered via kbrd.timer.every
@@ -195,6 +204,14 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 	}
 	h.installAPI()
 
+	// evalEnv backs kbrd.register / Host.Eval. Its __index falls back to the real
+	// globals so registered functions and evaled expressions still see string,
+	// math, kbrd, etc.
+	h.evalEnv = L.NewTable()
+	envMeta := L.NewTable()
+	envMeta.RawSetString("__index", L.Get(lua.GlobalsIndex))
+	L.SetMetatable(h.evalEnv, envMeta)
+
 	globalDir, _ := os.UserConfigDir()
 	candidates := []string{
 		filepath.Join(globalDir, config.AppDirName, GlobalInitFile),
@@ -250,6 +267,8 @@ func (h *Host) Close() {
 	h.pendingAsyncCmds = nil
 	h.deferred = nil
 	h.vcolFns = nil
+	h.evalEnv = nil
+	h.evalNames = nil
 }
 
 // Commands returns the Lua-registered commands as config.Command values,
@@ -348,6 +367,62 @@ func (h *Host) TakeReturn() (out string, ok bool) {
 	h.lastReturn = ""
 	h.lastReturnSet = false
 	return out, ok
+}
+
+// Eval runs a Lua expression string (e.g. "indent(2)") against the functions
+// registered via kbrd.register and returns its first result coerced to a string.
+// ok is false when the expression returns nothing or nil. Name lookups resolve in
+// evalEnv (registered functions) with a fallback to the real globals, so an
+// expression can also call string/math/etc. The host's command timeout and
+// instruction limit bound the run; a Lua error or panic is returned as err.
+func (h *Host) Eval(expr string) (out string, ok bool, err error) {
+	if h == nil || h.L == nil {
+		return "", false, nil
+	}
+
+	fn, err := h.L.LoadString("return " + expr)
+	if err != nil {
+		return "", false, err
+	}
+	// Run the chunk in evalEnv so bare names like `indent` resolve to registered
+	// functions (with _G as fallback via evalEnv's metatable).
+	h.L.SetFEnv(fn, h.evalEnv)
+
+	timeout := time.Duration(h.cfg.CommandTimeoutMs) * time.Millisecond
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	if h.cfg.InstructionLimit > 0 {
+		h.L.SetMx(h.cfg.InstructionLimit / 1000)
+	}
+	h.L.SetContext(ctx)
+	defer h.L.RemoveContext()
+
+	ret := lua.LValue(lua.LNil)
+	err = func() (retErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				retErr = fmt.Errorf("lua panic: %v", r)
+			}
+		}()
+		h.L.Push(fn)
+		if err := h.L.PCall(0, 1, nil); err != nil {
+			return err
+		}
+		ret = h.L.Get(-1)
+		h.L.Pop(1)
+		return nil
+	}()
+	if err != nil {
+		return "", false, err
+	}
+	if ret == lua.LNil {
+		return "", false, nil
+	}
+	return lua.LVAsString(ret), true, nil
 }
 
 // CancelPending drops a suspended coroutine without resuming it. Used when

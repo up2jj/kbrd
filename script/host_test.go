@@ -1063,6 +1063,64 @@ func TestTakeReturnDirect(t *testing.T) {
 	}
 }
 
+// A function registered via kbrd.register is callable from Host.Eval by an
+// expression string, arguments and all.
+func TestEvalRegistered(t *testing.T) {
+	dir := writeInit(t, `kbrd.register("indent", function(n) return string.rep(" ", n) .. "x" end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	out, ok, err := h.Eval("indent(2)")
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if !ok || out != "  x" {
+		t.Fatalf("Eval = (%q, %v), want (%q, true)", out, ok, "  x")
+	}
+}
+
+// Re-registering a name replaces the function; Eval reflects the latest body and
+// the name isn't duplicated in evalNames.
+func TestEvalReRegister(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.register("f", function() return "first" end)
+kbrd.register("f", function() return "second" end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	out, ok, err := h.Eval("f()")
+	if err != nil || !ok || out != "second" {
+		t.Fatalf("Eval = (%q, %v, %v), want (%q, true, nil)", out, ok, err, "second")
+	}
+	if len(h.evalNames) != 1 || h.evalNames[0] != "f" {
+		t.Fatalf("evalNames = %v, want [f]", h.evalNames)
+	}
+}
+
+// Eval of an expression referencing an unknown name errors (calling nil); a
+// nil/empty-returning expression reports ok=false rather than an error.
+func TestEvalErrorsAndNil(t *testing.T) {
+	dir := writeInit(t, `kbrd.register("noop", function() return nil end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if _, _, err := h.Eval("nope(1)"); err == nil {
+		t.Fatal("Eval of unknown name: expected error, got nil")
+	}
+	if out, ok, err := h.Eval("noop()"); err != nil || ok {
+		t.Fatalf("Eval(noop) = (%q, %v, %v), want (\"\", false, nil)", out, ok, err)
+	}
+}
+
 // A line command may prompt the user mid-run; its return value (computed after
 // the prompt resolves) is still captured once the coroutine completes.
 func TestTakeReturnAfterPrompt(t *testing.T) {

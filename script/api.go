@@ -25,6 +25,7 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("status", L.NewFunction(h.luaStatus))
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
 	kbrd.RawSetString("has_command", L.NewFunction(h.luaHasCommand))
+	kbrd.RawSetString("register", L.NewFunction(h.luaRegister))
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
 	kbrd.RawSetString("emit", L.NewFunction(h.luaEmit))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
@@ -836,6 +837,30 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		Name: name, ID: id, Description: description, Scope: scope,
 		Ref: ref, fn: fn,
 	})
+	return 0
+}
+
+// luaRegister implements kbrd.register(name, fn): it records a named function in
+// the eval environment so Host.Eval can later invoke it from an expression string
+// like "indent(2)". Unlike kbrd.command, these functions never appear in any menu —
+// the only way to call them is by evaling an expression. Re-registering a name
+// replaces the previous function (reload-friendly).
+func (h *Host) luaRegister(L *lua.LState) int {
+	if h.inTimer {
+		L.RaiseError("kbrd.register: cannot register from inside a timer callback (register from init.lua or a command body)")
+		return 0
+	}
+	name := L.CheckString(1)
+	fn := L.CheckFunction(2)
+	if name == "" {
+		L.RaiseError("kbrd.register: name is required")
+		return 0
+	}
+
+	if h.evalEnv.RawGetString(name) == lua.LNil {
+		h.evalNames = append(h.evalNames, name)
+	}
+	h.evalEnv.RawSetString(name, fn)
 	return 0
 }
 
