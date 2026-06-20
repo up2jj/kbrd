@@ -1,6 +1,10 @@
 package model
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+)
 
 type KeyMap struct {
 	// Global
@@ -238,47 +242,103 @@ func bindingShortcut(b key.Binding) Shortcut {
 	return Shortcut{Keys: h.Key, Label: h.Desc}
 }
 
-func bindingShortcuts(bs ...key.Binding) []Shortcut {
-	out := make([]Shortcut, 0, len(bs))
-	for _, b := range bs {
-		out = append(out, bindingShortcut(b))
+// helpEntry builds a keybindings-menu row from a binding and its tooltip. The
+// row is executable only when the binding's primary key is a single rune (the
+// menu injects that rune); arrow/ctrl/named keys become reference-only rows.
+func helpEntry(b key.Binding, tooltip string) HelpEntry {
+	h := b.Help()
+	run := ""
+	if keys := b.Keys(); len(keys) > 0 {
+		if r := []rune(keys[0]); len(r) == 1 {
+			run = keys[0]
+		}
 	}
-	return out
+	return HelpEntry{Keys: menuKey(h.Key), Label: h.Desc, Desc: tooltip, RunKey: run}
 }
 
-// ShortcutGroups returns the help-overlay groups derived from the registry.
-func ShortcutGroups() []ShortcutGroup {
-	global := bindingShortcuts(Keys.Refresh, Keys.SwitchBoard, Keys.Search, Keys.GitPanel, Keys.ConfigMenu, Keys.ToggleHelp, Keys.Quit)
-	if inZellij() {
-		global = append(global, bindingShortcut(Keys.ZellijMenu))
+// menuKey condenses a binding's help key to a single token for the menu column.
+// Help keys often list every alternative ("← / shift+tab / [") which is too wide
+// for an aligned column; the first alternative is the representative one. Splits
+// on " / " (not "/") so a binding whose key is literally "/" survives intact.
+func menuKey(helpKey string) string {
+	if first, _, found := strings.Cut(helpKey, " / "); found {
+		return strings.TrimSpace(first)
 	}
-	return []ShortcutGroup{
+	return helpKey
+}
+
+// HelpMenuGroups returns the grouped, tooltip-annotated rows for the interactive
+// keybindings menu (the `?` overlay). Rows in the Item group are flagged
+// NeedsItem so the menu can disable them when no card is selected.
+func HelpMenuGroups() []HelpGroup {
+	item := func(b key.Binding, tip string) HelpEntry {
+		e := helpEntry(b, tip)
+		e.NeedsItem = true
+		return e
+	}
+	global := []HelpEntry{
+		helpEntry(Keys.Refresh, "Reload every column from disk, picking up external edits."),
+		helpEntry(Keys.SwitchBoard, "Open the board switcher to jump to a recent or pinned board."),
+		helpEntry(Keys.Search, "Full-text search across all known boards."),
+		helpEntry(Keys.GitPanel, "Open the git panel to review changes, commit, and sync."),
+		helpEntry(Keys.ConfigMenu, "Open config files and command/MCP definitions."),
+		helpEntry(Keys.ToggleHelp, "Show this keybindings menu."),
+		helpEntry(Keys.Quit, "Quit kbrd."),
+	}
+	if inZellij() {
+		global = append(global, helpEntry(Keys.ZellijMenu, "Open the selected card in a zellij pane or shell."))
+	}
+	return []HelpGroup{
 		{
 			Title: "Navigation",
-			Items: append(
-				bindingShortcuts(Keys.NextCol, Keys.PrevCol, Keys.JumpCol, Keys.PanLeft, Keys.PanRight),
-				Shortcut{"j / k", "move within column"},
-				bindingShortcut(Keys.ColPageDown),
-				bindingShortcut(Keys.ColPageUp),
-				bindingShortcut(Keys.Filter),
-			),
+			Items: []HelpEntry{
+				helpEntry(Keys.NextCol, "Move focus to the next column."),
+				helpEntry(Keys.PrevCol, "Move focus to the previous column."),
+				helpEntry(Keys.JumpCol, "Jump straight to a column by its mnemonic letter."),
+				helpEntry(Keys.PanLeft, "Scroll the visible column window left."),
+				helpEntry(Keys.PanRight, "Scroll the visible column window right."),
+				{Keys: "j/k", Label: "move within column", Desc: "Move the selection down or up within the focused column."},
+				helpEntry(Keys.ColPageDown, "Jump the selection down by a page."),
+				helpEntry(Keys.ColPageUp, "Jump the selection up by a page."),
+				helpEntry(Keys.Filter, "Filter cards in the focused column as you type."),
+			},
 		},
 		{
 			Title: "Item",
-			Items: bindingShortcuts(
-				Keys.Peek, Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal,
-				Keys.Copy, Keys.Paste, Keys.OpenExternal, Keys.Pin,
-				Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem, Keys.Delete,
-				Keys.CustomCommands, Keys.EditFrontmatter,
-			),
+			Items: []HelpEntry{
+				item(Keys.Peek, "Preview the selected card's rendered markdown in a reader."),
+				item(Keys.Edit, "Open the selected card in the editor to change its body."),
+				item(Keys.Append, "Append text to the end of the selected card."),
+				item(Keys.Prepend, "Prepend text to the start of the selected card."),
+				item(Keys.Journal, "Add a timestamped journal entry to the selected card."),
+				item(Keys.Copy, "Copy the selected card to the internal clipboard."),
+				item(Keys.Paste, "Paste the copied card into the focused column."),
+				item(Keys.OpenExternal, "Open the selected card in your $EDITOR."),
+				item(Keys.Pin, "Pin or unpin the selected card to the top of its column."),
+				item(Keys.MoveNext, "Move the selected card to the next column."),
+				item(Keys.MoveFirst, "Move the selected card to the first column."),
+				item(Keys.RenameItem, "Rename the selected card's file."),
+				item(Keys.Delete, "Delete the selected card (asks to confirm)."),
+				item(Keys.CustomCommands, "Run a custom command against the selected card."),
+				item(Keys.EditFrontmatter, "Edit the selected card's YAML frontmatter."),
+			},
 		},
 		{
 			Title: "Create & Command",
-			Items: bindingShortcuts(Keys.New, Keys.NewFirst, Keys.NewFromTemplate, Keys.QuickCmd),
+			Items: []HelpEntry{
+				helpEntry(Keys.New, "Create a new card at the end of the focused column."),
+				helpEntry(Keys.NewFirst, "Create a new card at the top of the focused column."),
+				helpEntry(Keys.NewFromTemplate, "Create a card from a template, filling its form."),
+				helpEntry(Keys.QuickCmd, "Open the quick-command input to run a command by name."),
+			},
 		},
 		{
 			Title: "Column",
-			Items: bindingShortcuts(Keys.RenameCol, Keys.ZoomToggle, Keys.CollapseCol),
+			Items: []HelpEntry{
+				helpEntry(Keys.RenameCol, "Rename the focused column's directory."),
+				helpEntry(Keys.ZoomToggle, "Zoom the focused column to fill the board."),
+				helpEntry(Keys.CollapseCol, "Collapse the focused column to a thin bar."),
+			},
 		},
 		{
 			Title: "Global",

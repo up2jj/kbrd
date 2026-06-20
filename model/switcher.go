@@ -148,8 +148,6 @@ func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (s *Switcher) View() string {
-	title := helpTitleStyle.Render("Switch board")
-
 	p := s.palette
 	nameStyle := lipgloss.NewStyle().Foreground(p.Highlight)
 	pathStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
@@ -261,11 +259,6 @@ func (s *Switcher) View() string {
 		{Keys: "bksp", Label: "remove"},
 		{Keys: "esc", Label: "cancel"},
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", filterLine, "", body, "", footer)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	body = lipgloss.JoinVertical(lipgloss.Left, filterLine, "", body)
+	return OverlayFrame{Title: "Switch board", Body: body, Footer: footer, Palette: p}.Render()
 }

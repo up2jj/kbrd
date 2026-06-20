@@ -193,7 +193,6 @@ func (d *Dialog) View() string {
 	}
 
 	p := d.palette
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgEmphasis)
 	bodyStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
 
 	btnBase := lipgloss.NewStyle().Padding(0, 3)
@@ -222,8 +221,6 @@ func (d *Dialog) View() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
-		titleStyle.Render(d.title),
-		"",
 		bodyStyle.Render(d.body),
 		"",
 		btnRow,
@@ -235,9 +232,5 @@ func (d *Dialog) View() string {
 		}),
 	)
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.FgDim).
-		Padding(1, 4).
-		Render(content)
+	return OverlayFrame{Title: d.title, Body: content, Palette: p}.Render()
 }

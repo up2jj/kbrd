@@ -533,7 +533,6 @@ func (p *GitPanel) View() string {
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
 	}
-	title := gitTitleStyle.Render("git · " + branchLabel)
 	sep := gitSepStyle.Render(" · ")
 
 	_, _, leftW, rightW := p.dims()
@@ -608,12 +607,8 @@ func (p *GitPanel) View() string {
 	}
 	footer := joinSep(parts, sep)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", row, "", footer)
-	panel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.palette.BorderActive).
-		Padding(1, 2).
-		Render(content)
+	content := lipgloss.JoinVertical(lipgloss.Left, row, "", footer)
+	panel := theme.RoundedFrame("git · "+branchLabel, gitTitleStyle, content, p.palette.BorderActive, 1, 3, 0)
 
 	if p.input != inputNone {
 		return lipgloss.Place(
@@ -647,17 +642,6 @@ func (p *GitPanel) inputDialog() string {
 		body = p.remoteIn.View()
 		hint = keyLabel("enter", "add as origin") + sep + keyLabel("esc", "cancel")
 	}
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.FgEmphasis)
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		titleStyle.Render(title),
-		"",
-		body,
-		"",
-		hint,
-	)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.palette.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	content := lipgloss.JoinVertical(lipgloss.Left, body, "", hint)
+	return theme.RoundedFrame(title, gitTitleStyle, content, p.palette.BorderActive, 1, 3, 0)
 }

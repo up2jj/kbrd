@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -218,16 +219,35 @@ func (b *Board) handleVirtualColumnKey(msg tea.KeyMsg, col *Column) (tea.Cmd, bo
 	return nil, false
 }
 
-// isVirtualBlockedKey reports whether a key is a built-in item/column mutation
-// that must not run on a virtual (script-owned, fileless) column. NewFirst (N,
-// targets the first real folder) is intentionally allowed.
+// virtualBlockedBindings are the built-in item/column actions that require a real
+// file and so must not run on a virtual (script-owned, fileless) column. NewFirst
+// (N, targets the first real folder) is intentionally allowed. Single source of
+// truth, shared by the key handler and the `?` menu (which disables these rows on
+// virtual columns).
+var virtualBlockedBindings = []key.Binding{
+	Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal, Keys.Copy, Keys.Paste,
+	Keys.OpenExternal, Keys.Pin, Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem,
+	Keys.Delete, Keys.New, Keys.RenameCol, Keys.EditFrontmatter, Keys.NewFromTemplate,
+}
+
+// isVirtualBlockedKey reports whether a pressed key is virtual-blocked.
 func isVirtualBlockedKey(msg tea.KeyMsg) bool {
-	for _, bnd := range []key.Binding{
-		Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal, Keys.Copy, Keys.Paste,
-		Keys.OpenExternal, Keys.Pin, Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem,
-		Keys.Delete, Keys.New, Keys.RenameCol,
-	} {
+	for _, bnd := range virtualBlockedBindings {
 		if key.Matches(msg, bnd) {
+			return true
+		}
+	}
+	return false
+}
+
+// isVirtualBlockedRunKey reports whether a menu row's run key maps to a
+// virtual-blocked binding, so the `?` menu can disable it on virtual columns.
+func isVirtualBlockedRunKey(runKey string) bool {
+	if runKey == "" {
+		return false
+	}
+	for _, bnd := range virtualBlockedBindings {
+		if slices.Contains(bnd.Keys(), runKey) {
 			return true
 		}
 	}
@@ -484,8 +504,6 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 }
 
 func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
-	title := helpTitleStyle.Render("Custom commands")
-
 	p := m.palette
 	var warnSection string
 	if len(m.warnings) > 0 {
@@ -583,23 +601,19 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 		{Keys: "enter", Label: "run"},
 		{Keys: "esc", Label: "cancel"},
 	})
-	parts := []string{title, "", filterLine, ""}
+	parts := []string{filterLine, ""}
 	if warnSection != "" {
 		parts = append(parts, warnSection, "")
 	}
-	parts = append(parts, body, "", footer)
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	parts = append(parts, body)
+	inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	minInner := 50
 	if termWidth > 0 && termWidth-12 < minInner {
 		minInner = termWidth - 12
 	}
-	if lipgloss.Width(content) < minInner {
-		content = lipgloss.NewStyle().Width(minInner).Render(content)
+	if lipgloss.Width(inner) < minInner {
+		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
 	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.BorderActive).
-		Padding(1, 4).
-		Render(content)
+	return OverlayFrame{Title: "Custom commands", Body: inner, Footer: footer, Palette: p}.Render()
 }

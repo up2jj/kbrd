@@ -302,7 +302,6 @@ func (t *TemplateFlow) View() string {
 	case tfPick:
 		return t.viewPicker()
 	case tfForm:
-		title := helpTitleStyle.Render(t.tmpl.Name)
 		footer := RenderInlineHints([]Shortcut{
 			{Keys: "tab/enter", Label: "next"},
 			{Keys: "shift+tab", Label: "back"},
@@ -312,18 +311,12 @@ func (t *TemplateFlow) View() string {
 			footer = lipgloss.NewStyle().Foreground(t.palette.Warning).Italic(true).
 				Render("press esc again to cancel")
 		}
-		content := lipgloss.JoinVertical(lipgloss.Left, title, "", t.form.View(), footer)
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(t.palette.BorderActive).
-			Padding(1, 3).
-			Render(content)
+		return OverlayFrame{Title: t.tmpl.Name, Body: t.form.View(), Footer: footer, Palette: t.palette}.Render()
 	}
 	return ""
 }
 
 func (t *TemplateFlow) viewPicker() string {
-	title := helpTitleStyle.Render("New from template")
 	labels := make([]string, len(t.templates))
 	for i, tmpl := range t.templates {
 		label := tmpl.Name
@@ -338,12 +331,7 @@ func (t *TemplateFlow) viewPicker() string {
 		{Keys: "enter", Label: "confirm"},
 		{Keys: "esc", Label: "cancel"},
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.palette.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	return OverlayFrame{Title: "New from template", Body: body, Footer: footer, Palette: t.palette}.Render()
 }
 
 // huhThemeFor maps the app palette onto a huh theme so embedded forms match

@@ -104,7 +104,7 @@ type Board struct {
 	palette            Palette
 	watcher            *kbrdfs.Watcher
 	dialog             Dialog
-	helpOpen           bool
+	helpMenu           HelpMenu
 	configMenuOpen     bool
 	peek               Peek
 	zoom               Zoom
@@ -117,6 +117,7 @@ type Board struct {
 	commandWarnings    []config.CommandLoadWarning
 	leftIndicatorWidth int
 	columnsLeftPad     int // centering pad to the left of the column strip
+	columnsHeight      int // height of the column strip, for mouse hit-testing
 	logoHeight         int
 	cells              CellBar
 	indicators         colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
@@ -259,6 +260,7 @@ func (b *Board) applyPalette() {
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
+	b.helpMenu.SetPalette(b.palette)
 	if b.editor != nil {
 		b.editor.palette = b.palette
 	}
@@ -989,16 +991,10 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	}
 
-	// Handle help overlay
-	if b.helpOpen {
-		switch {
-		case key.Matches(msg, Keys.Quit):
-			b.helpOpen = false
-			return b.beginShutdown()
-		case key.Matches(msg, Keys.HelpClose):
-			b.helpOpen = false
-		}
-		return b, nil
+	// The interactive keybindings menu owns all input while open (see
+	// help_menu_board.go).
+	if b.helpMenu.Active() {
+		return b.updateHelpMenu(msg)
 	}
 
 	// Handle config menu
@@ -1122,7 +1118,8 @@ func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, Keys.Quit):
 		return b.beginShutdown()
 	case key.Matches(msg, Keys.ToggleHelp):
-		b.helpOpen = true
+		b.loadCommands() // so the menu's custom-command section is current
+		b.openHelpMenu()
 		return b, nil
 	case key.Matches(msg, Keys.ConfigMenu):
 		b.configMenuOpen = true
@@ -1385,11 +1382,17 @@ func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
-	if b.helpOpen || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
+	if b.helpMenu.Active() || b.configMenuOpen || b.dialog.active || b.editor.state != editorNone ||
 		b.peek.Active() || b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {
+		return b, nil
+	}
+
+	// Only the column strip is interactive. Ignore clicks/wheel on the header, the
+	// padding, and the bottom keybar so they don't select columns by X alone.
+	if msg.Y < b.logoHeight || msg.Y >= b.logoHeight+b.columnsHeight {
 		return b, nil
 	}
 
@@ -2357,60 +2360,29 @@ func (b *Board) View() string {
 		BorderForeground(b.palette.BorderMuted).
 		Render(header)
 	b.logoHeight = lipgloss.Height(header)
+	b.columnsHeight = lipgloss.Height(columnsView)
 	result := header + "\n" + columnsView
 	if quickCmdView != "" {
 		result += "\n" + quickCmdView
 	}
-	if b.helpOpen {
-		overlay := RenderHelpOverlay(w, h, GlobalShortcuts(ShortcutContext{
-			HasSelectedItem: b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem(),
-		}))
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay)
-	}
-	if b.configMenuOpen {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, RenderConfigCommandsOverlay(configCommandEntries()))
-	}
-	dialogView := b.dialog.View()
-	if dialogView != "" {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
-	}
-	// The command menu and script UI are checked before the editor: a line
-	// command's menu (and any kbrd.ui.pick/prompt it yields) opens over a
-	// still-open editor and must render on top (mirrors the key routing).
-	if b.customCmds.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.customCmds.View(b.termWidth, b.termHeight))
-	}
-	if b.scriptUI.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.scriptUI.View())
-	}
-	editorView := b.renderEditor()
-	if editorView != "" {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, editorView)
-	}
-	if b.peek.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.peek.View(w, h))
-	}
-	if b.switcher.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.switcher.View())
-	}
-	if b.search.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.search.View(w, h))
-	}
-	if b.templateFlow.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.templateFlow.View())
-	}
-	if b.frontmatterEdit.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.frontmatterEdit.View())
-	}
-	if b.git.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.git.View())
-	}
-	if b.zellij.Active() {
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.zellij.View())
-	}
-	result += "\n" + b.renderStatusBar()
 
-	return result
+	// The board is always rendered with the keybar pinned to the bottom row, so it
+	// reads as a persistent bar. An active overlay is composited on top, centered
+	// in the band between the header and the keybar, so both stay visible behind
+	// it — instead of replacing the whole screen.
+	statusBar := b.renderStatusBar()
+	headerH := lipgloss.Height(header)
+	barH := lipgloss.Height(statusBar)
+	if pad := h - lipgloss.Height(result) - barH; pad > 0 {
+		result += strings.Repeat("\n", pad)
+	}
+	base := result + "\n" + statusBar
+
+	overlay := b.activeOverlay(w, h)
+	if overlay == "" {
+		return base
+	}
+	return composeOverlay(base, overlay, w, headerH, h-headerH-barH)
 }
 
 func (b *Board) renderStatusBar() string {
@@ -2433,9 +2405,16 @@ func (b *Board) renderStatusBar() string {
 
 	// The board/column info and the transient activity indicators (git sync,
 	// background jobs, kbrd.status) now live in the header cells, so the bottom
-	// bar is just the keyboard hints.
+	// bar is just the keyboard hints. A muted top rule (mirroring the header's
+	// bottom rule) makes it read as a persistent keybar, including behind overlays.
 	secondary := RenderInlineHints(ContextShortcuts(ctx))
-	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(secondary)
+	return lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderTop(true).
+		BorderForeground(b.palette.BorderMuted).
+		Render(secondary)
 }
 
 func (b *Board) boardLabel() string {

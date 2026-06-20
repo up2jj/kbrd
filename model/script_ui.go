@@ -145,32 +145,26 @@ func (s *ScriptUI) View() string {
 	if s.kind == scriptUINone {
 		return ""
 	}
-	title := helpTitleStyle.Render(s.title)
-	if s.title == "" {
+	title := s.title
+	if title == "" {
 		if s.kind == scriptUIPick {
-			title = helpTitleStyle.Render("Pick")
+			title = "Pick"
 		} else {
-			title = helpTitleStyle.Render("Input")
+			title = "Input"
 		}
 	}
 
-	var body string
-	var footer string
+	var body, footer string
 	switch s.kind {
 	case scriptUIPick:
 		body = s.renderChoices()
-		footer = helpDimStyle.Render("↑/↓ select · enter confirm · esc cancel")
+		footer = RenderInlineHints([]Shortcut{{"↑/↓", "select"}, {"enter", "confirm"}, {"esc", "cancel"}})
 	case scriptUIPrompt:
 		body = s.input.View()
-		footer = helpDimStyle.Render("enter confirm · esc cancel")
+		footer = RenderInlineHints([]Shortcut{{"enter", "confirm"}, {"esc", "cancel"}})
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(s.palette.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	return OverlayFrame{Title: title, Body: body, Footer: footer, Palette: s.palette}.Render()
 }
 
 func (s *ScriptUI) renderChoices() string {

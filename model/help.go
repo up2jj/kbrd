@@ -11,9 +11,26 @@ type Shortcut struct {
 	Label string
 }
 
-type ShortcutGroup struct {
+// HelpEntry is one row of the interactive keybindings menu. RunKey is the single
+// rune to inject when the row is executed (empty for non-actionable rows like
+// "j / k"). NeedsItem marks rows that only apply when a card is selected; the
+// board uses it to set Disabled (struck-through, non-executable) at open time.
+type HelpEntry struct {
+	Keys      string
+	Label     string
+	Desc      string
+	RunKey    string
+	NeedsItem bool
+	Disabled  bool
+	// CmdID names a custom command to run on Enter (no single-key binding); the
+	// board dispatches it through the normal custom-command path.
+	CmdID string
+}
+
+// HelpGroup is a titled section of the keybindings menu.
+type HelpGroup struct {
 	Title string
-	Items []Shortcut
+	Items []HelpEntry
 }
 
 type ShortcutContext struct {
@@ -29,19 +46,18 @@ type ShortcutContext struct {
 }
 
 var (
-	helpKeyStyle      lipgloss.Style
-	helpLabelStyle    lipgloss.Style
-	helpSepStyle      lipgloss.Style
-	helpTitleStyle    lipgloss.Style
-	helpDimStyle      lipgloss.Style
-	helpOverlayBorder lipgloss.Color
-	helpConfigBorder  lipgloss.Color
-	helpRowKey        lipgloss.Color
-	helpRowLabel      lipgloss.Color
-	helpExistsColor   lipgloss.Color
-	helpMissingColor  lipgloss.Color
-	helpErrorColor    lipgloss.Color
-	helpPathColor     lipgloss.Color
+	helpKeyStyle     lipgloss.Style
+	helpLabelStyle   lipgloss.Style
+	helpSepStyle     lipgloss.Style
+	helpTitleStyle   lipgloss.Style
+	helpDimStyle     lipgloss.Style
+	helpConfigBorder lipgloss.Color
+	helpRowKey       lipgloss.Color
+	helpRowLabel     lipgloss.Color
+	helpExistsColor  lipgloss.Color
+	helpMissingColor lipgloss.Color
+	helpErrorColor   lipgloss.Color
+	helpPathColor    lipgloss.Color
 )
 
 func setHelpStyles(p Palette) {
@@ -49,8 +65,8 @@ func setHelpStyles(p Palette) {
 	helpLabelStyle = lipgloss.NewStyle().Foreground(p.FgMuted)
 	helpSepStyle = lipgloss.NewStyle().Foreground(p.FgDim)
 	helpTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	overlayTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
 	helpDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	helpOverlayBorder = p.BorderActive
 	helpConfigBorder = p.AccentAlt
 	helpRowKey = p.FgBase
 	helpRowLabel = p.FgMuted
@@ -58,11 +74,6 @@ func setHelpStyles(p Palette) {
 	helpMissingColor = p.Warning
 	helpErrorColor = p.Danger
 	helpPathColor = p.FgSoft
-}
-
-// GlobalShortcuts returns the full grouped registry, used by the help overlay.
-func GlobalShortcuts(ctx ShortcutContext) []ShortcutGroup {
-	return ShortcutGroups()
 }
 
 // ContextShortcuts returns the small subset shown on the secondary footer line.
@@ -118,47 +129,6 @@ func RenderInlineHints(items []Shortcut) string {
 	return strings.Join(parts, helpSepStyle.Render(" · "))
 }
 
-// RenderHelpOverlay renders the full grouped shortcut panel.
-func RenderHelpOverlay(maxWidth, maxHeight int, groups []ShortcutGroup) string {
-	keyColWidth := 0
-	for _, g := range groups {
-		for _, s := range g.Items {
-			if w := lipgloss.Width(s.Keys); w > keyColWidth {
-				keyColWidth = w
-			}
-		}
-	}
-
-	keyCol := lipgloss.NewStyle().Width(keyColWidth + 2).Bold(true).Foreground(helpRowKey)
-
-	var sections []string
-	for _, g := range groups {
-		rows := []string{helpTitleStyle.Render(g.Title)}
-		for _, s := range g.Items {
-			rows = append(rows, "  "+keyCol.Render(s.Keys)+helpLabelStyle.Render(s.Label))
-		}
-		sections = append(sections, lipgloss.JoinVertical(lipgloss.Left, rows...))
-	}
-
-	body := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	footer := helpDimStyle.Render("? or esc to close")
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		helpTitleStyle.Render("Shortcuts"),
-		"",
-		body,
-		"",
-		footer,
-	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(helpOverlayBorder).
-		Padding(1, 3)
-
-	return box.Render(content)
-}
-
 // RenderConfigCommandsOverlay renders the config commands dialog with paths + existence.
 func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
 	keyColWidth := 0
@@ -179,7 +149,7 @@ func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
 	errStyle := lipgloss.NewStyle().Foreground(helpErrorColor)
 	pathStyle := lipgloss.NewStyle().Foreground(helpPathColor).Italic(true)
 
-	rows := []string{helpTitleStyle.Render("Config commands"), ""}
+	var rows []string
 	for _, e := range entries {
 		var status, path string
 		if e.Err != nil {
@@ -198,12 +168,10 @@ func RenderConfigCommandsOverlay(entries []ConfigCommandEntry) string {
 			"  "+keyCol.Render("")+labelCol.Render("")+path,
 		)
 	}
-	rows = append(rows, "", helpDimStyle.Render("esc to go back"))
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(helpConfigBorder).
-		Padding(1, 3)
-
-	return box.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	return OverlayFrame{
+		Title:  "Config commands",
+		Body:   lipgloss.JoinVertical(lipgloss.Left, rows...),
+		Footer: helpDimStyle.Render("esc to go back"),
+		Border: helpConfigBorder,
+	}.Render()
 }

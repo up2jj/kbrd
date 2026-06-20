@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -477,17 +476,9 @@ func (e *Editor) View() string {
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	}
 
-	p := e.palette
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgMuted)
-	dirtyMark := ""
 	if e.IsDirty() {
-		dirtyStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Warning)
-		dirtyMark = dirtyStyle.Render("● ")
+		label = "● " + label
 	}
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.BorderActive).
-		Padding(0, 1)
 
 	var input string
 	if isInputState(e.state) {
@@ -496,9 +487,7 @@ func (e *Editor) View() string {
 		input = e.textarea.View()
 	}
 
-	return dirtyMark + headerStyle.Render(label) + "\n" +
-		boxStyle.Render(input) + "\n" +
-		RenderInlineHints(hints)
+	return OverlayFrame{Title: label, Body: input, Footer: RenderInlineHints(hints), Palette: e.palette}.Render()
 }
 
 // openLineCommandsMsg asks the board to open the line-command menu over the

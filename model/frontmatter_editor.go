@@ -263,7 +263,6 @@ func (e *FrontmatterEditor) View() string {
 	if !e.Active() {
 		return ""
 	}
-	title := helpTitleStyle.Render("Edit frontmatter")
 	hints := []Shortcut{
 		{Keys: "ctrl+e", Label: "complete"},
 		{Keys: "enter", Label: "next"},
@@ -287,12 +286,8 @@ func (e *FrontmatterEditor) View() string {
 			Render("press esc again to cancel")
 	}
 	fields := e.renderCurrentFields(min(e.width-10, 72))
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", fields, "", e.form.View(), footer)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(e.palette.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	body := lipgloss.JoinVertical(lipgloss.Left, fields, "", e.form.View())
+	return OverlayFrame{Title: "Edit frontmatter", Body: body, Footer: footer, Palette: e.palette}.Render()
 }
 
 // renderCurrentFields lists the card's existing frontmatter as aligned

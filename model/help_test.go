@@ -60,9 +60,9 @@ func mustContain(t *testing.T, items []Shortcut, keys, label string) {
 	t.Errorf("shortcuts %+v missing {%s, %s}", items, keys, label)
 }
 
-func TestGlobalShortcuts_Structure(t *testing.T) {
+func TestHelpMenuGroups_Structure(t *testing.T) {
 	t.Parallel()
-	groups := GlobalShortcuts(ShortcutContext{})
+	groups := HelpMenuGroups()
 	if len(groups) == 0 {
 		t.Fatal("no groups returned")
 	}
@@ -76,22 +76,61 @@ func TestGlobalShortcuts_Structure(t *testing.T) {
 		}
 		seenTitles[g.Title] = true
 		if len(g.Items) == 0 {
-			t.Errorf("group %q has no shortcuts", g.Title)
+			t.Errorf("group %q has no entries", g.Title)
 		}
-		for _, s := range g.Items {
-			if strings.TrimSpace(s.Keys) == "" {
-				t.Errorf("group %q has shortcut with empty Keys: %+v", g.Title, s)
+		for _, e := range g.Items {
+			if strings.TrimSpace(e.Keys) == "" {
+				t.Errorf("group %q has entry with empty Keys: %+v", g.Title, e)
 			}
-			if strings.TrimSpace(s.Label) == "" {
-				t.Errorf("group %q has shortcut with empty Label: %+v", g.Title, s)
+			if strings.TrimSpace(e.Label) == "" {
+				t.Errorf("group %q has entry with empty Label: %+v", g.Title, e)
+			}
+			if strings.TrimSpace(e.Desc) == "" {
+				t.Errorf("group %q entry %q has no tooltip", g.Title, e.Keys)
 			}
 		}
 	}
-	// Spot-check expected groups exist.
 	for _, want := range []string{"Navigation", "Item", "Global"} {
 		if !seenTitles[want] {
 			t.Errorf("missing expected group %q", want)
 		}
+	}
+}
+
+// menuKey condenses a verbose multi-alternative help key but preserves a literal
+// "/" binding (the filter key).
+func TestMenuKey(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"← / shift+tab / [": "←",
+		"ctrl+d":            "ctrl+d",
+		"/":                 "/",
+		"g":                 "g",
+	}
+	for in, want := range cases {
+		if got := menuKey(in); got != want {
+			t.Errorf("menuKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// HelpMenu navigation skips disabled rows and SelectedRunKey returns the rune to
+// inject for the highlighted entry.
+func TestHelpMenu_NavSkipsDisabled(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "G", Items: []HelpEntry{
+			{Keys: "e", Label: "edit", RunKey: "e", Disabled: true}, // not selectable
+			{Keys: "n", Label: "new", RunKey: "n"},
+		}},
+	})
+	if !m.Active() {
+		t.Fatal("menu should be active")
+	}
+	if got := m.SelectedRunKey(); got != "n" {
+		t.Errorf("first selectable run key = %q, want n (disabled e must be skipped)", got)
 	}
 }
 
@@ -116,16 +155,18 @@ func TestRenderInlineHints_Empty(t *testing.T) {
 	}
 }
 
-func TestRenderHelpOverlay_ContainsContent(t *testing.T) {
+func TestHelpMenu_RenderContainsContent(t *testing.T) {
 	t.Parallel()
-	groups := []ShortcutGroup{
-		{Title: "Group One", Items: []Shortcut{{Keys: "x", Label: "do x"}}},
-		{Title: "Group Two", Items: []Shortcut{{Keys: "y", Label: "do y"}}},
-	}
-	got := RenderHelpOverlay(80, 30, groups)
-	for _, want := range []string{"Shortcuts", "Group One", "Group Two", "x", "do x", "y", "do y"} {
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Group One", Items: []HelpEntry{{Keys: "x", Label: "do x", Desc: "does x", RunKey: "x"}}},
+		{Title: "Group Two", Items: []HelpEntry{{Keys: "y", Label: "do y", Desc: "does y", RunKey: "y"}}},
+	})
+	got := m.View(80, 40)
+	for _, want := range []string{"Keybindings", "Group One", "Group Two", "do x", "do y", "does x", "1 of 2"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("overlay missing %q", want)
+			t.Errorf("menu missing %q", want)
 		}
 	}
 }

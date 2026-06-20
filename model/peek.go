@@ -484,12 +484,13 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	outerWidth := max(min(termWidth-4, 120), 24)
 	outerHeight := max(termHeight-4, 8)
 
-	innerWidth := outerWidth - 6
+	// Width(outerWidth-2) + Padding(1,3) → content width outerWidth-8.
+	innerWidth := outerWidth - 8
 	pageSize := max(
-		/*borders*/
-		/*padding*/
-		/*title+blanks+footer*/
-		outerHeight-2-2-4, 1)
+		/*border bottom 1 + title line 1*/
+		/*padding 2*/
+		/*body blank + footer 2*/
+		outerHeight-2-2-2, 1)
 	p.pageSize = pageSize
 
 	if p.offset >= len(p.lines) {
@@ -505,7 +506,6 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	totalPages := max((len(p.lines)+pageSize-1)/pageSize, 1)
 	currentPage := min(p.offset/pageSize+1, totalPages)
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(p.palette.Primary)
 	body := strings.Join(visible, "\n")
 
 	// The scrollbar gutter is always reserved (see peekScrollbarGutter), so the
@@ -529,18 +529,11 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	gap := max(innerWidth-lipgloss.Width(footerLeft)-lipgloss.Width(footerRight), 1)
 	footer := footerLeft + strings.Repeat(" ", gap) + footerRight
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		titleStyle.Render(p.title),
-		"",
-		bodyBlock,
-		"",
-		footer,
-	)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.palette.BorderActive).
-		Padding(1, 2).
-		Width(outerWidth - 2).
-		Render(content)
+	return OverlayFrame{
+		Title:   p.title,
+		Body:    bodyBlock,
+		Footer:  footer,
+		Width:   outerWidth - 2,
+		Palette: p.palette,
+	}.Render()
 }

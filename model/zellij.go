@@ -141,7 +141,6 @@ func (z *Zellij) View() string {
 	if z.cardName != "" {
 		heading = "zellij · " + z.cardName
 	}
-	title := helpTitleStyle.Render(heading)
 
 	// Keyed menu: emphasize the mnemonic so it reads as the button to press,
 	// with the label in the normal foreground.
@@ -156,13 +155,8 @@ func (z *Zellij) View() string {
 		row("s", "shell in board dir"),
 	)
 
-	footer := helpDimStyle.Render("f / e / s select · esc cancel")
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(z.palette.BorderActive).
-		Padding(1, 3).
-		Render(content)
+	footer := RenderInlineHints([]Shortcut{{"f/e/s", "select"}, {"esc", "cancel"}})
+	return OverlayFrame{Title: heading, Body: body, Footer: footer, Palette: z.palette}.Render()
 }
 
 // openEditorCmd opens path in the user's editor in a new zellij pane via

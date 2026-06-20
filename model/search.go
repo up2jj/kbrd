@@ -469,8 +469,6 @@ func (s *Search) View(termWidth, termHeight int) string {
 	textWidth := boxWidth - 6 // inside Padding(1, 3)
 	clip := func(str string) string { return lipgloss.NewStyle().MaxWidth(textWidth).Render(str) }
 
-	title := helpTitleStyle.Render("Search in boards")
-
 	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
 	nameStyle := lipgloss.NewStyle().Foreground(p.Highlight)
 	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
@@ -504,14 +502,15 @@ func (s *Search) View(termWidth, termHeight int) string {
 		{Keys: "enter", Label: "open"},
 		{Keys: "esc", Label: "cancel"},
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", filterLine, "", body, "", footer)
+	body = lipgloss.JoinVertical(lipgloss.Left, filterLine, "", body)
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.BorderActive).
-		Padding(1, 3).
-		Width(boxWidth).
-		Render(content)
+	return OverlayFrame{
+		Title:   "Search in boards",
+		Body:    body,
+		Footer:  footer,
+		Width:   boxWidth,
+		Palette: p,
+	}.Render()
 }
 
 func (s *Search) renderResults(textWidth int) string {
