@@ -17,6 +17,7 @@ import (
 // (string for input/text/select, []string for multiselect, bool for confirm,
 // plus template.FilenameKey when the template declared no filename).
 type templateSubmitMsg struct {
+	Column   columnRef
 	ColIndex int
 	Template template.Template
 	Values   map[string]any
@@ -35,6 +36,7 @@ const (
 // followed by an embedded huh form, one form page per template step.
 type TemplateFlow struct {
 	stage     templateFlowStage
+	column    columnRef
 	colIndex  int
 	templates []template.Template
 	selected  int
@@ -50,6 +52,7 @@ func (t *TemplateFlow) Active() bool { return t.stage != tfNone }
 
 func (t *TemplateFlow) Close() {
 	t.stage = tfNone
+	t.column = columnRef{}
 	t.templates = nil
 	t.selected = 0
 	t.tmpl = template.Template{}
@@ -76,8 +79,9 @@ func (t *TemplateFlow) fitForm() {
 
 // Open starts the flow for the given column. With a single template the
 // picker is skipped. Returns the form's Init cmd when one starts immediately.
-func (t *TemplateFlow) Open(colIndex int, templates []template.Template) tea.Cmd {
+func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template.Template) tea.Cmd {
 	t.colIndex = colIndex
+	t.column = column
 	t.templates = templates
 	t.selected = 0
 	if len(templates) == 1 {
@@ -119,7 +123,7 @@ func (t *TemplateFlow) startForm(tmpl template.Template) tea.Cmd {
 	}
 	if len(groups) == 0 {
 		// Nothing to ask: render and create straight away.
-		msg := templateSubmitMsg{ColIndex: t.colIndex, Template: tmpl, Values: map[string]any{}}
+		msg := newStableTemplateSubmitMsg(t.column, t.colIndex, tmpl, map[string]any{})
 		t.Close()
 		return func() tea.Msg { return msg }
 	}
@@ -260,7 +264,7 @@ func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
 	switch t.form.State {
 	case huh.StateCompleted:
 		values := t.collectValues()
-		out := templateSubmitMsg{ColIndex: t.colIndex, Template: t.tmpl, Values: values}
+		out := newStableTemplateSubmitMsg(t.column, t.colIndex, t.tmpl, values)
 		t.Close()
 		return func() tea.Msg { return out }
 	case huh.StateAborted: // ctrl+c inside the form

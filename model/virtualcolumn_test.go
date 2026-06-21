@@ -254,10 +254,11 @@ func TestVirtualColumn_SeparatorInert(t *testing.T) {
 	})
 	b.rebuildMnemonics()
 	// The separator (Name "Group") must get no mnemonic; the real item does.
-	if _, ok := b.mnemonicByRef[itemRef{ColIndex: 1, Name: "Group"}]; ok {
+	vc := b.columns[1]
+	if tag := b.mnemonicLookup(1)("Group"); tag != "" {
 		t.Error("separator should not get a mnemonic")
 	}
-	if _, ok := b.mnemonicByRef[itemRef{ColIndex: 1, Name: "real"}]; !ok {
+	if tag := b.mnemonicByRef[refForItem(vc, &vc.Items[1])]; tag == "" {
 		t.Error("real virtual item should get a mnemonic")
 	}
 }

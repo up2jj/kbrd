@@ -423,6 +423,43 @@ kbrd.column.set("tasks", {
 	}
 }
 
+func TestHeadlessUnsupportedCapabilitiesReturnErrors(t *testing.T) {
+	dir := writeInit(t, `
+local function expect_nav(fn)
+  local ok, err = fn()
+  if ok ~= nil or not string.find(tostring(err), "navigation is not available") then
+    error("expected navigation unavailable, got "..tostring(ok)..":"..tostring(err))
+  end
+end
+local function expect_pres(fn)
+  local ok, err = fn()
+  if ok ~= nil or not string.find(tostring(err), "presentation is not available") then
+    error("expected presentation unavailable, got "..tostring(ok)..":"..tostring(err))
+  end
+end
+kbrd.command("focus", "Focus", function() expect_nav(function() return kbrd.board.focus("Todo") end) end)
+kbrd.command("select", "Select", function() expect_nav(function() return kbrd.board.select("Todo", "a") end) end)
+kbrd.command("cell", "Cell", function() expect_pres(function() return kbrd.cell.set(1, { text = "x" }) end) end)
+kbrd.command("vcol", "Virtual", function() expect_pres(function() return kbrd.column.set("v", { name = "V" }) end) end)
+kbrd.command("indicator", "Indicator", function() expect_pres(function() return kbrd.column.indicator("Todo", "x") end) end)
+`)
+	api := &fakeAPI{}
+	h, err := NewWithCapabilities(defaultCfg(), api, nil, nil, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	for _, cmd := range h.Commands() {
+		if _, err := h.RunCommand(cmd.LuaRef, map[string]string{}); err != nil {
+			t.Fatalf("%s returned unexpected error: %v", cmd.ID, err)
+		}
+	}
+	if len(api.focuses) != 0 || len(api.selects) != 0 || len(api.cellSets) != 0 || len(api.vcolSets) != 0 || len(api.indicators) != 0 {
+		t.Fatalf("unsupported headless API mutated fake: %+v", api)
+	}
+}
+
 func TestStoreSetGet(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.column.store.set("todo", "view", "compact")

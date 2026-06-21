@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"kbrd/config"
 	"kbrd/recents"
 )
 
@@ -82,6 +83,95 @@ func TestLocateFile(t *testing.T) {
 			t.Error("locateFile ok = true, want false for unknown column")
 		}
 	})
+}
+
+func TestSearchActionsActivateFile_CurrentBoardSelectsByPath(t *testing.T) {
+	t.Parallel()
+
+	boardDir := makeSearchBoard(t, map[string][]string{
+		"1. todo": {"a"},
+		"2. done": {"target"},
+	})
+	b := NewBoard(config.Config{Path: boardDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+
+	_, cmd := b.searchActions().activateFile(boardDir, filepath.Join(boardDir, "2. done", "target.md"))
+	if cmd != nil {
+		t.Fatalf("activate current board returned cmd, want nil")
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("selectedCol = %d, want 1", b.selectedCol)
+	}
+	if got := b.columns[b.selectedCol].SelectedItem().Name; got != "target" {
+		t.Fatalf("selected item = %q, want target", got)
+	}
+}
+
+func TestSearchActionsActivateFile_CrossBoardSwitchesAndSelectsByPath(t *testing.T) {
+	t.Parallel()
+
+	activeDir := makeSearchBoard(t, map[string][]string{"1. active": {"a"}})
+	targetDir := makeSearchBoard(t, map[string][]string{
+		"1. todo": {"first"},
+		"2. done": {"target"},
+	})
+	b := NewBoard(config.Config{Path: activeDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+
+	_, cmd := b.searchActions().activateFile(targetDir, filepath.Join(targetDir, "2. done", "target.md"))
+	if cmd == nil {
+		t.Fatalf("activate cross-board returned nil cmd, want switch notification/watch command")
+	}
+	if !samePath(b.cfg.Path, targetDir) {
+		t.Fatalf("board path = %q, want %q", b.cfg.Path, targetDir)
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("selectedCol = %d, want 1", b.selectedCol)
+	}
+	if got := b.columns[b.selectedCol].SelectedItem().Name; got != "target" {
+		t.Fatalf("selected item = %q, want target", got)
+	}
+}
+
+func TestSearchActionsActivateFile_CrossBoardMissingFileKeepsSwitch(t *testing.T) {
+	t.Parallel()
+
+	activeDir := makeSearchBoard(t, map[string][]string{"1. active": {"a"}})
+	targetDir := makeSearchBoard(t, map[string][]string{"1. todo": {"first"}})
+	b := NewBoard(config.Config{Path: activeDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+
+	_, cmd := b.searchActions().activateFile(targetDir, filepath.Join(targetDir, "1. todo", "missing.md"))
+	if cmd == nil {
+		t.Fatalf("activate cross-board missing file returned nil cmd, want switch notification/watch command")
+	}
+	if !samePath(b.cfg.Path, targetDir) {
+		t.Fatalf("board path = %q, want %q", b.cfg.Path, targetDir)
+	}
+	if got := b.columns[b.selectedCol].SelectedItem().Name; got != "first" {
+		t.Fatalf("selected item = %q, want first fallback selection", got)
+	}
+}
+
+func makeSearchBoard(t *testing.T, columns map[string][]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for colName, items := range columns {
+		colDir := filepath.Join(dir, colName)
+		if err := os.MkdirAll(colDir, 0o755); err != nil {
+			t.Fatalf("mkdir column: %v", err)
+		}
+		for _, item := range items {
+			writeFile(t, colDir, item+".md", item+"\n")
+		}
+	}
+	return dir
 }
 
 func TestGroupByFile(t *testing.T) {

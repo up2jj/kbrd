@@ -8,8 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"kbrd/board"
-	"kbrd/colstore"
+	"kbrd/boardops"
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
@@ -21,12 +20,12 @@ import (
 // board-supplied shell, so markers are rendered inert rather than executed.
 const taskExecDisabledNote = "> _template shell exec disabled on the web server_"
 
-// boardTaskAPI is the events.BoardAPI the web task scheduler hands to its Lua
+// boardTaskAPI is the events.ScriptAPI the web task scheduler hands to its Lua
 // host. Unlike the TUI's boardScriptAPI it has no in-memory model: mutations go
 // straight through the board package against files on disk, and each one is
 // committed (and pushed) via the Syncer so a card a task creates propagates to
-// other clones. Presentation-only methods (header cells, virtual columns) have
-// no meaning in a headless server and are no-ops; Notify logs.
+// other clones. Presentation and navigation capabilities are intentionally not
+// implemented in this headless host; Notify logs.
 //
 // Only one goroutine — the taskScheduler's — ever calls these, mirroring the
 // Lua host's single-threaded contract.
@@ -56,80 +55,55 @@ func (a boardTaskAPI) Notify(msg, level string) {
 }
 
 func (a boardTaskAPI) MoveItem(item events.ItemRef, toColumn string) error {
-	src, err := board.ResolveColumn(a.root, item.Column, false)
+	src, err := boardops.ResolveColumn(a.root, item.Column, false)
 	if err != nil {
 		return err
 	}
-	dst, err := board.ResolveColumn(a.root, toColumn, false)
+	dst, err := boardops.ResolveColumn(a.root, toColumn, false)
 	if err != nil {
 		return err
 	}
-	if err := board.MoveItem(src, dst, item.Name); err != nil {
+	if _, err := boardops.MoveItem(src, dst, item.Name); err != nil {
 		return err
 	}
 	return a.commit(fmt.Sprintf("kbrd: move %s/%s → %s", item.Column, item.Name, toColumn))
 }
 
 func (a boardTaskAPI) CreateItem(column, name string) error {
-	colPath, err := board.ResolveColumn(a.root, column, false)
+	col, err := boardops.ResolveColumn(a.root, column, false)
 	if err != nil {
 		return err
 	}
-	if _, err := board.CreateItem(colPath, name, ""); err != nil {
+	if _, err := boardops.CreateItem(col, name, ""); err != nil {
 		return err
 	}
 	return a.commit(fmt.Sprintf("kbrd: create %s/%s", column, name))
 }
 
 func (a boardTaskAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
-	colPath, err := board.ResolveColumn(a.root, column, false)
+	col, err := boardops.ResolveColumn(a.root, column, false)
 	if err != nil {
 		return nil, err
 	}
-	tmpls, _, err := template.List(a.root, colPath)
-	if err != nil {
-		return nil, err
-	}
-	infos := make([]events.TemplateInfo, 0, len(tmpls))
-	for _, t := range tmpls {
-		infos = append(infos, events.TemplateInfo{Name: t.Name, Scope: t.Scope})
-	}
-	return infos, nil
+	return boardops.ListTemplates(boardops.BoardContext{Root: a.root, Name: a.boardName}, col)
 }
 
 func (a boardTaskAPI) CreateItemFromTemplate(column, tmplName string, values map[string]any) error {
-	colPath, err := board.ResolveColumn(a.root, column, false)
+	col, err := boardops.ResolveColumn(a.root, column, false)
 	if err != nil {
 		return err
 	}
-	tmpls, _, err := template.List(a.root, colPath)
+	res, err := boardops.CreateItemFromTemplate(
+		boardops.BoardContext{Root: a.root, Name: a.boardName},
+		col,
+		tmplName,
+		values,
+		inertShellMarkers,
+	)
 	if err != nil {
 		return err
 	}
-	var tmpl *template.Template
-	for i := range tmpls {
-		if tmpls[i].Name == tmplName {
-			tmpl = &tmpls[i]
-			break
-		}
-	}
-	if tmpl == nil {
-		return fmt.Errorf("template %q not found in column %q", tmplName, column)
-	}
-	name, body, err := template.Instantiate(*tmpl, board.VarContext{
-		BoardPath:  a.root,
-		BoardName:  a.boardName,
-		ColumnPath: colPath,
-		ColumnName: column,
-	}, values)
-	if err != nil {
-		return err
-	}
-	body = inertShellMarkers(body)
-	if _, err := board.CreateItem(colPath, name, body); err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: create %s/%s from template %s", column, name, tmplName))
+	return a.commit(fmt.Sprintf("kbrd: create %s/%s from template %s", column, res.Item.Name, tmplName))
 }
 
 // inertShellMarkers replaces every {{shell}} marker in a freshly rendered
@@ -143,32 +117,26 @@ func inertShellMarkers(body string) string {
 }
 
 func (a boardTaskAPI) RenameItem(item events.ItemRef, newName string) error {
-	colPath, err := board.ResolveColumn(a.root, item.Column, false)
+	col, err := boardops.ResolveColumn(a.root, item.Column, false)
 	if err != nil {
 		return err
 	}
-	if err := board.RenameItem(colPath, item.Name, newName); err != nil {
+	if _, err := boardops.RenameItem(col, item.Name, newName); err != nil {
 		return err
 	}
 	return a.commit(fmt.Sprintf("kbrd: rename %s/%s → %s", item.Column, item.Name, newName))
 }
 
 func (a boardTaskAPI) DeleteItem(item events.ItemRef) error {
-	colPath, err := board.ResolveColumn(a.root, item.Column, false)
+	col, err := boardops.ResolveColumn(a.root, item.Column, false)
 	if err != nil {
 		return err
 	}
-	if err := board.DeleteItem(colPath, item.Name); err != nil {
+	if _, err := boardops.DeleteItem(col, item.Name); err != nil {
 		return err
 	}
 	return a.commit(fmt.Sprintf("kbrd: delete %s/%s", item.Column, item.Name))
 }
-
-// Navigation has no meaning in a headless server (there is no cursor to move),
-// so focus/select are accepted and ignored — same posture as the presentation-
-// only surfaces below.
-func (a boardTaskAPI) FocusColumn(string) error        { return nil }
-func (a boardTaskAPI) SelectItem(string, string) error { return nil }
 
 func (a boardTaskAPI) FSRead(path string) (string, error) {
 	data, err := os.ReadFile(a.resolvePath(path))
@@ -204,87 +172,50 @@ func (a boardTaskAPI) Refresh() error {
 }
 
 func (a boardTaskAPI) CreateColumn(name string) error {
-	clean, err := board.SanitizeFolder(name)
+	col, err := boardops.CreateColumn(a.root, name)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(a.root, clean)
-	if _, err := os.Stat(dir); err == nil {
-		return fmt.Errorf("column %q already exists", name)
-	}
-	if err := os.Mkdir(dir, 0o755); err != nil {
-		return err
-	}
-	// A directory alone is not a tracked change; create a .gitkeep so the empty
-	// column survives a clone, then commit.
-	_ = os.WriteFile(filepath.Join(dir, ".gitkeep"), nil, 0o644)
-	return a.commit("kbrd: create column " + clean)
+	return a.commit("kbrd: create column " + col.Name)
 }
-
-// Presentation-only surfaces have no meaning in a headless server.
-func (a boardTaskAPI) CellSet(int, events.CellOpts)                      {}
-func (a boardTaskAPI) CellClear(int)                                     {}
-func (a boardTaskAPI) CellClearAll()                                     {}
-func (a boardTaskAPI) VirtualColumnSet(string, events.VirtualColumnSpec) {}
-func (a boardTaskAPI) VirtualColumnClear(string)                         {}
-func (a boardTaskAPI) VirtualColumnClearAll()                            {}
-
-func (a boardTaskAPI) ColumnIndicatorSet(string, events.ColumnIndicatorOpts) {}
-func (a boardTaskAPI) ColumnIndicatorClear(string)                           {}
-func (a boardTaskAPI) ColumnIndicatorClearAll()                              {}
 
 // colDir resolves a filesystem column name to its directory for the column
 // config store. The headless server has no virtual columns, so any resolvable
 // column is disk-backed.
-func (a boardTaskAPI) colDir(column string) (string, error) {
-	return board.ResolveColumn(a.root, column, false)
+func (a boardTaskAPI) colRef(column string) (boardops.ColumnRef, error) {
+	return boardops.ResolveColumn(a.root, column, false)
 }
 
 func (a boardTaskAPI) ColumnConfigGet(column, key string) (any, bool, error) {
-	dir, err := a.colDir(column)
+	col, err := a.colRef(column)
 	if err != nil {
 		return nil, false, err
 	}
-	s, err := colstore.Read(dir)
-	if err != nil {
-		return nil, false, err
-	}
-	v, ok := s.Get(key)
-	return v, ok, nil
+	return boardops.ColumnConfigGet(col, key)
 }
 
 func (a boardTaskAPI) ColumnConfigSet(column, key string, value any) error {
-	dir, err := a.colDir(column)
+	col, err := a.colRef(column)
 	if err != nil {
 		return err
 	}
-	return colstore.Update(dir, func(s *colstore.Store) error {
-		s.Set(key, value)
-		return nil
-	})
+	return boardops.ColumnConfigSet(col, key, value)
 }
 
 func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]any, error) {
-	dir, err := a.colDir(column)
+	col, err := a.colRef(column)
 	if err != nil {
 		return nil, err
 	}
-	s, err := colstore.Read(dir)
-	if err != nil {
-		return nil, err
-	}
-	return s.All(), nil
+	return boardops.ColumnConfigAll(col)
 }
 
 func (a boardTaskAPI) ColumnConfigDelete(column, key string) error {
-	dir, err := a.colDir(column)
+	col, err := a.colRef(column)
 	if err != nil {
 		return err
 	}
-	return colstore.Update(dir, func(s *colstore.Store) error {
-		s.Delete(key)
-		return nil
-	})
+	return boardops.ColumnConfigDelete(col, key)
 }
 
 // taskScheduler owns a Lua host and drives its timers in a headless server.

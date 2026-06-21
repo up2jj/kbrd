@@ -126,13 +126,13 @@ func TestBoard_VisibleColRange_FitsAndPansOnSelection(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 10, 3)
 
-	first, count := b.visibleColRange()
+	first, count := b.presenter.visibleColRange(b)
 	if first != 0 || count != 3 {
 		t.Fatalf("initial range = (%d,%d), want (0,3)", first, count)
 	}
 
 	b.selectedCol = 7
-	first, count = b.visibleColRange()
+	first, count = b.presenter.visibleColRange(b)
 	if first != 5 || count != 3 {
 		t.Fatalf("after selecting col 7, range = (%d,%d), want (5,3)", first, count)
 	}
@@ -151,7 +151,7 @@ func TestBoard_PanKeysMoveWindow(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 10, 3)
 	// Force window initialization.
-	b.visibleColRange()
+	b.presenter.visibleColRange(b)
 	if b.firstVisibleCol != 0 {
 		t.Fatalf("firstVisibleCol = %d, want 0", b.firstVisibleCol)
 	}
@@ -279,7 +279,7 @@ func TestBoard_ReloadPreservesSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildColumns: %v", err)
 	}
-	b.applyReloadedColumns(fresh)
+	b.lifecycle().applyReloadedColumns(fresh)
 
 	if got := b.columns[0].SelectedItem(); got == nil || got.Name != "beta" {
 		t.Fatalf("selection after reload = %v, want beta", got)
@@ -298,6 +298,28 @@ func TestBoard_ColumnReloadPreservesSelection(t *testing.T) {
 
 	if got := b.columns[1].SelectedItem(); got == nil || got.Name != "two" {
 		t.Fatalf("selection after column reload = %v, want two", got)
+	}
+}
+
+func TestBoardLifecycle_ColumnReloadPreservesSelectionAfterReorder(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[0], "alpha")
+	writeColItem(t, b.columns[0], "beta")
+	writeColItem(t, b.columns[1], "one")
+	b.columns[0].SelectByName("beta")
+	target := b.columns[0]
+
+	b.columns = []*Column{b.columns[1], b.columns[2], b.columns[0]}
+	fresh := buildColumn(target.Path, target.Name, b.cfg, b.palette, b.itemsByPath())
+	b.lifecycle().HandleColumnReloaded(columnReloadedMsg{Seq: b.watchSeq, path: target.Path, col: fresh})
+
+	reloaded := b.columns[2]
+	if !samePath(reloaded.Path, target.Path) {
+		t.Fatalf("reloaded column path = %q, want %q", reloaded.Path, target.Path)
+	}
+	if got := reloaded.SelectedItem(); got == nil || got.Name != "beta" {
+		t.Fatalf("selection after reordered column reload = %v, want beta", got)
 	}
 }
 

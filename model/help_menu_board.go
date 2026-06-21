@@ -7,10 +7,19 @@ import (
 	"kbrd/config"
 )
 
-// updateHelpMenu routes a key to the open `?` keybindings menu. Search mode
+type boardHelpActions struct {
+	board *Board
+}
+
+func (b *Board) helpActions() boardHelpActions {
+	return boardHelpActions{board: b}
+}
+
+// update routes a key to the open `?` keybindings menu. Search mode
 // (entered with `/`) captures typing; otherwise keys run a row, switch the
 // focused column, or navigate.
-func (b *Board) updateHelpMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (h boardHelpActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	b := h.board
 	if key.Matches(msg, Keys.Quit) {
 		b.helpMenu.Close()
 		return b.beginShutdown()
@@ -23,7 +32,7 @@ func (b *Board) updateHelpMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			b.helpMenu.StopFilter()
 		case tea.KeyEnter:
-			return b.runHelpSelected()
+			return h.runSelected()
 		case tea.KeyBackspace:
 			b.helpMenu.Backspace()
 		case tea.KeyRunes, tea.KeySpace:
@@ -41,7 +50,7 @@ func (b *Board) updateHelpMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case msg.String() == "/":
 		b.helpMenu.StartFilter()
 	case msg.Type == tea.KeyEnter:
-		return b.runHelpSelected()
+		return h.runSelected()
 	case msg.Type == tea.KeyLeft:
 		// ←/→ switch the focused column (wrapping) so the menu shows that
 		// column's commands; the selection stays in the menu.
@@ -49,17 +58,17 @@ func (b *Board) updateHelpMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx < 0 {
 			idx = len(b.columns) - 1
 		}
-		b.helpFocusColumn(idx)
+		h.focusColumn(idx)
 	case msg.Type == tea.KeyRight:
 		idx := b.selectedCol + 1
 		if idx >= len(b.columns) {
 			idx = 0
 		}
-		b.helpFocusColumn(idx)
+		h.focusColumn(idx)
 	case len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9':
 		// 1-9 jump straight to a column (including virtual ones), keeping the
 		// menu open on the target column.
-		b.helpFocusColumn(int(msg.Runes[0] - '1'))
+		h.focusColumn(int(msg.Runes[0] - '1'))
 	default:
 		// Execution gets first claim: a key that names a runnable row runs it
 		// (e.g. `e` edit, `g` git, a column-command key) — matching what the menu
@@ -73,33 +82,36 @@ func (b *Board) updateHelpMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-// openHelpMenu (re)builds the keybindings menu for the focused column, labelling
+// open (re)builds the keybindings menu for the focused column, labelling
 // it with the column name so column switching (←/→, 1-9) is visible.
-func (b *Board) openHelpMenu() {
+func (h boardHelpActions) open() {
+	b := h.board
 	label := ""
 	if b.selectedCol < len(b.columns) {
 		label = b.columns[b.selectedCol].Name
 	}
 	b.helpMenu.SetContext(label)
-	b.helpMenu.Open(b.helpGroups())
+	b.helpMenu.Open(h.groups())
 }
 
-// helpFocusColumn switches the menu's focused column (if idx is valid) and
+// focusColumn switches the menu's focused column (if idx is valid) and
 // rebuilds it so its local commands and disabled rows reflect that column.
-func (b *Board) helpFocusColumn(idx int) {
+func (h boardHelpActions) focusColumn(idx int) {
+	b := h.board
 	if idx < 0 || idx >= len(b.columns) {
 		return
 	}
 	b.selectedCol = idx
-	b.openHelpMenu()
+	h.open()
 }
 
-// helpGroups composes the keybindings menu from local context: a leading
+// groups composes the keybindings menu from local context: a leading
 // "Column commands" section for a focused virtual column, then the static
 // catalog with item-scoped rows disabled when no card is selected. The board
 // owns this decision so the menu stays a dumb renderer (mirrors ContextShortcuts
 // for the keybar).
-func (b *Board) helpGroups() []HelpGroup {
+func (h boardHelpActions) groups() []HelpGroup {
+	b := h.board
 	var col *Column
 	if b.selectedCol < len(b.columns) {
 		col = b.columns[b.selectedCol]
@@ -171,24 +183,26 @@ func (b *Board) helpGroups() []HelpGroup {
 	return append(local, groups...)
 }
 
-// runHelpSelected closes the menu and runs the highlighted row — injecting its
+// runSelected closes the menu and runs the highlighted row — injecting its
 // key through the normal path, or dispatching its custom command.
-func (b *Board) runHelpSelected() (tea.Model, tea.Cmd) {
+func (h boardHelpActions) runSelected() (tea.Model, tea.Cmd) {
+	b := h.board
 	e := b.helpMenu.SelectedEntry()
 	b.helpMenu.Close()
 	switch {
 	case e.RunKey != "":
 		return b.updateInner(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(e.RunKey)})
 	case e.CmdID != "":
-		return b, b.runHelpCustomCommand(e.CmdID)
+		return b, h.runCustomCommand(e.CmdID)
 	}
 	return b, nil
 }
 
-// runHelpCustomCommand dispatches a custom command chosen from the `?` menu
+// runCustomCommand dispatches a custom command chosen from the `?` menu
 // through the normal custom-command path, building vars/context for the focused
 // column and selected item exactly as the `x` menu does.
-func (b *Board) runHelpCustomCommand(id string) tea.Cmd {
+func (h boardHelpActions) runCustomCommand(id string) tea.Cmd {
+	b := h.board
 	if b.selectedCol >= len(b.columns) {
 		return nil
 	}

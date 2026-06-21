@@ -1,0 +1,250 @@
+package model
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"kbrd/board"
+	"kbrd/events"
+	"kbrd/template"
+)
+
+type boardMutationHandlers struct {
+	board *Board
+}
+
+func (b *Board) mutationHandlers() boardMutationHandlers {
+	return boardMutationHandlers{board: b}
+}
+
+func (h boardMutationHandlers) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
+	// board.ReplaceFileContent is existing-only: a card deleted while the
+	// editor was open errors instead of being silently resurrected.
+	return h.writeExistingItem(msg.Target, msg.FileName, "save", "failed to save: ", func(item *Item) error {
+		return board.ReplaceFileContent(item.FullPath, msg.Content)
+	}, func(name string) string {
+		return "saved " + name
+	})
+}
+
+func (h boardMutationHandlers) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
+	return h.writeExistingItem(msg.Target, msg.FileName, "append", "failed to append: ", func(item *Item) error {
+		return board.AppendLine(item.FullPath, msg.Text)
+	}, func(name string) string {
+		return "appended to " + name
+	})
+}
+
+func (h boardMutationHandlers) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
+	return h.writeExistingItem(msg.Target, msg.FileName, "prepend", "failed to prepend: ", func(item *Item) error {
+		return board.PrependLine(item.FullPath, msg.Text)
+	}, func(name string) string {
+		return "prepended to " + name
+	})
+}
+
+func (h boardMutationHandlers) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	at, body := b.journalStamp(msg.Text)
+	return h.writeExistingItem(msg.Target, msg.FileName, "journal", "failed to journal: ", func(item *Item) error {
+		return board.JournalLine(item.FullPath, at, body)
+	}, func(name string) string {
+		return "journal entry added to " + name
+	})
+}
+
+func (h boardMutationHandlers) writeExistingItem(target itemRefStable, fallbackName, kind, errorPrefix string, write func(*Item) error, success func(string) string) (tea.Model, tea.Cmd) {
+	b := h.board
+	if target.FileName == "" {
+		target.FileName = fallbackName
+	}
+	col, item, err := b.resolveDelayedItemRef(target)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	if err := write(item); err != nil {
+		return b, b.notifier.Send(errorPrefix+err.Error(), notifyError)
+	}
+	b.editor.confirmSaved()
+	b.reloadColumnAfterMutation(col)
+	col.SelectByName(item.Name)
+	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: item.Name}, Kind: kind})
+	return b, b.notifier.Send(success(item.Name), notifySuccess)
+}
+
+// openTemplateFlow starts the new-item-from-template overlay for col: lists
+// the column's .kbrd_templates merged with the board-level ones and opens the
+// picker (or, with a single template, its form directly).
+func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd) {
+	b := h.board
+	if col.Virtual {
+		return b, b.notifier.Send(errVirtualColumn.Error(), notifyError)
+	}
+	tmpls, warns, err := template.List(b.cfg.Path, col.Path)
+	if err != nil {
+		return b, b.notifier.Send("failed to list templates: "+err.Error(), notifyError)
+	}
+	var warnCmd tea.Cmd
+	if len(warns) > 0 {
+		w := warns[0]
+		warnCmd = b.notifier.Send("skipped "+filepath.Base(w.Path)+": "+w.Err.Error(), notifyError)
+	}
+	if len(tmpls) == 0 {
+		if warnCmd != nil {
+			return b, warnCmd
+		}
+		return b, b.notifier.Send("no templates — add .md files to "+col.Name+"/"+template.Dir+" or "+template.Dir, notifyError)
+	}
+	return b, tea.Batch(warnCmd, b.templateFlow.Open(b.selectedCol, refForColumn(col), tmpls))
+}
+
+// handleTemplateSubmit renders the completed template form and creates the
+// new card, mirroring handleNew's error reporting.
+func (h boardMutationHandlers) handleTemplateSubmit(msg templateSubmitMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	vctx := board.VarContext{
+		BoardPath:  b.cfg.Path,
+		BoardName:  b.cfg.BoardName,
+		ColumnPath: col.Path,
+		ColumnName: col.Name,
+	}
+	name, body, err := template.Instantiate(msg.Template, vctx, msg.Values)
+	if err != nil {
+		return b, b.notifier.Send("template: "+err.Error(), notifyError)
+	}
+	// Resolve {{shell}} markers: rewrite to inert notes when exec is disabled,
+	// or spawn a background worker per marker that fills it in. cardPath is the
+	// path the card is about to be written to.
+	cardPath := filepath.Join(col.Path, name+".md")
+	body, shellCmd := b.templateExec.dispatch(cardPath, body, b.cfg.Path, b.cfg.Template)
+	if _, err := b.createItemContent(col, name, body); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return b, b.notifier.Send("file already exists: "+name+".md", notifyError)
+		}
+		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
+	}
+	col.SelectByName(name)
+	return b, tea.Batch(shellCmd, b.notifier.Send("created "+name+".md", notifySuccess))
+}
+
+func (h boardMutationHandlers) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	if msg.FileName == "" {
+		return b, b.notifier.Send("filename cannot be empty", notifyError)
+	}
+	if _, err := b.createItem(col, msg.FileName); err != nil {
+		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
+	}
+	col.SelectByName(msg.FileName)
+	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
+}
+
+func validateRenameName(name string) error {
+	_, err := board.SanitizeFolder(name)
+	return err
+}
+
+func (h boardMutationHandlers) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	newName := strings.TrimSpace(msg.NewName)
+	if err := validateRenameName(newName); err != nil {
+		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
+	}
+	if newName == msg.OldName {
+		return b, nil
+	}
+	targetRef := msg.Target
+	if targetRef.FileName == "" {
+		targetRef.FileName = msg.OldName
+	}
+	col, item, err := b.resolveDelayedItemRef(targetRef)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	target := filepath.Join(col.Path, newName+".md")
+	if _, err := os.Stat(target); err == nil {
+		return b, b.notifier.Send("file already exists: "+newName+".md", notifyError)
+	}
+	b.dialog.OpenConfirm("Rename item?", item.Name+".md → "+newName+".md", newStableRenameItemConfirmMsg(refForItem(col, item), msg.ColIndex, item.Name, newName))
+	return b, nil
+}
+
+func (h boardMutationHandlers) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	newName := strings.TrimSpace(msg.NewName)
+	if err := validateRenameName(newName); err != nil {
+		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
+	}
+	if newName == msg.OldName {
+		return b, nil
+	}
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	parent := filepath.Dir(col.Path)
+	target := filepath.Join(parent, newName)
+	if _, err := os.Stat(target); err == nil {
+		return b, b.notifier.Send("folder already exists: "+newName, notifyError)
+	}
+	b.dialog.OpenConfirm("Rename column?", col.Name+" → "+newName, newStableRenameColumnConfirmMsg(refForColumn(col), msg.ColIndex, col.Name, newName))
+	return b, nil
+}
+
+func (h boardMutationHandlers) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	target := msg.Target
+	if target.FileName == "" {
+		target.FileName = msg.OldName
+	}
+	col, item, err := b.resolveDelayedItemRef(target)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	if err := b.renameItem(col, item.Name, msg.NewName); err != nil {
+		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
+	}
+	col.SelectByName(msg.NewName)
+	return b, b.notifier.Send("renamed "+item.Name+" → "+msg.NewName, notifySuccess)
+}
+
+func (h boardMutationHandlers) handleRenameColumnConfirm(msg renameColumnConfirmMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	if err := col.Rename(msg.NewName); err != nil {
+		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
+	}
+	return b, b.notifier.Send("renamed column "+col.Name+" → "+msg.NewName, notifySuccess)
+}
+
+func (h boardMutationHandlers) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	target := msg.Target
+	if target.FileName == "" {
+		target.FileName = msg.FileName
+	}
+	col, item, err := b.resolveDelayedItemRef(target)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	if err := b.deleteItem(col, item.Name); err != nil {
+		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
+	}
+	b.reloadColumnAfterMutation(col)
+	return b, b.notifier.Send("deleted "+item.Name, notifySuccess)
+}

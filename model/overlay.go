@@ -45,54 +45,6 @@ func (f OverlayFrame) Render() string {
 	return theme.RoundedFrame(f.Title, overlayTitleStyle, content, border, overlayPadV, overlayPadH, f.Width)
 }
 
-// activeOverlay returns the single popup to draw over the board, or "" when none
-// is open. Priority mirrors the key-routing order in updateInner.
-func (b *Board) activeOverlay(w, h int) string {
-	if b.helpMenu.Active() {
-		return b.helpMenu.View(w, h)
-	}
-	if b.configMenuOpen {
-		return RenderConfigCommandsOverlay(configCommandEntries())
-	}
-	if v := b.dialog.View(); v != "" {
-		return v
-	}
-	// The command menu and script UI are checked before the editor: a line
-	// command's menu (and any kbrd.ui.pick/prompt it yields) opens over a
-	// still-open editor and must render on top (mirrors the key routing).
-	if b.customCmds.Active() {
-		return b.customCmds.View(b.termWidth, b.termHeight)
-	}
-	if b.scriptUI.Active() {
-		return b.scriptUI.View()
-	}
-	if v := b.renderEditor(); v != "" {
-		return v
-	}
-	if b.peek.Active() {
-		return b.peek.View(w, h)
-	}
-	if b.switcher.Active() {
-		return b.switcher.View()
-	}
-	if b.search.Active() {
-		return b.search.View(w, h)
-	}
-	if b.templateFlow.Active() {
-		return b.templateFlow.View()
-	}
-	if b.frontmatterEdit.Active() {
-		return b.frontmatterEdit.View()
-	}
-	if b.git.Active() {
-		return b.git.View()
-	}
-	if b.zellij.Active() {
-		return b.zellij.View()
-	}
-	return ""
-}
-
 // composeOverlay centers overlay over base within the band of height bandH that
 // sits between the header (height headerH) and the bottom keybar, so both stay
 // visible behind the popup. base is padded with blank lines when a tall overlay

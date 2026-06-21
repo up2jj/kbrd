@@ -193,7 +193,7 @@ kbrd.on("item_created", function(evt)
 end)`)
 	// Drain any timers scheduled by init.lua so we measure only the hook's effect.
 	_ = b.collectTimerCmds()
-	_, cmd := b.Update(editorNewMsg{ColIndex: 0, FileName: "fresh"})
+	_, cmd := b.Update(editorNewMsg{Column: refForColumn(b.columns[0]), ColIndex: 0, FileName: "fresh"})
 	if cmd == nil {
 		t.Fatal("expected a tea.Cmd from create (notify + timer)")
 	}

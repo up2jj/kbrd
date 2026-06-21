@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/board"
+	"kbrd/boardops"
 	"kbrd/colstore"
 	"kbrd/events"
 	"kbrd/frontmatter"
@@ -1189,34 +1190,21 @@ func (c *Column) SelectedItem() *Item {
 }
 
 func (c *Column) MoveItemTo(destCol *Column, itemName string) error {
-	srcPath := ""
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			srcPath = item.FullPath
-			break
-		}
-	}
-	if srcPath == "" {
-		return os.ErrNotExist
-	}
-
-	destPath := filepath.Join(destCol.Path, filepath.Base(srcPath))
-	if err := board.RenameNoClobber(srcPath, destPath); err != nil {
+	src := boardops.ColumnRef{Name: c.Name, Path: c.Path}
+	dst := boardops.ColumnRef{Name: destCol.Name, Path: destCol.Path}
+	if _, err := boardops.MoveItem(src, dst, itemName); err != nil {
 		return err
 	}
-
 	c.LoadItems()
 	destCol.LoadItems()
 	return nil
 }
 
 func (c *Column) DeleteItem(itemName string) error {
-	for _, item := range c.Items {
-		if item.Name == itemName {
-			return os.Remove(item.FullPath)
-		}
+	if _, err := boardops.DeleteItem(boardops.ColumnRef{Name: c.Name, Path: c.Path}, itemName); err != nil {
+		return err
 	}
-	return os.ErrNotExist
+	return nil
 }
 
 // CreateItem creates a new empty <name>.md item in the column. It will not
@@ -1229,12 +1217,12 @@ func (c *Column) CreateItem(name string) (string, error) {
 // CreateItemContent is CreateItem with initial file content (e.g. a rendered
 // template body).
 func (c *Column) CreateItemContent(name, content string) (string, error) {
-	fullPath, err := board.CreateItem(c.Path, name, content)
+	res, err := boardops.CreateItem(boardops.ColumnRef{Name: c.Name, Path: c.Path}, name, content)
 	if err != nil {
 		return "", err
 	}
 	c.LoadItems()
-	return filepath.Base(fullPath), nil
+	return filepath.Base(res.Path), nil
 }
 
 // The content mutations below resolve the item's path through the in-memory
@@ -1291,16 +1279,10 @@ func (c *Column) OpenFile(itemName string) error {
 }
 
 func (c *Column) RenameItem(oldName, newName string) error {
-	for i := range c.Items {
-		if c.Items[i].Name == oldName {
-			newPath := filepath.Join(c.Path, newName+".md")
-			if err := board.RenameNoClobber(c.Items[i].FullPath, newPath); err != nil {
-				return err
-			}
-			return c.LoadItems()
-		}
+	if _, err := boardops.RenameItem(boardops.ColumnRef{Name: c.Name, Path: c.Path}, oldName, newName); err != nil {
+		return err
 	}
-	return os.ErrNotExist
+	return c.LoadItems()
 }
 
 func (c *Column) Rename(newName string) error {
@@ -1365,4 +1347,41 @@ func (c *Column) ItemByName(name string) *Item {
 		}
 	}
 	return nil
+}
+
+func (c *Column) IndexByName(name string) (int, bool) {
+	for i := range c.Items {
+		if c.Items[i].Name == name {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// ItemByPath returns the loaded item at path, or nil if absent.
+func (c *Column) ItemByPath(path string) *Item {
+	for i := range c.Items {
+		if samePath(c.Items[i].FullPath, path) {
+			item := c.Items[i]
+			return &item
+		}
+	}
+	return nil
+}
+
+// FrontmatterKeys returns the parsed frontmatter keys currently loaded for this
+// column. It keeps callers from reaching into the item slice when they only
+// need aggregate card metadata.
+func (c *Column) FrontmatterKeys() []string {
+	seen := map[string]struct{}{}
+	for i := range c.Items {
+		for k := range c.Items[i].Data {
+			seen[k] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	return keys
 }

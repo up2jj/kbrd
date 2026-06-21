@@ -17,6 +17,7 @@ import (
 // frontmatter.Set); when Delete is true the key is removed via
 // frontmatter.Delete and Value is ignored.
 type frontmatterSubmitMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Key      string
@@ -54,6 +55,7 @@ const (
 // key after the key form completes.
 type FrontmatterEditor struct {
 	stage      frontmatterStage
+	target     itemRefStable
 	colIndex   int
 	fileName   string
 	data       map[string]any    // the card's parsed frontmatter (lookups + suggestions)
@@ -73,6 +75,7 @@ func (e *FrontmatterEditor) Active() bool { return e.stage != feNone }
 
 func (e *FrontmatterEditor) Close() {
 	e.stage = feNone
+	e.target = itemRefStable{}
 	e.data = nil
 	e.extraKeys = nil
 	e.defaults = nil
@@ -105,7 +108,8 @@ func (e *FrontmatterEditor) fitForm() {
 // completion candidates (board-wide keys + script suggestions) and defaults maps
 // a key to a value to seed when the card does not already carry it. Returns the
 // key form's Init cmd.
-func (e *FrontmatterEditor) Open(colIndex int, fileName string, data map[string]any, extraKeys []string, defaults map[string]string) tea.Cmd {
+func (e *FrontmatterEditor) Open(target itemRefStable, colIndex int, fileName string, data map[string]any, extraKeys []string, defaults map[string]string) tea.Cmd {
+	e.target = target
 	e.colIndex = colIndex
 	e.fileName = fileName
 	e.data = data
@@ -210,7 +214,7 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 	// outright. Intercepted before the form so the value Input never sees it.
 	if e.stage == feValue {
 		if k, ok := msg.(tea.KeyMsg); ok && k.String() == "ctrl+d" {
-			out := frontmatterSubmitMsg{ColIndex: e.colIndex, FileName: e.fileName, Key: e.keyVal, Delete: true}
+			out := newStableFrontmatterSubmitMsg(e.target, e.colIndex, e.fileName, e.keyVal, "", true)
 			e.Close()
 			return func() tea.Msg { return out }
 		}
@@ -243,12 +247,7 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 			e.nestedNote = ""
 			return e.startValueForm()
 		case feValue:
-			out := frontmatterSubmitMsg{
-				ColIndex: e.colIndex,
-				FileName: e.fileName,
-				Key:      e.keyVal,
-				Value:    e.valueVal,
-			}
+			out := newStableFrontmatterSubmitMsg(e.target, e.colIndex, e.fileName, e.keyVal, e.valueVal, false)
 			e.Close()
 			return func() tea.Msg { return out }
 		}
@@ -381,26 +380,33 @@ func seedValue(v any) string {
 	}
 }
 
-// openFrontmatterEditor gathers completion sources and opens the editor on the
-// selected card. Kept here (a *Board method by package, not file) so board.go
-// stays a one-line dispatcher.
-func (b *Board) openFrontmatterEditor(colIndex int, col *Column, item *Item) tea.Cmd {
-	keys, defaults := b.frontmatterKeySources(col.Name, item.Name)
-	return b.frontmatterEdit.Open(colIndex, item.Name, item.Data, keys, defaults)
+type boardFrontmatterActions struct {
+	board *Board
 }
 
-// frontmatterKeySources collects key-completion candidates for the editor: the
+func (b *Board) frontmatterActions() boardFrontmatterActions {
+	return boardFrontmatterActions{board: b}
+}
+
+// openEditor gathers completion sources and opens the editor on the selected
+// card.
+func (a boardFrontmatterActions) openEditor(colIndex int, col *Column, item *Item) tea.Cmd {
+	b := a.board
+	keys, defaults := a.keySources(col.Name, item.Name)
+	return b.frontmatterEdit.Open(refForItem(col, item), colIndex, item.Name, item.Data, keys, defaults)
+}
+
+// keySources collects key-completion candidates for the editor: the
 // union of every key already present on any card across the board, plus any keys
 // a frontmatter_suggestions Lua hook offers, along with that hook's per-key
 // default values. Keys come from already-parsed Item.Data held in memory, so no
 // filesystem scan (ripgrep) is needed — it is a cheap map-key sweep.
-func (b *Board) frontmatterKeySources(colName, itemName string) (keys []string, defaults map[string]string) {
+func (a boardFrontmatterActions) keySources(colName, itemName string) (keys []string, defaults map[string]string) {
+	b := a.board
 	set := map[string]struct{}{}
 	for _, col := range b.columns {
-		for i := range col.Items {
-			for k := range col.Items[i].Data {
-				set[k] = struct{}{}
-			}
+		for _, k := range col.FrontmatterKeys() {
+			set[k] = struct{}{}
 		}
 	}
 	defaults = map[string]string{}
@@ -421,24 +427,28 @@ func (b *Board) frontmatterKeySources(colName, itemName string) (keys []string, 
 	return keys, defaults
 }
 
-// handleFrontmatterSubmit writes the edited key/value back to the card and
-// refreshes the column. It lives here (not in board.go) so board.go stays a
-// one-line dispatcher; it is a *Board method by virtue of package, not file.
-func (b *Board) handleFrontmatterSubmit(msg frontmatterSubmitMsg) (tea.Model, tea.Cmd) {
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, nil
+// handleSubmit writes the edited key/value back to the card and refreshes the
+// column.
+func (a boardFrontmatterActions) handleSubmit(msg frontmatterSubmitMsg) (tea.Model, tea.Cmd) {
+	b := a.board
+	target := msg.Target
+	if target.FileName == "" {
+		target.FileName = msg.FileName
 	}
-	col := b.columns[msg.ColIndex]
+	col, item, err := b.resolveDelayedItemRef(target)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
 	if msg.Delete {
-		if err := b.deleteFrontmatter(col, msg.FileName, msg.Key); err != nil {
+		if err := b.deleteFrontmatter(col, item.Name, msg.Key); err != nil {
 			return b, b.notifier.Send("failed to remove "+msg.Key+": "+err.Error(), notifyError)
 		}
-		col.SelectByName(msg.FileName)
+		col.SelectByName(item.Name)
 		return b, b.notifier.Send("removed "+msg.Key, notifySuccess)
 	}
-	if err := b.setFrontmatter(col, msg.FileName, msg.Key, msg.Value); err != nil {
+	if err := b.setFrontmatter(col, item.Name, msg.Key, msg.Value); err != nil {
 		return b, b.notifier.Send("failed to set "+msg.Key+": "+err.Error(), notifyError)
 	}
-	col.SelectByName(msg.FileName)
+	col.SelectByName(item.Name)
 	return b, b.notifier.Send("set "+msg.Key, notifySuccess)
 }

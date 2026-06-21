@@ -47,7 +47,9 @@ type UIRequest struct {
 // invocation returns, deferred events drain via OnEvent.
 type Host struct {
 	cfg    config.ScriptingConfig
-	api    events.BoardAPI
+	api    events.ScriptAPI
+	nav    events.NavigationAPI
+	pres   events.PresentationAPI
 	logger events.Logger
 
 	// instanceName identifies this running kbrd process (a machine-local name,
@@ -208,7 +210,13 @@ type pendingCoro struct {
 // name is configured.
 // Returns a Host even on partial failure — callers should always call Close.
 // nil is returned only when scripting is disabled in config.
-func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
+func New(cfg config.ScriptingConfig, api events.ScriptAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
+	nav, _ := api.(events.NavigationAPI)
+	pres, _ := api.(events.PresentationAPI)
+	return NewWithCapabilities(cfg, api, nav, pres, logger, folderPath, instanceName)
+}
+
+func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav events.NavigationAPI, pres events.PresentationAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -220,6 +228,8 @@ func New(cfg config.ScriptingConfig, api events.BoardAPI, logger events.Logger, 
 	h := &Host{
 		cfg:            cfg,
 		api:            api,
+		nav:            nav,
+		pres:           pres,
 		logger:         logger,
 		instanceName:   instanceName,
 		L:              L,

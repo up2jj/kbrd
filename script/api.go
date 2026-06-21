@@ -371,8 +371,11 @@ func (h *Host) luaBoardRefresh(L *lua.LState) int {
 // item_select hooks fire after the script returns (via the board's selection
 // diff), so a focus hook won't re-enter mid-run.
 func (h *Host) luaBoardFocus(L *lua.LState) int {
+	if h.nav == nil {
+		return errResult(L, fmt.Errorf("navigation is not available in this host"))
+	}
 	column := L.CheckString(1)
-	if err := h.api.FocusColumn(column); err != nil {
+	if err := h.nav.FocusColumn(column); err != nil {
 		return errResult(L, err)
 	}
 	L.Push(lua.LTrue)
@@ -383,9 +386,12 @@ func (h *Host) luaBoardFocus(L *lua.LState) int {
 // Focuses the named column and moves its cursor onto the named item. Errors if
 // the column or item doesn't exist.
 func (h *Host) luaBoardSelect(L *lua.LState) int {
+	if h.nav == nil {
+		return errResult(L, fmt.Errorf("navigation is not available in this host"))
+	}
 	column := L.CheckString(1)
 	name := L.CheckString(2)
-	if err := h.api.SelectItem(column, name); err != nil {
+	if err := h.nav.SelectItem(column, name); err != nil {
 		return errResult(L, err)
 	}
 	L.Push(lua.LTrue)
@@ -487,9 +493,12 @@ func (h *Host) luaAsyncCancel(L *lua.LState) int {
 // Safe to call from timer callbacks: a kbrd.timer.every body that re-sets a cell
 // each tick is the supported way to animate (flicker, ticking values, etc.).
 func (h *Host) luaCellSet(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
 	id := L.CheckInt(1)
 	t := L.CheckTable(2)
-	h.api.CellSet(id, events.CellOpts{
+	h.pres.CellSet(id, events.CellOpts{
 		Text: lua.LVAsString(t.RawGetString("text")),
 		FG:   lua.LVAsString(t.RawGetString("fg")),
 		BG:   lua.LVAsString(t.RawGetString("bg")),
@@ -500,13 +509,19 @@ func (h *Host) luaCellSet(L *lua.LState) int {
 
 // kbrd.cell.clear(id) — remove a single header cell.
 func (h *Host) luaCellClear(L *lua.LState) int {
-	h.api.CellClear(L.CheckInt(1))
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	h.pres.CellClear(L.CheckInt(1))
 	return 0
 }
 
 // kbrd.cell.clear_all() — remove every script-set cell (built-ins are kept).
 func (h *Host) luaCellClearAll(L *lua.LState) int {
-	h.api.CellClearAll()
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	h.pres.CellClearAll()
 	return 0
 }
 
@@ -530,6 +545,9 @@ func (h *Host) clearVcolFns(vid string) {
 // create or replace a virtual column. Idempotent; safe from timers/async
 // callbacks. See the events.VirtualColumnSpec types for the field shapes.
 func (h *Host) luaColumnSet(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
 	id := L.CheckString(1)
 	spec := L.CheckTable(2)
 	if id == "" {
@@ -608,22 +626,28 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		})
 	}
 
-	h.api.VirtualColumnSet(id, out)
+	h.pres.VirtualColumnSet(id, out)
 	return 0
 }
 
 // kbrd.column.clear(id) — remove a single virtual column.
 func (h *Host) luaColumnClear(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
 	id := L.CheckString(1)
 	h.clearVcolFns(id)
-	h.api.VirtualColumnClear(id)
+	h.pres.VirtualColumnClear(id)
 	return 0
 }
 
 // kbrd.column.clear_all() — remove every script-set virtual column.
 func (h *Host) luaColumnClearAll(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
 	h.vcolFns = make(map[string]*lua.LFunction)
-	h.api.VirtualColumnClearAll()
+	h.pres.VirtualColumnClearAll()
 	return 0
 }
 
@@ -631,6 +655,9 @@ func (h *Host) luaColumnClearAll(L *lua.LState) int {
 // Sets a short, styled label on the named column's header. A nil second arg —
 // or an empty text — clears the column's indicator.
 func (h *Host) luaColumnIndicator(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
 	name := L.CheckString(1)
 	v := L.Get(2)
 	var o events.ColumnIndicatorOpts
@@ -648,9 +675,9 @@ func (h *Host) luaColumnIndicator(L *lua.LState) int {
 		L.ArgError(2, "expected string, table, or nil")
 	}
 	if o.Text == "" {
-		h.api.ColumnIndicatorClear(name)
+		h.pres.ColumnIndicatorClear(name)
 	} else {
-		h.api.ColumnIndicatorSet(name, o)
+		h.pres.ColumnIndicatorSet(name, o)
 	}
 	return 0
 }

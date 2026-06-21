@@ -38,10 +38,19 @@ type lineShellDoneMsg struct {
 // is configured (shell line commands work even with scripting disabled).
 const lineCommandDefaultTimeout = 2 * time.Second
 
-// openLineCommands opens the custom-command menu filtered to line commands,
-// layered over the still-open editor. The board keeps the routing/wiring thin;
-// dispatch and the editor splice live here.
-func (b *Board) openLineCommands(msg openLineCommandsMsg) tea.Cmd {
+type boardLineCommands struct {
+	board *Board
+}
+
+func (b *Board) lineCommands() boardLineCommands {
+	return boardLineCommands{board: b}
+}
+
+// open opens the custom-command menu filtered to line commands, layered over
+// the still-open editor. The board keeps the routing/wiring thin; dispatch and
+// the editor splice live here.
+func (l boardLineCommands) open(msg openLineCommandsMsg) tea.Cmd {
+	b := l.board
 	b.loadCommands()
 	cmds := make([]config.Command, 0, len(b.commands))
 	for _, c := range b.commands {
@@ -49,30 +58,37 @@ func (b *Board) openLineCommands(msg openLineCommandsMsg) tea.Cmd {
 			cmds = append(cmds, c)
 		}
 	}
-	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, msg.Row, b.lineCommandVars(msg))
+	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, msg.Row, l.vars(msg))
 	return nil
 }
 
-// lineCommandVars builds the template/ctx vars for a line command: the standard
+// vars builds the template/ctx vars for a line command: the standard
 // board/column/file context (when the edited item is resolvable) plus `line`.
 // The item is resolved by the editor's FileName, not the column's current
 // selection — a script/timer/hook may have moved selection while the editor
 // stayed open, and the command must bind to the card actually being edited.
-func (b *Board) lineCommandVars(msg openLineCommandsMsg) map[string]string {
+func (l boardLineCommands) vars(msg openLineCommandsMsg) map[string]string {
+	b := l.board
 	vars := map[string]string{}
-	if msg.ColIndex >= 0 && msg.ColIndex < len(b.columns) {
-		item := b.columns[msg.ColIndex].ItemByName(msg.FileName)
-		vars = b.buildCommandVars(msg.ColIndex, item)
+	target := msg.Target
+	if target.FileName == "" {
+		target.FileName = msg.FileName
+	}
+	if col, item, err := b.resolveDelayedItemRef(target); err == nil {
+		if colIdx := b.indexOfColumn(col); colIdx >= 0 {
+			vars = b.buildCommandVars(colIdx, item)
+		}
 	}
 	vars["line"] = msg.Line
 	return vars
 }
 
-// handleRunLineCommand dispatches a chosen line command. Lua commands run on the
+// handleRun dispatches a chosen line command. Lua commands run on the
 // script host (their return value is spliced in once the coroutine completes,
 // via the handleScriptResult chokepoint); shell commands run non-interactively
 // with the line on stdin and their stdout replacing the line.
-func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd) {
+func (l boardLineCommands) handleRun(msg runLineCommandMsg) (tea.Model, tea.Cmd) {
+	b := l.board
 	if msg.Cmd.Source == config.SourceLua {
 		// Mark the apply intent (and the target row) so handleScriptResult splices
 		// TakeReturn() into that row when the coroutine finishes — even after
@@ -107,21 +123,23 @@ func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 	}
 }
 
-// applyLineReturn splices a completed Lua line command's return value into the
+// applyReturn splices a completed Lua line command's return value into the
 // editor's current line. A return of nil/none leaves the line untouched. No
 // finished toast or column reload — the buffer change is its own feedback, and
 // nothing on disk changed (unlike board commands).
-func (b *Board) applyLineReturn() tea.Cmd {
+func (l boardLineCommands) applyReturn() tea.Cmd {
+	b := l.board
 	if out, ok := b.scripts.TakeReturn(); ok {
 		b.editor.ReplaceLine(b.lineApplyRow, out)
 	}
 	return nil
 }
 
-// handleLineShellDone applies a shell line filter's stdout to the editor line.
+// handleShellDone applies a shell line filter's stdout to the editor line.
 // A failed run (start/timeout error or non-zero exit) leaves the line as-is and
 // surfaces the captured stderr instead.
-func (b *Board) handleLineShellDone(msg lineShellDoneMsg) (tea.Model, tea.Cmd) {
+func (l boardLineCommands) handleShellDone(msg lineShellDoneMsg) (tea.Model, tea.Cmd) {
+	b := l.board
 	if msg.Err != "" {
 		return b, b.notifier.Send(msg.Name+": "+msg.Err, notifyError)
 	}

@@ -282,13 +282,26 @@ func safeDispatch(s Subscriber, ev Event) {
 //
 // FS* paths may be absolute or relative; relative paths are resolved
 // against the board root by the implementation.
-type BoardAPI interface {
+type NotifierAPI interface {
 	// Notify shows a non-blocking toast. level is one of "info", "success", "error".
 	Notify(msg, level string)
+}
+
+type MutationAPI interface {
 	// MoveItem moves the item identified by item to the column named toColumn.
 	MoveItem(item ItemRef, toColumn string) error
 	// CreateItem creates a new (empty) item named name in the named column.
 	CreateItem(column, name string) error
+	// RenameItem renames the item identified by item to newName (same column).
+	RenameItem(item ItemRef, newName string) error
+	// DeleteItem deletes the item identified by item.
+	DeleteItem(item ItemRef) error
+	// CreateColumn creates a new column directory under the board root and
+	// refreshes. Validates name (no separators, not . or ..).
+	CreateColumn(name string) error
+}
+
+type TemplateAPI interface {
 	// ListTemplates lists the card templates available to the named column
 	// (column-local merged with board-level; column wins on a name clash).
 	ListTemplates(column string) ([]TemplateInfo, error)
@@ -296,11 +309,9 @@ type BoardAPI interface {
 	// values and creates the resulting card in the named column. Field
 	// defaults apply for omitted keys; required fields must be non-empty.
 	CreateItemFromTemplate(column, template string, values map[string]any) error
-	// RenameItem renames the item identified by item to newName (same column).
-	RenameItem(item ItemRef, newName string) error
-	// DeleteItem deletes the item identified by item.
-	DeleteItem(item ItemRef) error
+}
 
+type NavigationAPI interface {
 	// FocusColumn moves the board's focus to the named column. SelectItem
 	// additionally places that column's cursor on the named item. Both are pure
 	// UI-state changes with no disk mutation; the implementation MUST NOT publish
@@ -308,20 +319,23 @@ type BoardAPI interface {
 	// those once after the script returns, so publishing here would double-fire.
 	FocusColumn(column string) error
 	SelectItem(column, name string) error
+}
 
+type FilesystemAPI interface {
 	// Filesystem primitives.
 	FSRead(path string) (string, error)
 	FSWrite(path, body string) error
 	FSExists(path string) bool
 	FSMkdir(path string) error
 	FSGlob(pattern string) ([]string, error)
+}
 
+type RefreshAPI interface {
 	// Refresh re-reads columns and git stats from disk.
 	Refresh() error
-	// CreateColumn creates a new column directory under the board root and
-	// refreshes. Validates name (no separators, not . or ..).
-	CreateColumn(name string) error
+}
 
+type PresentationAPI interface {
 	// CellSet adds or replaces a header cell identified by id. CellClear removes
 	// one; CellClearAll removes every script-set cell (built-ins are kept).
 	CellSet(id int, opts CellOpts)
@@ -336,6 +350,16 @@ type BoardAPI interface {
 	VirtualColumnClear(id string)
 	VirtualColumnClearAll()
 
+	// Per-column header indicator: a short, styled label a script attaches to a
+	// column's header by NAME (the per-column analogue of a header cell). Purely
+	// presentational and script-driven — kbrd never sets it itself. An empty
+	// Opts.Text clears it; ColumnIndicatorClearAll removes every script-set one.
+	ColumnIndicatorSet(column string, opts ColumnIndicatorOpts)
+	ColumnIndicatorClear(column string)
+	ColumnIndicatorClearAll()
+}
+
+type ColumnConfigAPI interface {
 	// Column config store — a scripting-only persistent key/value table backing
 	// each filesystem column (a hidden <column>/.kbrd.toml). It is not shown in
 	// the UI and not consulted by app behavior; it exists solely so scripts can
@@ -347,14 +371,25 @@ type BoardAPI interface {
 	ColumnConfigSet(column, key string, value any) error
 	ColumnConfigAll(column string) (map[string]any, error)
 	ColumnConfigDelete(column, key string) error
+}
 
-	// Per-column header indicator: a short, styled label a script attaches to a
-	// column's header by NAME (the per-column analogue of a header cell). Purely
-	// presentational and script-driven — kbrd never sets it itself. An empty
-	// Opts.Text clears it; ColumnIndicatorClearAll removes every script-set one.
-	ColumnIndicatorSet(column string, opts ColumnIndicatorOpts)
-	ColumnIndicatorClear(column string)
-	ColumnIndicatorClearAll()
+type ScriptAPI interface {
+	NotifierAPI
+	MutationAPI
+	TemplateAPI
+	FilesystemAPI
+	RefreshAPI
+	ColumnConfigAPI
+}
+
+type ScriptUIAPI interface {
+	NavigationAPI
+	PresentationAPI
+}
+
+type BoardAPI interface {
+	ScriptAPI
+	ScriptUIAPI
 }
 
 // ColumnIndicatorOpts is the content/appearance of a per-column header label set

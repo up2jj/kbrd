@@ -3,6 +3,8 @@ package model
 import (
 	"strings"
 	"testing"
+
+	"kbrd/config"
 )
 
 func TestContextShortcuts(t *testing.T) {
@@ -168,5 +170,27 @@ func TestHelpMenu_RenderContainsContent(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("menu missing %q", want)
 		}
+	}
+}
+
+func TestBoardHelpActions_RunCustomCommandBuildsCommandMessage(t *testing.T) {
+	col := newTestColumn(t, map[string]string{"task": "body"})
+	b := NewBoard(config.Config{Path: col.Path, BoardName: "demo", NotifyBackend: "none"})
+	b.columns = []*Column{col}
+	b.commands = []config.Command{{Name: "Ship", ID: "ship", Description: "ship it", Template: "echo {{.fileName}}"}}
+
+	cmd := b.helpActions().runCustomCommand("ship")
+	if cmd == nil {
+		t.Fatal("expected custom command tea.Cmd")
+	}
+	msg, ok := cmd().(runCustomCommandMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want runCustomCommandMsg", msg)
+	}
+	if msg.Cmd.ID != "ship" {
+		t.Fatalf("Cmd.ID = %q, want ship", msg.Cmd.ID)
+	}
+	if msg.Vars["fileName"] != "task" {
+		t.Fatalf("fileName var = %q, want task", msg.Vars["fileName"])
 	}
 }

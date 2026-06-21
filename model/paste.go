@@ -46,12 +46,21 @@ type pasteDoneMsg struct {
 	Verb     string
 }
 
+type boardPasteActions struct {
+	board *Board
+}
+
+func (b *Board) pasteActions() boardPasteActions {
+	return boardPasteActions{board: b}
+}
+
 // openPasteMenu reads the clipboard and opens the paste-mode picker over the
 // selected card. The target is resolved here, on the UI goroutine, into a stable
 // (column name/path + item path) identity carried by each button's request — so
 // nothing downstream depends on the column's current index. An empty/unavailable
 // clipboard, or an item that can't be resolved, is reported without opening.
-func (b *Board) openPasteMenu(colIdx int, fileName string) tea.Cmd {
+func (a boardPasteActions) openMenu(colIdx int, fileName string) tea.Cmd {
+	b := a.board
 	text, err := clipboard.ReadAll()
 	if err != nil || text == "" {
 		return b.notifier.Send("clipboard empty or unavailable", notifyError)
@@ -85,7 +94,8 @@ func (b *Board) openPasteMenu(colIdx int, fileName string) tea.Cmd {
 // writing directly to the request's captured item path (never touching
 // b.columns, which may have changed). Completion is reported via pasteDoneMsg so
 // handlePasteDone can finish on the UI thread.
-func (b *Board) pasteToItem(msg pasteRequestMsg) tea.Cmd {
+func (a boardPasteActions) pasteToItem(msg pasteRequestMsg) tea.Cmd {
+	b := a.board
 	// Capture journal config on the UI goroutine; the worker must not read live
 	// Board state (a board switch / config reload could race it).
 	detectDate := b.cfg.Journal.DetectDate
@@ -125,8 +135,9 @@ func (b *Board) pasteToItem(msg pasteRequestMsg) tea.Cmd {
 // longer holds the target (reloaded away, reordered to nothing, or the board was
 // switched), it no-ops — the disk write already landed and the fs watcher will
 // reconcile the view.
-func (b *Board) handlePasteDone(msg pasteDoneMsg) (tea.Model, tea.Cmd) {
-	col := b.resolvePasteColumn(msg)
+func (a boardPasteActions) handleDone(msg pasteDoneMsg) (tea.Model, tea.Cmd) {
+	b := a.board
+	col := a.resolveColumn(msg)
 	if col == nil {
 		return b, nil
 	}
@@ -141,7 +152,8 @@ func (b *Board) handlePasteDone(msg pasteDoneMsg) (tea.Model, tea.Cmd) {
 // boards, and stable across reload/reorder); a virtual column (no path) matches
 // by name only if it still holds the written file. Returns nil when the target
 // is no longer present.
-func (b *Board) resolvePasteColumn(msg pasteDoneMsg) *Column {
+func (a boardPasteActions) resolveColumn(msg pasteDoneMsg) *Column {
+	b := a.board
 	for _, c := range b.columns {
 		if msg.ColPath != "" {
 			if c.Path == msg.ColPath {

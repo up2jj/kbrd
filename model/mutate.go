@@ -2,12 +2,9 @@ package model
 
 import (
 	"errors"
-	"fmt"
-	"os"
 
-	"kbrd/board"
+	"kbrd/boardops"
 	"kbrd/events"
-	"kbrd/frontmatter"
 )
 
 // errVirtualColumn is returned when a mutation targets a virtual (script-owned,
@@ -79,47 +76,25 @@ func (b *Board) deleteItem(col *Column, name string) error {
 // re-applies the column_items transform; UI state (selection, notifier) is the
 // caller's. Shared so the Lua API / MCP can reuse it.
 func (b *Board) setFrontmatter(col *Column, name, key, value string) error {
-	return b.rewriteFrontmatter(col, name, func(raw string) string {
-		return frontmatter.Set(raw, key, value)
-	})
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	if _, err := boardops.SetFrontmatter(boardops.ColumnRef{Name: col.Name, Path: col.Path}, name, key, value); err != nil {
+		return err
+	}
+	col.LoadItems()
+	b.applyColumnTransform(col)
+	return nil
 }
 
 // deleteFrontmatter removes a single top-level frontmatter key from the named
 // card. A key the card does not carry is a no-op (no write). Same FS-change +
 // transform discipline as setFrontmatter.
 func (b *Board) deleteFrontmatter(col *Column, name, key string) error {
-	return b.rewriteFrontmatter(col, name, func(raw string) string {
-		return frontmatter.Delete(raw, key)
-	})
-}
-
-// rewriteFrontmatter reads the named card, applies rewrite to its raw content,
-// and writes the result back — skipping the write (and reload) when rewrite is a
-// no-op, so removing an absent key never touches the file. Shared by
-// set/deleteFrontmatter.
-func (b *Board) rewriteFrontmatter(col *Column, name string, rewrite func(raw string) string) error {
 	if col.Virtual {
 		return errVirtualColumn
 	}
-	path := ""
-	for _, item := range col.Items {
-		if item.Name == name {
-			path = item.FullPath
-			break
-		}
-	}
-	if path == "" {
-		return fmt.Errorf("item not found: %s", name)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	updated := rewrite(string(raw))
-	if updated == string(raw) {
-		return nil // nothing changed (e.g. removing an absent key)
-	}
-	if err := board.ReplaceFileContent(path, updated); err != nil {
+	if _, err := boardops.DeleteFrontmatter(boardops.ColumnRef{Name: col.Name, Path: col.Path}, name, key); err != nil {
 		return err
 	}
 	col.LoadItems()

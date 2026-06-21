@@ -10,13 +10,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kbrd/board"
-	"kbrd/colstore"
+	"kbrd/boardops"
 	"kbrd/config"
 	"kbrd/events"
 	"kbrd/script"
 	"kbrd/shellcmd"
-	"kbrd/template"
 )
 
 // initScripting creates the Lua host (if enabled and init files exist) and
@@ -56,9 +54,9 @@ func (b *Board) initScripting() {
 	b.bus.Subscribe(host)
 }
 
-// boardScriptAPI is the events.BoardAPI implementation handed to the Lua
-// host. It must remain safe to call while h.mu is held inside the host —
-// so it never calls back into the host itself.
+// boardScriptAPI is the TUI capability implementation handed to the Lua host.
+// It must remain safe to call while h.mu is held inside the host, so it never
+// calls back into the host itself.
 type boardScriptAPI struct {
 	b *Board
 }
@@ -184,7 +182,7 @@ func (b *Board) collectEditorOpenCmd() tea.Cmd {
 	}
 	b.selectedCol = colIdx
 	b.columns[colIdx].SelectByName(item.Name)
-	cmd := b.editor.OpenEdit(colIdx, item.Name, item.FullPath)
+	cmd := b.editor.OpenEdit(colIdx, b.columns[colIdx].Path, item.Name, item.FullPath)
 	b.editor.GoToLine(req.Line)
 	return cmd
 }
@@ -195,11 +193,12 @@ func (b *Board) collectEditorOpenCmd() tea.Cmd {
 func (b *Board) resolveEditorTarget(req script.EditorOpenReq) (int, *Item) {
 	if req.Path != "" {
 		for ci, col := range b.columns {
-			for i := range col.Items {
-				it := &col.Items[i]
-				if it.FullPath == req.Path || filepath.Base(it.FullPath) == req.Path || it.Name == req.Path {
-					return ci, it
-				}
+			if it := col.ItemByPath(req.Path); it != nil {
+				return ci, it
+			}
+			name := strings.TrimSuffix(filepath.Base(req.Path), ".md")
+			if it := col.ItemByName(name); it != nil {
+				return ci, it
 			}
 		}
 		return -1, nil
@@ -209,10 +208,8 @@ func (b *Board) resolveEditorTarget(req script.EditorOpenReq) (int, *Item) {
 			if req.Column != "" && col.Name != req.Column {
 				continue
 			}
-			for i := range col.Items {
-				if col.Items[i].Name == req.Name {
-					return ci, &col.Items[i]
-				}
+			if it := col.ItemByName(req.Name); it != nil {
+				return ci, it
 			}
 		}
 		return -1, nil
@@ -338,7 +335,7 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 		// chokepoint both the synchronous and resume paths funnel through.
 		if b.lineApplyPending {
 			b.lineApplyPending = false
-			resultCmd = b.applyLineReturn()
+			resultCmd = b.lineCommands().applyReturn()
 		} else {
 			resultCmd = func() tea.Msg {
 				return customCommandFinishedMsg{Name: name, Err: nil}
@@ -465,20 +462,14 @@ func (a boardScriptAPI) Refresh() error {
 }
 
 func (a boardScriptAPI) CreateColumn(name string) error {
-	if err := validateRenameName(name); err != nil {
-		return err
-	}
-	dir := filepath.Join(a.b.cfg.Path, name)
-	if _, err := os.Stat(dir); err == nil {
-		return fmt.Errorf("column %q already exists", name)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	col, err := boardops.CreateColumn(a.b.cfg.Path, name)
+	if err != nil {
 		return err
 	}
 	if err := a.Refresh(); err != nil {
 		return err
 	}
-	a.b.bus.Publish(events.ColumnCreated{Name: name})
+	a.b.bus.Publish(events.ColumnCreated{Name: col.Name})
 	return nil
 }
 
@@ -532,8 +523,20 @@ func (a boardScriptAPI) MoveItem(item events.ItemRef, toColumn string) error {
 	if dst == nil {
 		return fmt.Errorf("destination column %q not found", toColumn)
 	}
-	// Centralized helper performs the move AND publishes ItemMoved.
-	return a.b.moveItem(src, dst, item.Name)
+	if src.Virtual || dst.Virtual {
+		return errVirtualColumn
+	}
+	if _, err := boardops.MoveItem(boardops.ColumnRef{Name: src.Name, Path: src.Path}, boardops.ColumnRef{Name: dst.Name, Path: dst.Path}, item.Name); err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ItemMoved{
+		Item: events.ItemRef{Column: src.Name, Name: item.Name},
+		From: src.Name,
+		To:   dst.Name,
+	})
+	a.b.reloadColumnAfterMutation(src)
+	a.b.reloadColumnAfterMutation(dst)
+	return nil
 }
 
 func (a boardScriptAPI) CreateItem(column, name string) error {
@@ -541,8 +544,17 @@ func (a boardScriptAPI) CreateItem(column, name string) error {
 	if col == nil {
 		return fmt.Errorf("column %q not found", column)
 	}
-	_, err := a.b.createItem(col, name)
-	return err
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	res, err := boardops.CreateItem(boardops.ColumnRef{Name: col.Name, Path: col.Path}, name, "")
+	if err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ItemCreated{Item: events.ItemRef{Column: col.Name, Name: res.Item.Name}})
+	a.b.reloadColumnAfterMutation(col)
+	col.SelectByName(res.Item.Name)
+	return nil
 }
 
 func (a boardScriptAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
@@ -553,15 +565,10 @@ func (a boardScriptAPI) ListTemplates(column string) ([]events.TemplateInfo, err
 	if col.Virtual {
 		return nil, errVirtualColumn
 	}
-	tmpls, _, err := template.List(a.b.cfg.Path, col.Path)
-	if err != nil {
-		return nil, err
-	}
-	infos := make([]events.TemplateInfo, 0, len(tmpls))
-	for _, t := range tmpls {
-		infos = append(infos, events.TemplateInfo{Name: t.Name, Scope: t.Scope})
-	}
-	return infos, nil
+	return boardops.ListTemplates(
+		boardops.BoardContext{Root: a.b.cfg.Path, Name: a.b.cfg.BoardName},
+		boardops.ColumnRef{Name: col.Name, Path: col.Path},
+	)
 }
 
 func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values map[string]any) error {
@@ -572,40 +579,31 @@ func (a boardScriptAPI) CreateItemFromTemplate(column, tmplName string, values m
 	if col.Virtual {
 		return errVirtualColumn
 	}
-	tmpls, _, err := template.List(a.b.cfg.Path, col.Path)
-	if err != nil {
-		return err
-	}
-	var tmpl *template.Template
-	names := make([]string, 0, len(tmpls))
-	for i, t := range tmpls {
-		names = append(names, t.Name)
-		if t.Name == tmplName {
-			tmpl = &tmpls[i]
-			break
-		}
-	}
-	if tmpl == nil {
-		return fmt.Errorf("template %q not found; available: %s", tmplName, strings.Join(names, ", "))
-	}
-	vctx := board.VarContext{
-		BoardPath:  a.b.cfg.Path,
-		BoardName:  a.b.cfg.BoardName,
-		ColumnPath: col.Path,
-		ColumnName: col.Name,
-	}
-	name, body, err := template.Instantiate(*tmpl, vctx, values)
-	if err != nil {
-		return err
-	}
 	// {{shell}} is never auto-run on the Lua path: dispatch with exec disabled
 	// rewrites any markers to the inert note. A script that wants async work
 	// calls kbrd.async.run itself.
-	cardPath := filepath.Join(col.Path, name+".md")
-	body, _ = a.b.templateExec.dispatch(cardPath, body, a.b.cfg.Path, config.TemplateConfig{Exec: false})
-	// Centralized helper creates the file AND publishes ItemCreated.
-	_, err = a.b.createItemContent(col, name, body)
-	return err
+	policy := func(body string) string {
+		// boardops resolves the final filename after rendering. The disabled
+		// dispatch path only needs a stable board root and inert rewrite; the
+		// cardPath is used for template shell context, which is intentionally
+		// unavailable when exec is disabled.
+		body, _ = a.b.templateExec.dispatch("", body, a.b.cfg.Path, config.TemplateConfig{Exec: false})
+		return body
+	}
+	res, err := boardops.CreateItemFromTemplate(
+		boardops.BoardContext{Root: a.b.cfg.Path, Name: a.b.cfg.BoardName},
+		boardops.ColumnRef{Name: col.Name, Path: col.Path},
+		tmplName,
+		values,
+		policy,
+	)
+	if err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ItemCreated{Item: events.ItemRef{Column: col.Name, Name: res.Item.Name}})
+	a.b.reloadColumnAfterMutation(col)
+	col.SelectByName(res.Item.Name)
+	return nil
 }
 
 func (a boardScriptAPI) RenameItem(item events.ItemRef, newName string) error {
@@ -613,7 +611,20 @@ func (a boardScriptAPI) RenameItem(item events.ItemRef, newName string) error {
 	if col == nil {
 		return fmt.Errorf("column %q not found", item.Column)
 	}
-	return a.b.renameItem(col, item.Name, newName)
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	res, err := boardops.RenameItem(boardops.ColumnRef{Name: col.Name, Path: col.Path}, item.Name, newName)
+	if err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ItemRenamed{
+		Item:    events.ItemRef{Column: col.Name, Name: res.Item.Name},
+		OldName: item.Name,
+	})
+	a.b.reloadColumnAfterMutation(col)
+	col.SelectByName(res.Item.Name)
+	return nil
 }
 
 func (a boardScriptAPI) DeleteItem(item events.ItemRef) error {
@@ -621,7 +632,15 @@ func (a boardScriptAPI) DeleteItem(item events.ItemRef) error {
 	if col == nil {
 		return fmt.Errorf("column %q not found", item.Column)
 	}
-	return a.b.deleteItem(col, item.Name)
+	if col.Virtual {
+		return errVirtualColumn
+	}
+	if _, err := boardops.DeleteItem(boardops.ColumnRef{Name: col.Name, Path: col.Path}, item.Name); err != nil {
+		return err
+	}
+	a.b.bus.Publish(events.ItemDeleted{Column: col.Name, Name: item.Name})
+	a.b.reloadColumnAfterMutation(col)
+	return nil
 }
 
 // FocusColumn moves the board's focus to the named column. It only mutates
@@ -705,12 +724,7 @@ func (a boardScriptAPI) ColumnConfigGet(column, key string) (any, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	s, err := colstore.Read(dir)
-	if err != nil {
-		return nil, false, err
-	}
-	v, ok := s.Get(key)
-	return v, ok, nil
+	return boardops.ColumnConfigGet(boardops.ColumnRef{Name: column, Path: dir}, key)
 }
 
 func (a boardScriptAPI) ColumnConfigSet(column, key string, value any) error {
@@ -718,10 +732,7 @@ func (a boardScriptAPI) ColumnConfigSet(column, key string, value any) error {
 	if err != nil {
 		return err
 	}
-	return colstore.Update(dir, func(s *colstore.Store) error {
-		s.Set(key, value)
-		return nil
-	})
+	return boardops.ColumnConfigSet(boardops.ColumnRef{Name: column, Path: dir}, key, value)
 }
 
 func (a boardScriptAPI) ColumnConfigAll(column string) (map[string]any, error) {
@@ -729,11 +740,7 @@ func (a boardScriptAPI) ColumnConfigAll(column string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := colstore.Read(dir)
-	if err != nil {
-		return nil, err
-	}
-	return s.All(), nil
+	return boardops.ColumnConfigAll(boardops.ColumnRef{Name: column, Path: dir})
 }
 
 func (a boardScriptAPI) ColumnConfigDelete(column, key string) error {
@@ -741,10 +748,7 @@ func (a boardScriptAPI) ColumnConfigDelete(column, key string) error {
 	if err != nil {
 		return err
 	}
-	return colstore.Update(dir, func(s *colstore.Store) error {
-		s.Delete(key)
-		return nil
-	})
+	return boardops.ColumnConfigDelete(boardops.ColumnRef{Name: column, Path: dir}, key)
 }
 
 // ColumnIndicatorSet/Clear/ClearAll mutate the per-column indicator registry

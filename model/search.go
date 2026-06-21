@@ -165,10 +165,8 @@ func locateFile(columns []*Column, filePath string) (colIdx, itemIdx int, ok boo
 		if !samePath(col.Path, dir) {
 			continue
 		}
-		for j := range col.Items {
-			if col.Items[j].Name == item {
-				return i, j, true
-			}
+		if idx, ok := col.IndexByName(item); ok {
+			return i, idx, true
 		}
 	}
 	return 0, 0, false

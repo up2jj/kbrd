@@ -8,10 +8,19 @@ import (
 	"kbrd/vimbuf"
 )
 
-// wireEditorCompletions injects a provider of :lua autocomplete candidates
+type boardEditorEval struct {
+	board *Board
+}
+
+func (b *Board) editorEval() boardEditorEval {
+	return boardEditorEval{board: b}
+}
+
+// wireCompletions injects a provider of :lua autocomplete candidates
 // (registered function names + usage) into the editor, read lazily from the
 // script host each time a vim buffer opens.
-func (b *Board) wireEditorCompletions() {
+func (e boardEditorEval) wireCompletions() {
+	b := e.board
 	b.editor.SetEvalCompletionsFunc(func() []vimbuf.Completion {
 		if b.scripts == nil {
 			return nil
@@ -40,11 +49,12 @@ type evalRange struct {
 // handleEditorEval evaluates a ":lua" expression with the editor's operand and
 // board/file context exposed as the Lua global `ctx`, then splices a string
 // return back into the buffer (a nil/no-value return leaves the buffer as-is).
-func (b *Board) handleEditorEval(msg editorEvalMsg) (tea.Model, tea.Cmd) {
+func (e boardEditorEval) handle(msg editorEvalMsg) (tea.Model, tea.Cmd) {
+	b := e.board
 	if b.scripts == nil {
 		return b, b.editor.setStatus("scripting disabled")
 	}
-	ctx := b.buildEditorEvalCtx(msg.Range)
+	ctx := e.ctx(msg.Range)
 	out, ok, err := b.scripts.EvalWithContext(msg.Expr, ctx)
 	if err != nil {
 		return b, b.editor.setStatus("lua: " + err.Error())
@@ -63,14 +73,15 @@ func (b *Board) handleEditorEval(msg editorEvalMsg) (tea.Model, tea.Cmd) {
 // buildEditorEvalCtx assembles the `ctx` table for a :lua command: the standard
 // board/column/file context (reusing buildFilesystemCtx) plus the operand —
 // `line`/`text` for a single line, or `lines`/`text`/`range` for a row range.
-func (b *Board) buildEditorEvalCtx(rng *evalRange) map[string]any {
-	colIdx := b.editor.ColIndex
+func (e boardEditorEval) ctx(rng *evalRange) map[string]any {
+	b := e.board
 	ctx := map[string]any{}
-	if colIdx >= 0 && colIdx < len(b.columns) {
-		// Resolve by the editor's FileName, not the column's current selection: a
-		// script/timer/hook may have moved selection while the editor stayed open,
-		// and the ctx must bind to the card whose buffer is being edited.
-		item := b.columns[colIdx].ItemByName(b.editor.FileName)
+	target := b.editor.itemTarget()
+	if target.FileName == "" {
+		target.FileName = b.editor.FileName
+	}
+	if col, item, err := b.resolveDelayedItemRef(target); err == nil {
+		colIdx := b.indexOfColumn(col)
 		ctx = b.buildFilesystemCtx(colIdx, item)
 	}
 	if b.editor.buf == nil {

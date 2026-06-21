@@ -43,8 +43,10 @@ type Editor struct {
 	textarea      textarea.Model
 	textinput     textinput.Model
 	ColIndex      int
+	ColPath       string
 	ColName       string
 	FileName      string
+	ItemPath      string
 	initialValue  string
 	undo          []string
 	redo          []string
@@ -230,10 +232,12 @@ func (e *Editor) GoToLine(line int) {
 	}
 }
 
-func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
+func (e *Editor) OpenEdit(colIdx int, colPath, fileName, fullPath string) tea.Cmd {
 	e.state = editorEdit
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.FileName = fileName
+	e.ItemPath = fullPath
 	content, _ := os.ReadFile(fullPath)
 	initial := strings.TrimRight(string(content), "\n")
 	if e.vim {
@@ -256,10 +260,12 @@ func (e *Editor) OpenEdit(colIdx int, fileName, fullPath string) tea.Cmd {
 	return e.textarea.Focus()
 }
 
-func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
+func (e *Editor) OpenAppend(colIdx int, colPath, itemPath, fileName string) tea.Cmd {
 	e.state = editorAppend
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.FileName = fileName
+	e.ItemPath = itemPath
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
@@ -275,10 +281,12 @@ func (e *Editor) OpenAppend(colIdx int, fileName string) tea.Cmd {
 	return e.textarea.Focus()
 }
 
-func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
+func (e *Editor) OpenPrepend(colIdx int, colPath, itemPath, fileName string) tea.Cmd {
 	e.state = editorPrepend
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.FileName = fileName
+	e.ItemPath = itemPath
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
@@ -294,10 +302,12 @@ func (e *Editor) OpenPrepend(colIdx int, fileName string) tea.Cmd {
 	return e.textarea.Focus()
 }
 
-func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
+func (e *Editor) OpenJournal(colIdx int, colPath, itemPath, fileName string) tea.Cmd {
 	e.state = editorJournal
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.FileName = fileName
+	e.ItemPath = itemPath
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
@@ -313,31 +323,37 @@ func (e *Editor) OpenJournal(colIdx int, fileName string) tea.Cmd {
 	return e.textarea.Focus()
 }
 
-func (e *Editor) OpenNew(colIdx int, colName string) tea.Cmd {
+func (e *Editor) OpenNew(colIdx int, colName, colPath string) tea.Cmd {
 	e.state = editorNew
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.ColName = colName
 	e.FileName = ""
+	e.ItemPath = ""
 	e.textinput.SetValue("")
 	e.initialValue = ""
 	return e.textinput.Focus()
 }
 
-func (e *Editor) OpenRenameItem(colIdx int, fileName string) tea.Cmd {
+func (e *Editor) OpenRenameItem(colIdx int, colPath, itemPath, fileName string) tea.Cmd {
 	e.state = editorRenameItem
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.FileName = fileName
+	e.ItemPath = itemPath
 	e.textinput.SetValue(fileName)
 	e.textinput.CursorEnd()
 	e.initialValue = fileName
 	return e.textinput.Focus()
 }
 
-func (e *Editor) OpenRenameColumn(colIdx int, colName string) tea.Cmd {
+func (e *Editor) OpenRenameColumn(colIdx int, colPath, colName string) tea.Cmd {
 	e.state = editorRenameColumn
 	e.ColIndex = colIdx
+	e.ColPath = colPath
 	e.ColName = colName
 	e.FileName = ""
+	e.ItemPath = ""
 	e.textinput.SetValue(colName)
 	e.textinput.CursorEnd()
 	e.initialValue = colName
@@ -504,9 +520,9 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 			if !isInputState(e.state) {
 				// Hand the current line to the board, which opens the line-command
 				// menu over the still-open editor. No buffer mutation here.
-				line, row, col, fn := e.CurrentLine(), e.CurrentRow(), e.ColIndex, e.FileName
+				line, row, col, fn, target := e.CurrentLine(), e.CurrentRow(), e.ColIndex, e.FileName, e.itemTarget()
 				return func() tea.Msg {
-					return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line, Row: row}
+					return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 				}, nil
 			}
 		}
@@ -582,34 +598,34 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 	var msg tea.Msg
 	switch e.state {
 	case editorEdit:
-		msg = editorSaveMsg{ColIndex: e.ColIndex, FileName: e.FileName, Content: e.textarea.Value()}
+		msg = newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorAppend:
-		msg = editorAppendMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
+		msg = newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorPrepend:
-		msg = editorPrependMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
+		msg = newStableEditorPrependMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorJournal:
-		msg = editorJournalMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: e.textarea.Value()}
+		msg = newStableEditorJournalMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorNew:
 		name := strings.TrimSpace(e.textinput.Value())
 		if name == "" {
 			e.Close()
 			return nil, nil
 		}
-		msg = editorNewMsg{ColIndex: e.ColIndex, FileName: name}
+		msg = newStableEditorNewMsg(e.columnTarget(), e.ColIndex, name)
 	case editorRenameItem:
 		name := strings.TrimSpace(e.textinput.Value())
 		if name == "" || name == e.initialValue {
 			e.Close()
 			return nil, nil
 		}
-		msg = renameItemRequestMsg{ColIndex: e.ColIndex, OldName: e.initialValue, NewName: name}
+		msg = newStableRenameItemRequestMsg(e.itemTarget(), e.ColIndex, e.initialValue, name)
 	case editorRenameColumn:
 		name := strings.TrimSpace(e.textinput.Value())
 		if name == "" || name == e.initialValue {
 			e.Close()
 			return nil, nil
 		}
-		msg = renameColumnRequestMsg{ColIndex: e.ColIndex, OldName: e.initialValue, NewName: name}
+		msg = newStableRenameColumnRequestMsg(e.columnTarget(), e.ColIndex, e.initialValue, name)
 	}
 	e.Close()
 	return func() tea.Msg { return msg }, nil
@@ -666,9 +682,9 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 		e.toggleExpanded()
 		return nil, nil
 	case key.Matches(keyMsg, Keys.EditorCommand): // ctrl+l line command menu
-		line, row, col, fn := e.buf.CurrentLine(), e.buf.CursorRow(), e.ColIndex, e.FileName
+		line, row, col, fn, target := e.buf.CurrentLine(), e.buf.CursorRow(), e.ColIndex, e.FileName, e.itemTarget()
 		return func() tea.Msg {
-			return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line, Row: row}
+			return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 		}, nil
 	}
 	e.status = ""
@@ -766,15 +782,27 @@ func (e *Editor) saveMsg() tea.Msg {
 	text := e.buf.Text()
 	switch e.state {
 	case editorEdit:
-		return editorSaveMsg{ColIndex: e.ColIndex, FileName: e.FileName, Content: text}
+		return newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorAppend:
-		return editorAppendMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		return newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorPrepend:
-		return editorPrependMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		return newStableEditorPrependMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorJournal:
-		return editorJournalMsg{ColIndex: e.ColIndex, FileName: e.FileName, Text: text}
+		return newStableEditorJournalMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	}
 	return nil
+}
+
+func (e *Editor) columnTarget() columnRef {
+	return columnRef{Name: e.ColName, Path: e.ColPath}
+}
+
+func (e *Editor) itemTarget() itemRefStable {
+	return itemRefStable{
+		Column:   columnRef{Name: e.ColName, Path: e.ColPath},
+		FileName: e.FileName,
+		ItemPath: e.ItemPath,
+	}
 }
 
 func (e *Editor) vimView() string {
@@ -1034,6 +1062,7 @@ func (e *Editor) View() string {
 // line's 0-based row, carried through dispatch so a slow/async result replaces
 // that row even if the cursor has since moved.
 type openLineCommandsMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Line     string
@@ -1041,30 +1070,35 @@ type openLineCommandsMsg struct {
 }
 
 type editorSaveMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Content  string
 }
 
 type editorAppendMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Text     string
 }
 
 type editorPrependMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Text     string
 }
 
 type editorJournalMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 	Text     string
 }
 
 type editorNewMsg struct {
+	Column   columnRef
 	ColIndex int
 	FileName string
 }
@@ -1076,29 +1110,34 @@ type editorDiscardMsg struct{}
 type editorConfirmDiscardMsg struct{}
 
 type deleteConfirmMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	FileName string
 }
 
 type renameItemRequestMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	OldName  string
 	NewName  string
 }
 
 type renameColumnRequestMsg struct {
+	Column   columnRef
 	ColIndex int
 	OldName  string
 	NewName  string
 }
 
 type renameItemConfirmMsg struct {
+	Target   itemRefStable
 	ColIndex int
 	OldName  string
 	NewName  string
 }
 
 type renameColumnConfirmMsg struct {
+	Column   columnRef
 	ColIndex int
 	OldName  string
 	NewName  string

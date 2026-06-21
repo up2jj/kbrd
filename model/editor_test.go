@@ -22,7 +22,7 @@ func TestOpenEditTabbedFileNotDirty(t *testing.T) {
 
 	e := NewEditor(false)
 	e.SetTermSize(120, 40)
-	e.OpenEdit(0, "note", path)
+	e.OpenEdit(0, "", "note", path)
 
 	if e.IsDirty() {
 		t.Fatalf("editor reports dirty immediately on open of a tabbed file; value=%q initial=%q", e.textarea.Value(), e.initialValue)
@@ -40,7 +40,7 @@ func openEditorWith(t *testing.T, content string) *Editor {
 	}
 	e := NewEditor(false)
 	e.SetTermSize(120, 40)
-	e.OpenEdit(0, "note", path)
+	e.OpenEdit(0, "", "note", path)
 	return e
 }
 
@@ -161,7 +161,7 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 
 	e := NewEditor(false)
 	e.SetTermSize(120, 40)
-	e.OpenEdit(0, "note", path)
+	e.OpenEdit(0, "", "note", path)
 
 	before := e.textarea.Width()
 	ctrlE := tea.KeyMsg{Type: tea.KeyCtrlE}

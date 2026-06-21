@@ -6,7 +6,9 @@ import (
 	"runtime"
 )
 
-func openFile(path string) error {
+var openFile = defaultOpenFile
+
+func defaultOpenFile(path string) error {
 	switch runtime.GOOS {
 	case "darwin":
 		cmd := exec.Command("open", path)

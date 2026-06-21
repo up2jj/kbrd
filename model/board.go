@@ -1,16 +1,10 @@
 package model
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,9 +15,7 @@ import (
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
 	"kbrd/git"
-	"kbrd/recents"
 	"kbrd/script"
-	"kbrd/template"
 )
 
 var Version = "dev"
@@ -66,47 +58,39 @@ type initBoardRequestMsg struct{}
 type initBoardConfirmMsg struct{}
 type initBoardDeclineMsg struct{}
 
-type itemRef struct {
-	ColIndex int
-	Name     string
-}
-
 type Board struct {
-	cfg                config.Config
-	columns            []*Column
-	visibleHeight      int
-	termWidth          int
-	termHeight         int
-	selectedCol        int
-	firstVisibleCol    int
-	quitting           bool
-	shuttingDown       bool // waiting for an in-flight git sync before quitting
-	editor             *Editor
-	notifier           *Notifier
-	quickCmdMode       bool
-	quickCmdInput      textinput.Model
-	theme              string
-	palette            Palette
-	watcher            *kbrdfs.Watcher
-	dialog             Dialog
-	helpMenu           HelpMenu
-	configMenuOpen     bool
-	peek               Peek
-	zoom               Zoom
-	switcher           Switcher
-	search             Search
-	git                git.Controller
-	zellij             Zellij
-	customCmds         CustomCommandMenu
-	commands           []config.Command
-	commandWarnings    []config.CommandLoadWarning
-	leftIndicatorWidth int
-	columnsLeftPad     int // centering pad to the left of the column strip
-	columnsHeight      int // height of the column strip, for mouse hit-testing
-	logoHeight         int
-	cells              CellBar
-	indicators         colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
-	mcpStatus          MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
+	cfg             config.Config
+	columns         []*Column
+	visibleHeight   int
+	termWidth       int
+	termHeight      int
+	selectedCol     int
+	firstVisibleCol int
+	quitting        bool
+	shuttingDown    bool // waiting for an in-flight git sync before quitting
+	editor          *Editor
+	notifier        *Notifier
+	quickCmdMode    bool
+	quickCmdInput   textinput.Model
+	theme           string
+	palette         Palette
+	watcher         *kbrdfs.Watcher
+	dialog          Dialog
+	helpMenu        HelpMenu
+	configMenuOpen  bool
+	peek            Peek
+	zoom            Zoom
+	switcher        Switcher
+	search          Search
+	git             git.Controller
+	zellij          Zellij
+	customCmds      CustomCommandMenu
+	commands        []config.Command
+	commandWarnings []config.CommandLoadWarning
+	presenter       boardPresenter
+	cells           CellBar
+	indicators      colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
+	mcpStatus       MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -148,8 +132,8 @@ type Board struct {
 	changes changeTracker
 
 	// mnemonic state — rebuilt whenever the visible item set changes
-	mnemonicByRef  map[itemRef]string
-	refByMnemonic  map[string]itemRef
+	mnemonicByRef  map[itemRefStable]string
+	refByMnemonic  map[string]itemRefStable
 	mnemonicMaxLen int
 }
 
@@ -178,7 +162,7 @@ func NewBoard(cfg config.Config) *Board {
 	b.initScripting()
 	b.loadCommands()
 	b.initHooks()
-	b.wireEditorCompletions()
+	b.editorEval().wireCompletions()
 	return b
 }
 
@@ -500,43 +484,10 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 	dirty := b.watchDirty
 	b.watchDirty = nil
 	b.changes.snapshot(dirty, b.columns)
-	if colPath := b.singleDirtyColumn(dirty); colPath != "" {
+	if colPath := b.lifecycle().singleDirtyColumn(dirty); colPath != "" {
 		return b.reloadColumnCmd(seq, colPath)
 	}
 	return b.reloadCmd(seq)
-}
-
-// singleDirtyColumn returns the path of the column that contains every changed
-// path, or "" when the change spans multiple columns, touches the board root
-// (a column added/removed), or came from a watcher error. "" means full reload.
-func (b *Board) singleDirtyColumn(dirty map[string]struct{}) string {
-	if len(dirty) == 0 {
-		return ""
-	}
-	match := ""
-	for p := range dirty {
-		if p == "" {
-			return "" // watcher error → full reload
-		}
-		dir := filepath.Dir(p)
-		found := ""
-		for _, col := range b.columns {
-			if samePath(col.Path, dir) {
-				found = col.Path
-				break
-			}
-		}
-		if found == "" {
-			return "" // not inside a known column (root-level change)
-		}
-		switch {
-		case match == "":
-			match = found
-		case !samePath(match, found):
-			return "" // spans multiple columns
-		}
-	}
-	return match
 }
 
 // reloadCmd builds a full board rescan off the UI goroutine. It captures config
@@ -588,70 +539,14 @@ func (b *Board) itemsByPath() itemCache {
 	return cache
 }
 
-// selectionByPath captures each column's currently selected item name keyed by
-// column path, so a reload can restore the cursor after swapping in fresh
-// columns (whose list index defaults to 0). Columns with no selection are
-// omitted.
-func (b *Board) selectionByPath() map[string]string {
-	sel := make(map[string]string, len(b.columns))
-	for _, col := range b.columns {
-		if col.HasSelectedItem() {
-			sel[col.Path] = col.SelectedItem().Name
-		}
-	}
-	return sel
-}
-
-// applyReloadedColumns swaps in freshly built columns on the UI goroutine,
-// re-applying height and palette, restoring each column's selected item, and
-// clamping the column selection.
-func (b *Board) applyReloadedColumns(columns []*Column) {
-	prevSel := b.selectionByPath()
-	for _, col := range columns {
-		if b.visibleHeight > 0 {
-			col.SetHeight(b.visibleHeight)
-		}
-		col.palette = b.palette
-		if name, ok := prevSel[col.Path]; ok {
-			col.SelectByName(name)
-		}
-	}
-	b.columns = columns
-	b.appendVirtualColumns()
-	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
-		b.selectedCol = len(b.columns) - 1
-	}
-}
-
 func (b *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if b.quitting {
 		return b, nil
 	}
 	prevCol, prevItem := b.snapshotSelection()
 	model, cmd := b.updateInner(msg)
-	// Selection events may fire hooks that schedule timers or async work;
-	// drain both AFTER emitSelectionChanges so newly-scheduled tea.Cmds
-	// don't get stranded in the Host's pending queues.
 	b.emitSelectionChanges(prevCol, prevItem)
-	if tcmd := b.collectTimerCmds(); tcmd != nil {
-		cmd = batchCmd(cmd, tcmd)
-	}
-	if acmd := b.collectAsyncCmds(); acmd != nil {
-		cmd = batchCmd(cmd, acmd)
-	}
-	if hcmd := b.collectHookCmd(); hcmd != nil {
-		cmd = batchCmd(cmd, hcmd)
-	}
-	if scmd := b.collectStatusCmd(); scmd != nil {
-		cmd = batchCmd(cmd, scmd)
-	}
-	if ecmd := b.collectEditorOpenCmd(); ecmd != nil {
-		cmd = batchCmd(cmd, ecmd)
-	}
-	// Re-apply any column_items transform that was skipped while a script was
-	// running (the script has finished by the time the wrapper runs).
-	b.drainColumnTransform()
-	return model, cmd
+	return model, b.lifecycle().DrainPostUpdate(cmd)
 }
 
 // batchCmd combines two tea.Cmds, tolerating nil in either slot.
@@ -684,96 +579,32 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case tea.KeyMsg:
-		return b.handleKey(msg)
+		return b.inputRouter().HandleKey(msg)
 
 	case tea.MouseMsg:
-		return b.handleMouse(msg)
+		return b.mouseRouter().HandleMouse(msg)
 
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
 
 	case watchStartMsg:
-		// board_load fires once, after the initial columns are populated and the
-		// script host is subscribed. Publishing here (on the UI goroutine, not in
-		// Init's off-thread startup) keeps Lua single-threaded.
-		b.bus.Publish(events.BoardLoad{})
-		b.bus.Publish(events.BoardRefresh{Reason: "startup"})
-		// Cold-load transform: columns were built in Init's startup goroutine
-		// (no VM access there); apply the script order now, on the UI goroutine,
-		// after board_load has let init.lua finish its registrations.
-		b.applyColumnTransforms()
-		// Catch up from the remote on open (config-gated, default on). Detection
-		// has run in the startup goroutine, so repoRoot is set; SyncOnce no-ops
-		// when there is no remote or the tree is dirty.
-		if b.cfg.GitSyncOnStartup {
-			return b, tea.Batch(b.watchCmd(), b.git.SyncOnce())
-		}
-		return b, b.watchCmd()
+		return b.lifecycle().HandleWatchStart()
 
 	case watchEventMsg:
-		// Coalesce a storm of events into one reload: bump the generation,
-		// record the changed path, and schedule a debounce tick. Only the
-		// final tick will survive the Seq guard. Re-arm the watcher so it
-		// keeps listening.
-		b.watchSeq++
-		if b.watchDirty == nil {
-			b.watchDirty = map[string]struct{}{}
-		}
-		b.watchDirty[msg.Path] = struct{}{}
-		seq := b.watchSeq
-		debounce := tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
-			return watchDebounceMsg{Seq: seq}
-		})
-		return b, tea.Batch(debounce, b.watchCmd())
+		return b.lifecycle().HandleWatchEvent(msg)
 
 	case watchDebounceMsg:
-		return b, b.debouncedReload(msg.Seq)
+		return b.lifecycle().HandleWatchDebounce(msg)
 
 	case refreshedMsg:
 		b.applyColumnTransforms()
 		return b, b.notifier.Send("refreshed", notifySuccess)
 
 	case boardReloadedMsg:
-		if msg.Seq != b.watchSeq {
-			return b, nil // stale — a newer change is already queued
-		}
-		b.applyReloadedColumns(msg.columns)
-		b.applyColumnTransforms()
-		b.publishItemChanges()
-		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-		return b, b.git.RefreshStats()
+		return b.lifecycle().HandleBoardReloaded(msg)
 
 	case columnReloadedMsg:
-		if msg.Seq != b.watchSeq {
-			return b, nil // stale
-		}
-		idx := -1
-		for i, col := range b.columns {
-			if samePath(col.Path, msg.path) {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			// Column vanished since the event — fall back to a full reload.
-			return b, b.reloadCmd(b.watchSeq)
-		}
-		prevName := ""
-		if b.columns[idx].HasSelectedItem() {
-			prevName = b.columns[idx].SelectedItem().Name
-		}
-		if b.visibleHeight > 0 {
-			msg.col.SetHeight(b.visibleHeight)
-		}
-		msg.col.palette = b.palette
-		if prevName != "" {
-			msg.col.SelectByName(prevName)
-		}
-		b.columns[idx] = msg.col
-		b.applyColumnTransform(msg.col)
-		b.publishItemChanges()
-		b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-		return b, b.git.RefreshStats()
+		return b.lifecycle().HandleColumnReloaded(msg)
 
 	case initBoardRequestMsg:
 		b.dialog.Open(DialogOptions{
@@ -801,40 +632,40 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 
 	case editorSaveMsg:
-		return b.handleSave(msg)
+		return b.mutationHandlers().handleSave(msg)
 
 	case editorAppendMsg:
-		return b.handleAppend(msg)
+		return b.mutationHandlers().handleAppend(msg)
 
 	case editorPrependMsg:
-		return b.handlePrepend(msg)
+		return b.mutationHandlers().handlePrepend(msg)
 
 	case editorJournalMsg:
-		return b.handleJournal(msg)
+		return b.mutationHandlers().handleJournal(msg)
 
 	case editorNewMsg:
-		return b.handleNew(msg)
+		return b.mutationHandlers().handleNew(msg)
 
 	case deleteConfirmMsg:
-		return b.handleDelete(msg)
+		return b.mutationHandlers().handleDelete(msg)
 
 	case pasteRequestMsg:
-		return b, b.pasteToItem(msg)
+		return b, b.pasteActions().pasteToItem(msg)
 
 	case pasteDoneMsg:
-		return b.handlePasteDone(msg)
+		return b.pasteActions().handleDone(msg)
 
 	case renameItemRequestMsg:
-		return b.handleRenameItemRequest(msg)
+		return b.mutationHandlers().handleRenameItemRequest(msg)
 
 	case renameColumnRequestMsg:
-		return b.handleRenameColumnRequest(msg)
+		return b.mutationHandlers().handleRenameColumnRequest(msg)
 
 	case renameItemConfirmMsg:
-		return b.handleRenameItemConfirm(msg)
+		return b.mutationHandlers().handleRenameItemConfirm(msg)
 
 	case renameColumnConfirmMsg:
-		return b.handleRenameColumnConfirm(msg)
+		return b.mutationHandlers().handleRenameColumnConfirm(msg)
 
 	case editorConfirmDiscardMsg:
 		b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
@@ -851,7 +682,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case editorEvalMsg:
-		return b.handleEditorEval(msg)
+		return b.editorEval().handle(msg)
 
 	case recoverEditorMsg:
 		return b.handleRecoverEditor(msg)
@@ -868,16 +699,16 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.finishShutdown()
 
 	case quickCommandMsg:
-		return b.handleQuickCommand(msg)
+		return b.quickCommands().handleCommand(msg)
 
 	case switchBoardMsg:
-		return b.handleSwitchBoard(msg)
+		return b.session().handleSwitchBoard(msg)
 
 	case pinBoardMsg:
-		return b.handlePinBoard(msg)
+		return b.session().handlePinBoard(msg)
 
 	case removeBoardMsg:
-		return b.handleRemoveBoard(msg)
+		return b.session().handleRemoveBoard(msg)
 
 	case searchMsg:
 		// Search owns its async lifecycle (debounce + ripgrep); route opaquely,
@@ -885,19 +716,19 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.search.Update(msg)
 
 	case searchSelectMsg:
-		return b.activateFile(msg.BoardPath, msg.FilePath)
+		return b.searchActions().activateFile(msg.BoardPath, msg.FilePath)
 
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)
 
 	case openLineCommandsMsg:
-		return b, b.openLineCommands(msg)
+		return b, b.lineCommands().open(msg)
 
 	case runLineCommandMsg:
-		return b.handleRunLineCommand(msg)
+		return b.lineCommands().handleRun(msg)
 
 	case lineShellDoneMsg:
-		return b.handleLineShellDone(msg)
+		return b.lineCommands().handleShellDone(msg)
 
 	case customCommandFinishedMsg:
 		return b.handleCustomCommandFinished(msg)
@@ -927,10 +758,10 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.zellij.Done(msg, b.notifier)
 
 	case templateSubmitMsg:
-		return b.handleTemplateSubmit(msg)
+		return b.mutationHandlers().handleTemplateSubmit(msg)
 
 	case frontmatterSubmitMsg:
-		return b.handleFrontmatterSubmit(msg)
+		return b.frontmatterActions().handleSubmit(msg)
 
 	case templateShellDoneMsg:
 		return b, b.templateExec.done(msg)
@@ -998,1422 +829,37 @@ func (b *Board) resetEditor() {
 	b.editor = NewEditor(b.cfg.Editor.Vim)
 	b.editor.palette = b.palette
 	b.editor.SetTermSize(b.termWidth, b.termHeight)
-	b.wireEditorCompletions()
+	b.editorEval().wireCompletions()
 }
 
-func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// While waiting for a sync to finish, a second Ctrl+C force-quits.
-	if b.shuttingDown && key.Matches(msg, Keys.Quit) {
-		b.quitting = true
-		return b, tea.Quit
-	}
-
-	// The interactive keybindings menu owns all input while open (see
-	// help_menu_board.go).
-	if b.helpMenu.Active() {
-		return b.updateHelpMenu(msg)
-	}
-
-	// Handle config menu
-	if b.configMenuOpen {
-		switch {
-		case key.Matches(msg, Keys.Quit):
-			b.configMenuOpen = false
-			return b.beginShutdown()
-		case key.Matches(msg, Keys.ConfigMenuClose):
-			b.configMenuOpen = false
-		case key.Matches(msg, Keys.ConfigOpenLocal):
-			b.configMenuOpen = false
-			return b, b.openLocalConfig()
-		case key.Matches(msg, Keys.ConfigOpenGlobal):
-			b.configMenuOpen = false
-			return b, b.openGlobalConfig()
-		case key.Matches(msg, Keys.ConfigOpenLocalCommands):
-			b.configMenuOpen = false
-			return b, b.openLocalCommands()
-		case key.Matches(msg, Keys.ConfigCreateLocalMCP):
-			b.configMenuOpen = false
-			return b, b.createLocalMCP()
-		case key.Matches(msg, Keys.ConfigCreateLocalAgents):
-			b.configMenuOpen = false
-			return b, b.createLocalAgents()
-		}
-		return b, nil
-	}
-
-	// Handle dialog
-	if b.dialog.active {
-		return b, b.dialog.Update(msg)
-	}
-
-	// Handle custom commands menu and script-driven UI before the editor: a line
-	// command's menu (and any kbrd.ui.pick/prompt it then yields) opens as an
-	// overlay while the editor stays open underneath, so they must win key
-	// routing until they close. (Confirms go through Dialog, already handled above.)
-	if b.customCmds.Active() {
-		return b, b.customCmds.Update(msg)
-	}
-	if b.scriptUI.Active() {
-		return b, b.scriptUI.Update(msg)
-	}
-
-	// Handle editor
-	if b.editor.state != editorNone {
-		// The textarea path treats esc as cancel (with a discard confirm when
-		// dirty); the vim path handles esc itself (insert→normal) and quits via
-		// :q/:q!, so only guard the textarea path here.
-		if b.editor.usesTextarea() && key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
-			b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
-			return b, nil
-		}
-		cmd, _ := b.editor.Update(msg)
-		if b.editor.state == editorNone {
-			b.resetEditor()
-		}
-		return b, cmd
-	}
-
-	// Handle peek modal
-	if b.peek.Active() {
-		b.peek.Update(msg)
-		return b, nil
-	}
-
-	// Handle board switcher
-	if b.switcher.Active() {
-		return b, b.switcher.Update(msg)
-	}
-
-	// Handle global search
-	if b.search.Active() {
-		return b, b.search.HandleKey(msg)
-	}
-
-	// Handle template picker / form
-	if b.templateFlow.Active() {
-		return b, b.templateFlow.Update(msg)
-	}
-
-	// Handle frontmatter editor
-	if b.frontmatterEdit.Active() {
-		return b, b.frontmatterEdit.Update(msg)
-	}
-
-	// Handle git panel
-	if b.git.Active() {
-		return b, b.git.HandleKey(msg)
-	}
-
-	// Handle zellij actions menu
-	if b.zellij.Active() {
-		return b, b.zellij.Update(msg)
-	}
-
-	// Handle quick command
-	if b.quickCmdMode {
-		return b.handleQuickCommandKey(msg)
-	}
-
+func (b *Board) handleBoardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(b.columns) == 0 {
 		return b, nil
 	}
 
 	col := b.columns[b.selectedCol]
-
-	// When list is filtering, all keys go directly to it
 	if col.IsFiltering() {
 		return b, col.UpdateList(msg)
 	}
-
-	// Virtual columns have no built-in item mutations: their command keys and
-	// Enter run script-declared actions, and the file-mutation keys are swallowed.
-	// Navigation/global keys fall through to the shared switch below.
 	if col.Virtual {
 		if cmd, handled := b.handleVirtualColumnKey(msg, col); handled {
 			return b, cmd
 		}
 	}
-
-	switch {
-	case key.Matches(msg, Keys.Quit):
-		return b.beginShutdown()
-	case key.Matches(msg, Keys.ToggleHelp):
-		b.loadCommands() // so the menu's custom-command section is current
-		b.openHelpMenu()
-		return b, nil
-	case key.Matches(msg, Keys.ConfigMenu):
-		b.configMenuOpen = true
-		return b, nil
-	case key.Matches(msg, Keys.QuickCmd):
-		return b, b.openQuickCommand()
-	case key.Matches(msg, Keys.SwitchBoard):
-		return b, b.openSwitcher()
-	case key.Matches(msg, Keys.Search):
-		return b, b.openSearch()
-	case key.Matches(msg, Keys.GitPanel):
-		return b, b.git.Open()
-	case b.zellij.Enabled && key.Matches(msg, Keys.ZellijMenu):
-		b.zellij.OpenFor(b.cfg.Path, col)
-		return b, nil
-	case key.Matches(msg, Keys.Refresh):
-		return b, b.refresh()
-	case key.Matches(msg, Keys.RenameItem):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			return b, b.editor.OpenRenameItem(b.selectedCol, item.Name)
-		}
-	case key.Matches(msg, Keys.CustomCommands):
-		// A separator is selected but not a real item: nothing to act on.
-		if col.HasSelectedItem() && col.SelectedItem().Separator {
-			return b, nil
-		}
-		b.loadCommands()
-		// item is nil on an empty column; commandsForColumn then keeps only
-		// requiresItem: false commands, and the menu stays closed if none.
-		cmds := b.commandsForColumn(col)
-		if len(cmds) == 0 {
-			return b, nil
-		}
-		var item *Item
-		if col.HasSelectedItem() {
-			item = col.SelectedItem()
-		}
-		var vctx map[string]any
-		switch {
-		case col.Virtual:
-			vctx = b.buildVirtualVars(col, item)
-		case item != nil && item.Data != nil:
-			// Frontmatter-carrying item: Lua commands get the rich ctx
-			// (nested data table); shell commands still use the flat vars.
-			vctx = b.buildFilesystemCtx(b.selectedCol, item)
-		}
-		b.customCmds.Open(cmds, b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
-		return b, nil
-	case key.Matches(msg, Keys.RenameCol):
-		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Name)
-	case key.Matches(msg, Keys.ZoomToggle):
-		b.zoom.Toggle()
-		return b, nil
-	case key.Matches(msg, Keys.CollapseCol):
-		// The focused column auto-expands, so shift focus off a fresh collapse
-		// to reveal the bar at once (see collapseFocusShift).
-		col.ToggleCollapse()
-		if col.Collapsed {
-			b.selectedCol = collapseFocusShift(b.selectedCol, len(b.columns))
-		}
-		return b, nil
-	case key.Matches(msg, Keys.ZoomOff) && b.zoom.Active():
-		// Only consume -/esc while zoomed; otherwise they fall through to the
-		// list passthrough below, preserving their pre-zoom behavior.
-		b.zoom.Off()
-		return b, nil
-	case key.Matches(msg, Keys.PrevCol):
-		b.selectedCol--
-		if b.selectedCol < 0 {
-			b.selectedCol = len(b.columns) - 1
-		}
-	case key.Matches(msg, Keys.NextCol):
-		b.selectedCol++
-		if b.selectedCol >= len(b.columns) {
-			b.selectedCol = 0
-		}
-	case key.Matches(msg, Keys.JumpCol):
-		idx := int(msg.Runes[0] - '1') // '1' -> 0 ... '9' -> 8
-		if idx >= 0 && idx < len(b.columns) {
-			b.selectedCol = idx
-		}
-	case key.Matches(msg, Keys.PanLeft):
-		if b.firstVisibleCol > 0 {
-			b.firstVisibleCol--
-		}
-	case key.Matches(msg, Keys.PanRight):
-		_, count := b.visibleColRange()
-		maxFirst := max(len(b.columns)-count, 0)
-		if b.firstVisibleCol < maxFirst {
-			b.firstVisibleCol++
-		}
-	case key.Matches(msg, Keys.Edit):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			b.bus.Publish(events.ItemOpen{
-				Item: events.ItemRef{Column: col.Name, Name: item.Name},
-				Kind: "edit",
-			})
-			return b, b.editor.OpenEdit(b.selectedCol, item.Name, item.FullPath)
-		}
-	case key.Matches(msg, Keys.Append):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			return b, b.editor.OpenAppend(b.selectedCol, item.Name)
-		}
-	case key.Matches(msg, Keys.Prepend):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			return b, b.editor.OpenPrepend(b.selectedCol, item.Name)
-		}
-	case key.Matches(msg, Keys.Journal):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			return b, b.editor.OpenJournal(b.selectedCol, item.Name)
-		}
-	case key.Matches(msg, Keys.Copy):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			content, err := col.CopyContent(item.Name)
-			if err != nil {
-				return b, b.notifier.Send("failed to copy: "+err.Error(), notifyError)
-			}
-			return b, b.copyToClipboard([]byte(content))
-		}
-	case key.Matches(msg, Keys.Paste):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			return b, b.openPasteMenu(b.selectedCol, item.Name)
-		}
-	case key.Matches(msg, Keys.OpenExternal):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			err := col.OpenFile(item.Name)
-			if err != nil {
-				return b, b.notifier.Send("failed to open: "+err.Error(), notifyError)
-			}
-			b.bus.Publish(events.ItemOpen{
-				Item: events.ItemRef{Column: col.Name, Name: item.Name},
-				Kind: "external",
-			})
-			return b, b.notifier.Send("opened "+item.Name, notifySuccess)
-		}
-	case key.Matches(msg, Keys.Pin):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			err := col.PinItem(item.Name)
-			if err != nil {
-				return b, b.notifier.Send("failed to pin: "+err.Error(), notifyError)
-			}
-			b.applyColumnTransform(col)
-			pinState := "unpinned"
-			if item.Pinned {
-				pinState = "pinned"
-			}
-			return b, b.notifier.Send(item.Name+" "+pinState, notifySuccess)
-		}
-	case key.Matches(msg, Keys.EditFrontmatter):
-		if col.HasSelectedItem() {
-			return b, b.openFrontmatterEditor(b.selectedCol, col, col.SelectedItem())
-		}
-	case key.Matches(msg, Keys.Delete):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			b.dialog.OpenConfirmDestructive("Delete item?", item.Name+".md", "Yes", deleteConfirmMsg{ColIndex: b.selectedCol, FileName: item.Name})
-		}
-	case key.Matches(msg, Keys.MoveNext):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			nextCol := (b.selectedCol + 1) % len(b.columns)
-			if err := b.moveItem(col, b.columns[nextCol], item.Name); err != nil {
-				if errors.Is(err, os.ErrExist) {
-					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
-				}
-				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
-			}
-			b.selectedCol = nextCol
-			b.columns[nextCol].SelectByName(item.Name)
-		}
-	case key.Matches(msg, Keys.MoveFirst):
-		if col.HasSelectedItem() {
-			if len(b.columns) == 0 {
-				return b, b.notifier.Send("no folders available", notifyError)
-			}
-			if b.selectedCol == 0 {
-				return b, nil
-			}
-			item := col.SelectedItem()
-			if err := b.moveItem(col, b.columns[0], item.Name); err != nil {
-				if errors.Is(err, os.ErrExist) {
-					return b, b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
-				}
-				return b, b.notifier.Send("failed to move: "+err.Error(), notifyError)
-			}
-			b.selectedCol = 0
-			b.columns[0].SelectByName(item.Name)
-		}
-	case key.Matches(msg, Keys.Peek):
-		if col.HasSelectedItem() {
-			item := col.SelectedItem()
-			content, err := col.CopyContent(item.Name)
-			if err != nil {
-				return b, b.notifier.Send("failed to peek: "+err.Error(), notifyError)
-			}
-			return b, b.peek.Open(item.Title, string(content), b.termWidth)
-		}
-		return b, nil
-	case key.Matches(msg, Keys.Filter):
-		return b, col.BeginFilter()
-	case key.Matches(msg, Keys.New):
-		return b, b.editor.OpenNew(b.selectedCol, b.columns[b.selectedCol].Name)
-	case key.Matches(msg, Keys.NewFirst):
-		if len(b.columns) == 0 {
-			return b, b.notifier.Send("no folders available", notifyError)
-		}
-		return b, b.editor.OpenNew(0, b.columns[0].Name)
-	case key.Matches(msg, Keys.NewFromTemplate):
-		return b.openTemplateFlow(col)
-	case key.Matches(msg, Keys.CursorDown):
-		if col.CursorAtBottom() {
-			col.SelectFirst()
-			return b, nil
-		}
-		return b, col.UpdateList(msg)
-	case key.Matches(msg, Keys.CursorUp):
-		if col.CursorAtTop() {
-			col.SelectLast()
-			return b, nil
-		}
-		return b, col.UpdateList(msg)
-	default:
-		return b, col.UpdateList(msg)
+	if m, cmd, handled := b.handleGlobalBoardKey(msg, col); handled {
+		return m, cmd
 	}
-
-	return b, nil
-}
-
-// columnAtMouse maps a mouse X to a visible column index, accounting for the
-// left overflow-chip reserve. ok is false when X lands left of the first column
-// or past the last visible one.
-func (b *Board) columnAtMouse(x int) (int, bool) {
-	xc := x - b.leftIndicatorWidth - b.columnsLeftPad
-	if xc < 0 {
-		return 0, false
+	if m, cmd, handled := b.handleColumnBoardKey(msg, col); handled {
+		return m, cmd
 	}
-	first, count := b.visibleColRange()
-	colIdx := columnAtX(xc, first, count, b.colWidthOf)
-	if colIdx < 0 {
-		return 0, false
+	if m, cmd, handled := b.handleItemBoardKey(msg, col); handled {
+		return m, cmd
 	}
-	return colIdx, true
-}
-
-func (b *Board) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// Peek is a scrollable modal: let it consume the wheel; block everything else.
-	if b.peek.Active() {
-		b.peek.HandleMouse(msg)
-		return b, nil
-	}
-
-	// The editor is a scrollable modal too: let the vim buffer consume the wheel.
-	if b.editor.state != editorNone {
-		b.editor.HandleMouse(msg)
-		return b, nil
-	}
-
-	// Zoom is excluded because click hit-testing assumes the normal multi-column
-	// slot geometry and card height.
-	// (peek and the editor are already handled by the early returns above.)
-	if b.helpMenu.Active() || b.configMenuOpen || b.dialog.active ||
-		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
-		return b, nil
-	}
-	if b.columns[b.selectedCol].IsFiltering() {
-		return b, nil
-	}
-
-	// Only the column strip is interactive. Ignore clicks/wheel on the header, the
-	// padding, and the bottom keybar so they don't select columns by X alone.
-	if msg.Y < b.logoHeight || msg.Y >= b.logoHeight+b.columnsHeight {
-		return b, nil
-	}
-
-	// Mouse wheel scrolls the column under the cursor (content only — the cursor
-	// stays put). The viewport-backed list makes this possible; the old paginated
-	// list ignored the wheel entirely.
-	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-		if colIdx, ok := b.columnAtMouse(msg.X); ok {
-			delta := 3
-			if msg.Button == tea.MouseButtonWheelUp {
-				delta = -3
-			}
-			b.columns[colIdx].ScrollBy(delta)
-		}
-		return b, nil
-	}
-
-	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
-		return b, nil
-	}
-
-	colIdx, ok := b.columnAtMouse(msg.X)
-	if !ok {
-		return b, nil
-	}
-	col := b.columns[colIdx]
-
-	// Clicking anywhere in a column selects it — including an empty column,
-	// whose HitTest never finds an item. Select the card too when one is hit.
-	b.selectedCol = colIdx
-	if itemIdx, ok := col.HitTest(msg.Y - b.logoHeight); ok {
-		col.SelectIndex(itemIdx)
-	}
-	return b, nil
-}
-
-func (b *Board) openLocalConfig() tea.Cmd {
-	return b.openManagedFile(localConfigPath, ensureConfigFile)
-}
-func (b *Board) openGlobalConfig() tea.Cmd {
-	return b.openManagedFile(globalConfigPath, ensureConfigFile)
-}
-func (b *Board) openLocalCommands() tea.Cmd {
-	return b.openManagedFile(localCommandsPath, ensureCommandsFile)
-}
-
-// createLocalMCP writes a .mcp.json into the current board directory pointing
-// at kbrd's built-in MCP server, then opens it. The address comes from the
-// active board's config so the file matches the running server.
-func (b *Board) createLocalMCP() tea.Cmd {
-	addr := b.cfg.MCP.Addr
-	resolve := func() (string, error) { return filepath.Join(b.cfg.Path, config.FolderMCPFile), nil }
-	ensure := func(path string) error { return ensureMCPFile(path, addr) }
-	return b.openManagedFile(resolve, ensure)
-}
-
-// createLocalAgents writes an AGENTS.md describing kbrd into the current board
-// directory, then opens it.
-func (b *Board) createLocalAgents() tea.Cmd {
-	resolve := func() (string, error) { return filepath.Join(b.cfg.Path, config.FolderAgentsFile), nil }
-	return b.openManagedFile(resolve, ensureAgentsFile)
-}
-
-func (b *Board) openManagedFile(resolve func() (string, error), ensure func(string) error) tea.Cmd {
-	path, err := resolve()
-	if err != nil {
-		return b.notifier.Send(err.Error(), notifyError)
-	}
-	if err := ensure(path); err != nil {
-		return b.notifier.Send("write "+path+": "+err.Error(), notifyError)
-	}
-	if err := openFile(path); err != nil {
-		return b.notifier.Send("open: "+err.Error(), notifyError)
-	}
-	return b.notifier.Send("opened "+path, notifySuccess)
-}
-
-func (b *Board) handleSave(msg editorSaveMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	fullPath := ""
-	for _, item := range col.Items {
-		if item.Name == msg.FileName {
-			fullPath = item.FullPath
-			break
-		}
-	}
-	if fullPath == "" {
-		return b, b.notifier.Send("item not found: "+msg.FileName, notifyError)
-	}
-	// board.ReplaceFileContent is existing-only: a card deleted while the
-	// editor was open errors instead of being silently resurrected.
-	if err := board.ReplaceFileContent(fullPath, msg.Content); err != nil {
-		return b, b.notifier.Send("failed to save: "+err.Error(), notifyError)
-	}
-	b.editor.confirmSaved() // write succeeded: drop the swap, rebaseline, close if requested
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(msg.FileName)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "save"})
-	return b, b.notifier.Send("saved "+msg.FileName, notifySuccess)
-}
-
-func (b *Board) handleAppend(msg editorAppendMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	err := col.AppendText(msg.FileName, msg.Text)
-	if err != nil {
-		return b, b.notifier.Send("failed to append: "+err.Error(), notifyError)
-	}
-	b.editor.confirmSaved()
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(msg.FileName)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "append"})
-	return b, b.notifier.Send("appended to "+msg.FileName, notifySuccess)
-}
-
-func (b *Board) handlePrepend(msg editorPrependMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	err := col.PrependText(msg.FileName, msg.Text)
-	if err != nil {
-		return b, b.notifier.Send("failed to prepend: "+err.Error(), notifyError)
-	}
-	b.editor.confirmSaved()
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(msg.FileName)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "prepend"})
-	return b, b.notifier.Send("prepended to "+msg.FileName, notifySuccess)
-}
-
-func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	at, body := b.journalStamp(msg.Text)
-	err := col.JournalText(msg.FileName, at, body)
-	if err != nil {
-		return b, b.notifier.Send("failed to journal: "+err.Error(), notifyError)
-	}
-	b.editor.confirmSaved()
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(msg.FileName)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "journal"})
-	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
-}
-
-// openTemplateFlow starts the new-item-from-template overlay for col: lists
-// the column's .kbrd_templates merged with the board-level ones and opens the
-// picker (or, with a single template, its form directly).
-func (b *Board) openTemplateFlow(col *Column) (tea.Model, tea.Cmd) {
-	if col.Virtual {
-		return b, b.notifier.Send(errVirtualColumn.Error(), notifyError)
-	}
-	tmpls, warns, err := template.List(b.cfg.Path, col.Path)
-	if err != nil {
-		return b, b.notifier.Send("failed to list templates: "+err.Error(), notifyError)
-	}
-	var warnCmd tea.Cmd
-	if len(warns) > 0 {
-		w := warns[0]
-		warnCmd = b.notifier.Send("skipped "+filepath.Base(w.Path)+": "+w.Err.Error(), notifyError)
-	}
-	if len(tmpls) == 0 {
-		if warnCmd != nil {
-			return b, warnCmd
-		}
-		return b, b.notifier.Send("no templates — add .md files to "+col.Name+"/"+template.Dir+" or "+template.Dir, notifyError)
-	}
-	return b, tea.Batch(warnCmd, b.templateFlow.Open(b.selectedCol, tmpls))
-}
-
-// handleTemplateSubmit renders the completed template form and creates the
-// new card, mirroring handleNew's error reporting.
-func (b *Board) handleTemplateSubmit(msg templateSubmitMsg) (tea.Model, tea.Cmd) {
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.notifier.Send("invalid column", notifyError)
-	}
-	col := b.columns[msg.ColIndex]
-	vctx := board.VarContext{
-		BoardPath:  b.cfg.Path,
-		BoardName:  b.cfg.BoardName,
-		ColumnPath: col.Path,
-		ColumnName: col.Name,
-	}
-	name, body, err := template.Instantiate(msg.Template, vctx, msg.Values)
-	if err != nil {
-		return b, b.notifier.Send("template: "+err.Error(), notifyError)
-	}
-	// Resolve {{shell}} markers: rewrite to inert notes when exec is disabled,
-	// or spawn a background worker per marker that fills it in. cardPath is the
-	// path the card is about to be written to.
-	cardPath := filepath.Join(col.Path, name+".md")
-	body, shellCmd := b.templateExec.dispatch(cardPath, body, b.cfg.Path, b.cfg.Template)
-	if _, err := b.createItemContent(col, name, body); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return b, b.notifier.Send("file already exists: "+name+".md", notifyError)
-		}
-		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
-	}
-	col.SelectByName(name)
-	return b, tea.Batch(shellCmd, b.notifier.Send("created "+name+".md", notifySuccess))
-}
-
-func (b *Board) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	if msg.FileName == "" {
-		return b, b.notifier.Send("filename cannot be empty", notifyError)
-	}
-	if _, err := b.createItem(col, msg.FileName); err != nil {
-		return b, b.notifier.Send("failed to create: "+err.Error(), notifyError)
-	}
-	col.SelectByName(msg.FileName)
-	return b, b.notifier.Send("created "+msg.FileName+".md", notifySuccess)
-}
-
-func validateRenameName(name string) error {
-	_, err := board.SanitizeFolder(name)
-	return err
-}
-
-func (b *Board) handleRenameItemRequest(msg renameItemRequestMsg) (tea.Model, tea.Cmd) {
-	newName := strings.TrimSpace(msg.NewName)
-	if err := validateRenameName(newName); err != nil {
-		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
-	}
-	if newName == msg.OldName {
-		return b, nil
-	}
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.notifier.Send("invalid column", notifyError)
-	}
-	col := b.columns[msg.ColIndex]
-	target := filepath.Join(col.Path, newName+".md")
-	if _, err := os.Stat(target); err == nil {
-		return b, b.notifier.Send("file already exists: "+newName+".md", notifyError)
-	}
-	b.dialog.OpenConfirm("Rename item?", msg.OldName+".md → "+newName+".md", renameItemConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName})
-	return b, nil
-}
-
-func (b *Board) handleRenameColumnRequest(msg renameColumnRequestMsg) (tea.Model, tea.Cmd) {
-	newName := strings.TrimSpace(msg.NewName)
-	if err := validateRenameName(newName); err != nil {
-		return b, b.notifier.Send("invalid name: "+err.Error(), notifyError)
-	}
-	if newName == msg.OldName {
-		return b, nil
-	}
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.notifier.Send("invalid column", notifyError)
-	}
-	parent := filepath.Dir(b.columns[msg.ColIndex].Path)
-	target := filepath.Join(parent, newName)
-	if _, err := os.Stat(target); err == nil {
-		return b, b.notifier.Send("folder already exists: "+newName, notifyError)
-	}
-	b.dialog.OpenConfirm("Rename column?", msg.OldName+" → "+newName, renameColumnConfirmMsg{ColIndex: msg.ColIndex, OldName: msg.OldName, NewName: newName})
-	return b, nil
-}
-
-func (b *Board) handleRenameItemConfirm(msg renameItemConfirmMsg) (tea.Model, tea.Cmd) {
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.notifier.Send("invalid column", notifyError)
-	}
-	col := b.columns[msg.ColIndex]
-	if err := b.renameItem(col, msg.OldName, msg.NewName); err != nil {
-		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
-	}
-	col.SelectByName(msg.NewName)
-	return b, b.notifier.Send("renamed "+msg.OldName+" → "+msg.NewName, notifySuccess)
-}
-
-func (b *Board) handleRenameColumnConfirm(msg renameColumnConfirmMsg) (tea.Model, tea.Cmd) {
-	if msg.ColIndex < 0 || msg.ColIndex >= len(b.columns) {
-		return b, b.notifier.Send("invalid column", notifyError)
-	}
-	col := b.columns[msg.ColIndex]
-	if err := col.Rename(msg.NewName); err != nil {
-		return b, b.notifier.Send("failed to rename: "+err.Error(), notifyError)
-	}
-	return b, b.notifier.Send("renamed column "+msg.OldName+" → "+msg.NewName, notifySuccess)
-}
-
-func (b *Board) handleDelete(msg deleteConfirmMsg) (tea.Model, tea.Cmd) {
-	col := b.columns[msg.ColIndex]
-	if err := b.deleteItem(col, msg.FileName); err != nil {
-		return b, b.notifier.Send("failed to delete: "+err.Error(), notifyError)
-	}
-	b.reloadColumnAfterMutation(col)
-	return b, b.notifier.Send("deleted "+msg.FileName, notifySuccess)
-}
-
-func (b *Board) handleQuickCommand(msg quickCommandMsg) (tea.Model, tea.Cmd) {
-	cmd := strings.TrimPrefix(msg.Command, ":")
-	if cmd == "" {
-		return b, nil
-	}
-
-	action := cmd[0]
-	args := cmd[1:]
-	_ = args
-
-	switch action {
-	case 'r':
-		return b, b.refresh()
-	case 't':
-		b.toggleTheme()
-		return b, nil
-	case 'q':
-		return b, b.openQuickCommand()
-	default:
-		return b, b.notifier.Send("unknown command: "+string(action), notifyError)
-	}
-}
-
-func (b *Board) handleQuickCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, Keys.QuickCmdCancel):
-		b.quickCmdMode = false
-		b.quickCmdInput.Blur()
-		b.quickCmdInput.SetValue("")
-		return b, nil
-	case key.Matches(msg, Keys.QuickCmdConfirm):
-		b.quickCmdMode = false
-		b.quickCmdInput.Blur()
-		cmd := strings.TrimSpace(b.quickCmdInput.Value())
-		b.quickCmdInput.SetValue("")
-		if cmd == "" {
-			return b, nil
-		}
-		if len(cmd) >= 2 && isItemCommandAction(cmd[0]) {
-			action := cmd[0]
-			suffix := cmd[1:]
-			if ref, ok := b.refByMnemonic[suffix]; ok {
-				return b, b.dispatchItemCommand(action, ref)
-			}
-			return b, b.notifier.Send("no item: "+suffix, notifyError)
-		}
-		return b, func() tea.Msg {
-			return quickCommandMsg{Command: cmd}
-		}
-	}
-
-	ti, cmd := b.quickCmdInput.Update(msg)
-	b.quickCmdInput = ti
-
-	buf := b.quickCmdInput.Value()
-	// Item-command fast path: first char is an item action, the rest must match
-	// a mnemonic. Dispatch on unique resolution.
-	if len(buf) >= 1 && isItemCommandAction(buf[0]) {
-		suffix := buf[1:]
-		if suffix == "" {
-			return b, cmd
-		}
-		if _, ok := b.refByMnemonic[suffix]; ok {
-			return b, cmd
-		}
-		for tag := range b.refByMnemonic {
-			if strings.HasPrefix(tag, suffix) {
-				return b, cmd
-			}
-		}
-		b.quickCmdMode = false
-		b.quickCmdInput.Blur()
-		b.quickCmdInput.SetValue("")
-		return b, b.notifier.Send("no item: "+suffix, notifyError)
-	}
-
-	return b, cmd
-}
-
-func isItemCommandAction(c byte) bool {
-	switch c {
-	case 'e', 'a', 'p', 'J', 'c', 'V', 'o', '!', 'd', 'm':
-		return true
-	}
-	return false
-}
-
-func (b *Board) openSwitcher() tea.Cmd {
-	store, err := recents.Load()
-	if err != nil {
-		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
-	}
-	removed := store.Prune()
-	if removed > 0 {
-		_ = store.Save()
-	}
-	activeAbs, _ := filepath.Abs(b.cfg.Path)
-	b.switcher.Open(store.Entries, activeAbs)
-	return nil
-}
-
-func (b *Board) handlePinBoard(msg pinBoardMsg) (tea.Model, tea.Cmd) {
-	store, err := recents.Load()
-	if err != nil {
-		return b, b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
-	}
-	store.SetPinned(msg.Path, msg.Name, msg.Pinned)
-	if err := store.Save(); err != nil {
-		return b, b.notifier.Send("failed to save recents: "+err.Error(), notifyError)
-	}
-	activeAbs, _ := filepath.Abs(b.cfg.Path)
-	b.switcher.Open(store.Entries, activeAbs)
-	return b, nil
-}
-
-func (b *Board) handleRemoveBoard(msg removeBoardMsg) (tea.Model, tea.Cmd) {
-	store, err := recents.Load()
-	if err != nil {
-		return b, b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
-	}
-	store.Remove(msg.Path)
-	if err := store.Save(); err != nil {
-		return b, b.notifier.Send("failed to save recents: "+err.Error(), notifyError)
-	}
-	activeAbs, _ := filepath.Abs(b.cfg.Path)
-	b.switcher.Open(store.Entries, activeAbs)
-	return b, nil
-}
-
-func (b *Board) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
-	cmd, err := b.loadBoard(msg.Path)
-	if err != nil {
-		return b, b.notifier.Send(err.Error(), notifyError)
-	}
-	return b, cmd
-}
-
-// loadBoard switches the board to path: closes the old watcher, reloads config,
-// columns, scripting, git state and a fresh watcher, and records the board in
-// recents. selectedCol is reset to 0. Returns the watch+notify command. Errors
-// are returned without sending a notification so callers can phrase them.
-func (b *Board) loadBoard(path string) (tea.Cmd, error) {
-	newCfg, err := config.Load(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load board: %w", err)
-	}
-
-	if b.watcher != nil {
-		_ = b.watcher.Close()
-		b.watcher = nil
-	}
-
-	b.cfg = newCfg
-	b.theme = newCfg.Theme
-	b.initGit()
-	b.applyPalette()
-	b.selectedCol = 0
-	// Virtual columns belong to the previous board's (now-closed) script host;
-	// drop them so they don't leak onto the new board before its board_load runs.
-	b.virtualCols = nil
-	b.initScripting()
-	b.loadCommands()
-	b.initHooks()
-
-	if err := b.loadColumns(); err != nil {
-		return nil, fmt.Errorf("failed to load columns: %w", err)
-	}
-	b.applyPalette()
-	b.git.Detect()
-	// Re-fire board_load on the new board so its init script can repopulate any
-	// virtual columns (runs on the UI goroutine, host already subscribed).
-	b.bus.Publish(events.BoardLoad{})
-	b.applyColumnTransforms()
-
-	if paths, err := board.DiscoverPaths(b.cfg.Path); err == nil {
-		if w, err := kbrdfs.NewWatcher(paths); err == nil {
-			b.watcher = w
-		}
-	}
-
-	store, _ := recents.Load()
-	store.Touch(b.cfg.Path, b.cfg.BoardName)
-	_ = store.Save()
-
-	label := b.cfg.Path
-	if b.cfg.BoardName != "" {
-		label = "[" + b.cfg.BoardName + "] " + b.cfg.Path
-	}
-	return tea.Batch(b.watchCmd(), b.notifier.Send("switched to "+label, notifySuccess)), nil
-}
-
-// openSearch loads the recents store and opens the global search dialog with
-// every recent board plus the currently open board as search roots.
-func (b *Board) openSearch() tea.Cmd {
-	store, err := recents.Load()
-	if err != nil {
-		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
-	}
-	if store.Prune() > 0 {
-		_ = store.Save()
-	}
-
-	activeAbs, _ := filepath.Abs(b.cfg.Path)
-	roots := buildSearchRoots(activeAbs, b.cfg.BoardName, store.Entries)
-	b.search.Open(roots, b.palette)
-	return nil
-}
-
-// activateFile switches to boardPath (if not already active) and selects the
-// column/item containing filePath. Used by the global search dialog.
-func (b *Board) activateFile(boardPath, filePath string) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	if !samePath(boardPath, b.cfg.Path) {
-		c, err := b.loadBoard(boardPath)
-		if err != nil {
-			return b, b.notifier.Send(err.Error(), notifyError)
-		}
-		cmd = c
-	}
-
-	if colIdx, itemIdx, ok := locateFile(b.columns, filePath); ok {
-		b.selectedCol = colIdx
-		b.columns[colIdx].SelectIndex(itemIdx)
-		return b, cmd
-	}
-	if cmd != nil {
-		return b, tea.Batch(cmd, b.notifier.Send("opened board; file not in a column", notifySuccess))
-	}
-	return b, b.notifier.Send("file not in a column", notifyError)
-}
-
-func (b *Board) openQuickCommand() tea.Cmd {
-	b.quickCmdMode = true
-	b.quickCmdInput.SetValue("")
-	return b.quickCmdInput.Focus()
-}
-
-// dispatchItemCommand runs a single-character item command against an arbitrary
-// item identified by ref, regardless of which column is currently selected.
-// Used by the mnemonic-driven quick-command path. Returns the tea.Cmd produced
-// by the action (or nil) — never changes b.selectedCol so cross-column targeting
-// is non-disruptive.
-func (b *Board) dispatchItemCommand(action byte, ref itemRef) tea.Cmd {
-	if ref.ColIndex < 0 || ref.ColIndex >= len(b.columns) {
-		return b.notifier.Send("invalid column", notifyError)
-	}
-	col := b.columns[ref.ColIndex]
-	if col.Virtual {
-		return b.notifier.Send("virtual columns have no built-in item actions — use x", notifyError)
-	}
-	var item *Item
-	for i := range col.Items {
-		if col.Items[i].Name == ref.Name {
-			it := col.Items[i]
-			item = &it
-			break
-		}
-	}
-	if item == nil {
-		return b.notifier.Send("item not found: "+ref.Name, notifyError)
-	}
-
-	switch action {
-	case 'e':
-		return b.editor.OpenEdit(ref.ColIndex, item.Name, item.FullPath)
-	case 'a':
-		return b.editor.OpenAppend(ref.ColIndex, item.Name)
-	case 'p':
-		return b.editor.OpenPrepend(ref.ColIndex, item.Name)
-	case 'J':
-		return b.editor.OpenJournal(ref.ColIndex, item.Name)
-	case 'c':
-		content, err := col.CopyContent(item.Name)
-		if err != nil {
-			return b.notifier.Send("failed to copy: "+err.Error(), notifyError)
-		}
-		return b.copyToClipboard(content)
-	case 'v':
-		return b.openPasteMenu(ref.ColIndex, item.Name)
-	case 'o':
-		if err := col.OpenFile(item.Name); err != nil {
-			return b.notifier.Send("failed to open: "+err.Error(), notifyError)
-		}
-		return b.notifier.Send("opened "+item.Name, notifySuccess)
-	case '!':
-		if err := col.PinItem(item.Name); err != nil {
-			return b.notifier.Send("failed to pin: "+err.Error(), notifyError)
-		}
-		b.applyColumnTransform(col)
-		state := "unpinned"
-		if !item.Pinned {
-			state = "pinned"
-		}
-		return b.notifier.Send(item.Name+" "+state, notifySuccess)
-	case 'd':
-		b.dialog.OpenConfirmDestructive("Delete item?", item.Name+".md", "Yes", deleteConfirmMsg{ColIndex: ref.ColIndex, FileName: item.Name})
-		return nil
-	case 'm':
-		nextCol := (ref.ColIndex + 1) % len(b.columns)
-		toName := b.columns[nextCol].Name
-		if err := b.moveItem(col, b.columns[nextCol], item.Name); err != nil {
-			return b.notifier.Send("failed to move: "+err.Error(), notifyError)
-		}
-		return b.notifier.Send("moved "+item.Name+" → "+toName, notifySuccess)
-	}
-	return b.notifier.Send("unknown command: "+string(action), notifyError)
-}
-
-func (b *Board) rebuildMnemonics() {
-	type cell struct {
-		ref itemRef
-	}
-	var cells []cell
-	for ci, col := range b.columns {
-		for _, item := range col.VisibleItems() {
-			if item.Separator {
-				continue // inert grouping rows get no quick-jump tag
-			}
-			cells = append(cells, cell{ref: itemRef{ColIndex: ci, Name: item.Name}})
-		}
-	}
-	tags := GenerateMnemonics(len(cells))
-	b.mnemonicByRef = make(map[itemRef]string, len(cells))
-	b.refByMnemonic = make(map[string]itemRef, len(cells))
-	max := 0
-	for i, c := range cells {
-		tag := tags[i]
-		b.mnemonicByRef[c.ref] = tag
-		b.refByMnemonic[tag] = c.ref
-		if len(tag) > max {
-			max = len(tag)
-		}
-	}
-	b.mnemonicMaxLen = max
-}
-
-func (b *Board) mnemonicLookup(colIdx int) func(name string) string {
-	return func(name string) string {
-		return b.mnemonicByRef[itemRef{ColIndex: colIdx, Name: name}]
-	}
-}
-
-func (b *Board) refresh() tea.Cmd {
-	return func() tea.Msg {
-		if err := b.loadColumns(); err != nil {
-			return notifyMsg{Message: "failed to refresh: " + err.Error(), Type: notifyError}
-		}
-		b.bus.Publish(events.BoardRefresh{Reason: "refresh"})
-		// The column_items transform needs the UI goroutine (Lua VM); this
-		// closure runs on a worker, so hand off via the message handler.
-		return refreshedMsg{}
-	}
-}
-
-func (b *Board) toggleTheme() {
-	if b.theme == "dark" {
-		b.theme = "light"
-	} else {
-		b.theme = "dark"
-	}
-	b.applyPalette()
-}
-
-func (b *Board) copyToClipboard(content []byte) tea.Cmd {
-	return func() tea.Msg {
-		if err := clipboard.WriteAll(string(content)); err != nil {
-			return notifyMsg{Message: "clipboard not available", Type: notifyError}
-		}
-		return notifyMsg{Message: "copied to clipboard", Type: notifySuccess}
-	}
-}
-
-func (b *Board) renderLogo() string {
-	name := lipgloss.NewStyle().
-		Foreground(b.palette.Primary).
-		Bold(true).
-		Render("kbrd")
-	version := lipgloss.NewStyle().
-		Foreground(b.palette.FgSubtle).
-		Italic(true).
-		Render(Version)
-	board := lipgloss.NewStyle().
-		Foreground(b.palette.FgMuted).
-		Render(b.boardLabel())
-	// ⌨️ is a wide (2-cell) emoji; keep it as a literal prefix and let lipgloss
-	// measure widths downstream rather than counting runes by hand.
-	return "⌨️  " + name + "  " + version + "  " + board
-}
-
-// updateBuiltinCells recomputes the internal (negative-id) cells from current
-// board state on every render. They are cheap to derive and event-free, so
-// deriving them here keeps the strip always-accurate without any host ticker.
-// Script-set cells (positive ids) are untouched. Ids are ordered so the
-// persistent metrics (count, git) sit to the right and the transient activity
-// indicators (sync, jobs, kbrd.status) flow in to their left as they appear.
-func (b *Board) updateBuiltinCells() {
-	// Sync indicator (id -5): transient spinner while reconciling, else the
-	// persistent remote-sync status. The mapping lives in syncCell.
-	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, b.cfg.GitAutoCommit, b.palette); ok {
-		b.cells.SetInternal(cell)
-	} else {
-		b.cells.Clear(syncCellID)
-	}
-
-	if b.asyncInflight > 0 {
-		label := "⟳ 1 running"
-		if b.asyncInflight > 1 {
-			label = "⟳ " + strconv.Itoa(b.asyncInflight) + " running"
-		}
-		b.setActivityCell(-4, label)
-	} else {
-		b.cells.Clear(-4)
-	}
-
-	if n := b.templateExec.Inflight(); n > 0 {
-		label := "✦ generating"
-		if n > 1 {
-			label = "✦ " + strconv.Itoa(n) + " generating"
-		}
-		b.setActivityCell(-8, label)
-	} else {
-		b.cells.Clear(-8)
-	}
-
-	if b.hooks.busy() {
-		label := "⚙ hooks"
-		if n := b.hooks.pending(); n > 1 {
-			label = "⚙ hooks " + strconv.Itoa(n)
-		}
-		b.setActivityCell(-6, label)
-	} else {
-		b.cells.Clear(-6)
-	}
-
-	if b.scriptStatus != "" {
-		b.cells.SetInternal(Cell{ID: -3, Text: b.scriptStatus, FG: string(b.palette.FgMuted)})
-	} else {
-		b.cells.Clear(-3)
-	}
-
-	// Persistent MCP indicator: filled+green when bound, danger when requested
-	// but the bind failed (e.g. the port is already in use), hollow+muted when
-	// off. Leftmost (most negative) id so it survives header truncation alongside
-	// the other built-ins.
-	switch b.mcpStatus {
-	case MCPRunning:
-		b.cells.SetInternal(Cell{ID: -7, Text: "◆ mcp", FG: string(b.palette.Success)})
-	case MCPFailed:
-		b.cells.SetInternal(Cell{ID: -7, Text: "✕ mcp", FG: string(b.palette.Danger)})
-	default:
-		b.cells.SetInternal(Cell{ID: -7, Text: "◇ mcp", FG: string(b.palette.FgMuted)})
-	}
-
-	total := 0
-	for _, c := range b.columns {
-		total += c.TotalCount()
-	}
-	b.cells.SetInternal(Cell{
-		ID:   -2,
-		Text: strconv.Itoa(total) + " items",
-		FG:   string(b.palette.FgMuted),
-	})
-
-	if b.git.RepoRoot() != "" {
-		if dirty := b.git.DirtyCount(); dirty > 0 {
-			b.cells.SetInternal(Cell{
-				ID:   -1,
-				Text: "● " + strconv.Itoa(dirty),
-				FG:   string(b.palette.Warning),
-			})
-		} else {
-			b.cells.SetInternal(Cell{
-				ID:   -1,
-				Text: "✓ clean",
-				FG:   string(b.palette.Success),
-			})
-		}
-	} else {
-		b.cells.Clear(-1)
-	}
-}
-
-// setActivityCell sets a transient activity indicator cell in the accent color.
-func (b *Board) setActivityCell(id int, text string) {
-	b.cells.SetInternal(Cell{ID: id, Text: text, FG: string(b.palette.AccentSoft)})
-}
-
-// colWidthOf is the content width of column i: its script-set override when one
-// is given, else the configured default. This feeds layout's variable-width
-// geometry so a script-set column can be wider/narrower than its neighbors.
-func (b *Board) colWidthOf(i int) int {
-	c := b.columns[i]
-	// A collapsed column shrinks to a thin bar — except the focused one, which
-	// auto-expands so its cards stay readable. This single seam keeps the bar's
-	// width and Column.View's collapsed rendering (keyed off width) in lockstep.
-	if c.Collapsed && i != b.selectedCol {
-		return collapsedContentWidth
-	}
-	return c.ContentWidth(b.cfg.ColumnWidth)
-}
-
-// visibleColRange returns the index of the first column to render and the
-// number of columns that fit horizontally. It also adjusts firstVisibleCol so
-// the active column is always within the visible window. The math lives in
-// layout.go; this wrapper applies it to board state.
-func (b *Board) visibleColRange() (first, count int) {
-	if len(b.columns) == 0 {
-		return 0, 0
-	}
-	first, count = packWindow(b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.colWidthOf)
-	b.firstVisibleCol = first
-	return first, count
+	return b.handleListBoardKey(msg, col)
 }
 
 func (b *Board) View() string {
-	if len(b.columns) == 0 {
-		w, h := b.termWidth, b.termHeight
-		if w == 0 {
-			w = 80
-		}
-		if h == 0 {
-			h = 24
-		}
-		if dialogView := b.dialog.View(); dialogView != "" {
-			return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
-		}
-		return "No columns found in " + b.cfg.Path
-	}
-
-	// Bail out cleanly on tiny terminals rather than draw a broken layout.
-	if b.termWidth > 0 && b.termWidth < minBoardWidth(b.cfg.ColumnWidth) {
-		w, h := b.termWidth, b.termHeight
-		if h == 0 {
-			h = 24
-		}
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center,
-			lipgloss.NewStyle().Foreground(b.palette.FgMuted).Render("terminal too small"))
-	}
-	if b.termHeight > 0 && b.termHeight < 10 {
-		w := b.termWidth
-		if w == 0 {
-			w = 80
-		}
-		return lipgloss.Place(w, b.termHeight, lipgloss.Center, lipgloss.Center,
-			lipgloss.NewStyle().Foreground(b.palette.FgMuted).Render("terminal too small"))
-	}
-
-	b.rebuildMnemonics()
-
-	gap := lipgloss.NewStyle().MarginRight(1)
-	gutterW := gutterWidth(b.mnemonicMaxLen)
-
-	slots, first := computeSlots(b.zoom.Active(), b.termWidth, b.selectedCol, b.firstVisibleCol, len(b.columns), b.colWidthOf)
-	b.firstVisibleCol = first
-	end := first + len(slots)
-	rendered := make([]string, 0, len(slots)+2)
-
-	indicatorStyle := lipgloss.NewStyle().
-		Foreground(b.palette.FgSubtle).
-		Bold(true).
-		PaddingTop(1).
-		MarginRight(1)
-	b.leftIndicatorWidth = 0
-	if !b.zoom.Active() && first > 0 {
-		chip := indicatorStyle.Render(fmt.Sprintf("◀ %d", first))
-		rendered = append(rendered, chip)
-		b.leftIndicatorWidth = lipgloss.Width(chip) + 1
-	}
-	for _, s := range slots {
-		col := b.columns[s.Col]
-		rendered = append(rendered, gap.Render(col.View(RenderCtx{
-			Active:        s.Col == b.selectedCol,
-			Width:         s.Width,
-			PreviewLines:  s.PreviewLines,
-			WrapTitles:    b.cfg.WrapTitles,
-			TitleMaxLines: b.cfg.TitleMaxLines,
-			GutterW:       gutterW,
-			MnemonicOf:    b.mnemonicLookup(s.Col),
-			StatFor:       b.git.StatFor,
-			Indicator:     b.indicators.get(col.Name),
-		})))
-	}
-	if !b.zoom.Active() && end < len(b.columns) {
-		rendered = append(rendered, indicatorStyle.Render(fmt.Sprintf("%d ▶", len(b.columns)-end)))
-	}
-	w, h := b.termWidth, b.termHeight
-	if w == 0 {
-		w = 80
-	}
-	if h == 0 {
-		h = 24
-	}
-
-	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
-	b.columnsLeftPad = 0
-	if b.zoom.Active() {
-		// Zoom renders a single column; center it on the row.
-		columnsView = lipgloss.PlaceHorizontal(b.termWidth, lipgloss.Center, columnsView)
-	} else if pad := (w - lipgloss.Width(columnsView)) / 2; pad > 0 {
-		// Center the whole strip as a group when it doesn't fill the width.
-		// Computed explicitly so columnAtMouse can subtract the same offset.
-		b.columnsLeftPad = pad
-		columnsView = lipgloss.NewStyle().PaddingLeft(pad).Render(columnsView)
-	}
-
-	quickCmdView := b.renderQuickCommand()
-
-	// Header row: logo on the left, cells strip right-aligned on the same line.
-	b.updateBuiltinCells()
-	logo := b.renderLogo()
-	header := logo
-	if !b.cells.Empty() {
-		avail := w - lipgloss.Width(logo) - 2
-		if strip := b.cells.render(avail); lipgloss.Width(strip) > 0 {
-			pad := max(w-lipgloss.Width(logo)-lipgloss.Width(strip), 1)
-			header = logo + strings.Repeat(" ", pad) + strip
-		}
-	}
-	// Tint the whole header line with a subtle surface background, padded to the
-	// full terminal width, and underline it with a muted rule to separate the
-	// header from the columns. Chips with their own bg keep it; bare text and
-	// the gap inherit the tint. The rule adds a row, which lipgloss.Height picks
-	// up so logoHeight (and thus mouse hit-testing) stays correct.
-	header = lipgloss.NewStyle().
-		Background(b.palette.BgCodeInline).
-		Width(w).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderBottom(true).
-		BorderForeground(b.palette.BorderMuted).
-		Render(header)
-	b.logoHeight = lipgloss.Height(header)
-	b.columnsHeight = lipgloss.Height(columnsView)
-	result := header + "\n" + columnsView
-	if quickCmdView != "" {
-		result += "\n" + quickCmdView
-	}
-
-	// The board is always rendered with the keybar pinned to the bottom row, so it
-	// reads as a persistent bar. An active overlay is composited on top, centered
-	// in the band between the header and the keybar, so both stay visible behind
-	// it — instead of replacing the whole screen.
-	// The open editor is a modal with its own footer (mode badge + command line +
-	// hints), so the board's keybar is suppressed while it is open to avoid two
-	// competing footers.
-	statusBar := b.renderStatusBar()
-	if b.editor.state != editorNone {
-		statusBar = ""
-	}
-	headerH := lipgloss.Height(header)
-	barH := 0
-	if statusBar != "" {
-		barH = lipgloss.Height(statusBar)
-	}
-	if pad := h - lipgloss.Height(result) - barH; pad > 0 {
-		result += strings.Repeat("\n", pad)
-	}
-	base := result
-	if statusBar != "" {
-		base += "\n" + statusBar
-	}
-
-	// Reserve the header/keybar rows so the editor modal fits the band it is
-	// composited into (below the header) instead of overflowing off-screen. This
-	// reserve is stable, so the buffer height matches at scroll-time and
-	// render-time — avoiding an off-by-one that strands the last line.
-	if b.editor.state != editorNone {
-		b.editor.headerReserve = headerH + barH
-		b.editor.applySize()
-	}
-
-	overlay := b.activeOverlay(w, h)
-	if overlay == "" {
-		return base
-	}
-	return composeOverlay(base, overlay, w, headerH, h-headerH-barH)
-}
-
-func (b *Board) renderStatusBar() string {
-	width := b.termWidth
-	if width == 0 {
-		width = 80
-	}
-
-	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode, Zoomed: b.zoom.Active()}
-	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
-	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
-		col := b.columns[b.selectedCol]
-		ctx.Virtual = true
-		for _, vc := range col.colCmds {
-			if vc.Key != "" {
-				ctx.VirtualCmds = append(ctx.VirtualCmds, Shortcut{Keys: vc.Key, Label: vc.Name})
-			}
-		}
-	}
-
-	// The board/column info and the transient activity indicators (git sync,
-	// background jobs, kbrd.status) now live in the header cells, so the bottom
-	// bar is just the keyboard hints. A muted top rule (mirroring the header's
-	// bottom rule) makes it read as a persistent keybar, including behind overlays.
-	secondary := RenderInlineHints(ContextShortcuts(ctx))
-	return lipgloss.NewStyle().
-		Width(width).
-		Align(lipgloss.Center).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderTop(true).
-		BorderForeground(b.palette.BorderMuted).
-		Render(secondary)
+	return boardViewFrame{b: b}.render()
 }
 
 func (b *Board) boardLabel() string {
@@ -2421,24 +867,6 @@ func (b *Board) boardLabel() string {
 		return "[" + b.cfg.BoardName + "] " + filepath.Base(b.cfg.Path)
 	}
 	return filepath.Base(b.cfg.Path)
-}
-
-func (b *Board) renderQuickCommand() string {
-	if !b.quickCmdMode {
-		return ""
-	}
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(b.palette.BorderActive).
-		Padding(0, 1)
-	return box.Render(b.quickCmdInput.View())
-}
-
-func (b *Board) renderEditor() string {
-	if b.editor.state == editorNone {
-		return ""
-	}
-	return b.editor.View()
 }
 
 type quickCommandMsg struct {

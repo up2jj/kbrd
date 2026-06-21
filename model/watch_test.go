@@ -33,7 +33,7 @@ func TestBoard_SingleDirtyColumn(t *testing.T) {
 			for _, p := range tt.dirty {
 				dirty[p] = struct{}{}
 			}
-			got := b.singleDirtyColumn(dirty)
+			got := b.lifecycle().singleDirtyColumn(dirty)
 			if !samePath(got, tt.want) && got != tt.want {
 				t.Errorf("singleDirtyColumn = %q, want %q", got, tt.want)
 			}

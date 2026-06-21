@@ -1,0 +1,120 @@
+package model
+
+import (
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type boardInputRouter struct {
+	board *Board
+}
+
+func (b *Board) inputRouter() boardInputRouter {
+	return boardInputRouter{board: b}
+}
+
+func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	b := r.board
+	// While waiting for a sync to finish, a second Ctrl+C force-quits.
+	if b.shuttingDown && key.Matches(msg, Keys.Quit) {
+		b.quitting = true
+		return b, tea.Quit
+	}
+
+	// The interactive keybindings menu owns all input while open.
+	if b.helpMenu.Active() {
+		return b.helpActions().update(msg)
+	}
+
+	if b.configMenuOpen {
+		return r.handleConfigMenu(msg)
+	}
+	if b.dialog.active {
+		return b, b.dialog.Update(msg)
+	}
+
+	// Custom commands and script UI can be layered over an editor.
+	if b.customCmds.Active() {
+		return b, b.customCmds.Update(msg)
+	}
+	if b.scriptUI.Active() {
+		return b, b.scriptUI.Update(msg)
+	}
+
+	if b.editor.state != editorNone {
+		return r.handleEditor(msg)
+	}
+	if b.peek.Active() {
+		b.peek.Update(msg)
+		return b, nil
+	}
+	if b.switcher.Active() {
+		return b, b.switcher.Update(msg)
+	}
+	if b.search.Active() {
+		return b, b.search.HandleKey(msg)
+	}
+	if b.templateFlow.Active() {
+		return b, b.templateFlow.Update(msg)
+	}
+	if b.frontmatterEdit.Active() {
+		return b, b.frontmatterEdit.Update(msg)
+	}
+	if b.git.Active() {
+		return b, b.git.HandleKey(msg)
+	}
+	if b.zellij.Active() {
+		return b, b.zellij.Update(msg)
+	}
+	if b.quickCmdMode {
+		return b.quickCommands().handleKey(msg)
+	}
+
+	return b.handleBoardKey(msg)
+}
+
+func (r boardInputRouter) handleConfigMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	b := r.board
+	switch {
+	case key.Matches(msg, Keys.Quit):
+		b.configMenuOpen = false
+		return b.beginShutdown()
+	case key.Matches(msg, Keys.ConfigMenuClose):
+		b.configMenuOpen = false
+	case key.Matches(msg, Keys.ConfigOpenLocal):
+		b.configMenuOpen = false
+		return b, b.managedFiles().openLocalConfig()
+	case key.Matches(msg, Keys.ConfigOpenGlobal):
+		b.configMenuOpen = false
+		return b, b.managedFiles().openGlobalConfig()
+	case key.Matches(msg, Keys.ConfigOpenLocalCommands):
+		b.configMenuOpen = false
+		return b, b.managedFiles().openLocalCommands()
+	case key.Matches(msg, Keys.ConfigCreateLocalMCP):
+		b.configMenuOpen = false
+		return b, b.managedFiles().createLocalMCP()
+	case key.Matches(msg, Keys.ConfigCreateLocalAgents):
+		b.configMenuOpen = false
+		return b, b.managedFiles().createLocalAgents()
+	}
+	return b, nil
+}
+
+func (r boardInputRouter) handleEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	b := r.board
+	// The textarea path treats esc as cancel (with a discard confirm when dirty);
+	// the vim path handles esc itself and quits via :q/:q!.
+	if b.editor.usesTextarea() && key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
+		b.dialog.OpenConfirmDestructive("Discard unsaved changes?", "Your edits will be lost.", "Discard", editorDiscardMsg{})
+		return b, nil
+	}
+	cmd, _ := b.editor.Update(msg)
+	if b.editor.state == editorNone {
+		b.resetEditor()
+	}
+	return b, cmd
+}
+
+func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return b.inputRouter().HandleKey(msg)
+}

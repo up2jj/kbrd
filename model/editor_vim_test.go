@@ -39,7 +39,7 @@ func openVimEdit(t *testing.T, content string) (*Editor, string) {
 	}
 	e := NewEditor(true)
 	e.SetTermSize(120, 40)
-	e.OpenEdit(0, "note", path)
+	e.OpenEdit(0, "", "note", path)
 	return e, path
 }
 
@@ -138,7 +138,7 @@ func TestVimSwapRecovery(t *testing.T) {
 	// Reopen the (unchanged-on-disk) file: openSwapCheck should offer recovery.
 	e2 := NewEditor(true)
 	e2.SetTermSize(120, 40)
-	cmd := e2.OpenEdit(0, "note", path)
+	cmd := e2.OpenEdit(0, "", "note", path)
 	if cmd == nil {
 		t.Fatalf("expected a recovery command on reopen")
 	}
@@ -213,7 +213,7 @@ func TestVimSaveFailureKeepsDirtyAndSwap(t *testing.T) {
 	}
 	b.termWidth, b.termHeight = 120, 40
 	b.editor.SetTermSize(120, 40)
-	b.editor.OpenEdit(0, "note", path)
+	b.editor.OpenEdit(0, b.columns[0].Path, "note", path)
 
 	b.editor.buf.HandleKey("x") // delete a char -> dirty
 	b.editor.flushSwap()
@@ -230,7 +230,7 @@ func TestVimSaveFailureKeepsDirtyAndSwap(t *testing.T) {
 
 	// Delete the underlying file so the existing-only ReplaceFileContent fails.
 	os.Remove(path)
-	b.handleSave(editorSaveMsg{ColIndex: 0, FileName: "note", Content: b.editor.buf.Text()})
+	b.mutationHandlers().handleSave(editorSaveMsg{Target: b.editor.itemTarget(), ColIndex: 0, FileName: "note", Content: b.editor.buf.Text()})
 
 	if b.editor.state == editorNone {
 		t.Fatal("failed save must not close the editor")
@@ -266,7 +266,7 @@ func TestEditorOpenRefusesWhenDirty(t *testing.T) {
 	b.termWidth, b.termHeight = 120, 40
 	b.editor.SetTermSize(120, 40)
 
-	b.editor.OpenEdit(0, "note", filepath.Join(col, "note.md"))
+	b.editor.OpenEdit(0, col, "note", filepath.Join(col, "note.md"))
 	b.editor.buf.HandleKey("x") // dirty
 	if !b.editor.IsDirty() {
 		t.Fatal("editor should be dirty after an edit")
@@ -296,7 +296,7 @@ func TestSwapWriteFailureWarns(t *testing.T) {
 
 	e := NewEditor(true)
 	e.SetTermSize(120, 40)
-	e.OpenEdit(0, "note", path)
+	e.OpenEdit(0, "", "note", path)
 	e.buf.HandleKey("x") // dirty so flushSwap actually writes
 
 	// Point the swap at a path under a missing directory so the write fails.
@@ -321,7 +321,7 @@ func TestSwapWriteFailureWarns(t *testing.T) {
 func TestVimMultiRuneKeyInserts(t *testing.T) {
 	e := NewEditor(true)
 	e.SetTermSize(120, 40)
-	e.OpenAppend(0, "note") // additive state opens in insert mode
+	e.OpenAppend(0, "", "", "note") // additive state opens in insert mode
 	if e.buf.Mode() != vimbuf.ModeInsert {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
 	}
@@ -344,7 +344,7 @@ func TestVimMultiRuneKeyInserts(t *testing.T) {
 func TestVimJournalMultiRunePreservesCase(t *testing.T) {
 	e := NewEditor(true)
 	e.SetTermSize(120, 40)
-	e.OpenJournal(0, "note") // journal opens in insert mode
+	e.OpenJournal(0, "", "", "note") // journal opens in insert mode
 	if e.buf.Mode() != vimbuf.ModeInsert {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
 	}
@@ -387,7 +387,7 @@ func TestEditorOpenResolveAndGoToLine(t *testing.T) {
 		t.Fatalf("resolve by basename: ci=%d item=%v", ci, item)
 	}
 
-	b.editor.OpenEdit(ci, item.Name, item.FullPath)
+	b.editor.OpenEdit(ci, b.columns[ci].Path, item.Name, item.FullPath)
 	b.editor.GoToLine(4)
 	if got := b.editor.buf.Cursor().Row; got != 3 {
 		t.Fatalf("GoToLine(4) row = %d, want 3", got)
