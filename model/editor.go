@@ -358,19 +358,36 @@ func (e *Editor) CurrentLine() string {
 	return lines[row]
 }
 
+// CurrentRow returns the 0-based logical row the cursor is on — the row a line
+// command captures so its (possibly async) result lands on that line and not
+// wherever the cursor moved to meanwhile. Pairs with ReplaceLine.
+func (e *Editor) CurrentRow() int {
+	if e.vim && e.buf != nil && !isInputState(e.state) {
+		return e.buf.CursorRow()
+	}
+	return e.textarea.Line()
+}
+
 // ReplaceCurrentLine swaps the cursor's logical line for s (which may itself
 // contain newlines, splitting it into several lines) and leaves the cursor at
 // the end of the replacement. The swap is a single undo step: one ctrl+z
 // restores the line as it was before the command ran.
 func (e *Editor) ReplaceCurrentLine(s string) {
+	e.ReplaceLine(e.CurrentRow(), s)
+}
+
+// ReplaceLine is ReplaceCurrentLine targeted at a specific row, so a line
+// command's deferred result replaces the line it was dispatched from even if the
+// cursor has since moved. A row that no longer exists (the buffer shrank) is a
+// safe no-op rather than corrupting a different line.
+func (e *Editor) ReplaceLine(row int, s string) {
 	if e.vim && e.buf != nil && !isInputState(e.state) {
-		e.buf.ReplaceCurrentLine(s)
+		e.buf.ReplaceLineRange(row, row, s)
 		e.flushSwap()
 		return
 	}
 	prev := e.textarea.Value()
 	lines := strings.Split(prev, "\n")
-	row := e.textarea.Line()
 	if row < 0 || row >= len(lines) {
 		return
 	}
@@ -487,9 +504,9 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 			if !isInputState(e.state) {
 				// Hand the current line to the board, which opens the line-command
 				// menu over the still-open editor. No buffer mutation here.
-				line, col, fn := e.CurrentLine(), e.ColIndex, e.FileName
+				line, row, col, fn := e.CurrentLine(), e.CurrentRow(), e.ColIndex, e.FileName
 				return func() tea.Msg {
-					return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line}
+					return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line, Row: row}
 				}, nil
 			}
 		}
@@ -649,9 +666,9 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 		e.toggleExpanded()
 		return nil, nil
 	case key.Matches(keyMsg, Keys.EditorCommand): // ctrl+l line command menu
-		line, col, fn := e.buf.CurrentLine(), e.ColIndex, e.FileName
+		line, row, col, fn := e.buf.CurrentLine(), e.buf.CursorRow(), e.ColIndex, e.FileName
 		return func() tea.Msg {
-			return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line}
+			return openLineCommandsMsg{ColIndex: col, FileName: fn, Line: line, Row: row}
 		}, nil
 	}
 	e.status = ""
@@ -1013,11 +1030,14 @@ func (e *Editor) View() string {
 
 // openLineCommandsMsg asks the board to open the line-command menu over the
 // still-open editor. Line is the current line's text, handed to the command as
-// ctx.line; the command's return value (if any) replaces that line.
+// ctx.line; the command's return value (if any) replaces that line. Row is the
+// line's 0-based row, carried through dispatch so a slow/async result replaces
+// that row even if the cursor has since moved.
 type openLineCommandsMsg struct {
 	ColIndex int
 	FileName string
 	Line     string
+	Row      int
 }
 
 type editorSaveMsg struct {

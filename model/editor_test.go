@@ -78,6 +78,36 @@ func TestReplaceMiddleLine(t *testing.T) {
 	}
 }
 
+// A line command captures its target row at dispatch, so its (possibly async)
+// result must replace that row even after the cursor has moved — ReplaceLine
+// targets the captured row, never the cursor's current one. This is the editor
+// half of the "line filter can replace the wrong row" fix.
+func TestReplaceLineTargetsCapturedRow(t *testing.T) {
+	e := openEditorWith(t, "alpha\nbravo\ncharlie\n") // cursor parked on charlie (row 2)
+	targetRow := e.CurrentRow()
+	if targetRow != 2 {
+		t.Fatalf("CurrentRow = %d, want 2", targetRow)
+	}
+
+	// Cursor moves away before the result lands (the slow-filter race).
+	e.Update(tea.KeyMsg{Type: tea.KeyUp})
+	e.Update(tea.KeyMsg{Type: tea.KeyUp}) // now on alpha (row 0)
+	if got := e.CurrentLine(); got != "alpha" {
+		t.Fatalf("precondition CurrentLine = %q, want alpha", got)
+	}
+
+	e.ReplaceLine(targetRow, "CHARLIE")
+	if got := e.textarea.Value(); got != "alpha\nbravo\nCHARLIE" {
+		t.Fatalf("ReplaceLine hit the wrong row: value = %q", got)
+	}
+
+	// A stale row past the end of a shrunken buffer is a safe no-op.
+	e.ReplaceLine(99, "X")
+	if got := e.textarea.Value(); got != "alpha\nbravo\nCHARLIE" {
+		t.Fatalf("out-of-range ReplaceLine should no-op, value = %q", got)
+	}
+}
+
 // A replacement containing a newline splits the line into several.
 func TestReplaceCurrentLineMultiLine(t *testing.T) {
 	e := openEditorWith(t, "alpha\nbravo\ncharlie\n")

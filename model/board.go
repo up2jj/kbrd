@@ -127,8 +127,11 @@ type Board struct {
 
 	// lineApplyPending marks a Lua line command in flight: when its coroutine
 	// completes (possibly after kbrd.ui.* yields), handleScriptResult drains the
-	// return value and splices it into the editor's current line.
+	// return value and splices it into the editor. lineApplyRow is the row the
+	// command was dispatched from, captured so the result lands there even if the
+	// cursor moved while the command (which may have opened a UI prompt) ran.
 	lineApplyPending bool
+	lineApplyRow     int
 
 	scriptStatus    string // transient kbrd.status message shown in the status bar
 	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks

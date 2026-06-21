@@ -263,6 +263,13 @@ func (b *Buffer) CurrentLine() string {
 	return string(b.lines[b.cursor.Row])
 }
 
+// CursorRow returns the 0-based logical row the cursor is on. Used to capture a
+// line command's target row at dispatch so a slow/async result replaces that
+// row, not whichever line the cursor later wandered to.
+func (b *Buffer) CursorRow() int {
+	return b.cursor.Row
+}
+
 // ReplaceCurrentLine swaps the cursor's line for s (which may contain newlines,
 // splitting into several lines) as a single undo step, leaving the cursor at the
 // end of the replacement. Mirrors the old textarea editor's contract so line

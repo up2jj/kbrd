@@ -344,9 +344,11 @@ type CustomCommandMenu struct {
 	// lineMode marks the menu as the in-editor line-command picker: run() emits
 	// runLineCommandMsg (which splices the result into the editor) instead of the
 	// board-mutating runCustomCommandMsg. line is the current editor line, also
-	// mirrored into vars["line"] for shell templates.
+	// mirrored into vars["line"] for shell templates; lineRow is its 0-based row,
+	// carried so a slow/async result replaces that row, not the cursor's later one.
 	lineMode bool
 	line     string
+	lineRow  int
 }
 
 func (m *CustomCommandMenu) commandHaystack(i int) string {
@@ -371,10 +373,11 @@ func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.Co
 // OpenLine opens the menu as the in-editor line-command picker. line is the
 // current editor line, handed to the command as ctx.line / vars["line"]; the
 // command's return value replaces that line.
-func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []config.CommandLoadWarning, line string, vars map[string]string) {
+func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []config.CommandLoadWarning, line string, row int, vars map[string]string) {
 	m.Open(commands, warnings, vars, nil)
 	m.lineMode = true
 	m.line = line
+	m.lineRow = row
 }
 
 func (m *CustomCommandMenu) Close() {
@@ -388,6 +391,7 @@ func (m *CustomCommandMenu) Close() {
 	m.filter = ""
 	m.lineMode = false
 	m.line = ""
+	m.lineRow = 0
 }
 
 func (m *CustomCommandMenu) Active() bool { return m.active }
@@ -492,10 +496,11 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	vctx := m.vctx
 	lineMode := m.lineMode
 	line := m.line
+	lineRow := m.lineRow
 	m.Close()
 	if lineMode {
 		return func() tea.Msg {
-			return runLineCommandMsg{Cmd: c, Line: line, Vars: vars}
+			return runLineCommandMsg{Cmd: c, Line: line, Row: lineRow, Vars: vars}
 		}
 	}
 	return func() tea.Msg {

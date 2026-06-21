@@ -13,18 +13,23 @@ import (
 
 // runLineCommandMsg dispatches a line command picked from the in-editor menu.
 // Line is the current editor line (handed to the command as ctx.line and as the
-// {{.line}} template var / stdin); the command's return value replaces it.
+// {{.line}} template var / stdin); the command's return value replaces it. Row
+// is the line's 0-based row at dispatch, so the result lands on that row even if
+// the cursor has since moved (the menu closes before an async command finishes).
 type runLineCommandMsg struct {
 	Cmd  config.Command
 	Line string
+	Row  int
 	Vars map[string]string
 }
 
 // lineShellDoneMsg carries the captured stdout of a shell line filter back so
-// the result can be spliced into the editor on the Bubble Tea goroutine.
+// the result can be spliced into the editor on the Bubble Tea goroutine. Row is
+// the dispatch-time target row (see runLineCommandMsg).
 type lineShellDoneMsg struct {
 	Name string
 	Out  string
+	Row  int
 	Exit int
 	Err  string
 }
@@ -44,7 +49,7 @@ func (b *Board) openLineCommands(msg openLineCommandsMsg) tea.Cmd {
 			cmds = append(cmds, c)
 		}
 	}
-	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, b.lineCommandVars(msg))
+	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, msg.Row, b.lineCommandVars(msg))
 	return nil
 }
 
@@ -70,9 +75,11 @@ func (b *Board) lineCommandVars(msg openLineCommandsMsg) map[string]string {
 // with the line on stdin and their stdout replacing the line.
 func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd) {
 	if msg.Cmd.Source == config.SourceLua {
-		// Mark the apply intent so handleScriptResult splices TakeReturn() into
-		// the editor when the coroutine finishes (even after kbrd.ui.* yields).
+		// Mark the apply intent (and the target row) so handleScriptResult splices
+		// TakeReturn() into that row when the coroutine finishes — even after
+		// kbrd.ui.* yields, by which point the cursor may have moved.
 		b.lineApplyPending = true
+		b.lineApplyRow = msg.Row
 		req, err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
 		return b, b.handleScriptResult(msg.Cmd.Name, req, err)
 	}
@@ -83,6 +90,7 @@ func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 	}
 	dir := b.cfg.Path
 	line := msg.Line
+	row := msg.Row
 	name := msg.Cmd.Name
 	timeout := time.Duration(b.cfg.Scripting.CommandTimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -96,7 +104,7 @@ func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 		if err != nil {
 			errStr = err.Error()
 		}
-		return lineShellDoneMsg{Name: name, Out: res.Output, Exit: res.ExitCode, Err: errStr}
+		return lineShellDoneMsg{Name: name, Out: res.Output, Row: row, Exit: res.ExitCode, Err: errStr}
 	}
 }
 
@@ -106,7 +114,7 @@ func (b *Board) handleRunLineCommand(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 // nothing on disk changed (unlike board commands).
 func (b *Board) applyLineReturn() tea.Cmd {
 	if out, ok := b.scripts.TakeReturn(); ok {
-		b.editor.ReplaceCurrentLine(out)
+		b.editor.ReplaceLine(b.lineApplyRow, out)
 	}
 	return nil
 }
@@ -125,7 +133,7 @@ func (b *Board) handleLineShellDone(msg lineShellDoneMsg) (tea.Model, tea.Cmd) {
 		}
 		return b, b.notifier.Send(msg.Name+": "+detail, notifyError)
 	}
-	b.editor.ReplaceCurrentLine(trimOneTrailingNewline(msg.Out))
+	b.editor.ReplaceLine(msg.Row, trimOneTrailingNewline(msg.Out))
 	return b, nil
 }
 
