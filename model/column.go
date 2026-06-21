@@ -1352,3 +1352,17 @@ func (c *Column) fullPathFor(itemName string) string {
 	}
 	return ""
 }
+
+// ItemByName returns the loaded item with the given name, or nil if absent.
+// Unlike SelectedItem it does not depend on the cursor, so it resolves the right
+// card even when board selection has moved on (e.g. a still-open editor whose
+// line command must bind to the file it was opened against).
+func (c *Column) ItemByName(name string) *Item {
+	for i := range c.Items {
+		if c.Items[i].Name == name {
+			item := c.Items[i]
+			return &item
+		}
+	}
+	return nil
+}

@@ -1,6 +1,35 @@
 package model
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// A line command's ctx must bind to the card the editor was opened against
+// (msg.FileName), not the column's current selection — a script/timer/hook can
+// move selection while the editor stays open. lineCommandVars resolves by name.
+func TestLineCommandVars_BindsToEditorFileNotSelection(t *testing.T) {
+	col := newTestColumn(t, map[string]string{"a": "alpha", "b": "bravo"})
+	b := &Board{columns: []*Column{col}}
+
+	// Selection has moved to "b", but the editor is open on "a".
+	col.SelectByName("b")
+	if sel := col.SelectedItem(); sel == nil || sel.Name != "b" {
+		t.Fatalf("precondition: expected selection on b, got %+v", sel)
+	}
+
+	vars := b.lineCommandVars(openLineCommandsMsg{ColIndex: 0, FileName: "a", Line: "x"})
+
+	if vars["fileName"] != "a" {
+		t.Fatalf("fileName = %q, want a (bound to the editor's file, not the selection)", vars["fileName"])
+	}
+	if !strings.HasSuffix(vars["filePath"], "a.md") {
+		t.Fatalf("filePath = %q, want it to point at a.md", vars["filePath"])
+	}
+	if vars["line"] != "x" {
+		t.Fatalf("line = %q, want x", vars["line"])
+	}
+}
 
 // handleLineShellDone must splice a shell line filter's stdout into the row the
 // command was dispatched from (msg.Row), not whichever line the cursor wandered

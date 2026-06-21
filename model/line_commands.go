@@ -55,14 +55,13 @@ func (b *Board) openLineCommands(msg openLineCommandsMsg) tea.Cmd {
 
 // lineCommandVars builds the template/ctx vars for a line command: the standard
 // board/column/file context (when the edited item is resolvable) plus `line`.
+// The item is resolved by the editor's FileName, not the column's current
+// selection — a script/timer/hook may have moved selection while the editor
+// stayed open, and the command must bind to the card actually being edited.
 func (b *Board) lineCommandVars(msg openLineCommandsMsg) map[string]string {
 	vars := map[string]string{}
 	if msg.ColIndex >= 0 && msg.ColIndex < len(b.columns) {
-		col := b.columns[msg.ColIndex]
-		var item *Item
-		if col.HasSelectedItem() {
-			item = col.SelectedItem()
-		}
+		item := b.columns[msg.ColIndex].ItemByName(msg.FileName)
 		vars = b.buildCommandVars(msg.ColIndex, item)
 	}
 	vars["line"] = msg.Line
