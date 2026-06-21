@@ -86,6 +86,9 @@ func (b *Board) openPasteMenu(colIdx int, fileName string) tea.Cmd {
 // b.columns, which may have changed). Completion is reported via pasteDoneMsg so
 // handlePasteDone can finish on the UI thread.
 func (b *Board) pasteToItem(msg pasteRequestMsg) tea.Cmd {
+	// Capture journal config on the UI goroutine; the worker must not read live
+	// Board state (a board switch / config reload could race it).
+	detectDate := b.cfg.Journal.DetectDate
 	return func() tea.Msg {
 		text, err := clipboard.ReadAll()
 		if err != nil || text == "" {
@@ -97,7 +100,7 @@ func (b *Board) pasteToItem(msg pasteRequestMsg) tea.Cmd {
 			err = board.PrependLine(msg.ItemPath, text)
 			verb, kind = "prepended to ", "prepend"
 		case pasteJournal:
-			at, body := b.journalStamp(text)
+			at, body := journalStampWith(detectDate, text)
 			err = board.JournalLine(msg.ItemPath, at, body)
 			verb, kind = "journaled to ", "journal"
 		case pasteReplace:
