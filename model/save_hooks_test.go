@@ -60,6 +60,38 @@ func TestHandleSave_PublishesItemSaved(t *testing.T) {
 	}
 }
 
+// A clipboard paste is an in-app content write too, so finalizing one must
+// publish ItemSaved with the paste mode's Kind — append/prepend/journal map
+// directly, and a whole-file replace is reported as "save". (pasteToItem's disk
+// write + clipboard read run in a goroutine; handlePasteDone is the UI-goroutine
+// finalizer that publishes, which is what a hook observes.)
+func TestHandlePasteDone_PublishesItemSaved(t *testing.T) {
+	col := newTestColumn(t, map[string]string{"a": "old"})
+	b := &Board{columns: []*Column{col}}
+	rec := &recordingSub{}
+	b.bus.Subscribe(rec)
+
+	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "append", Verb: "appended to "})
+	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "prepend", Verb: "prepended to "})
+	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "journal", Verb: "journaled to "})
+	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "save", Verb: "replaced "})
+
+	want := []events.Event{
+		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "append"},
+		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "prepend"},
+		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "journal"},
+		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "save"},
+	}
+	if len(rec.evs) != len(want) {
+		t.Fatalf("got %d events, want %d: %+v", len(rec.evs), len(want), rec.evs)
+	}
+	for i := range want {
+		if rec.evs[i] != want[i] {
+			t.Errorf("event %d: got %+v want %+v", i, rec.evs[i], want[i])
+		}
+	}
+}
+
 // TestMutationsSelectTargetFile locks in that a content/create/rename mutation
 // leaves its target file selected, even when a *different* card was selected
 // going in. This is the guarantee that callers no longer rely on the bubbles

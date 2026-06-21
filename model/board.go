@@ -62,21 +62,6 @@ type columnReloadedMsg struct {
 	col  *Column
 }
 
-type pasteMode int
-
-const (
-	pasteAtEnd pasteMode = iota
-	pasteAtStart
-	pasteReplace
-	pasteJournal
-)
-
-type pasteRequestMsg struct {
-	ColIndex int
-	FileName string
-	Mode     pasteMode
-}
-
 type initBoardRequestMsg struct{}
 type initBoardConfirmMsg struct{}
 type initBoardDeclineMsg struct{}
@@ -835,6 +820,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteRequestMsg:
 		return b, b.pasteToItem(msg.ColIndex, msg.FileName, msg.Mode)
+
+	case pasteDoneMsg:
+		return b.handlePasteDone(msg)
 
 	case renameItemRequestMsg:
 		return b.handleRenameItemRequest(msg)
@@ -2088,60 +2076,6 @@ func (b *Board) copyToClipboard(content []byte) tea.Cmd {
 			return notifyMsg{Message: "clipboard not available", Type: notifyError}
 		}
 		return notifyMsg{Message: "copied to clipboard", Type: notifySuccess}
-	}
-}
-
-func (b *Board) openPasteMenu(colIdx int, fileName string) tea.Cmd {
-	text, err := clipboard.ReadAll()
-	if err != nil || text == "" {
-		return b.notifier.Send("clipboard empty or unavailable", notifyError)
-	}
-	b.dialog.Open(DialogOptions{
-		Title: "Paste from clipboard",
-		Body:  "Into " + fileName + ".md",
-		Buttons: []DialogButton{
-			{Label: "At beginning", Hotkey: 'a',
-				Msg: pasteRequestMsg{ColIndex: colIdx, FileName: fileName, Mode: pasteAtStart}},
-			{Label: "Append at end", Hotkey: 'p',
-				Msg: pasteRequestMsg{ColIndex: colIdx, FileName: fileName, Mode: pasteAtEnd}},
-			{Label: "Journal entry", Hotkey: 'j',
-				Msg: pasteRequestMsg{ColIndex: colIdx, FileName: fileName, Mode: pasteJournal}},
-			{Label: "Replace whole file", Kind: ButtonDanger, Hotkey: 'R',
-				Msg: pasteRequestMsg{ColIndex: colIdx, FileName: fileName, Mode: pasteReplace}},
-		},
-		DefaultIndex: 1,
-	})
-	return nil
-}
-
-func (b *Board) pasteToItem(colIdx int, fileName string, mode pasteMode) tea.Cmd {
-	return func() tea.Msg {
-		text, err := clipboard.ReadAll()
-		if err != nil || text == "" {
-			return notifyMsg{Message: "clipboard empty or unavailable", Type: notifyError}
-		}
-		col := b.columns[colIdx]
-		var verb string
-		switch mode {
-		case pasteAtStart:
-			err = col.PrependText(fileName, text)
-			verb = "prepended to "
-		case pasteJournal:
-			at, body := b.journalStamp(text)
-			err = col.JournalText(fileName, at, body)
-			verb = "journaled to "
-		case pasteReplace:
-			err = col.ReplaceFile(fileName, text)
-			verb = "replaced "
-		default:
-			err = col.AppendText(fileName, text)
-			verb = "appended to "
-		}
-		if err != nil {
-			return notifyMsg{Message: "failed to paste: " + err.Error(), Type: notifyError}
-		}
-		col.LoadItems()
-		return notifyMsg{Message: verb + fileName, Type: notifySuccess}
 	}
 }
 
