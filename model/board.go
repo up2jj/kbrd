@@ -819,7 +819,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleDelete(msg)
 
 	case pasteRequestMsg:
-		return b, b.pasteToItem(msg.ColIndex, msg.FileName, msg.Mode)
+		return b, b.pasteToItem(msg)
 
 	case pasteDoneMsg:
 		return b.handlePasteDone(msg)

@@ -71,10 +71,13 @@ func TestHandlePasteDone_PublishesItemSaved(t *testing.T) {
 	rec := &recordingSub{}
 	b.bus.Subscribe(rec)
 
-	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "append", Verb: "appended to "})
-	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "prepend", Verb: "prepended to "})
-	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "journal", Verb: "journaled to "})
-	b.handlePasteDone(pasteDoneMsg{ColIndex: 0, FileName: "a", Kind: "save", Verb: "replaced "})
+	done := func(kind, verb string) pasteDoneMsg {
+		return pasteDoneMsg{ColName: col.Name, ColPath: col.Path, FileName: "a", Kind: kind, Verb: verb}
+	}
+	b.handlePasteDone(done("append", "appended to "))
+	b.handlePasteDone(done("prepend", "prepended to "))
+	b.handlePasteDone(done("journal", "journaled to "))
+	b.handlePasteDone(done("save", "replaced "))
 
 	want := []events.Event{
 		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "append"},
@@ -89,6 +92,40 @@ func TestHandlePasteDone_PublishesItemSaved(t *testing.T) {
 		if rec.evs[i] != want[i] {
 			t.Errorf("event %d: got %+v want %+v", i, rec.evs[i], want[i])
 		}
+	}
+}
+
+// A paste completes asynchronously, so handlePasteDone must finalize against the
+// column the write actually targeted — identified by its stable path — not
+// whatever column now sits where it used to. A reorder between dispatch and
+// completion must not redirect the ItemSaved/select to the wrong column, and a
+// target the board no longer holds is a safe no-op.
+func TestHandlePasteDone_ResolvesByStableIdentity(t *testing.T) {
+	colA := newTestColumn(t, map[string]string{"a": "a"})
+	colB := newTestColumn(t, map[string]string{"b": "b"})
+	b := &Board{columns: []*Column{colA, colB}}
+	rec := &recordingSub{}
+	b.bus.Subscribe(rec)
+
+	// The paste targeted colB (index 1 at dispatch); the columns are reordered
+	// before completion so an index-based finalize would now hit colA.
+	done := pasteDoneMsg{ColName: colB.Name, ColPath: colB.Path, FileName: "b", Kind: "append", Verb: "appended to "}
+	b.columns = []*Column{colB, colA}
+
+	b.handlePasteDone(done)
+
+	if len(rec.evs) != 1 {
+		t.Fatalf("want 1 event, got %d: %+v", len(rec.evs), rec.evs)
+	}
+	if got := rec.evs[0].(events.ItemSaved); got.Item.Column != colB.Name || got.Item.Name != "b" {
+		t.Fatalf("finalized against the wrong column: %+v (want %s/b)", got, colB.Name)
+	}
+
+	// A target the board no longer contains (e.g. board switched): no event, no panic.
+	rec.evs = nil
+	b.handlePasteDone(pasteDoneMsg{ColName: "ghost", ColPath: "/no/such/dir", FileName: "x", Kind: "append", Verb: "appended to "})
+	if len(rec.evs) != 0 {
+		t.Fatalf("paste into a vanished column should no-op, got %+v", rec.evs)
 	}
 }
 
