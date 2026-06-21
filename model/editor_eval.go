@@ -67,11 +67,10 @@ func (b *Board) buildEditorEvalCtx(rng *evalRange) map[string]any {
 	colIdx := b.editor.ColIndex
 	ctx := map[string]any{}
 	if colIdx >= 0 && colIdx < len(b.columns) {
-		col := b.columns[colIdx]
-		var item *Item
-		if col.HasSelectedItem() {
-			item = col.SelectedItem()
-		}
+		// Resolve by the editor's FileName, not the column's current selection: a
+		// script/timer/hook may have moved selection while the editor stayed open,
+		// and the ctx must bind to the card whose buffer is being edited.
+		item := b.columns[colIdx].ItemByName(b.editor.FileName)
 		ctx = b.buildFilesystemCtx(colIdx, item)
 	}
 	if b.editor.buf == nil {
