@@ -140,7 +140,7 @@ Currently emitted events:
 | `item_select`   | `{item = {column, name}, prev = {column, name}}`         | Cursor lands on a different item                          |
 | `column_change` | `{column, prev}`                                         | Active column changes (left/right keys, mouse, etc.)      |
 | `item_open`     | `{item, kind}` — kind is `"edit"` / `"external"`         | User opens an item for editing                            |
-| `item_saved`    | `{item, kind}` — kind is `"save"` / `"append"` / `"prepend"` | After an in-app save writes a card                    |
+| `item_saved`    | `{item, kind}` — kind is `"save"` / `"append"` / `"prepend"` / `"journal"` | After an in-app save writes a card                    |
 | `item_changed`  | `{item}`                                                 | Watcher saw an external edit to a card (see loop note)    |
 | `item_created`  | `{item}`                                                 | After a new item is created                               |
 | `item_renamed`  | `{item, oldName}`                                        | After an item is renamed                                  |
@@ -339,7 +339,7 @@ low-frequency **action** events can be hooked from YAML:
 | --------------- | ---------------------------------------- |
 | `item_created`  | —                                        |
 | `item_open`     | `{{.kind}}`                              |
-| `item_saved`    | `{{.kind}}` (`"save"` / `"append"` / `"prepend"`) |
+| `item_saved`    | `{{.kind}}` (`"save"` / `"append"` / `"prepend"` / `"journal"`) |
 | `item_changed`  | — (external edit; see loop note below)   |
 | `item_moved`    | `{{.fromColumn}}` `{{.toColumn}}`        |
 | `item_renamed`  | `{{.oldName}}`                           |

@@ -1566,6 +1566,7 @@ func (b *Board) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	b.editor.confirmSaved()
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
+	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: "journal"})
 	return b, b.notifier.Send("journal entry added to "+msg.FileName, notifySuccess)
 }
 

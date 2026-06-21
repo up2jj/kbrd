@@ -177,13 +177,13 @@ type ItemOpen struct {
 func (ItemOpen) eventTag() {}
 
 // ItemSaved fires after a card's content is written to disk through an in-app
-// action: an editor save, or a quick append/prepend. A hook bound here may
-// rewrite the file in place; the resulting disk change is picked up by the fs
+// action: an editor save, or a quick append/prepend/journal. A hook bound here
+// may rewrite the file in place; the resulting disk change is picked up by the fs
 // watcher (a BoardRefresh, never another ItemSaved), so post-save rewriting
 // hooks are loop-free. External edits are reported by ItemChanged instead.
 type ItemSaved struct {
 	Item ItemRef
-	Kind string // "save" | "append" | "prepend"
+	Kind string // "save" | "append" | "prepend" | "journal"
 }
 
 func (ItemSaved) eventTag() {}

@@ -42,11 +42,13 @@ func TestHandleSave_PublishesItemSaved(t *testing.T) {
 	b.handleSave(editorSaveMsg{ColIndex: 0, FileName: "a", Content: "new"})
 	b.handleAppend(editorAppendMsg{ColIndex: 0, FileName: "a", Text: "more"})
 	b.handlePrepend(editorPrependMsg{ColIndex: 0, FileName: "a", Text: "top"})
+	b.handleJournal(editorJournalMsg{ColIndex: 0, FileName: "a", Text: "logged"})
 
 	want := []events.Event{
 		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "save"},
 		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "append"},
 		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "prepend"},
+		events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: "a"}, Kind: "journal"},
 	}
 	if len(rec.evs) != len(want) {
 		t.Fatalf("got %d events, want %d: %+v", len(rec.evs), len(want), rec.evs)
