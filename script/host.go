@@ -416,6 +416,28 @@ func (h *Host) EvalWithContext(expr string, evalCtx map[string]any) (out string,
 		return "", false, nil
 	}
 
+	// Guard re-entrancy exactly like a command run (runDuringCall): mark the VM as
+	// running so any event a registered function publishes mid-eval — kbrd.emit, or
+	// a board API that bus.Publishes — is queued on h.deferred instead of firing a
+	// hook that re-enters this same VM during the PCall below and corrupts its
+	// state. Eval never yields for UI, so we drain unconditionally on return.
+	// Registered first so this defer runs after the ctx-global restores below (LIFO),
+	// meaning the drained hooks no longer see the editor's eval ctx. Preserve a prior
+	// running flag in case this is ever reached from within an already-running VM.
+	wasRunning := h.running
+	h.running = true
+	defer func() {
+		if wasRunning {
+			return
+		}
+		h.running = false
+		pending := h.deferred
+		h.deferred = nil
+		for _, ev := range pending {
+			h.OnEvent(ev)
+		}
+	}()
+
 	fn, err := h.L.LoadString("return " + expr)
 	if err != nil {
 		return "", false, err

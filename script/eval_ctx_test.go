@@ -1,6 +1,45 @@
 package script
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// A :lua expression that emits an event must defer the listener until the
+// expression finishes, exactly like a command body — never firing a hook that
+// re-enters the VM mid-PCall. Without the running guard in EvalWithContext the
+// emit would dispatch immediately and the listener would interleave with the
+// function body (order would be before,listener,after).
+func TestEvalDefersEmittedHooks(t *testing.T) {
+	dir := writeInit(t, `
+order = {}
+kbrd.on("ping", function() table.insert(order, "listener") end)
+kbrd.register("emitnow", function()
+  table.insert(order, "before")
+  kbrd.emit("ping")
+  table.insert(order, "after")
+  return "ok"
+end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	out, ok, err := h.Eval("emitnow()")
+	if err != nil || !ok || out != "ok" {
+		t.Fatalf("Eval = (%q, %v, %v), want (\"ok\", true, nil)", out, ok, err)
+	}
+	if h.running {
+		t.Fatal("running flag leaked true after Eval returned")
+	}
+
+	got := luaStringSlice(t, h, "order")
+	want := []string{"before", "after", "listener"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v (listener must fire after the expression, not re-enter mid-eval)", got, want)
+	}
+}
 
 // EvalWithContext exposes the supplied ctx table to the expression (and to the
 // registered functions it calls), and removes it afterward.
