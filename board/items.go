@@ -73,7 +73,7 @@ func ReplaceFileContent(path, content string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return writeExistingFileAtomic(path, []byte(content))
 }
 
 // AppendLine appends text as a new line, inserting a separating newline when
@@ -86,7 +86,7 @@ func AppendLine(path, text string) error {
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		text = "\n" + text
 	}
-	return os.WriteFile(path, append(content, []byte(text+"\n")...), 0o644)
+	return writeExistingFileAtomic(path, append(content, []byte(text+"\n")...))
 }
 
 // PrependLine inserts text as the first line of the file (before any
@@ -96,7 +96,30 @@ func PrependLine(path, text string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append([]byte(text+"\n"), content...), 0o644)
+	return writeExistingFileAtomic(path, append([]byte(text+"\n"), content...))
+}
+
+// writeExistingFileAtomic overwrites an existing file by writing a same-dir
+// temp file and renaming it over the target. The rename is atomic on one
+// filesystem, so a crash mid-write leaves the old file intact.
+func writeExistingFileAtomic(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, data, info.Mode().Perm())
+}
+
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // JournalLine appends text prefixed with an "at" timestamp formatted as

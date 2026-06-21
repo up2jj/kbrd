@@ -47,12 +47,13 @@ func TestReadItem(t *testing.T) {
 func TestWriteItem(t *testing.T) {
 	root := makeBoard(t, map[string][]string{"todo": {"a"}})
 	col := filepath.Join(root, "todo")
+	path := filepath.Join(col, "a.md")
 
 	// Overwrites existing content and normalizes the trailing newline.
 	if err := WriteItem(col, "a", "new body"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(filepath.Join(col, "a.md"))
+	got, _ := os.ReadFile(path)
 	if string(got) != "new body\n" {
 		t.Fatalf("got %q", got)
 	}
@@ -72,6 +73,46 @@ func TestWriteItem(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(col, "ghost.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("WriteItem created a missing item")
+	}
+}
+
+func TestReplaceFileContentAtomicPreservesMode(t *testing.T) {
+	root := makeBoard(t, map[string][]string{"todo": {"a"}})
+	path := filepath.Join(root, "todo", "a.md")
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReplaceFileContent(path, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 600", got)
+	}
+	if _, err := os.Stat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left temp file: %v", err)
+	}
+}
+
+func TestWriteAtomicCleansTempOnRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeAtomic(target, []byte("body"), 0o644); err == nil {
+		t.Fatal("expected rename over directory to fail")
+	}
+	if _, err := os.Stat(target + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left temp file after failed rename: %v", err)
+	}
+	if info, err := os.Stat(target); err != nil || !info.IsDir() {
+		t.Fatalf("target directory damaged: info=%v err=%v", info, err)
 	}
 }
 
