@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -260,6 +261,8 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 // board mouse-dead until we re-arm it here.
 var restoreMouse tea.Cmd = tea.EnableMouseCellMotion
 
+var autoSyncGitTimeout = 2 * time.Minute
+
 type autoSyncTickMsg struct{ gitMsg }
 
 type autoSyncDoneMsg struct {
@@ -315,19 +318,27 @@ func (c *Controller) SyncOnce() tea.Cmd {
 	label := c.conflictLabel()
 	autoCommit := c.cfg.GitAutoCommit
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), autoSyncGitTimeout)
+		defer cancel()
+		done := func(stage string, err error, sidecars []string) autoSyncDoneMsg {
+			if err != nil && ctx.Err() != nil {
+				err = fmt.Errorf("timed out after %s during %s", autoSyncGitTimeout, stage)
+			}
+			return autoSyncDoneMsg{Stage: stage, Err: err, Sidecars: sidecars}
+		}
 		if autoCommit {
 			// Empty identity uses the user's git config, matching handleGitCommit.
 			// A no-op on a clean tree. README regen (beforeCommit) is intentionally
 			// skipped here — it would churn on every tick.
-			if _, err := kbrdfs.GitCommitAll(root, "kbrd: auto-sync", "", ""); err != nil {
-				return autoSyncDoneMsg{Stage: "commit", Err: err}
+			if _, err := kbrdfs.GitCommitAllContext(ctx, root, "kbrd: auto-sync", "", ""); err != nil {
+				return done("commit", err, nil)
 			}
 		}
-		sidecars, err := kbrdfs.GitMergeResolveSidecar(root, label, "", "")
+		sidecars, err := kbrdfs.GitMergeResolveSidecarContext(ctx, root, label, "", "")
 		if err != nil {
-			return autoSyncDoneMsg{Stage: "merge", Err: err}
+			return done("merge", err, nil)
 		}
-		return autoSyncDoneMsg{Stage: "push", Err: kbrdfs.GitPush(root), Sidecars: sidecars}
+		return done("push", kbrdfs.GitPushContext(ctx, root), sidecars)
 	}
 }
 

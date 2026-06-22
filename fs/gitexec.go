@@ -7,6 +7,7 @@ package fs
 // themselves (e.g. an interactive terminal handoff) — redaction is their job.
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -35,12 +36,20 @@ func gitOutput(repoRoot string, args ...string) (string, error) {
 // output. No --no-optional-locks (mutations may take the index lock); on
 // failure the error carries the combined output, redacted.
 func gitCombined(repoRoot string, args ...string) (string, error) {
+	return gitCombinedOutputContext(context.Background(), repoRoot, args...)
+}
+
+// gitCombinedOutputContext is gitCombined with a caller-owned deadline/cancellation.
+func gitCombinedOutputContext(ctx context.Context, repoRoot string, args ...string) (string, error) {
 	if !GitAvailable() {
 		return "", fmt.Errorf("git not found on PATH")
 	}
 	full := append([]string{"-C", repoRoot}, args...)
-	out, err := exec.Command("git", full...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "git", full...).CombinedOutput()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return string(out), fmt.Errorf("git %s failed: %s", gitVerb(args), ctxErr)
+		}
 		return string(out), gitError(args, out, err)
 	}
 	return string(out), nil
@@ -48,7 +57,12 @@ func gitCombined(repoRoot string, args ...string) (string, error) {
 
 // gitRun is gitCombined for callers that only care about success.
 func gitRun(repoRoot string, args ...string) error {
-	_, err := gitCombined(repoRoot, args...)
+	return gitRunContext(context.Background(), repoRoot, args...)
+}
+
+// gitRunContext is gitCombinedOutputContext for callers that only care about success.
+func gitRunContext(ctx context.Context, repoRoot string, args ...string) error {
+	_, err := gitCombinedOutputContext(ctx, repoRoot, args...)
 	return err
 }
 

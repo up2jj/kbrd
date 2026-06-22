@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -138,6 +140,71 @@ func TestHandleAutoSyncDone_ShutdownPending_Signals(t *testing.T) {
 	}
 	if !called || cmd == nil {
 		t.Fatal("expected OnSyncSettled to be invoked when shutdown pending")
+	}
+}
+
+func TestSyncOnce_TimeoutClearsHungGit(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+
+	fakeDir := t.TempDir()
+	fakeGit := filepath.Join(fakeDir, "git")
+	script := `#!/bin/sh
+if [ "$1" = "--no-optional-locks" ]; then
+	shift
+fi
+if [ "$1" = "-C" ]; then
+	shift 2
+fi
+case "$1" in
+	remote)
+		echo origin
+		exit 0
+		;;
+	status)
+		exit 0
+		;;
+	fetch)
+		exec sleep 5
+		;;
+	*)
+		echo "unexpected fake git command: $*" >&2
+		exit 1
+		;;
+esac
+`
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	oldTimeout := autoSyncGitTimeout
+	autoSyncGitTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { autoSyncGitTimeout = oldTimeout })
+
+	c := newTestController(dir)
+	cmd := c.SyncOnce()
+	if cmd == nil {
+		t.Fatal("expected sync command")
+	}
+	if !c.syncing {
+		t.Fatal("expected syncing flag set while command runs")
+	}
+
+	msg, ok := cmd().(autoSyncDoneMsg)
+	if !ok {
+		t.Fatalf("expected autoSyncDoneMsg, got %T", msg)
+	}
+	if msg.Err == nil {
+		t.Fatal("expected hung git to time out")
+	}
+	if !strings.Contains(msg.Err.Error(), "timed out after") {
+		t.Fatalf("expected timeout error, got %v", msg.Err)
+	}
+
+	c.handleAutoSyncDone(msg)
+	if c.syncing {
+		t.Fatal("expected syncing cleared after timeout")
 	}
 }
 

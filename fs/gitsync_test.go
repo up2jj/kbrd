@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -343,6 +344,19 @@ func TestGitRunRedactsCredentials(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "tok3n") {
 		t.Fatalf("credential leaked in error: %v", err)
+	}
+}
+
+func TestGitPushContextCanceled(t *testing.T) {
+	_, clone := initRepoPair(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := GitPushContext(ctx, clone)
+	if err == nil {
+		t.Fatal("expected canceled push to fail")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context cancellation in error, got %v", err)
 	}
 }
 

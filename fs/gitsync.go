@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -26,7 +27,12 @@ func RedactCredentials(s string) string {
 // (interactive callers). A clean working tree is not an error: committed
 // reports whether a commit was actually made.
 func GitCommitAll(repoRoot, message, authorName, authorEmail string) (committed bool, err error) {
-	if err := gitRun(repoRoot, "add", "-A"); err != nil {
+	return GitCommitAllContext(context.Background(), repoRoot, message, authorName, authorEmail)
+}
+
+// GitCommitAllContext is GitCommitAll with a caller-owned deadline/cancellation.
+func GitCommitAllContext(ctx context.Context, repoRoot, message, authorName, authorEmail string) (committed bool, err error) {
+	if err := gitRunContext(ctx, repoRoot, "add", "-A"); err != nil {
 		return false, err
 	}
 	if GitWorkingTreeClean(repoRoot) {
@@ -39,7 +45,7 @@ func GitCommitAll(repoRoot, message, authorName, authorEmail string) (committed 
 			"-c", "user.email="+authorEmail)
 	}
 	args = append(args, "commit", "-m", message)
-	if err := gitRun(repoRoot, args...); err != nil {
+	if err := gitRunContext(ctx, repoRoot, args...); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -47,7 +53,12 @@ func GitCommitAll(repoRoot, message, authorName, authorEmail string) (committed 
 
 // GitPush pushes the current branch to its upstream (or origin HEAD).
 func GitPush(repoRoot string) error {
-	return gitRun(repoRoot, "push")
+	return GitPushContext(context.Background(), repoRoot)
+}
+
+// GitPushContext is GitPush with a caller-owned deadline/cancellation.
+func GitPushContext(ctx context.Context, repoRoot string) error {
+	return gitRunContext(ctx, repoRoot, "push")
 }
 
 // GitPullFFOnly runs `git pull --ff-only`: fast-forward or fail loudly.
@@ -69,7 +80,12 @@ func GitAddRemoteOrigin(repoRoot, url string) error {
 
 // GitFetch updates remote-tracking refs without touching the working tree.
 func GitFetch(repoRoot string) error {
-	return gitRun(repoRoot, "fetch")
+	return GitFetchContext(context.Background(), repoRoot)
+}
+
+// GitFetchContext is GitFetch with a caller-owned deadline/cancellation.
+func GitFetchContext(ctx context.Context, repoRoot string) error {
+	return gitRunContext(ctx, repoRoot, "fetch")
 }
 
 // GitMergeResolveSidecar fetches and merges the upstream branch (@{u}) into the
@@ -88,14 +104,20 @@ func GitFetch(repoRoot string) error {
 // identity via -c when non-empty, mirroring GitCommitAll; empty uses the repo's
 // git config. Returns the repo-relative sidecar paths created.
 func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail string) (sidecars []string, err error) {
-	if err := GitFetch(repoRoot); err != nil {
+	return GitMergeResolveSidecarContext(context.Background(), repoRoot, conflictLabel, authorName, authorEmail)
+}
+
+// GitMergeResolveSidecarContext is GitMergeResolveSidecar with a caller-owned
+// deadline/cancellation.
+func GitMergeResolveSidecarContext(ctx context.Context, repoRoot, conflictLabel, authorName, authorEmail string) (sidecars []string, err error) {
+	if err := GitFetchContext(ctx, repoRoot); err != nil {
 		return nil, err
 	}
 	// The identity is injected on the merge too: a clean or fast-forward-blocked
 	// merge auto-creates a merge commit, which would otherwise fail without an
 	// ambient git identity (headless daemon, CI runner).
 	mergeCmd := append(identityArgs(authorName, authorEmail), "merge", "--no-edit", "@{u}")
-	mOut, mErr := gitCombined(repoRoot, mergeCmd...)
+	mOut, mErr := gitCombinedOutputContext(ctx, repoRoot, mergeCmd...)
 	if mErr == nil {
 		return nil, nil // clean: fast-forward, up-to-date, or auto-merged
 	}
@@ -104,7 +126,7 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 	// (dirty tree, unrelated histories). Unmerged entries distinguish the two.
 	conflicted, lsErr := unmergedPaths(repoRoot)
 	if lsErr != nil || len(conflicted) == 0 {
-		_ = gitRun(repoRoot, "merge", "--abort")
+		_ = gitRunContext(ctx, repoRoot, "merge", "--abort")
 		if lsErr != nil {
 			return nil, lsErr
 		}
@@ -119,10 +141,10 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 		switch {
 		case oursOK:
 			// Local wins the original path.
-			if err := gitRun(repoRoot, "checkout", "--ours", "--", path); err != nil {
+			if err := gitRunContext(ctx, repoRoot, "checkout", "--ours", "--", path); err != nil {
 				return sidecars, err
 			}
-			if err := gitRun(repoRoot, "add", "--", path); err != nil {
+			if err := gitRunContext(ctx, repoRoot, "add", "--", path); err != nil {
 				return sidecars, err
 			}
 			if theirsOK { // modify/modify or add/add: preserve incoming copy
@@ -130,7 +152,7 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 				if werr != nil {
 					return sidecars, werr
 				}
-				if err := gitRun(repoRoot, "add", "--", rel); err != nil {
+				if err := gitRunContext(ctx, repoRoot, "add", "--", rel); err != nil {
 					return sidecars, err
 				}
 				sidecars = append(sidecars, rel)
@@ -139,14 +161,14 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 		case theirsOK:
 			// Local deleted, remote modified: keep the deletion (local wins)
 			// but preserve the incoming version as a sidecar.
-			if err := gitRun(repoRoot, "rm", "-f", "--", path); err != nil {
+			if err := gitRunContext(ctx, repoRoot, "rm", "-f", "--", path); err != nil {
 				return sidecars, err
 			}
 			rel, werr := writeSidecar(repoRoot, path, conflictLabel, theirs)
 			if werr != nil {
 				return sidecars, werr
 			}
-			if err := gitRun(repoRoot, "add", "--", rel); err != nil {
+			if err := gitRunContext(ctx, repoRoot, "add", "--", rel); err != nil {
 				return sidecars, err
 			}
 			sidecars = append(sidecars, rel)
@@ -154,13 +176,13 @@ func GitMergeResolveSidecar(repoRoot, conflictLabel, authorName, authorEmail str
 		default:
 			// Neither side has content (rare, e.g. some rename/rename cases):
 			// clear the unmerged entry so the merge can be committed.
-			if err := gitRun(repoRoot, "rm", "-f", "--", path); err != nil {
+			if err := gitRunContext(ctx, repoRoot, "rm", "-f", "--", path); err != nil {
 				return sidecars, err
 			}
 		}
 	}
 
-	if err := gitRun(repoRoot, commitArgs(authorName, authorEmail, mergeMessage(mappings))...); err != nil {
+	if err := gitRunContext(ctx, repoRoot, commitArgs(authorName, authorEmail, mergeMessage(mappings))...); err != nil {
 		return sidecars, err
 	}
 	return sidecars, nil
