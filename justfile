@@ -9,8 +9,10 @@ build:
     go build -o kbrd ./
 
 # Install kbrd into $GOBIN (or $GOPATH/bin, i.e. ~/go/bin) so it's on your PATH.
+# Stamps model.Version from git (like the release's goreleaser ldflags) so the
+# installed binary reports its real version, e.g. v0.11.0 or v0.11.0-1-gabc1234.
 install:
-    go install ./
+    go install -ldflags "-X kbrd/model.Version=$(git describe --tags --always)" ./
     @echo "installed kbrd to $(go env GOBIN GOPATH | awk 'NR==1{b=$0} NR==2{p=$0} END{print (b!="" ? b : p"/bin")"/kbrd"}')"
 
 # Run the test suite.
