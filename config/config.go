@@ -52,9 +52,9 @@ type Config struct {
 	// true; a no-op when the repo has no remote.
 	GitSyncOnStartup bool
 	// GitAutoCommit makes the TUI's auto-sync commit pending edits before it
-	// reconciles, so it keeps itself synced while you work instead of waiting for
-	// a clean tree. Default false (manual commits stay user-curated). TUI-only;
-	// the web daemon always commits per mutation regardless.
+	// reconciles, instead of waiting for a clean tree. Auto-sync still waits
+	// while the in-app editor is open. Default false (manual commits stay
+	// user-curated). TUI-only; the web daemon always commits per mutation.
 	GitAutoCommit bool
 
 	Scripting ScriptingConfig

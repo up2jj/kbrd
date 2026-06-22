@@ -186,7 +186,8 @@ func (b *Board) SetMCPStatus(s MCPStatus) { b.mcpStatus = s }
 // capture b (not cfg), so they read the live config at call time. &b.bus is
 // stable across initScripting's bus reset (same field address). BeforeCommit
 // lets git regenerate the README from board content without git knowing what a
-// board is; OnSyncSettled lets a deferred quit complete once a sync finishes.
+// board is; EditorActive lets automatic sync pause while an editor is open;
+// OnSyncSettled lets a deferred quit complete once a sync finishes.
 func (b *Board) initGit() {
 	b.git = git.New(git.Deps{
 		Cfg:      b.cfg,
@@ -197,6 +198,9 @@ func (b *Board) initGit() {
 				return b.writeBoardReadme()
 			}
 			return nil
+		},
+		EditorActive: func() bool {
+			return b.editor != nil && b.editor.state != editorNone
 		},
 		OnSyncSettled: func() tea.Cmd { b.quitting = true; return tea.Quit },
 	})

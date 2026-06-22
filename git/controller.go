@@ -35,13 +35,16 @@ type Notifier interface {
 
 // Deps are the host-provided collaborators. BeforeCommit is an opaque pre-commit
 // hook (the host uses it to regenerate a README from board content — git never
-// learns what it does). OnSyncSettled is invoked once an in-flight auto-sync
-// finishes after a shutdown was requested, so the host can finally quit.
+// learns what it does). EditorActive lets the host pause automatic sync starts
+// while an in-app editor owns a buffer. OnSyncSettled is invoked once an
+// in-flight auto-sync finishes after a shutdown was requested, so the host can
+// finally quit.
 type Deps struct {
 	Cfg           config.Config
 	Notifier      Notifier
 	Bus           *events.Bus
 	BeforeCommit  func() error
+	EditorActive  func() bool
 	OnSyncSettled func() tea.Cmd
 }
 
@@ -51,6 +54,7 @@ type Controller struct {
 	notifier      Notifier
 	bus           *events.Bus
 	beforeCommit  func() error
+	editorActive  func() bool
 	onSyncSettled func() tea.Cmd
 
 	panel    GitPanel
@@ -85,6 +89,7 @@ func New(d Deps) Controller {
 		notifier:      d.Notifier,
 		bus:           d.Bus,
 		beforeCommit:  d.BeforeCommit,
+		editorActive:  d.EditorActive,
 		onSyncSettled: d.OnSyncSettled,
 	}
 }

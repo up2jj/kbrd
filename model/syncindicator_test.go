@@ -16,6 +16,7 @@ func TestSyncCell(t *testing.T) {
 		ss           git.SyncStatus
 		dirty        int
 		shuttingDown bool
+		editorActive bool
 		autoCommit   bool
 		wantShow     bool
 		wantText     string
@@ -49,6 +50,14 @@ func TestSyncCell(t *testing.T) {
 			wantFG:   string(p.Danger),
 		},
 		{
+			name:         "failure wins over editor pause",
+			ss:           git.SyncStatus{HasRemote: true, Failed: true},
+			editorActive: true,
+			wantShow:     true,
+			wantText:     "✕ sync",
+			wantFG:       string(p.Danger),
+		},
+		{
 			name:     "conflicts pluralize and warn",
 			ss:       git.SyncStatus{HasRemote: true, Conflicts: 2},
 			wantShow: true,
@@ -60,6 +69,22 @@ func TestSyncCell(t *testing.T) {
 			ss:       git.SyncStatus{HasRemote: true, Conflicts: 1},
 			wantShow: true,
 			wantText: "⚠ 1 conflict",
+		},
+		{
+			name:         "active editor explains auto-sync pause",
+			ss:           git.SyncStatus{HasRemote: true, LastSync: now},
+			editorActive: true,
+			wantShow:     true,
+			wantText:     "⇅ sync paused",
+			wantFG:       string(p.FgMuted),
+		},
+		{
+			name:         "editor pause wins over dirty hint",
+			ss:           git.SyncStatus{HasRemote: true, LastSync: now},
+			dirty:        3,
+			editorActive: true,
+			wantShow:     true,
+			wantText:     "⇅ sync paused",
 		},
 		{
 			name:     "dirty tree explains the pause",
@@ -92,7 +117,7 @@ func TestSyncCell(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cell, ok := syncCell(tc.ss, tc.dirty, tc.shuttingDown, tc.autoCommit, p)
+			cell, ok := syncCell(tc.ss, tc.dirty, tc.shuttingDown, tc.editorActive, tc.autoCommit, p)
 			if ok != tc.wantShow {
 				t.Fatalf("show = %v, want %v", ok, tc.wantShow)
 			}

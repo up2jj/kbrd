@@ -285,6 +285,9 @@ func (c *Controller) shouldAutoSync() bool {
 	if c.syncing {
 		return false
 	}
+	if c.editorActive != nil && c.editorActive() {
+		return false
+	}
 	if !kbrdfs.GitAvailable() || c.repoRoot == "" {
 		return false
 	}
@@ -307,8 +310,9 @@ func (c *Controller) shouldAutoSync() bool {
 // Auto-sync self-heals like every automatic flow: GitMergeResolveSidecar merges
 // the remote, auto-resolving true conflicts into sidecar copies (local wins)
 // rather than failing loudly, then pushes so the merge — and any copies —
-// propagate. It runs only on a clean tree, unless git.auto_commit is set, in
-// which case it commits pending edits first so it can sync while you work.
+// propagate. It runs only when no in-app editor is active, and only on a clean
+// tree unless git.auto_commit is set; with auto_commit, it commits pending edits
+// first on ticks that happen after the editor closes.
 func (c *Controller) SyncOnce() tea.Cmd {
 	if !c.shouldAutoSync() {
 		return nil

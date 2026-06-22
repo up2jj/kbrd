@@ -99,12 +99,34 @@ func TestShouldAutoSync_DirtyTree(t *testing.T) {
 	}
 }
 
+func TestShouldAutoSync_EditorActive(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	c := newTestController(dir)
+	c.editorActive = func() bool { return true }
+	if c.shouldAutoSync() {
+		t.Fatal("expected false when editor is active")
+	}
+}
+
 func TestShouldAutoSync_Ready(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
 	if !c.shouldAutoSync() {
 		t.Fatal("expected true when repo has remote and clean tree")
+	}
+}
+
+func TestShouldAutoSync_NilEditorActivePreservesReady(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	c := newTestController(dir)
+	if c.editorActive != nil {
+		t.Fatal("test controller should not set editorActive")
+	}
+	if !c.shouldAutoSync() {
+		t.Fatal("expected true when editorActive is nil and repo is otherwise ready")
 	}
 }
 

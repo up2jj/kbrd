@@ -67,7 +67,8 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 	b := p.b
 	// Sync indicator (id -5): transient spinner while reconciling, else the
 	// persistent remote-sync status. The mapping lives in syncCell.
-	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, b.cfg.GitAutoCommit, b.palette); ok {
+	editorActive := b.editor != nil && b.editor.state != editorNone
+	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, editorActive, b.cfg.GitAutoCommit, b.palette); ok {
 		b.cells.SetInternal(cell)
 	} else {
 		b.cells.Clear(syncCellID)
