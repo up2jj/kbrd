@@ -45,6 +45,9 @@ func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return r.handleEditor(msg)
 	}
 	if b.peek.Active() {
+		if cmd, handled := r.handlePeekAction(msg); handled {
+			return b, cmd
+		}
 		b.peek.Update(msg)
 		return b, nil
 	}
@@ -98,6 +101,33 @@ func (r boardInputRouter) handleConfigMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return b, b.managedFiles().createLocalAgents()
 	}
 	return b, nil
+}
+
+func (r boardInputRouter) handlePeekAction(msg tea.KeyMsg) (tea.Cmd, bool) {
+	b := r.board
+	action := byte(0)
+	switch {
+	case key.Matches(msg, Keys.Edit):
+		action = 'e'
+	case key.Matches(msg, Keys.Append):
+		action = 'a'
+	case key.Matches(msg, Keys.Prepend):
+		action = 'p'
+	case key.Matches(msg, Keys.Journal):
+		action = 'J'
+	default:
+		return nil, false
+	}
+
+	b.peek.Close()
+	if len(b.columns) == 0 || b.selectedCol < 0 || b.selectedCol >= len(b.columns) {
+		return b.notifier.Send("item no longer exists", notifyError), true
+	}
+	col := b.columns[b.selectedCol]
+	if !col.HasSelectedItem() {
+		return b.notifier.Send("item no longer exists", notifyError), true
+	}
+	return b.itemActions().dispatch(action, refForItem(col, col.SelectedItem())), true
 }
 
 func (r boardInputRouter) handleEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

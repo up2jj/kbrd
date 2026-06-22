@@ -522,6 +522,9 @@ func (p *Peek) View(termWidth, termHeight int) string {
 		{"j/k", "scroll"},
 		{"g/G", "top/bot"},
 		{"enter", "page"},
+		{"e", "edit"},
+		{"a/p", "append/prepend"},
+		{"b", "journal"},
 		{"q/esc", "close"},
 	}
 	footerLeft := RenderInlineHints(hints)
