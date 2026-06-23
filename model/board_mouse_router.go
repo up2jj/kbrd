@@ -12,6 +12,11 @@ func (b *Board) mouseRouter() boardMouseRouter {
 
 func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	b := r.board
+	if b.helpMenu.Active() {
+		b.helpMenu.HandleMouse(msg)
+		return b, nil
+	}
+
 	// Peek is a scrollable modal: let it consume the wheel; block everything else.
 	if b.peek.Active() {
 		b.peek.HandleMouse(msg)
@@ -27,7 +32,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
 	// (peek and the editor are already handled by the early returns above.)
-	if b.helpMenu.Active() || b.configMenuOpen || b.dialog.active ||
+	if b.configMenuOpen || b.dialog.active ||
 		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}

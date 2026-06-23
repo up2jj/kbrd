@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
 	"kbrd/config"
 )
 
@@ -190,6 +193,191 @@ func TestHelpMenu_RenderContainsContent(t *testing.T) {
 	}
 }
 
+func TestHelpMenu_WidthStableWhileNavigating(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "s", Label: "short", Desc: "short action", RunKey: "s"},
+			{Keys: "l", Label: "very long shortcut label that used to resize the menu", Desc: "long action", RunKey: "l"},
+		}},
+	})
+
+	initial := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	down := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	up := lipgloss.Width(m.View(100, 30))
+
+	if down != initial || up != initial {
+		t.Fatalf("width changed while navigating: initial=%d down=%d up=%d", initial, down, up)
+	}
+}
+
+func TestHelpMenu_WidthStableAcrossPositionDigitBoundary(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open(helpGroupsWithEntries(12))
+	for i := 0; i < 8; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+
+	initial := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	ten := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	eleven := lipgloss.Width(m.View(100, 30))
+
+	if ten != initial || eleven != initial {
+		t.Fatalf("width changed across position boundary: initial=%d ten=%d eleven=%d", initial, ten, eleven)
+	}
+}
+
+func TestHelpMenu_WidthStableAcrossDescriptions(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "s", Label: "short desc", Desc: "short", RunKey: "s"},
+			{Keys: "l", Label: "long desc", Desc: "this-description-is-intentionally-long-enough-to-force-truncation-in-the-description-pane", RunKey: "l"},
+		}},
+	})
+
+	initial := lipgloss.Width(m.View(60, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	longDesc := lipgloss.Width(m.View(60, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	shortDesc := lipgloss.Width(m.View(60, 30))
+
+	if longDesc != initial || shortDesc != initial {
+		t.Fatalf("width changed across descriptions: initial=%d long=%d short=%d", initial, longDesc, shortDesc)
+	}
+}
+
+func TestHelpMenu_FilteredWidthStableWhileNavigating(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "r", Label: "report", Desc: "report action", RunKey: "r"},
+			{Keys: "R", Label: "remarkably long report action", Desc: "long report action", RunKey: "R"},
+		}},
+	})
+	m.StartFilter()
+	m.AppendFilter("report")
+
+	initial := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	down := lipgloss.Width(m.View(100, 30))
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	up := lipgloss.Width(m.View(100, 30))
+
+	if down != initial || up != initial {
+		t.Fatalf("filtered width changed while navigating: initial=%d down=%d up=%d", initial, down, up)
+	}
+}
+
+func TestHelpMenu_FilteredWidthStableWhileQueryChanges(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "r", Label: "report", Desc: "report action", RunKey: "r"},
+			{Keys: "R", Label: "remarkably long report action", Desc: "long report action", RunKey: "R"},
+			{Keys: "x", Label: "x", Desc: "tiny action", RunKey: "x"},
+		}},
+	})
+
+	initial := lipgloss.Width(m.View(100, 30))
+	m.StartFilter()
+	filtering := lipgloss.Width(m.View(100, 30))
+	m.AppendFilter("report")
+	matches := lipgloss.Width(m.View(100, 30))
+	m.AppendFilter("zzz")
+	noMatches := lipgloss.Width(m.View(100, 30))
+	m.Backspace()
+	backToMatches := lipgloss.Width(m.View(100, 30))
+
+	if filtering != initial || matches != initial || noMatches != initial || backToMatches != initial {
+		t.Fatalf("filter width changed: initial=%d filtering=%d matches=%d noMatches=%d back=%d",
+			initial, filtering, matches, noMatches, backToMatches)
+	}
+}
+
+func TestHelpMenu_ScrollbarAppearsOnlyWhenOverflowing(t *testing.T) {
+	t.Parallel()
+	overflow := &HelpMenu{}
+	overflow.SetPalette(DarkPalette())
+	overflow.Open(helpGroupsWithEntries(12))
+	if got := overflow.View(100, 14); !strings.Contains(got, "┃") {
+		t.Fatalf("overflowing menu missing scrollbar thumb:\n%s", got)
+	}
+
+	fitting := &HelpMenu{}
+	fitting.SetPalette(DarkPalette())
+	fitting.Open(helpGroupsWithEntries(2))
+	if got := fitting.View(100, 30); strings.Contains(got, "┃") {
+		t.Fatalf("non-overflowing menu unexpectedly rendered scrollbar thumb:\n%s", got)
+	}
+}
+
+func TestHelpMenu_ScrollByPreservesSelectionAndClampsViewport(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open(helpGroupsWithEntries(6))
+
+	m.ScrollBy(3)
+	if got := m.SelectedRunKey(); got != "0" {
+		t.Fatalf("selected after scroll down = %q, want 0", got)
+	}
+	if m.scroll != 3 {
+		t.Fatalf("scroll after scroll down = %d, want 3", m.scroll)
+	}
+	m.ScrollBy(99)
+	_ = m.View(100, 14)
+	if got := m.SelectedRunKey(); got != "0" {
+		t.Fatalf("selected after scroll past bottom = %q, want 0", got)
+	}
+	if m.scroll <= 0 || m.scroll >= len(m.rows) {
+		t.Fatalf("scroll after clamp = %d, rows=%d", m.scroll, len(m.rows))
+	}
+	m.ScrollBy(-99)
+	if got := m.SelectedRunKey(); got != "0" {
+		t.Fatalf("selected after scroll past top = %q, want 0", got)
+	}
+	if m.scroll != 0 {
+		t.Fatalf("scroll after scroll past top = %d, want 0", m.scroll)
+	}
+}
+
+func TestHelpMenu_KeyboardNavigationRestoresSelectedVisibility(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open(helpGroupsWithEntries(10))
+
+	m.ScrollBy(6)
+	_ = m.View(100, 14)
+	if m.scroll == 0 {
+		t.Fatal("precondition: mouse-style scroll should move viewport away from top")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_ = m.View(100, 14)
+	if got := m.SelectedRunKey(); got != "1" {
+		t.Fatalf("selected after keyboard down = %q, want 1", got)
+	}
+	selRow := m.nav[m.selected]
+	if selRow < m.scroll || selRow >= m.scroll+6 {
+		t.Fatalf("keyboard navigation did not restore selected visibility, selected row=%d scroll=%d", selRow, m.scroll)
+	}
+}
+
 func TestBoardHelpActions_RunCustomCommandBuildsCommandMessage(t *testing.T) {
 	col := newTestColumn(t, map[string]string{"task": "body"})
 	b := NewBoard(config.Config{Path: col.Path, BoardName: "demo", NotifyBackend: "none"})
@@ -210,4 +398,18 @@ func TestBoardHelpActions_RunCustomCommandBuildsCommandMessage(t *testing.T) {
 	if msg.Vars["fileName"] != "task" {
 		t.Fatalf("fileName var = %q, want task", msg.Vars["fileName"])
 	}
+}
+
+func helpGroupsWithEntries(n int) []HelpGroup {
+	items := make([]HelpEntry, 0, n)
+	for i := 0; i < n; i++ {
+		key := string(rune('0' + i%10))
+		items = append(items, HelpEntry{
+			Keys:   key,
+			Label:  "action " + key,
+			Desc:   "run action " + key,
+			RunKey: key,
+		})
+	}
+	return []HelpGroup{{Title: "Actions", Items: items}}
 }

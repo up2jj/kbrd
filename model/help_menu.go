@@ -11,6 +11,8 @@ import (
 	"kbrd/theme"
 )
 
+const helpScrollbarGutter = 2
+
 // HelpMenu is the interactive `?` keybindings overlay: grouped, navigable rows
 // with a selection bar, a position indicator, a description pane, disabled rows
 // for actions that don't apply, and execute-on-Enter (handled by the board).
@@ -22,6 +24,8 @@ type HelpMenu struct {
 	rows     []helpRow   // visible lines (headers + entries), in display order
 	nav      []int       // indices into rows that are selectable (enabled entries)
 	selected int         // index into nav
+	scroll   int         // top row of the visible viewport
+	follow   bool        // true when keyboard navigation should keep selection visible
 	context  string      // focused column name, shown in the title
 
 	// filtering is true while the user is searching (entered with `/`); filter
@@ -58,6 +62,8 @@ func (m *HelpMenu) Open(groups []HelpGroup) {
 	m.filtering = false
 	m.filter = ""
 	m.selected = 0
+	m.scroll = 0
+	m.follow = true
 	m.recompute()
 }
 
@@ -96,6 +102,7 @@ func (m *HelpMenu) recompute() {
 	}
 
 	m.selected = min(max(m.selected, 0), max(len(m.nav)-1, 0))
+	m.scroll = min(max(m.scroll, 0), max(len(m.rows)-1, 0))
 }
 
 // Filtering reports whether the menu is in search mode.
@@ -106,6 +113,8 @@ func (m *HelpMenu) StartFilter() {
 	m.filtering = true
 	m.filter = ""
 	m.selected = 0
+	m.scroll = 0
+	m.follow = true
 	m.recompute()
 }
 
@@ -114,6 +123,8 @@ func (m *HelpMenu) StopFilter() {
 	m.filtering = false
 	m.filter = ""
 	m.selected = 0
+	m.scroll = 0
+	m.follow = true
 	m.recompute()
 }
 
@@ -122,6 +133,8 @@ func (m *HelpMenu) StopFilter() {
 func (m *HelpMenu) AppendFilter(s string) {
 	m.filter += s
 	m.selected = 0
+	m.scroll = 0
+	m.follow = true
 	m.recompute()
 }
 
@@ -129,6 +142,8 @@ func (m *HelpMenu) Backspace() {
 	if r := []rune(m.filter); len(r) > 0 {
 		m.filter = string(r[:len(r)-1])
 		m.selected = 0
+		m.scroll = 0
+		m.follow = true
 		m.recompute()
 	} else {
 		m.StopFilter()
@@ -170,6 +185,24 @@ func (m *HelpMenu) Update(msg tea.KeyMsg) {
 	case "pgup", "ctrl+u":
 		m.selected = max(m.selected-10, 0)
 	}
+	m.follow = true
+}
+
+func (m *HelpMenu) ScrollBy(delta int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	m.scroll = min(max(m.scroll+delta, 0), max(len(m.rows)-1, 0))
+	m.follow = false
+}
+
+func (m *HelpMenu) HandleMouse(msg tea.MouseMsg) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.ScrollBy(-3)
+	case tea.MouseButtonWheelDown:
+		m.ScrollBy(3)
+	}
 }
 
 // RunKeyFor returns the rune to inject when a runnable row's key is pressed
@@ -189,26 +222,9 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 	}
 	p := m.palette
 
-	// Column width for keys, so labels align across every group.
-	keyW := 0
-	for _, r := range m.rows {
-		if !r.header {
-			if w := lipgloss.Width(r.entry.Keys); w > keyW {
-				keyW = w
-			}
-		}
-	}
-
 	// Keys sit in a right-aligned column so labels line up across every group.
-	keyCol := lipgloss.NewStyle().Width(keyW).Align(lipgloss.Right)
-	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	keyCol := lipgloss.NewStyle().Width(m.keyColumnWidth()).Align(lipgloss.Right)
 	labelStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
-	disabledStyle := lipgloss.NewStyle().Foreground(p.FgDim).Strikethrough(true)
-	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
-	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
-	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
 	// Vertical budget: reserve the title border, padding, footer, and desc pane.
 	maxBody := max(termHeight-12, 6)
@@ -216,61 +232,42 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 	if m.selected < len(m.nav) {
 		selRow = m.nav[m.selected]
 	}
-	start, end := windowRows(len(m.rows), maxBody, selRow)
-
-	lines := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		r := m.rows[i]
-		if r.header {
-			lines = append(lines, headerStyle.Render("── "+r.title+" ──"))
-			continue
-		}
-		keyCell := keyCol.Render(r.entry.Keys)
-		switch {
-		case i == selRow:
-			label := renderHighlighted(r.entry.Label, r.matchIdx, selStyle, hiSelStyle)
-			lines = append(lines, gutterSel+" "+selStyle.Render(keyCell+"  ")+label+selStyle.Render(" "))
-		case r.disabled:
-			lines = append(lines, "  "+disabledStyle.Render(keyCell+"  "+r.entry.Label))
-		default:
-			label := renderHighlighted(r.entry.Label, r.matchIdx, labelStyle, hiStyle)
-			lines = append(lines, "  "+keyStyle.Render(keyCell)+"  "+label)
-		}
+	if m.follow {
+		m.ensureSelectedVisible(maxBody)
 	}
-	if m.filtering && len(m.nav) == 0 {
-		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
-	}
+	start, end := m.viewportRows(maxBody)
 
 	// Footer: hints on the left, "N of M" position indicator on the right.
-	var hints string
-	if m.filtering {
-		hints = RenderInlineHints([]Shortcut{
-			{"type", "filter"}, {"↑/↓", "select"}, {"enter", "run"}, {"esc", "clear"},
-		})
-	} else {
-		hints = RenderInlineHints([]Shortcut{
-			{"↑/↓", "item"}, {"←/→", "column"}, {"/", "search"}, {"enter/key", "run"}, {"esc", "close"},
-		})
-	}
+	hints := m.footerHints()
 	cur := 0
 	if len(m.nav) > 0 {
 		cur = m.selected + 1
 	}
 	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, len(m.nav)))
 
-	// Size the text area to the widest row (and the footer), clamped to the
-	// terminal; truncate any line that still overflows so nothing wraps.
-	textW := lipgloss.Width(hints) + 2 + lipgloss.Width(pos)
-	for _, l := range lines {
-		textW = max(textW, lipgloss.Width(l))
+	textW := m.contentWidth(termWidth, keyCol)
+	rowW := max(textW-helpScrollbarGutter, 1)
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		lines = append(lines, m.renderRow(m.rows[i], i == selRow, keyCol))
 	}
-	textW = min(textW, termWidth-8)
+	if m.filtering && len(m.nav) == 0 {
+		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
+	}
+
 	for i, l := range lines {
-		if lipgloss.Width(l) > textW {
-			lines[i] = ansi.Truncate(l, textW, "…")
+		if lipgloss.Width(l) > rowW {
+			lines[i] = ansi.Truncate(l, rowW, "…")
 		}
 	}
-	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	bodyBlock := lipgloss.NewStyle().Width(rowW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	if len(m.rows) > maxBody {
+		bar := strings.Join(m.scrollbar(end-start, len(m.rows), start), "\n")
+		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
+	} else {
+		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, strings.Repeat(" ", helpScrollbarGutter))
+	}
+	body := bodyBlock
 
 	// While searching, a filter prompt sits above the results.
 	if m.filtering {
@@ -281,7 +278,11 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		} else {
 			query = lipgloss.NewStyle().Foreground(p.Highlight).Render(query)
 		}
-		body = lipgloss.JoinVertical(lipgloss.Left, cursor+query, "", body)
+		prompt := cursor + query
+		if lipgloss.Width(prompt) > textW {
+			prompt = ansi.Truncate(prompt, textW, "…")
+		}
+		body = lipgloss.JoinVertical(lipgloss.Left, lipgloss.NewStyle().Width(textW).Render(prompt), "", body)
 	}
 
 	gap := max(textW-lipgloss.Width(hints)-lipgloss.Width(pos), 1)
@@ -302,10 +303,171 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 
 	// Description pane: a thin box below the menu, same width, showing the
 	// highlighted row's tooltip.
-	descBlock := lipgloss.NewStyle().Width(textW).Height(2).Foreground(p.FgMuted).Render(m.SelectedDesc())
+	descBlock := lipgloss.NewStyle().Width(textW).Height(2).Foreground(p.FgMuted).Render(m.selectedDescBlock(textW))
 	pane := theme.RoundedFrame("", overlayTitleStyle, descBlock, p.BorderMuted, 0, overlayPadH, boxWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Center, menu, pane)
+}
+
+func (m *HelpMenu) keyColumnWidth() int {
+	keyW := 0
+	for _, r := range m.sizingRows() {
+		if !r.header {
+			if w := lipgloss.Width(r.entry.Keys); w > keyW {
+				keyW = w
+			}
+		}
+	}
+	return keyW
+}
+
+func (m *HelpMenu) footerHints() string {
+	if m.filtering {
+		return helpFilterHints()
+	}
+	return helpDefaultHints()
+}
+
+func helpDefaultHints() string {
+	return RenderInlineHints([]Shortcut{
+		{"↑/↓", "item"}, {"←/→", "column"}, {"/", "search"}, {"enter/key", "run"}, {"esc", "close"},
+	})
+}
+
+func helpFilterHints() string {
+	return RenderInlineHints([]Shortcut{
+		{"type", "filter"}, {"↑/↓", "select"}, {"enter", "run"}, {"esc", "clear"},
+	})
+}
+
+func (m *HelpMenu) contentWidth(termWidth int, keyCol lipgloss.Style) int {
+	maxPos := helpDimStyle.Render(fmt.Sprintf("%d of %d", m.maxNavCount(), m.maxNavCount()))
+	textW := lipgloss.Width(helpDefaultHints()) + 2 + lipgloss.Width(maxPos)
+	textW = max(textW, lipgloss.Width(helpFilterHints())+2+lipgloss.Width(maxPos))
+	for _, r := range m.sizingRows() {
+		textW = max(textW, lipgloss.Width(m.renderRow(r, false, keyCol))+helpScrollbarGutter)
+		textW = max(textW, lipgloss.Width(m.renderRow(r, true, keyCol))+helpScrollbarGutter)
+	}
+	if m.filtering {
+		query := m.filter
+		if query == "" {
+			query = "type to filter…"
+		}
+		textW = max(textW, lipgloss.Width("> "+query))
+	}
+	if m.filtering && len(m.nav) == 0 {
+		textW = max(textW, lipgloss.Width("  no matches")+helpScrollbarGutter)
+	}
+	if termWidth > 0 {
+		textW = min(textW, max(termWidth-8, 1))
+	}
+	return max(textW, 1)
+}
+
+func (m *HelpMenu) sizingRows() []helpRow {
+	if len(m.groups) == 0 {
+		return m.rows
+	}
+	rows := make([]helpRow, 0, len(m.rows))
+	for _, g := range m.groups {
+		rows = append(rows, helpRow{header: true, title: g.Title})
+		for _, e := range g.Items {
+			rows = append(rows, helpRow{entry: e, disabled: e.Disabled})
+		}
+	}
+	return rows
+}
+
+func (m *HelpMenu) maxNavCount() int {
+	maxCount := len(m.nav)
+	if len(m.groups) == 0 {
+		return max(maxCount, 1)
+	}
+	count := 0
+	for _, g := range m.groups {
+		for _, e := range g.Items {
+			if !e.Disabled && (e.RunKey != "" || e.CmdID != "") {
+				count++
+			}
+		}
+	}
+	return max(max(maxCount, count), 1)
+}
+
+func (m *HelpMenu) renderRow(r helpRow, selected bool, keyCol lipgloss.Style) string {
+	p := m.palette
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	labelStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	disabledStyle := lipgloss.NewStyle().Foreground(p.FgDim).Strikethrough(true)
+	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+
+	if r.header {
+		return headerStyle.Render("── " + r.title + " ──")
+	}
+	keyCell := keyCol.Render(r.entry.Keys)
+	switch {
+	case selected:
+		label := renderHighlighted(r.entry.Label, r.matchIdx, selStyle, hiSelStyle)
+		return gutterSel + " " + selStyle.Render(keyCell+"  ") + label + selStyle.Render(" ")
+	case r.disabled:
+		return "  " + disabledStyle.Render(keyCell+"  "+r.entry.Label)
+	default:
+		label := renderHighlighted(r.entry.Label, r.matchIdx, labelStyle, hiStyle)
+		return "  " + keyStyle.Render(keyCell) + "  " + label
+	}
+}
+
+func (m *HelpMenu) scrollbar(height, total, start int) []string {
+	thumb := max(height*height/total, 1)
+	maxStart := total - height
+	pos := min(max((height-thumb)*start/maxStart, 0), height-thumb)
+	track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
+	bar := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
+	rows := make([]string, height)
+	for i := range rows {
+		if i >= pos && i < pos+thumb {
+			rows[i] = bar
+		} else {
+			rows[i] = track
+		}
+	}
+	return rows
+}
+
+func (m *HelpMenu) viewportRows(size int) (int, int) {
+	if len(m.rows) <= size {
+		m.scroll = 0
+		return 0, len(m.rows)
+	}
+	start := min(max(m.scroll, 0), len(m.rows)-size)
+	m.scroll = start
+	return start, start + size
+}
+
+func (m *HelpMenu) ensureSelectedVisible(size int) {
+	if size <= 0 || m.selected < 0 || m.selected >= len(m.nav) {
+		return
+	}
+	selRow := m.nav[m.selected]
+	if selRow < m.scroll {
+		m.scroll = selRow
+		return
+	}
+	if selRow >= m.scroll+size {
+		m.scroll = selRow - size + 1
+	}
+}
+
+func (m *HelpMenu) selectedDescBlock(width int) string {
+	desc := m.SelectedDesc()
+	if lipgloss.Width(desc) > width {
+		return ansi.Truncate(desc, width, "…")
+	}
+	return desc
 }
 
 // SelectedDesc returns the tooltip of the highlighted row.
