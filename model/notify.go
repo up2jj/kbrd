@@ -83,6 +83,24 @@ func (n *Notifier) Send(message string, sev notifySeverity) tea.Cmd {
 	}
 }
 
+func (n *Notifier) Success(message string) tea.Cmd {
+	return n.Send(message, notifySuccess)
+}
+
+func (n *Notifier) Error(message string) tea.Cmd {
+	return n.Send(message, notifyError)
+}
+
+func (n *Notifier) ErrorCause(prefix string, err error) tea.Cmd {
+	if err == nil {
+		return nil
+	}
+	if prefix == "" {
+		return n.Error(err.Error())
+	}
+	return n.Error(prefix + ": " + err.Error())
+}
+
 func (n *Notifier) fire(message string, sev notifySeverity) {
 	switch n.kind {
 	case notifyOSC777:

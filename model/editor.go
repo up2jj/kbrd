@@ -32,6 +32,7 @@ const (
 	editorNew
 	editorRenameItem
 	editorRenameColumn
+	editorManagedFile
 )
 
 func isInputState(s editorState) bool {
@@ -47,6 +48,7 @@ type Editor struct {
 	ColName       string
 	FileName      string
 	ItemPath      string
+	ManagedPath   string
 	initialValue  string
 	undo          []string
 	redo          []string
@@ -252,6 +254,33 @@ func (e *Editor) OpenEdit(colIdx int, colPath, fileName, fullPath string) tea.Cm
 	// SetValue runs the textarea's sanitizer (tabs -> spaces, CRLF -> LF), so read
 	// the value back to baseline against what the buffer actually holds. Otherwise
 	// any tab/CRLF in the file would read as an unsaved edit the moment it opens.
+	normalized := e.textarea.Value()
+	e.initialValue = normalized
+	e.resetHistory(normalized)
+	e.expanded = true
+	e.applySize()
+	return e.textarea.Focus()
+}
+
+func (e *Editor) OpenManagedFile(label, path string) tea.Cmd {
+	e.state = editorManagedFile
+	e.ColIndex = 0
+	e.ColPath = ""
+	e.ColName = ""
+	e.FileName = label
+	e.ItemPath = ""
+	e.ManagedPath = path
+	content, _ := os.ReadFile(path)
+	initial := strings.TrimRight(string(content), "\n")
+	if e.vim {
+		e.initialValue = initial
+		e.setSwapTarget(path)
+		e.expanded = false
+		e.status = ""
+		return e.startVim(initial, false)
+	}
+	e.textarea.SetValue(initial)
+	e.textarea.CursorEnd()
 	normalized := e.textarea.Value()
 	e.initialValue = normalized
 	e.resetHistory(normalized)
@@ -599,6 +628,8 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 	switch e.state {
 	case editorEdit:
 		msg = newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
+	case editorManagedFile:
+		msg = newStableManagedFileSaveMsg(e.ManagedPath, e.FileName, e.textarea.Value())
 	case editorAppend:
 		msg = newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorPrepend:
@@ -627,7 +658,9 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 		}
 		msg = newStableRenameColumnRequestMsg(e.columnTarget(), e.ColIndex, e.initialValue, name)
 	}
-	e.Close()
+	if e.state != editorManagedFile {
+		e.Close()
+	}
 	return func() tea.Msg { return msg }, nil
 }
 
@@ -766,11 +799,19 @@ func (e *Editor) vimSave(forceClose bool) tea.Cmd {
 // No-op once the editor is closed (the textarea path closes before its write) or
 // outside the vim path.
 func (e *Editor) confirmSaved() {
-	if e == nil || e.state == editorNone || !e.vim || e.buf == nil {
+	if e == nil || e.state == editorNone {
+		return
+	}
+	if e.state == editorManagedFile && !e.vim {
+		e.initialValue = e.textarea.Value()
+		e.resetHistory(e.initialValue)
+		return
+	}
+	if !e.vim || e.buf == nil {
 		return
 	}
 	e.clearSwap()
-	if e.pendingSaveClose || e.state != editorEdit {
+	if e.pendingSaveClose || (e.state != editorEdit && e.state != editorManagedFile) {
 		e.Close()
 	} else {
 		e.initialValue = e.buf.Text()
@@ -783,6 +824,8 @@ func (e *Editor) saveMsg() tea.Msg {
 	switch e.state {
 	case editorEdit:
 		return newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
+	case editorManagedFile:
+		return newStableManagedFileSaveMsg(e.ManagedPath, e.FileName, text)
 	case editorAppend:
 		return newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorPrepend:
@@ -1022,6 +1065,9 @@ func (e *Editor) View() string {
 	case editorEdit:
 		label = "Edit: " + e.FileName
 		hints = textareaHints
+	case editorManagedFile:
+		label = "Edit: " + e.FileName
+		hints = textareaHints
 	case editorAppend:
 		label = "Append to: " + e.FileName
 		hints = textareaHints
@@ -1074,6 +1120,12 @@ type editorSaveMsg struct {
 	ColIndex int
 	FileName string
 	Content  string
+}
+
+type managedFileSaveMsg struct {
+	Path    string
+	Label   string
+	Content string
 }
 
 type editorAppendMsg struct {

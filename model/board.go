@@ -77,6 +77,7 @@ type Board struct {
 	watcher         *kbrdfs.Watcher
 	dialog          Dialog
 	helpMenu        HelpMenu
+	templateMenu    TemplateMenu
 	configMenuOpen  bool
 	peek            Peek
 	zoom            Zoom
@@ -236,6 +237,7 @@ func (b *Board) applyPalette() {
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
+	b.templateMenu.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
 	b.helpMenu.SetPalette(b.palette)
 	if b.editor != nil {
@@ -638,6 +640,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorSaveMsg:
 		return b.mutationHandlers().handleSave(msg)
 
+	case managedFileSaveMsg:
+		return b.mutationHandlers().handleManagedFileSave(msg)
+
 	case editorAppendMsg:
 		return b.mutationHandlers().handleAppend(msg)
 
@@ -652,6 +657,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case deleteConfirmMsg:
 		return b.mutationHandlers().handleDelete(msg)
+
+	case templateRemoveConfirmMsg:
+		return b.mutationHandlers().handleTemplateRemoveConfirm(msg)
 
 	case pasteRequestMsg:
 		return b, b.pasteActions().pasteToItem(msg)
@@ -763,6 +771,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case templateSubmitMsg:
 		return b.mutationHandlers().handleTemplateSubmit(msg)
+
+	case templateAuthorSubmitMsg:
+		return b.mutationHandlers().handleTemplateAuthorSubmit(msg)
 
 	case createEmptyItemMsg:
 		return b.mutationHandlers().handleCreateEmptyItem(msg)

@@ -195,6 +195,9 @@ func (f boardViewFrame) activeOverlay(w, h int) string {
 	if b.search.Active() {
 		return b.search.View(w, h)
 	}
+	if b.templateMenu.Active() {
+		return b.templateMenu.View(w, h)
+	}
 	if b.templateFlow.Active() {
 		return b.templateFlow.View()
 	}

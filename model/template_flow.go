@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
@@ -28,9 +29,10 @@ type templateSubmitMsg struct {
 type templateFlowStage int
 
 const (
-	tfNone templateFlowStage = iota
-	tfPick                   // choosing what to create
-	tfForm                   // filling the huh form
+	tfNone   templateFlowStage = iota
+	tfPick                     // choosing what to create
+	tfForm                     // filling the huh form
+	tfAuthor                   // filling the column-template authoring form
 )
 
 type createChoiceKind int
@@ -38,6 +40,7 @@ type createChoiceKind int
 const (
 	createChoiceEmpty createChoiceKind = iota
 	createChoiceTemplate
+	createChoiceAuthorTemplate
 )
 
 type createChoice struct {
@@ -61,24 +64,45 @@ type createEmptyItemMsg struct {
 	ColIndex int
 }
 
+type templateAuthorValues struct {
+	Name     string
+	Filename string
+	Body     string
+}
+
+type templateAuthorSubmitMsg struct {
+	Column     columnRef
+	ColIndex   int
+	Values     templateAuthorValues
+	ReopenMenu bool
+}
+
+const (
+	templateAuthorNameKey     = "name"
+	templateAuthorFilenameKey = "filename"
+	templateAuthorBodyKey     = "body"
+)
+
 // TemplateFlow is the unified create overlay: a grouped, fuzzy-searchable
-// create menu followed by the existing embedded huh form for template choices.
+// create menu followed by embedded huh forms for template use and authoring.
 type TemplateFlow struct {
-	stage     templateFlowStage
-	column    columnRef
-	colIndex  int
-	templates []template.Template
-	rows      []createMenuRow
-	nav       []int
-	selected  int
-	filtering bool
-	filter    string
-	tmpl      template.Template
-	form      *huh.Form
-	escArmed  bool // first esc pressed; the next one cancels the form
-	palette   Palette
-	width     int
-	height    int
+	stage      templateFlowStage
+	column     columnRef
+	colIndex   int
+	templates  []template.Template
+	rows       []createMenuRow
+	nav        []int
+	selected   int
+	filtering  bool
+	filter     string
+	tmpl       template.Template
+	author     templateAuthorValues
+	form       *huh.Form
+	escArmed   bool // first esc pressed; the next one cancels the form
+	reopenMenu bool
+	palette    Palette
+	width      int
+	height     int
 }
 
 func (t *TemplateFlow) Active() bool { return t.stage != tfNone }
@@ -93,8 +117,10 @@ func (t *TemplateFlow) Close() {
 	t.filtering = false
 	t.filter = ""
 	t.tmpl = template.Template{}
+	t.author = templateAuthorValues{}
 	t.form = nil
 	t.escArmed = false
+	t.reopenMenu = false
 }
 
 func (t *TemplateFlow) SetPalette(p Palette) { t.palette = p }
@@ -109,6 +135,9 @@ func (t *TemplateFlow) SetSize(w, h int) {
 }
 
 func (t *TemplateFlow) fitForm() {
+	if t.width <= 0 || t.height <= 0 {
+		return
+	}
 	t.form = t.form.
 		WithWidth(min(t.width-10, 72)).
 		WithHeight(min(t.height-6, 24))
@@ -127,6 +156,29 @@ func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template
 	t.stage = tfPick
 	t.recomputeMenu()
 	return nil
+}
+
+func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl template.Template) tea.Cmd {
+	t.colIndex = colIndex
+	t.column = column
+	t.templates = nil
+	t.selected = 0
+	t.filtering = false
+	t.filter = ""
+	t.stage = tfForm
+	t.reopenMenu = false
+	return t.startForm(tmpl)
+}
+
+func (t *TemplateFlow) OpenAuthor(colIndex int, column columnRef, reopenMenu bool) tea.Cmd {
+	t.colIndex = colIndex
+	t.column = column
+	t.templates = nil
+	t.selected = 0
+	t.filtering = false
+	t.filter = ""
+	t.reopenMenu = reopenMenu
+	return t.startAuthorForm()
 }
 
 // startForm builds the huh form for tmpl: one group per step, plus a
@@ -173,6 +225,45 @@ func (t *TemplateFlow) startForm(tmpl template.Template) tea.Cmd {
 		WithShowHelp(false)
 	t.fitForm()
 	t.stage = tfForm
+	return t.form.Init()
+}
+
+func (t *TemplateFlow) startAuthorForm() tea.Cmd {
+	t.author = templateAuthorValues{
+		Filename: "{{slug .title}}",
+		Body:     "# {{.title}}",
+	}
+
+	t.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key(templateAuthorNameKey).
+				Title("Template name").
+				Description("display name shown in this column's create menu").
+				Placeholder("Bug report").
+				Value(&t.author.Name).
+				Validate(huh.ValidateNotEmpty()),
+			huh.NewInput().
+				Key(templateAuthorFilenameKey).
+				Title("Card filename pattern").
+				Description("Go template for new card filenames").
+				Value(&t.author.Filename).
+				Validate(huh.ValidateNotEmpty()),
+		).Title("Template"),
+		huh.NewGroup(
+			huh.NewText().
+				Key(templateAuthorBodyKey).
+				Title("Card body starter").
+				Description("Markdown body for cards created from this template").
+				Lines(6).
+				Value(&t.author.Body).
+				Validate(huh.ValidateNotEmpty()),
+		).Title("Starter body"),
+	).
+		WithTheme(huhThemeFor(t.palette)).
+		WithShowHelp(false)
+	t.fitForm()
+	t.stage = tfAuthor
 	return t.form.Init()
 }
 
@@ -249,6 +340,8 @@ func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case tfForm:
 		return t.updateForm(msg)
+	case tfAuthor:
+		return t.updateAuthorForm(msg)
 	}
 	return nil
 }
@@ -302,6 +395,7 @@ func (t *TemplateFlow) recomputeMenu() {
 		}
 	} else {
 		t.appendMenuGroup("Create", []createChoice{emptyCreateChoice()})
+		t.appendMenuGroup("Template authoring", []createChoice{authorTemplateChoice()})
 		t.appendMenuGroup("Column templates", t.templateChoices(template.ScopeColumn))
 		t.appendMenuGroup("Board templates", t.templateChoices(template.ScopeBoard))
 	}
@@ -321,7 +415,7 @@ func (t *TemplateFlow) appendMenuGroup(title string, choices []createChoice) {
 }
 
 func (t *TemplateFlow) menuChoices() []createChoice {
-	choices := []createChoice{emptyCreateChoice()}
+	choices := []createChoice{emptyCreateChoice(), authorTemplateChoice()}
 	choices = append(choices, t.templateChoices(template.ScopeColumn)...)
 	choices = append(choices, t.templateChoices(template.ScopeBoard)...)
 	return choices
@@ -352,6 +446,14 @@ func emptyCreateChoice() createChoice {
 		Kind:  createChoiceEmpty,
 		Label: "Empty Markdown file",
 		Desc:  "Create an empty .md card in this column",
+	}
+}
+
+func authorTemplateChoice() createChoice {
+	return createChoice{
+		Kind:  createChoiceAuthorTemplate,
+		Label: "New column template",
+		Desc:  "Create a reusable template for this column",
 	}
 }
 
@@ -431,11 +533,17 @@ func (t *TemplateFlow) runSelectedChoice() tea.Cmd {
 		return func() tea.Msg { return msg }
 	case createChoiceTemplate:
 		return t.startForm(choice.Template)
+	case createChoiceAuthorTemplate:
+		t.reopenMenu = false
+		return t.startAuthorForm()
 	}
 	return nil
 }
 
-func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
+func (t *TemplateFlow) updateHuhForm(msg tea.Msg) (tea.Cmd, bool) {
+	if t.form == nil {
+		return nil, false
+	}
 	// Cancelling a half-filled form needs a double esc: the first arms (and
 	// still reaches huh, so field-level esc bindings like clearing a select
 	// filter keep working), the second — pressed immediately after — closes.
@@ -444,7 +552,7 @@ func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
 		if k.String() == "esc" {
 			if t.escArmed {
 				t.Close()
-				return nil
+				return nil, false
 			}
 			t.escArmed = true
 		} else {
@@ -455,6 +563,14 @@ func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
 	model, cmd := t.form.Update(msg)
 	if f, ok := model.(*huh.Form); ok {
 		t.form = f
+	}
+	return cmd, t.form != nil
+}
+
+func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
+	cmd, active := t.updateHuhForm(msg)
+	if !active {
+		return cmd
 	}
 
 	// Check completion immediately and DROP huh's returned cmd on a terminal
@@ -470,6 +586,27 @@ func (t *TemplateFlow) updateForm(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	return cmd
+}
+
+func (t *TemplateFlow) updateAuthorForm(msg tea.Msg) tea.Cmd {
+	cmd, active := t.updateHuhForm(msg)
+	if !active {
+		return cmd
+	}
+	switch t.form.State {
+	case huh.StateCompleted:
+		return t.finishAuthorForm()
+	case huh.StateAborted:
+		t.Close()
+		return nil
+	}
+	return cmd
+}
+
+func (t *TemplateFlow) finishAuthorForm() tea.Cmd {
+	out := t.authorSubmitMsg()
+	t.Close()
+	return func() tea.Msg { return out }
 }
 
 // collectValues reads every declared field back out of the completed form.
@@ -499,11 +636,19 @@ func (t *TemplateFlow) collectValues() map[string]any {
 	return values
 }
 
+func (t *TemplateFlow) authorSubmitMsg() templateAuthorSubmitMsg {
+	return newStableTemplateAuthorSubmitMsg(t.column, t.colIndex, templateAuthorValues{
+		Name:     strings.TrimSpace(t.author.Name),
+		Filename: strings.TrimSpace(t.author.Filename),
+		Body:     strings.TrimSpace(t.author.Body),
+	}, t.reopenMenu)
+}
+
 func (t *TemplateFlow) View() string {
 	switch t.stage {
 	case tfPick:
 		return t.viewPicker()
-	case tfForm:
+	case tfForm, tfAuthor:
 		footer := RenderInlineHints([]Shortcut{
 			{Keys: "tab/enter", Label: "next"},
 			{Keys: "shift+tab", Label: "back"},
@@ -513,7 +658,11 @@ func (t *TemplateFlow) View() string {
 			footer = lipgloss.NewStyle().Foreground(t.palette.Warning).Italic(true).
 				Render("press esc again to cancel")
 		}
-		return OverlayFrame{Title: t.tmpl.Name, Body: t.form.View(), Footer: footer, Palette: t.palette}.Render()
+		title := t.tmpl.Name
+		if t.stage == tfAuthor {
+			title = "New column template"
+		}
+		return OverlayFrame{Title: title, Body: t.form.View(), Footer: footer, Palette: t.palette}.Render()
 	}
 	return ""
 }

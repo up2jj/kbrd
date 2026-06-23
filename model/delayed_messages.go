@@ -13,6 +13,10 @@ func newStableEditorSaveMsg(target itemRefStable, colIdx int, fileName, content 
 	return editorSaveMsg{Target: target, ColIndex: colIdx, FileName: fileName, Content: content}
 }
 
+func newStableManagedFileSaveMsg(path, label, content string) managedFileSaveMsg {
+	return managedFileSaveMsg{Path: path, Label: label, Content: content}
+}
+
 func newStableEditorAppendMsg(target itemRefStable, colIdx int, fileName, text string) editorAppendMsg {
 	return editorAppendMsg{Target: target, ColIndex: colIdx, FileName: fileName, Text: text}
 }
@@ -33,6 +37,10 @@ func newStableDeleteConfirmMsg(target itemRefStable, colIdx int, fileName string
 	return deleteConfirmMsg{Target: target, ColIndex: colIdx, FileName: fileName}
 }
 
+func newStableTemplateRemoveConfirmMsg(column columnRef, tmpl template.Template) templateRemoveConfirmMsg {
+	return templateRemoveConfirmMsg{Column: column, Path: tmpl.Path, Name: tmpl.Name, Scope: tmpl.Scope}
+}
+
 func newStableRenameItemRequestMsg(target itemRefStable, colIdx int, oldName, newName string) renameItemRequestMsg {
 	return renameItemRequestMsg{Target: target, ColIndex: colIdx, OldName: oldName, NewName: newName}
 }
@@ -51,6 +59,10 @@ func newStableRenameColumnConfirmMsg(column columnRef, colIdx int, oldName, newN
 
 func newStableTemplateSubmitMsg(column columnRef, colIdx int, tmpl template.Template, values map[string]any) templateSubmitMsg {
 	return templateSubmitMsg{Column: column, ColIndex: colIdx, Template: tmpl, Values: values}
+}
+
+func newStableTemplateAuthorSubmitMsg(column columnRef, colIdx int, values templateAuthorValues, reopenMenu bool) templateAuthorSubmitMsg {
+	return templateAuthorSubmitMsg{Column: column, ColIndex: colIdx, Values: values, ReopenMenu: reopenMenu}
 }
 
 func newStableFrontmatterSubmitMsg(target itemRefStable, colIdx int, fileName, key, value string, delete bool) frontmatterSubmitMsg {

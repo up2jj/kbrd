@@ -113,6 +113,9 @@ func (b *Board) handleColumnNavigationKey(msg tea.KeyMsg, col *Column) (tea.Mode
 
 func (b *Board) handleColumnCreateKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
+	case key.Matches(msg, Keys.TemplateMenu):
+		m, cmd := b.templateMenuActions().open(col)
+		return m, cmd, true
 	case key.Matches(msg, Keys.New):
 		m, cmd := b.mutationHandlers().openTemplateFlow(col)
 		return m, cmd, true

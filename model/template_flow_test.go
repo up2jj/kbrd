@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"kbrd/config"
 	"kbrd/template"
 )
 
@@ -46,15 +47,15 @@ func TestTemplateFlowCreateMenu_EmptyOnly(t *testing.T) {
 	if !flow.Active() {
 		t.Fatal("create menu should be active")
 	}
-	if len(flow.nav) != 1 {
-		t.Fatalf("nav len = %d, want 1", len(flow.nav))
+	if len(flow.nav) != 2 {
+		t.Fatalf("nav len = %d, want empty + authoring", len(flow.nav))
 	}
 	choice, ok := flow.selectedChoice()
 	if !ok || choice.Kind != createChoiceEmpty {
 		t.Fatalf("selected choice = %+v, %v; want empty choice", choice, ok)
 	}
 	view := flow.View()
-	for _, want := range []string{"Create item", "Create", "Empty Markdown file"} {
+	for _, want := range []string{"Create item", "Create", "Template authoring", "Empty Markdown file", "New column template"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -93,8 +94,8 @@ func TestTemplateFlowCreateMenu_TemplateGroups(t *testing.T) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
-	if len(flow.nav) != 3 {
-		t.Fatalf("nav len = %d, want empty + 2 templates", len(flow.nav))
+	if len(flow.nav) != 4 {
+		t.Fatalf("nav len = %d, want empty + authoring + 2 templates", len(flow.nav))
 	}
 }
 
@@ -137,8 +138,112 @@ func TestTemplateFlowCreateMenu_FuzzySearch(t *testing.T) {
 	if flow.filtering {
 		t.Fatal("esc should leave search mode")
 	}
-	if len(flow.nav) != 3 {
+	if len(flow.nav) != 4 {
 		t.Fatalf("nav len after esc = %d, want full menu", len(flow.nav))
+	}
+}
+
+func TestTemplateFlowCreateMenu_AuthoringChoice(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(1, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
+
+	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	choice, ok := flow.selectedChoice()
+	if !ok || choice.Kind != createChoiceAuthorTemplate {
+		t.Fatalf("selected choice = %+v, %v; want authoring choice", choice, ok)
+	}
+	cmd := flow.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("authoring choice should initialize a form")
+	}
+	if flow.stage != tfAuthor || flow.form == nil {
+		t.Fatalf("stage=%v form nil=%v; want author form", flow.stage, flow.form == nil)
+	}
+	if !strings.Contains(flow.View(), "New column template") {
+		t.Fatalf("author form view missing title:\n%s", flow.View())
+	}
+}
+
+func TestTemplateFlowCreateMenu_FuzzySearchFindsAuthoring(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
+
+	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("template")})
+	choice, ok := flow.selectedChoice()
+	if !ok || choice.Kind != createChoiceAuthorTemplate {
+		t.Fatalf("selected after filter = %+v, %v; want authoring choice", choice, ok)
+	}
+	if strings.Contains(flow.View(), "Template authoring") {
+		t.Fatalf("filtered view should be flat, got:\n%s", flow.View())
+	}
+}
+
+func TestTemplateFlowFormDoubleEscDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
+	flow.startForm(template.Template{Name: "Ask", Body: "body"})
+
+	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if flow.Active() {
+		t.Fatal("flow should close after double esc")
+	}
+}
+
+func TestTemplateFlowAuthorFormDoubleEscDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
+	flow.startAuthorForm()
+
+	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if flow.Active() {
+		t.Fatal("flow should close after double esc")
+	}
+}
+
+func TestTemplateFlowAuthoringFinishEmitsSubmitMsg(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(3, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
+	flow.startAuthorForm()
+
+	name := "Incident report"
+	filename := "incident-{{slug .title}}"
+	body := "# {{.title}}\n\nDetails"
+	flow.author = templateAuthorValues{Name: name, Filename: filename, Body: body}
+	cmd := flow.finishAuthorForm()
+	if cmd == nil {
+		t.Fatal("finishAuthorForm returned nil")
+	}
+	gotMsg := cmd()
+	msg, ok := gotMsg.(templateAuthorSubmitMsg)
+	if !ok {
+		t.Fatalf("cmd msg = %T, want templateAuthorSubmitMsg", gotMsg)
+	}
+	if msg.ColIndex != 3 || msg.Column.Name != "TODO" {
+		t.Fatalf("submit target = %+v", msg)
+	}
+	if msg.Values.Name != name || msg.Values.Filename != filename || msg.Values.Body != body {
+		t.Fatalf("submit values = %+v", msg.Values)
+	}
+	if flow.Active() {
+		t.Fatal("flow should close after author form submit")
 	}
 }
 
@@ -225,6 +330,102 @@ func TestTemplateFlowCreateMenu_ShadowedTemplatesStayHidden(t *testing.T) {
 	}
 	if bugCount != 1 {
 		t.Fatalf("bug template count = %d, want 1", bugCount)
+	}
+}
+
+func TestTemplateAuthorSubmitCreatesColumnTemplate(t *testing.T) {
+	t.Parallel()
+	boardDir := t.TempDir()
+	colDir := filepath.Join(boardDir, "TODO")
+	if err := os.MkdirAll(colDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	col := NewColumn("TODO", colDir, ItemOptions{})
+	b := &Board{
+		cfg:      config.Config{Path: boardDir, NotifyBackend: "none"},
+		columns:  []*Column{col},
+		notifier: NewNotifier("none"),
+	}
+
+	b.mutationHandlers().handleTemplateAuthorSubmit(templateAuthorSubmitMsg{
+		Column:   refForColumn(col),
+		ColIndex: 0,
+		Values: templateAuthorValues{
+			Name:     "Incident report",
+			Filename: "incident-{{slug .title}}",
+			Body:     "# {{.title}}\n\nDetails",
+		},
+	})
+
+	path := filepath.Join(colDir, template.Dir, "incident-report.md")
+	tmpl, err := template.Parse(path)
+	if err != nil {
+		t.Fatalf("generated template did not parse: %v", err)
+	}
+	if tmpl.Name != "Incident report" || tmpl.Filename != "incident-{{slug .title}}" {
+		t.Fatalf("template = %+v", tmpl)
+	}
+	if len(tmpl.Steps) != 1 || len(tmpl.Steps[0].Fields) != 1 {
+		t.Fatalf("steps = %+v", tmpl.Steps)
+	}
+	field := tmpl.Steps[0].Fields[0]
+	if field.Key != "title" || field.Type != "input" || !field.Required {
+		t.Fatalf("field = %+v", field)
+	}
+	if !strings.Contains(tmpl.Body, "Details") {
+		t.Fatalf("body = %q", tmpl.Body)
+	}
+}
+
+func TestTemplateAuthorSubmitDoesNotOverwriteExistingTemplate(t *testing.T) {
+	t.Parallel()
+	boardDir := t.TempDir()
+	colDir := filepath.Join(boardDir, "TODO")
+	tmplDir := filepath.Join(colDir, template.Dir)
+	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tmplDir, "incident-report.md")
+	if err := os.WriteFile(path, []byte("existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	col := NewColumn("TODO", colDir, ItemOptions{})
+	b := &Board{
+		cfg:      config.Config{Path: boardDir, NotifyBackend: "none"},
+		columns:  []*Column{col},
+		notifier: NewNotifier("none"),
+	}
+
+	b.mutationHandlers().handleTemplateAuthorSubmit(templateAuthorSubmitMsg{
+		Column:   refForColumn(col),
+		ColIndex: 0,
+		Values: templateAuthorValues{
+			Name:     "Incident report",
+			Filename: "{{slug .title}}",
+			Body:     "# {{.title}}",
+		},
+	})
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "existing\n" {
+		t.Fatalf("existing template was overwritten: %q", got)
+	}
+}
+
+func TestTemplateFlowVirtualColumnStillRejected(t *testing.T) {
+	t.Parallel()
+	b := &Board{
+		cfg:          config.Config{Path: t.TempDir(), NotifyBackend: "none"},
+		templateFlow: TemplateFlow{},
+		notifier:     NewNotifier("none"),
+	}
+	col := NewVirtualColumn("tasks", "Tasks", DarkPalette())
+	b.mutationHandlers().openTemplateFlow(col)
+	if b.templateFlow.Active() {
+		t.Fatal("template flow should not open for virtual columns")
 	}
 }
 

@@ -57,6 +57,9 @@ func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if b.search.Active() {
 		return b, b.search.HandleKey(msg)
 	}
+	if b.templateMenu.Active() {
+		return b.templateMenuActions().update(msg)
+	}
 	if b.templateFlow.Active() {
 		return b, b.templateFlow.Update(msg)
 	}

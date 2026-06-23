@@ -47,15 +47,15 @@ func (m boardManagedFiles) open(resolve func() (string, error), ensure func(stri
 	b := m.b
 	path, err := resolve()
 	if err != nil {
-		return b.notifier.Send(err.Error(), notifyError)
+		return b.notifier.ErrorCause("", err)
 	}
 	if err := ensure(path); err != nil {
-		return b.notifier.Send("write "+path+": "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("write "+path, err)
 	}
 	if err := openFile(path); err != nil {
-		return b.notifier.Send("open: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("open", err)
 	}
-	return b.notifier.Send("opened "+path, notifySuccess)
+	return b.notifier.Success("opened " + path)
 }
 
 func (b *Board) managedFiles() boardManagedFiles {

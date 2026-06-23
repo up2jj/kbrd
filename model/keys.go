@@ -45,8 +45,9 @@ type KeyMap struct {
 	EditFrontmatter key.Binding
 
 	// Create
-	New      key.Binding
-	NewFirst key.Binding
+	New          key.Binding
+	NewFirst     key.Binding
+	TemplateMenu key.Binding
 
 	// Column
 	RenameCol   key.Binding
@@ -159,8 +160,9 @@ var Keys = KeyMap{
 	EditFrontmatter: key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "edit frontmatter")),
 
 	// Create
-	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "create item")),
-	NewFirst: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new item in first folder")),
+	New:          key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "create item")),
+	NewFirst:     key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new item in first folder")),
+	TemplateMenu: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "templates")),
 
 	// Column
 	RenameCol:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename column")),
@@ -326,6 +328,7 @@ func HelpMenuGroups() []HelpGroup {
 			Items: []HelpEntry{
 				helpEntry(Keys.New, "Open the create menu for an empty card or template."),
 				helpEntry(Keys.NewFirst, "Create a new card at the top of the focused column."),
+				helpEntry(Keys.TemplateMenu, "Open template management for the focused column."),
 				helpEntry(Keys.QuickCmd, "Open the quick-command input to run a command by name."),
 			},
 		},

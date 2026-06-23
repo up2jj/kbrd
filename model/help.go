@@ -103,6 +103,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			bindingShortcut(Keys.Append),
 			bindingShortcut(Keys.Delete),
 			short(Keys.MoveNext.Help().Key, "move"),
+			bindingShortcut(Keys.TemplateMenu),
 			bindingShortcut(Keys.CustomCommands),
 			short(Keys.GitPanel.Help().Key, "git"),
 			short(Keys.QuickCmd.Help().Key, "cmd"),
@@ -111,6 +112,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	}
 	return append(prefix,
 		short(Keys.New.Help().Key, "new"),
+		bindingShortcut(Keys.TemplateMenu),
 		bindingShortcut(Keys.Filter),
 		short(Keys.RenameCol.Help().Key, "rename col"),
 		short(Keys.GitPanel.Help().Key, "git"),

@@ -110,12 +110,16 @@ func TestHelpMenuGroups_Structure(t *testing.T) {
 			t.Errorf("missing expected group %q", want)
 		}
 	}
+	foundTemplateMenu := false
 	for _, g := range groups {
 		for _, e := range g.Items {
-			if e.Keys == "t" {
-				t.Errorf("old template shortcut still present: %+v", e)
+			if e.Keys == "t" && e.Label == "templates" {
+				foundTemplateMenu = true
 			}
 		}
+	}
+	if !foundTemplateMenu {
+		t.Error("missing template management shortcut")
 	}
 }
 
