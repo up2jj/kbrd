@@ -8,6 +8,7 @@ import (
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/template"
 )
@@ -138,6 +139,52 @@ func TestTemplateFlowCreateMenu_FuzzySearch(t *testing.T) {
 	}
 	if len(flow.nav) != 3 {
 		t.Fatalf("nav len after esc = %d, want full menu", len(flow.nav))
+	}
+}
+
+func TestTemplateFlowCreateMenu_WidthStableWhileNavigating(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, []template.Template{
+		{Name: "Tiny", Scope: template.ScopeColumn, Filename: "tiny"},
+		{Name: "Very long template name that used to stretch the selected row", Scope: template.ScopeBoard, Filename: "long"},
+	})
+
+	initial := lipgloss.Width(flow.View())
+	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	down := lipgloss.Width(flow.View())
+	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	long := lipgloss.Width(flow.View())
+	flow.Update(tea.KeyMsg{Type: tea.KeyUp})
+	up := lipgloss.Width(flow.View())
+
+	if down != initial || long != initial || up != initial {
+		t.Fatalf("width changed while navigating: initial=%d down=%d long=%d up=%d", initial, down, long, up)
+	}
+}
+
+func TestTemplateFlowCreateMenu_FilteredWidthStableWhileNavigating(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, []template.Template{
+		{Name: "Report", Scope: template.ScopeColumn, Filename: "report"},
+		{Name: "Remarkably long report template", Scope: template.ScopeBoard, Filename: "long-report"},
+	})
+
+	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("report")})
+	initial := lipgloss.Width(flow.View())
+	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	down := lipgloss.Width(flow.View())
+	flow.Update(tea.KeyMsg{Type: tea.KeyUp})
+	up := lipgloss.Width(flow.View())
+
+	if down != initial || up != initial {
+		t.Fatalf("filtered width changed while navigating: initial=%d down=%d up=%d", initial, down, up)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/template"
 )
@@ -518,7 +519,6 @@ func (t *TemplateFlow) View() string {
 }
 
 func (t *TemplateFlow) viewPicker() string {
-	body := t.viewCreateMenuBody()
 	footer := RenderInlineHints([]Shortcut{
 		{Keys: "↑/↓", Label: "select"},
 		{Keys: "/", Label: "search"},
@@ -533,18 +533,22 @@ func (t *TemplateFlow) viewPicker() string {
 			{Keys: "esc", Label: "clear"},
 		})
 	}
-	return OverlayFrame{Title: "Create item", Body: body, Footer: footer, Palette: t.palette}.Render()
+	contentW := t.createMenuContentWidth(footer)
+	body := t.viewCreateMenuBody(contentW)
+	return OverlayFrame{
+		Title:   "Create item",
+		Body:    body,
+		Footer:  footer,
+		Width:   contentW + 2*overlayPadH,
+		Palette: t.palette,
+	}.Render()
 }
 
-func (t *TemplateFlow) viewCreateMenuBody() string {
+func (t *TemplateFlow) viewCreateMenuBody(contentW int) string {
 	p := t.palette
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
 	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
 	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
 	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
-	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
-	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
 	var lines []string
 	if t.filtering {
@@ -563,48 +567,90 @@ func (t *TemplateFlow) viewCreateMenuBody() string {
 		selRow = t.nav[t.selected]
 	}
 	for i, row := range t.rows {
-		if row.header {
-			lines = append(lines, headerStyle.Render("── "+row.title+" ──"))
-			continue
-		}
-		selected := i == selRow
-		labelIdx, descIdx := splitCreateMatchIndexes(row.choice, row.matchIdx)
-		labelBase, descBase := nameStyle, descStyle
-		hiLabel, hiDesc := hiStyle, hiStyle
-		if selected {
-			labelBase, descBase = selStyle, selStyle
-			hiLabel, hiDesc = hiSelStyle, hiSelStyle
-		}
-		styled := renderHighlighted(row.choice.Label, labelIdx, labelBase, hiLabel)
-		if row.choice.Desc != "" {
-			sep := "  —  "
-			if selected {
-				styled += selStyle.Render(sep)
-			} else {
-				styled += descStyle.Render(sep)
-			}
-			styled += renderHighlighted(row.choice.Desc, descIdx, descBase, hiDesc)
-		}
-		gutter := " "
-		if selected {
-			gutter = gutterSel
-			styled = selStyle.Render(" ") + styled + selStyle.Render(" ")
-		}
-		lines = append(lines, gutter+" "+styled)
+		lines = append(lines, t.renderCreateMenuRow(row, i == selRow))
 	}
 	if len(t.nav) == 0 {
 		lines = append(lines, helpDimStyle.Render("no matches"))
 	}
 
-	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	for i, line := range lines {
+		if lipgloss.Width(line) > contentW {
+			lines[i] = ansi.Truncate(line, contentW, "…")
+		}
+	}
+	return lipgloss.NewStyle().Width(contentW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (t *TemplateFlow) createMenuContentWidth(footer string) int {
+	contentW := lipgloss.Width(footer)
+	for _, line := range t.createMenuSizingLines() {
+		contentW = max(contentW, lipgloss.Width(line))
+	}
 	minInner := 50
 	if t.width > 0 && t.width-12 < minInner {
 		minInner = t.width - 12
 	}
-	if lipgloss.Width(inner) < minInner {
-		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
+	contentW = max(contentW, minInner)
+	if t.width > 0 {
+		contentW = min(contentW, max(t.width-8, 1))
 	}
-	return inner
+	return max(contentW, 1)
+}
+
+func (t *TemplateFlow) createMenuSizingLines() []string {
+	var lines []string
+	if t.filtering {
+		query := t.filter
+		if query == "" {
+			query = "type to filter…"
+		}
+		lines = append(lines, "> "+query)
+	}
+	for _, row := range t.rows {
+		lines = append(lines, t.renderCreateMenuRow(row, false), t.renderCreateMenuRow(row, true))
+	}
+	if len(t.nav) == 0 {
+		lines = append(lines, "no matches")
+	}
+	return lines
+}
+
+func (t *TemplateFlow) renderCreateMenuRow(row createMenuRow, selected bool) string {
+	p := t.palette
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+
+	if row.header {
+		return headerStyle.Render("── " + row.title + " ──")
+	}
+	labelIdx, descIdx := splitCreateMatchIndexes(row.choice, row.matchIdx)
+	labelBase, descBase := nameStyle, descStyle
+	hiLabel, hiDesc := hiStyle, hiStyle
+	if selected {
+		labelBase, descBase = selStyle, selStyle
+		hiLabel, hiDesc = hiSelStyle, hiSelStyle
+	}
+	styled := renderHighlighted(row.choice.Label, labelIdx, labelBase, hiLabel)
+	if row.choice.Desc != "" {
+		sep := "  —  "
+		if selected {
+			styled += selStyle.Render(sep)
+		} else {
+			styled += descStyle.Render(sep)
+		}
+		styled += renderHighlighted(row.choice.Desc, descIdx, descBase, hiDesc)
+	}
+	gutter := " "
+	if selected {
+		gutter = gutterSel
+		styled = selStyle.Render(" ") + styled + selStyle.Render(" ")
+	}
+	return gutter + " " + styled
 }
 
 func splitCreateMatchIndexes(choice createChoice, matchIdx []int) ([]int, []int) {
