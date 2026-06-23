@@ -309,6 +309,55 @@ func TestHelpMenu_FilteredWidthStableWhileQueryChanges(t *testing.T) {
 	}
 }
 
+func TestHelpMenu_FilteredHeightStableWhileQueryChanges(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "r", Label: "report", Desc: "report action", RunKey: "r"},
+			{Keys: "R", Label: "remarkably long report action", Desc: "long report action", RunKey: "R"},
+			{Keys: "x", Label: "x", Desc: "tiny action", RunKey: "x"},
+		}},
+	})
+
+	initial := lipgloss.Height(m.View(100, 30))
+	m.StartFilter()
+	filtering := lipgloss.Height(m.View(100, 30))
+	m.AppendFilter("x")
+	oneMatch := lipgloss.Height(m.View(100, 30))
+	m.AppendFilter("zzz")
+	noMatches := lipgloss.Height(m.View(100, 30))
+	m.Backspace()
+	backToOne := lipgloss.Height(m.View(100, 30))
+
+	if filtering != initial || oneMatch != initial || noMatches != initial || backToOne != initial {
+		t.Fatalf("filter height changed: initial=%d filtering=%d oneMatch=%d noMatches=%d back=%d",
+			initial, filtering, oneMatch, noMatches, backToOne)
+	}
+}
+
+func TestHelpMenu_FilteredSingleResultKeepsPromptHeight(t *testing.T) {
+	t.Parallel()
+	m := &HelpMenu{}
+	m.SetPalette(DarkPalette())
+	m.Open([]HelpGroup{
+		{Title: "Actions", Items: []HelpEntry{
+			{Keys: "o", Label: "only", Desc: "only action", RunKey: "o"},
+			{Keys: "m", Label: "many words", Desc: "many action", RunKey: "m"},
+		}},
+	})
+
+	m.StartFilter()
+	filtering := lipgloss.Height(m.View(100, 30))
+	m.AppendFilter("only")
+	oneMatch := lipgloss.Height(m.View(100, 30))
+
+	if oneMatch != filtering {
+		t.Fatalf("single filtered result height = %d, want %d", oneMatch, filtering)
+	}
+}
+
 func TestHelpMenu_ScrollbarAppearsOnlyWhenOverflowing(t *testing.T) {
 	t.Parallel()
 	overflow := &HelpMenu{}

@@ -228,14 +228,19 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 
 	// Vertical budget: reserve the title border, padding, footer, and desc pane.
 	maxBody := max(termHeight-12, 6)
+	resultRows := maxBody
+	if m.filtering {
+		// The filter prompt and spacer live inside the normal body budget.
+		resultRows = max(maxBody-2, 1)
+	}
 	selRow := -1
 	if m.selected < len(m.nav) {
 		selRow = m.nav[m.selected]
 	}
 	if m.follow {
-		m.ensureSelectedVisible(maxBody)
+		m.ensureSelectedVisible(resultRows)
 	}
-	start, end := m.viewportRows(maxBody)
+	start, end := m.viewportRows(resultRows)
 
 	// Footer: hints on the left, "N of M" position indicator on the right.
 	hints := m.footerHints()
@@ -254,6 +259,9 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 	if m.filtering && len(m.nav) == 0 {
 		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
 	}
+	for len(lines) < resultRows {
+		lines = append(lines, "")
+	}
 
 	for i, l := range lines {
 		if lipgloss.Width(l) > rowW {
@@ -261,7 +269,7 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		}
 	}
 	bodyBlock := lipgloss.NewStyle().Width(rowW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-	if len(m.rows) > maxBody {
+	if len(m.rows) > resultRows {
 		bar := strings.Join(m.scrollbar(end-start, len(m.rows), start), "\n")
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
 	} else {
