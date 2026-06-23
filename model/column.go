@@ -916,16 +916,25 @@ func (c *Column) View(ctx RenderCtx) string {
 	listView := c.list.View()
 	if len(c.Items) == 0 {
 		// vlist draws nothing for an empty list; show the placeholder text the
-		// bubbles list used to ("No items."), or the script-set empty text.
+		// bubbles list used to ("No items."), or the script-set empty text, while
+		// keeping the same body height a populated column gets from vlist.
 		text := "No items."
 		if c.Virtual && c.emptyText != "" {
 			text = c.emptyText
 		}
-		listView = lipgloss.NewStyle().
+		bodyH := max(c.height-c.list.HeaderLines(), 0)
+		placeholder := lipgloss.NewStyle().
 			PaddingLeft(2).
 			Width(listW).
+			Height(bodyH).
 			Foreground(c.palette.FgDim).
 			Render(text)
+		if c.list.HeaderLines() > 0 {
+			filterView, _, _ := strings.Cut(listView, "\n")
+			listView = lipgloss.JoinVertical(lipgloss.Left, filterView, placeholder)
+		} else {
+			listView = placeholder
+		}
 	}
 	c.listYOffset = 1 + lipgloss.Height(header) + c.list.HeaderLines()
 

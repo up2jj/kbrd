@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/config"
+	"kbrd/events"
 )
 
 // newTestColumn creates a column rooted at a temporary directory with the
@@ -674,6 +675,32 @@ func TestColumn_Scrollbar_BlankWhenAllFit(t *testing.T) {
 	bar := strings.Join(scrollbarLines(col), "")
 	if strings.Contains(bar, "┃") || strings.Contains(bar, "│") {
 		t.Errorf("expected a blank gutter when everything fits, got %q", bar)
+	}
+}
+
+func TestColumn_View_EmptyColumnHeightMatchesPopulatedColumn(t *testing.T) {
+	t.Parallel()
+
+	ctx := RenderCtx{Active: true, Width: 32, GutterW: 2, MnemonicOf: func(string) string { return "" }}
+	populated := newTestColumn(t, map[string]string{"task": "body"})
+	empty := newTestColumn(t, nil)
+	virtualEmpty := NewVirtualColumn("tasks", "Tasks", DarkPalette())
+	virtualEmpty.ApplyVirtualSpec(events.VirtualColumnSpec{Name: "Tasks", Empty: "no open tasks"})
+
+	for _, col := range []*Column{populated, empty, virtualEmpty} {
+		col.SetHeight(12)
+	}
+
+	populatedH := lipgloss.Height(populated.View(ctx))
+	if emptyH := lipgloss.Height(empty.View(ctx)); emptyH != populatedH {
+		t.Fatalf("empty column height = %d, want populated height %d", emptyH, populatedH)
+	}
+	virtualView := virtualEmpty.View(ctx)
+	if virtualH := lipgloss.Height(virtualView); virtualH != populatedH {
+		t.Fatalf("virtual empty column height = %d, want populated height %d", virtualH, populatedH)
+	}
+	if !strings.Contains(virtualView, "no open tasks") {
+		t.Fatalf("virtual empty placeholder missing:\n%s", virtualView)
 	}
 }
 
