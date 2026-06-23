@@ -18,7 +18,7 @@ func (s boardSearchActions) openSearch() tea.Cmd {
 	b := s.b
 	store, err := recents.Load()
 	if err != nil {
-		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to load recents", err)
 	}
 	if store.Prune() > 0 {
 		_ = store.Save()
@@ -38,7 +38,7 @@ func (s boardSearchActions) activateFile(boardPath, filePath string) (tea.Model,
 	if !samePath(boardPath, b.cfg.Path) {
 		c, err := b.session().loadBoard(boardPath)
 		if err != nil {
-			return b, b.notifier.Send(err.Error(), notifyError)
+			return b, b.notifier.ErrorCause("", err)
 		}
 		cmd = c
 	}
@@ -49,9 +49,9 @@ func (s boardSearchActions) activateFile(boardPath, filePath string) (tea.Model,
 		return b, cmd
 	}
 	if cmd != nil {
-		return b, tea.Batch(cmd, b.notifier.Send("opened board; file not in a column", notifySuccess))
+		return b, tea.Batch(cmd, b.notifier.Success("opened board; file not in a column"))
 	}
-	return b, b.notifier.Send("file not in a column", notifyError)
+	return b, b.notifier.Error("file not in a column")
 }
 
 func (b *Board) searchActions() boardSearchActions {

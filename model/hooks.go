@@ -231,9 +231,9 @@ func (b *Board) handleHookDone(msg hookDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case msg.Err != "":
-		return b, b.notifier.Send("hook "+msg.Name+": "+msg.Err, notifyError)
+		return b, b.notifier.Error("hook " + msg.Name + ": " + msg.Err)
 	case msg.ExitCode != 0:
-		return b, b.notifier.Send("hook "+msg.Name+" exited "+strconv.Itoa(msg.ExitCode), notifyError)
+		return b, b.notifier.Error("hook " + msg.Name + " exited " + strconv.Itoa(msg.ExitCode))
 	}
 	return b, nil
 }

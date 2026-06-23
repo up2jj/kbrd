@@ -174,11 +174,11 @@ func (b *Board) collectEditorOpenCmd() tea.Cmd {
 	// :lua, drained right after the eval while the dirty editor is still open). The
 	// request is dropped; the user saves (:w) or discards (:q!) and re-issues it.
 	if b.editor.state != editorNone && b.editor.IsDirty() {
-		return b.notifier.Send("editor.open: unsaved changes — save or discard first", notifyError)
+		return b.notifier.Error("editor.open: unsaved changes — save or discard first")
 	}
 	colIdx, item := b.resolveEditorTarget(req)
 	if item == nil {
-		return b.notifier.Send("editor.open: item not found", notifyError)
+		return b.notifier.Error("editor.open: item not found")
 	}
 	b.selectedCol = colIdx
 	b.columns[colIdx].SelectByName(item.Name)

@@ -31,7 +31,7 @@ func (q boardQuickCommands) handleCommand(msg quickCommandMsg) (tea.Model, tea.C
 	case 'q':
 		return b, q.open()
 	default:
-		return b, b.notifier.Send("unknown command: "+string(action), notifyError)
+		return b, b.notifier.Error("unknown command: " + string(action))
 	}
 }
 
@@ -55,7 +55,7 @@ func (q boardQuickCommands) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if ref, ok := b.refByMnemonic[suffix]; ok {
 				return b, b.itemActions().dispatch(action, ref)
 			}
-			return b, b.notifier.Send("no item: "+suffix, notifyError)
+			return b, b.notifier.Error("no item: " + suffix)
 		}
 		return b, func() tea.Msg {
 			return quickCommandMsg{Command: cmd}
@@ -83,7 +83,7 @@ func (q boardQuickCommands) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		q.close()
 		b.quickCmdInput.SetValue("")
-		return b, b.notifier.Send("no item: "+suffix, notifyError)
+		return b, b.notifier.Error("no item: " + suffix)
 	}
 
 	return b, cmd

@@ -210,8 +210,8 @@ func (b *Board) initGit() {
 // gitNotifier adapts the board's Notifier to the git package's narrow interface.
 type gitNotifier struct{ n *Notifier }
 
-func (g gitNotifier) Success(msg string) tea.Cmd { return g.n.Send(msg, notifySuccess) }
-func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Send(msg, notifyError) }
+func (g gitNotifier) Success(msg string) tea.Cmd { return g.n.Success(msg) }
+func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Error(msg) }
 
 // applyInputPalette restyles a bubbles textinput using the palette colors.
 // Reused by Board, GitPanel, and ScriptUI which all share the same look.
@@ -278,7 +278,7 @@ func (b *Board) Init() tea.Cmd {
 		if n := len(b.commandWarnings) - 1; n > 0 {
 			extra = fmt.Sprintf(" (+%d more — press x for details)", n)
 		}
-		cmds = append(cmds, b.notifier.Send("commands: "+first.Message+extra, notifyError))
+		cmds = append(cmds, b.notifier.Error("commands: "+first.Message+extra))
 	}
 	if c := b.git.StartAutoSync(); c != nil {
 		cmds = append(cmds, c)
@@ -604,7 +604,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshedMsg:
 		b.applyColumnTransforms()
-		return b, b.notifier.Send("refreshed", notifySuccess)
+		return b, b.notifier.Success("refreshed")
 
 	case boardReloadedMsg:
 		return b.lifecycle().HandleBoardReloaded(msg)
@@ -626,12 +626,12 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case initBoardConfirmMsg:
 		if err := b.createDefaultColumns(); err != nil {
-			return b, b.notifier.Send("failed to create columns: "+err.Error(), notifyError)
+			return b, b.notifier.ErrorCause("failed to create columns", err)
 		}
 		if err := b.loadColumns(); err != nil {
-			return b, b.notifier.Send("failed to load columns: "+err.Error(), notifyError)
+			return b, b.notifier.ErrorCause("failed to load columns", err)
 		}
-		return b, tea.Batch(b.notifier.Send("created default columns", notifySuccess), b.watchCmd())
+		return b, tea.Batch(b.notifier.Success("created default columns"), b.watchCmd())
 
 	case initBoardDeclineMsg:
 		b.quitting = true

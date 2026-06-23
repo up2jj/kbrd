@@ -102,7 +102,7 @@ func (z *Zellij) close() {
 // controller keeps no board-wide dependencies.
 func (z *Zellij) Done(msg zellijDoneMsg, n *Notifier) tea.Cmd {
 	if msg.err != nil {
-		return n.Send("zellij: "+msg.err.Error(), notifyError)
+		return n.ErrorCause("zellij", msg.err)
 	}
 	if msg.paneID != "" {
 		if z.editorPanes == nil {
@@ -110,7 +110,7 @@ func (z *Zellij) Done(msg zellijDoneMsg, n *Notifier) tea.Cmd {
 		}
 		z.editorPanes[msg.path] = msg.paneID
 	}
-	return n.Send(msg.desc, notifySuccess)
+	return n.Success(msg.desc)
 }
 
 // Update handles the menu's own keys. It is a keyed menu (press f/e/s), not a

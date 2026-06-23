@@ -101,7 +101,7 @@ func (l boardLineCommands) handleRun(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 
 	rendered, err := msg.Cmd.Render(msg.Vars)
 	if err != nil {
-		return b, b.notifier.Send("template error: "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("template error", err)
 	}
 	dir := b.cfg.Path
 	line := msg.Line
@@ -141,14 +141,14 @@ func (l boardLineCommands) applyReturn() tea.Cmd {
 func (l boardLineCommands) handleShellDone(msg lineShellDoneMsg) (tea.Model, tea.Cmd) {
 	b := l.board
 	if msg.Err != "" {
-		return b, b.notifier.Send(msg.Name+": "+msg.Err, notifyError)
+		return b, b.notifier.Error(msg.Name + ": " + msg.Err)
 	}
 	if msg.Exit != 0 {
 		detail := strings.TrimSpace(msg.Out)
 		if detail == "" {
 			detail = "exited with a non-zero status"
 		}
-		return b, b.notifier.Send(msg.Name+": "+detail, notifyError)
+		return b, b.notifier.Error(msg.Name + ": " + detail)
 	}
 	b.editor.ReplaceLine(msg.Row, trimOneTrailingNewline(msg.Out))
 	return b, nil

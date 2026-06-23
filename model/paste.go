@@ -63,15 +63,15 @@ func (a boardPasteActions) openMenu(colIdx int, fileName string) tea.Cmd {
 	b := a.board
 	text, err := clipboard.ReadAll()
 	if err != nil || text == "" {
-		return b.notifier.Send("clipboard empty or unavailable", notifyError)
+		return b.notifier.Error("clipboard empty or unavailable")
 	}
 	if colIdx < 0 || colIdx >= len(b.columns) {
-		return b.notifier.Send("item not found: "+fileName, notifyError)
+		return b.notifier.Error("item not found: " + fileName)
 	}
 	col := b.columns[colIdx]
 	itemPath := col.fullPathFor(fileName)
 	if itemPath == "" {
-		return b.notifier.Send("item not found: "+fileName, notifyError)
+		return b.notifier.Error("item not found: " + fileName)
 	}
 	req := func(mode pasteMode) pasteRequestMsg {
 		return pasteRequestMsg{ColName: col.Name, ColPath: col.Path, ItemPath: itemPath, FileName: fileName, Mode: mode}
@@ -144,7 +144,7 @@ func (a boardPasteActions) handleDone(msg pasteDoneMsg) (tea.Model, tea.Cmd) {
 	b.reloadColumnAfterMutation(col)
 	col.SelectByName(msg.FileName)
 	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: msg.Kind})
-	return b, b.notifier.Send(msg.Verb+msg.FileName, notifySuccess)
+	return b, b.notifier.Success(msg.Verb + msg.FileName)
 }
 
 // resolvePasteColumn finds the column a completed paste belongs to by stable

@@ -121,7 +121,7 @@ func (b *Board) handleColumnCreateKey(msg tea.KeyMsg, col *Column) (tea.Model, t
 		return m, cmd, true
 	case key.Matches(msg, Keys.NewFirst):
 		if len(b.columns) == 0 {
-			return b, b.notifier.Send("no folders available", notifyError), true
+			return b, b.notifier.Error("no folders available"), true
 		}
 		return b, b.editor.OpenNew(0, b.columns[0].Name, b.columns[0].Path), true
 	}
@@ -166,7 +166,7 @@ func (b *Board) handleItemBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.
 	case key.Matches(msg, Keys.Peek):
 		content, err := col.CopyContent(item.Name)
 		if err != nil {
-			return b, b.notifier.Send("failed to peek: "+err.Error(), notifyError), true
+			return b, b.notifier.ErrorCause("failed to peek", err), true
 		}
 		return b, b.peek.Open(item.Title, string(content), b.termWidth), true
 	}

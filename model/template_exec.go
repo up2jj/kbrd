@@ -117,18 +117,18 @@ func (te *templateExec) done(msg templateShellDoneMsg) tea.Cmd {
 	data, err := os.ReadFile(msg.CardPath)
 	if err != nil {
 		// Card deleted/renamed while the command ran — drop the output.
-		return te.notifier.Send("template: card gone, discarded output of "+filepath.Base(msg.CardPath), notifyError)
+		return te.notifier.Error("template: card gone, discarded output of " + filepath.Base(msg.CardPath))
 	}
 	body := string(data)
 	newBody := template.RewriteShellMarker(body, msg.ID, shellResultNote(msg))
 	if newBody == body {
 		// Marker edited away by the user — nothing to fill.
-		return te.notifier.Send("template: section removed, discarded command output", notifyError)
+		return te.notifier.Error("template: section removed, discarded command output")
 	}
 	// Existing-only write: the card may vanish between the read above and
 	// this write; never resurrect it.
 	if err := board.ReplaceFileContent(msg.CardPath, newBody); err != nil {
-		return te.notifier.Send("template: failed to write result: "+err.Error(), notifyError)
+		return te.notifier.ErrorCause("template: failed to write result", err)
 	}
 	return nil // the fsnotify watcher picks up the write and refreshes
 }

@@ -21,7 +21,7 @@ func (s boardSession) openSwitcher() tea.Cmd {
 	b := s.b
 	store, err := recents.Load()
 	if err != nil {
-		return b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to load recents", err)
 	}
 	removed := store.Prune()
 	if removed > 0 {
@@ -36,11 +36,11 @@ func (s boardSession) handlePinBoard(msg pinBoardMsg) (tea.Model, tea.Cmd) {
 	b := s.b
 	store, err := recents.Load()
 	if err != nil {
-		return b, b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("failed to load recents", err)
 	}
 	store.SetPinned(msg.Path, msg.Name, msg.Pinned)
 	if err := store.Save(); err != nil {
-		return b, b.notifier.Send("failed to save recents: "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("failed to save recents", err)
 	}
 	s.reopenSwitcher(store.Entries)
 	return b, nil
@@ -50,11 +50,11 @@ func (s boardSession) handleRemoveBoard(msg removeBoardMsg) (tea.Model, tea.Cmd)
 	b := s.b
 	store, err := recents.Load()
 	if err != nil {
-		return b, b.notifier.Send("failed to load recents: "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("failed to load recents", err)
 	}
 	store.Remove(msg.Path)
 	if err := store.Save(); err != nil {
-		return b, b.notifier.Send("failed to save recents: "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("failed to save recents", err)
 	}
 	s.reopenSwitcher(store.Entries)
 	return b, nil
@@ -64,7 +64,7 @@ func (s boardSession) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd)
 	b := s.b
 	cmd, err := s.loadBoard(msg.Path)
 	if err != nil {
-		return b, b.notifier.Send(err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("", err)
 	}
 	return b, cmd
 }
@@ -127,7 +127,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	if b.cfg.BoardName != "" {
 		label = "[" + b.cfg.BoardName + "] " + b.cfg.Path
 	}
-	return tea.Batch(b.watchCmd(), b.notifier.Send("switched to "+label, notifySuccess)), nil
+	return tea.Batch(b.watchCmd(), b.notifier.Success("switched to "+label)), nil
 }
 
 func (b *Board) session() boardSession {

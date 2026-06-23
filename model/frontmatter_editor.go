@@ -437,18 +437,18 @@ func (a boardFrontmatterActions) handleSubmit(msg frontmatterSubmitMsg) (tea.Mod
 	}
 	col, item, err := b.resolveDelayedItemRef(target)
 	if err != nil {
-		return b, b.notifier.Send(err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("", err)
 	}
 	if msg.Delete {
 		if err := b.deleteFrontmatter(col, item.Name, msg.Key); err != nil {
-			return b, b.notifier.Send("failed to remove "+msg.Key+": "+err.Error(), notifyError)
+			return b, b.notifier.ErrorCause("failed to remove "+msg.Key, err)
 		}
 		col.SelectByName(item.Name)
-		return b, b.notifier.Send("removed "+msg.Key, notifySuccess)
+		return b, b.notifier.Success("removed " + msg.Key)
 	}
 	if err := b.setFrontmatter(col, item.Name, msg.Key, msg.Value); err != nil {
-		return b, b.notifier.Send("failed to set "+msg.Key+": "+err.Error(), notifyError)
+		return b, b.notifier.ErrorCause("failed to set "+msg.Key, err)
 	}
 	col.SelectByName(item.Name)
-	return b, b.notifier.Send("set "+msg.Key, notifySuccess)
+	return b, b.notifier.Success("set " + msg.Key)
 }

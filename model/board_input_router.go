@@ -124,11 +124,11 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	b.peek.Close()
 	if len(b.columns) == 0 || b.selectedCol < 0 || b.selectedCol >= len(b.columns) {
-		return b.notifier.Send("item no longer exists", notifyError), true
+		return b.notifier.Error("item no longer exists"), true
 	}
 	col := b.columns[b.selectedCol]
 	if !col.HasSelectedItem() {
-		return b.notifier.Send("item no longer exists", notifyError), true
+		return b.notifier.Error("item no longer exists"), true
 	}
 	return b.itemActions().dispatch(action, refForItem(col, col.SelectedItem())), true
 }

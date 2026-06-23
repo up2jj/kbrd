@@ -42,7 +42,7 @@ func (a boardItemActions) copy(col *Column, item *Item) tea.Cmd {
 	b := a.board
 	content, err := col.CopyContent(item.Name)
 	if err != nil {
-		return b.notifier.Send("failed to copy: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to copy", err)
 	}
 	return b.utilityActions().copyToClipboard([]byte(content))
 }
@@ -54,27 +54,27 @@ func (a boardItemActions) paste(colIdx int, item *Item) tea.Cmd {
 func (a boardItemActions) openExternal(col *Column, item *Item) tea.Cmd {
 	b := a.board
 	if err := col.OpenFile(item.Name); err != nil {
-		return b.notifier.Send("failed to open: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to open", err)
 	}
 	b.bus.Publish(events.ItemOpen{
 		Item: events.ItemRef{Column: col.Name, Name: item.Name},
 		Kind: "external",
 	})
-	return b.notifier.Send("opened "+item.Name, notifySuccess)
+	return b.notifier.Success("opened " + item.Name)
 }
 
 func (a boardItemActions) togglePin(col *Column, item *Item) tea.Cmd {
 	b := a.board
 	wasPinned := item.Pinned
 	if err := col.PinItem(item.Name); err != nil {
-		return b.notifier.Send("failed to pin: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to pin", err)
 	}
 	b.applyColumnTransform(col)
 	pinState := "pinned"
 	if wasPinned {
 		pinState = "unpinned"
 	}
-	return b.notifier.Send(item.Name+" "+pinState, notifySuccess)
+	return b.notifier.Success(item.Name + " " + pinState)
 }
 
 func (a boardItemActions) confirmDelete(colIdx int, col *Column, item *Item) tea.Cmd {
@@ -88,31 +88,31 @@ func (a boardItemActions) moveNext(colIdx int, col *Column, item *Item, selectTa
 	toName := b.columns[nextCol].Name
 	if err := b.moveItem(col, b.columns[nextCol], item.Name); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
+			return b.notifier.Error("file already exists in target: " + item.Name + ".md")
 		}
-		return b.notifier.Send("failed to move: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to move", err)
 	}
 	if selectTarget {
 		b.selectedCol = nextCol
 		b.columns[nextCol].SelectByName(item.Name)
 		return nil
 	}
-	return b.notifier.Send("moved "+item.Name+" → "+toName, notifySuccess)
+	return b.notifier.Success("moved " + item.Name + " → " + toName)
 }
 
 func (a boardItemActions) moveFirst(colIdx int, col *Column, item *Item) tea.Cmd {
 	b := a.board
 	if len(b.columns) == 0 {
-		return b.notifier.Send("no folders available", notifyError)
+		return b.notifier.Error("no folders available")
 	}
 	if colIdx == 0 {
 		return nil
 	}
 	if err := b.moveItem(col, b.columns[0], item.Name); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return b.notifier.Send("file already exists in target: "+item.Name+".md", notifyError)
+			return b.notifier.Error("file already exists in target: " + item.Name + ".md")
 		}
-		return b.notifier.Send("failed to move: "+err.Error(), notifyError)
+		return b.notifier.ErrorCause("failed to move", err)
 	}
 	b.selectedCol = 0
 	b.columns[0].SelectByName(item.Name)
@@ -123,14 +123,14 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 	b := a.board
 	col, item, err := b.resolveDelayedItemRef(ref)
 	if err != nil {
-		return b.notifier.Send(err.Error(), notifyError)
+		return b.notifier.ErrorCause("", err)
 	}
 	colIdx := b.indexOfColumn(col)
 	if colIdx < 0 {
-		return b.notifier.Send("column no longer exists", notifyError)
+		return b.notifier.Error("column no longer exists")
 	}
 	if col.Virtual {
-		return b.notifier.Send("virtual columns have no built-in item actions — use x", notifyError)
+		return b.notifier.Error("virtual columns have no built-in item actions — use x")
 	}
 
 	switch action {
@@ -155,5 +155,5 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 	case 'm':
 		return a.moveNext(colIdx, col, item, false)
 	}
-	return b.notifier.Send("unknown command: "+string(action), notifyError)
+	return b.notifier.Error("unknown command: " + string(action))
 }
