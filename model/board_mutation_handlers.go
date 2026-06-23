@@ -76,9 +76,8 @@ func (h boardMutationHandlers) writeExistingItem(target itemRefStable, fallbackN
 	return b, b.notifier.Send(success(item.Name), notifySuccess)
 }
 
-// openTemplateFlow starts the new-item-from-template overlay for col: lists
-// the column's .kbrd_templates merged with the board-level ones and opens the
-// picker (or, with a single template, its form directly).
+// openTemplateFlow starts the unified create overlay for col: an empty-card
+// action plus the column's .kbrd_templates merged with board-level templates.
 func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd) {
 	b := h.board
 	if col.Virtual {
@@ -93,13 +92,16 @@ func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd
 		w := warns[0]
 		warnCmd = b.notifier.Send("skipped "+filepath.Base(w.Path)+": "+w.Err.Error(), notifyError)
 	}
-	if len(tmpls) == 0 {
-		if warnCmd != nil {
-			return b, warnCmd
-		}
-		return b, b.notifier.Send("no templates — add .md files to "+col.Name+"/"+template.Dir+" or "+template.Dir, notifyError)
-	}
 	return b, tea.Batch(warnCmd, b.templateFlow.Open(b.selectedCol, refForColumn(col), tmpls))
+}
+
+func (h boardMutationHandlers) handleCreateEmptyItem(msg createEmptyItemMsg) (tea.Model, tea.Cmd) {
+	b := h.board
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.Send(err.Error(), notifyError)
+	}
+	return b, b.editor.OpenNew(msg.ColIndex, col.Name, col.Path)
 }
 
 // handleTemplateSubmit renders the completed template form and creates the

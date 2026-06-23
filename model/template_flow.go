@@ -28,18 +28,50 @@ type templateFlowStage int
 
 const (
 	tfNone templateFlowStage = iota
-	tfPick                   // choosing a template
+	tfPick                   // choosing what to create
 	tfForm                   // filling the huh form
 )
 
-// TemplateFlow is the "new item from template" overlay: a template picker
-// followed by an embedded huh form, one form page per template step.
+type createChoiceKind int
+
+const (
+	createChoiceEmpty createChoiceKind = iota
+	createChoiceTemplate
+)
+
+type createChoice struct {
+	Kind     createChoiceKind
+	Label    string
+	Desc     string
+	Template template.Template
+}
+
+type createMenuRow struct {
+	header   bool
+	title    string
+	choice   createChoice
+	matchIdx []int
+}
+
+// createEmptyItemMsg asks the Board to open the existing new-card filename
+// prompt for a stable column reference selected from the create menu.
+type createEmptyItemMsg struct {
+	Column   columnRef
+	ColIndex int
+}
+
+// TemplateFlow is the unified create overlay: a grouped, fuzzy-searchable
+// create menu followed by the existing embedded huh form for template choices.
 type TemplateFlow struct {
 	stage     templateFlowStage
 	column    columnRef
 	colIndex  int
 	templates []template.Template
+	rows      []createMenuRow
+	nav       []int
 	selected  int
+	filtering bool
+	filter    string
 	tmpl      template.Template
 	form      *huh.Form
 	escArmed  bool // first esc pressed; the next one cancels the form
@@ -54,7 +86,11 @@ func (t *TemplateFlow) Close() {
 	t.stage = tfNone
 	t.column = columnRef{}
 	t.templates = nil
+	t.rows = nil
+	t.nav = nil
 	t.selected = 0
+	t.filtering = false
+	t.filter = ""
 	t.tmpl = template.Template{}
 	t.form = nil
 	t.escArmed = false
@@ -77,17 +113,18 @@ func (t *TemplateFlow) fitForm() {
 		WithHeight(min(t.height-6, 24))
 }
 
-// Open starts the flow for the given column. With a single template the
-// picker is skipped. Returns the form's Init cmd when one starts immediately.
+// Open starts the unified create menu for the given column. Template forms are
+// reached by selecting a template; empty-card creation uses the existing editor
+// filename prompt via createEmptyItemMsg.
 func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template.Template) tea.Cmd {
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = templates
 	t.selected = 0
-	if len(templates) == 1 {
-		return t.startForm(templates[0])
-	}
+	t.filtering = false
+	t.filter = ""
 	t.stage = tfPick
+	t.recomputeMenu()
 	return nil
 }
 
@@ -216,23 +253,183 @@ func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (t *TemplateFlow) updatePicker(msg tea.KeyMsg) tea.Cmd {
+	if t.filtering {
+		switch msg.Type {
+		case tea.KeyEsc:
+			t.stopFilter()
+		case tea.KeyEnter:
+			return t.runSelectedChoice()
+		case tea.KeyBackspace:
+			t.backspaceFilter()
+		case tea.KeyRunes, tea.KeySpace:
+			t.appendFilter(msg.String())
+		default:
+			t.updateMenuSelection(msg)
+		}
+		return nil
+	}
+
 	switch {
-	case key.Matches(msg, Keys.SwitcherClose):
+	case key.Matches(msg, Keys.SwitcherClose) || msg.String() == "q":
 		t.Close()
-	case key.Matches(msg, Keys.SwitcherPrev):
-		if t.selected > 0 {
-			t.selected--
-		}
-	case key.Matches(msg, Keys.SwitcherNext):
-		if t.selected < len(t.templates)-1 {
-			t.selected++
-		}
+	case msg.String() == "/":
+		t.startFilter()
 	case key.Matches(msg, Keys.SwitcherConfirm):
-		if len(t.templates) == 0 {
-			t.Close()
-			return nil
+		return t.runSelectedChoice()
+	default:
+		t.updateMenuSelection(msg)
+	}
+	return nil
+}
+
+func (t *TemplateFlow) recomputeMenu() {
+	t.rows = t.rows[:0]
+	t.nav = t.nav[:0]
+
+	if t.filtering {
+		choices := t.menuChoices()
+		matches := filterFuzzy(len(choices), t.filter, func(i int) string {
+			c := choices[i]
+			if c.Desc != "" {
+				return c.Label + "  " + c.Desc
+			}
+			return c.Label
+		})
+		for _, mt := range matches {
+			t.rows = append(t.rows, createMenuRow{choice: choices[mt.Index], matchIdx: mt.MatchedIndexes})
+			t.nav = append(t.nav, len(t.rows)-1)
 		}
-		return t.startForm(t.templates[t.selected])
+	} else {
+		t.appendMenuGroup("Create", []createChoice{emptyCreateChoice()})
+		t.appendMenuGroup("Column templates", t.templateChoices(template.ScopeColumn))
+		t.appendMenuGroup("Board templates", t.templateChoices(template.ScopeBoard))
+	}
+
+	t.selected = min(max(t.selected, 0), max(len(t.nav)-1, 0))
+}
+
+func (t *TemplateFlow) appendMenuGroup(title string, choices []createChoice) {
+	if len(choices) == 0 {
+		return
+	}
+	t.rows = append(t.rows, createMenuRow{header: true, title: title})
+	for _, choice := range choices {
+		t.rows = append(t.rows, createMenuRow{choice: choice})
+		t.nav = append(t.nav, len(t.rows)-1)
+	}
+}
+
+func (t *TemplateFlow) menuChoices() []createChoice {
+	choices := []createChoice{emptyCreateChoice()}
+	choices = append(choices, t.templateChoices(template.ScopeColumn)...)
+	choices = append(choices, t.templateChoices(template.ScopeBoard)...)
+	return choices
+}
+
+func (t *TemplateFlow) templateChoices(scope string) []createChoice {
+	var choices []createChoice
+	for _, tmpl := range t.templates {
+		if tmpl.Scope != scope {
+			continue
+		}
+		desc := "Template from this column"
+		if scope == template.ScopeBoard {
+			desc = "Board template"
+		}
+		choices = append(choices, createChoice{
+			Kind:     createChoiceTemplate,
+			Label:    tmpl.Name,
+			Desc:     desc,
+			Template: tmpl,
+		})
+	}
+	return choices
+}
+
+func emptyCreateChoice() createChoice {
+	return createChoice{
+		Kind:  createChoiceEmpty,
+		Label: "Empty Markdown file",
+		Desc:  "Create an empty .md card in this column",
+	}
+}
+
+func (t *TemplateFlow) startFilter() {
+	t.filtering = true
+	t.filter = ""
+	t.selected = 0
+	t.recomputeMenu()
+}
+
+func (t *TemplateFlow) stopFilter() {
+	t.filtering = false
+	t.filter = ""
+	t.selected = 0
+	t.recomputeMenu()
+}
+
+func (t *TemplateFlow) appendFilter(s string) {
+	if s == "" {
+		return
+	}
+	t.filter += s
+	t.selected = 0
+	t.recomputeMenu()
+}
+
+func (t *TemplateFlow) backspaceFilter() {
+	if r := []rune(t.filter); len(r) > 0 {
+		t.filter = string(r[:len(r)-1])
+		t.selected = 0
+		t.recomputeMenu()
+		return
+	}
+	t.stopFilter()
+}
+
+func (t *TemplateFlow) updateMenuSelection(msg tea.KeyMsg) {
+	if len(t.nav) == 0 {
+		return
+	}
+	switch msg.String() {
+	case "down", "j", "ctrl+n", "tab":
+		t.selected = min(t.selected+1, len(t.nav)-1)
+	case "up", "k", "ctrl+p", "shift+tab":
+		t.selected = max(t.selected-1, 0)
+	case "g", "home":
+		t.selected = 0
+	case "G", "end":
+		t.selected = len(t.nav) - 1
+	case "pgdown", "ctrl+d":
+		t.selected = min(t.selected+10, len(t.nav)-1)
+	case "pgup", "ctrl+u":
+		t.selected = max(t.selected-10, 0)
+	}
+}
+
+func (t *TemplateFlow) selectedChoice() (createChoice, bool) {
+	if t.selected < 0 || t.selected >= len(t.nav) {
+		return createChoice{}, false
+	}
+	row := t.rows[t.nav[t.selected]]
+	if row.header {
+		return createChoice{}, false
+	}
+	return row.choice, true
+}
+
+func (t *TemplateFlow) runSelectedChoice() tea.Cmd {
+	choice, ok := t.selectedChoice()
+	if !ok {
+		return nil
+	}
+	switch choice.Kind {
+	case createChoiceEmpty:
+		msg := createEmptyItemMsg{Column: t.column, ColIndex: t.colIndex}
+		t.Close()
+		return func() tea.Msg { return msg }
+	case createChoiceTemplate:
+		return t.startForm(choice.Template)
 	}
 	return nil
 }
@@ -321,21 +518,109 @@ func (t *TemplateFlow) View() string {
 }
 
 func (t *TemplateFlow) viewPicker() string {
-	labels := make([]string, len(t.templates))
-	for i, tmpl := range t.templates {
-		label := tmpl.Name
-		if tmpl.Scope == template.ScopeBoard {
-			label += " (board)"
-		}
-		labels[i] = label
-	}
-	body := renderPickerChoices(t.palette, labels, t.selected)
+	body := t.viewCreateMenuBody()
 	footer := RenderInlineHints([]Shortcut{
 		{Keys: "↑/↓", Label: "select"},
-		{Keys: "enter", Label: "confirm"},
-		{Keys: "esc", Label: "cancel"},
+		{Keys: "/", Label: "search"},
+		{Keys: "enter", Label: "create"},
+		{Keys: "esc/q", Label: "cancel"},
 	})
-	return OverlayFrame{Title: "New from template", Body: body, Footer: footer, Palette: t.palette}.Render()
+	if t.filtering {
+		footer = RenderInlineHints([]Shortcut{
+			{Keys: "type", Label: "filter"},
+			{Keys: "↑/↓", Label: "select"},
+			{Keys: "enter", Label: "create"},
+			{Keys: "esc", Label: "clear"},
+		})
+	}
+	return OverlayFrame{Title: "Create item", Body: body, Footer: footer, Palette: t.palette}.Render()
+}
+
+func (t *TemplateFlow) viewCreateMenuBody() string {
+	p := t.palette
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
+	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+
+	var lines []string
+	if t.filtering {
+		cursor := hiStyle.Render("> ")
+		query := t.filter
+		if query == "" {
+			query = descStyle.Render("type to filter…")
+		} else {
+			query = nameStyle.Render(query)
+		}
+		lines = append(lines, cursor+query, "")
+	}
+
+	selRow := -1
+	if t.selected < len(t.nav) {
+		selRow = t.nav[t.selected]
+	}
+	for i, row := range t.rows {
+		if row.header {
+			lines = append(lines, headerStyle.Render("── "+row.title+" ──"))
+			continue
+		}
+		selected := i == selRow
+		labelIdx, descIdx := splitCreateMatchIndexes(row.choice, row.matchIdx)
+		labelBase, descBase := nameStyle, descStyle
+		hiLabel, hiDesc := hiStyle, hiStyle
+		if selected {
+			labelBase, descBase = selStyle, selStyle
+			hiLabel, hiDesc = hiSelStyle, hiSelStyle
+		}
+		styled := renderHighlighted(row.choice.Label, labelIdx, labelBase, hiLabel)
+		if row.choice.Desc != "" {
+			sep := "  —  "
+			if selected {
+				styled += selStyle.Render(sep)
+			} else {
+				styled += descStyle.Render(sep)
+			}
+			styled += renderHighlighted(row.choice.Desc, descIdx, descBase, hiDesc)
+		}
+		gutter := " "
+		if selected {
+			gutter = gutterSel
+			styled = selStyle.Render(" ") + styled + selStyle.Render(" ")
+		}
+		lines = append(lines, gutter+" "+styled)
+	}
+	if len(t.nav) == 0 {
+		lines = append(lines, helpDimStyle.Render("no matches"))
+	}
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	minInner := 50
+	if t.width > 0 && t.width-12 < minInner {
+		minInner = t.width - 12
+	}
+	if lipgloss.Width(inner) < minInner {
+		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
+	}
+	return inner
+}
+
+func splitCreateMatchIndexes(choice createChoice, matchIdx []int) ([]int, []int) {
+	if len(matchIdx) == 0 {
+		return nil, nil
+	}
+	nameLen := len([]rune(choice.Label))
+	var labelIdx, descIdx []int
+	for _, idx := range matchIdx {
+		if idx < nameLen {
+			labelIdx = append(labelIdx, idx)
+		} else if idx >= nameLen+2 {
+			descIdx = append(descIdx, idx-nameLen-2)
+		}
+	}
+	return labelIdx, descIdx
 }
 
 // huhThemeFor maps the app palette onto a huh theme so embedded forms match

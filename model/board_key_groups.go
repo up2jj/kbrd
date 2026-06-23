@@ -114,15 +114,13 @@ func (b *Board) handleColumnNavigationKey(msg tea.KeyMsg, col *Column) (tea.Mode
 func (b *Board) handleColumnCreateKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.New):
-		return b, b.editor.OpenNew(b.selectedCol, col.Name, col.Path), true
+		m, cmd := b.mutationHandlers().openTemplateFlow(col)
+		return m, cmd, true
 	case key.Matches(msg, Keys.NewFirst):
 		if len(b.columns) == 0 {
 			return b, b.notifier.Send("no folders available", notifyError), true
 		}
 		return b, b.editor.OpenNew(0, b.columns[0].Name, b.columns[0].Path), true
-	case key.Matches(msg, Keys.NewFromTemplate):
-		m, cmd := b.mutationHandlers().openTemplateFlow(col)
-		return m, cmd, true
 	}
 	return b, nil, false
 }

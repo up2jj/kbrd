@@ -173,7 +173,7 @@ func (s *ScriptUI) renderChoices() string {
 
 // renderPickerChoices renders a vertical pick list with the shared gutter +
 // inverted-selection look. Used by both ScriptUI (kbrd.ui.pick) and the
-// template picker so the two overlays stay visually identical.
+// picker overlays so scripted choices stay visually aligned with built-in menus.
 func renderPickerChoices(p Palette, choices []string, selected int) string {
 	if len(choices) == 0 {
 		return helpDimStyle.Render("(no choices)")

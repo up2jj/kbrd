@@ -118,3 +118,17 @@ commands:
 		t.Fatalf("empty-column vars unexpectedly include fileName: %+v", b.customCmds.vars)
 	}
 }
+
+func TestBoardKeyGroups_NewOpensCreateMenu(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 1, 2)
+	if _, _, handled := b.handleColumnBoardKey(keyRunes("n"), b.columns[0]); !handled {
+		t.Fatal("new key was not handled")
+	}
+	if !b.templateFlow.Active() {
+		t.Fatal("new key did not open create menu")
+	}
+	if b.editor.state != editorNone {
+		t.Fatalf("editor state = %v, want none until empty-card choice is selected", b.editor.state)
+	}
+}

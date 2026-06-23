@@ -764,6 +764,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case templateSubmitMsg:
 		return b.mutationHandlers().handleTemplateSubmit(msg)
 
+	case createEmptyItemMsg:
+		return b.mutationHandlers().handleCreateEmptyItem(msg)
+
 	case frontmatterSubmitMsg:
 		return b.frontmatterActions().handleSubmit(msg)
 

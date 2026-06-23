@@ -47,6 +47,7 @@ func TestContextShortcuts(t *testing.T) {
 			t.Fatal("no shortcuts returned")
 		}
 		mustContain(t, got, "n", "new")
+		mustNotContain(t, got, "t", "template")
 		mustContain(t, got, "/", "filter")
 		mustContain(t, got, "R", "rename col")
 	})
@@ -60,6 +61,15 @@ func mustContain(t *testing.T, items []Shortcut, keys, label string) {
 		}
 	}
 	t.Errorf("shortcuts %+v missing {%s, %s}", items, keys, label)
+}
+
+func mustNotContain(t *testing.T, items []Shortcut, keys, label string) {
+	t.Helper()
+	for _, s := range items {
+		if s.Keys == keys && s.Label == label {
+			t.Errorf("shortcuts %+v unexpectedly contain {%s, %s}", items, keys, label)
+		}
+	}
 }
 
 func TestHelpMenuGroups_Structure(t *testing.T) {
@@ -95,6 +105,13 @@ func TestHelpMenuGroups_Structure(t *testing.T) {
 	for _, want := range []string{"Navigation", "Item", "Global"} {
 		if !seenTitles[want] {
 			t.Errorf("missing expected group %q", want)
+		}
+	}
+	for _, g := range groups {
+		for _, e := range g.Items {
+			if e.Keys == "t" {
+				t.Errorf("old template shortcut still present: %+v", e)
+			}
 		}
 	}
 }

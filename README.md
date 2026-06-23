@@ -67,7 +67,7 @@ A quick, scannable rundown of everything kbrd does:
 **Cards**
 
 - **Create cards** — in the current column (`n`) or the first column (`N`).
-- **Card templates** — create pre-structured cards from per-column or board-wide templates with a multi-step form (`t`); see [TEMPLATES.md](./TEMPLATES.md).
+- **Card templates** — create pre-structured cards from per-column or board-wide templates through the create menu (`n`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
@@ -141,7 +141,7 @@ A quick, scannable rundown of everything kbrd does:
     <td width="50%"><img src="docs/screenshots/virtual-column.png" alt="Lua-driven virtual column" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><em>Create cards from a multi-step template form (<code>t</code>)</em></td>
+    <td align="center"><em>Create cards from an empty file or template (<code>n</code>)</em></td>
     <td align="center"><em>Lua-driven virtual columns, e.g. open tasks (<code>tab</code>)</em></td>
   </tr>
   <tr>
@@ -266,9 +266,8 @@ All bindings below are the defaults from the in-app help (`?`).
 
 | Keys | Action |
 | --- | --- |
-| `n` | New item in current column |
+| `n` | Create item |
 | `N` | New item in first column |
-| `t` | New item from template |
 | `.` | Quick command |
 
 **Column**
@@ -318,11 +317,12 @@ back to a plain textarea editor.
 | `g` / `home`, `G` / `end` | Top / bottom |
 | `q` / `esc` | Close |
 
-### Template form (`t`)
+### Create menu and template form (`n`)
 
 | Keys | Action |
 | --- | --- |
-| `↑` / `↓`, `enter` | Pick a template |
+| `↑` / `↓`, `enter` | Pick an empty card or template |
+| `/` | Fuzzy-search create options |
 | `tab` / `enter` | Next field / step |
 | `shift+tab` | Previous field / step |
 | `esc` `esc` | Cancel (first `esc` arms, second confirms) |
@@ -468,9 +468,10 @@ commands:
 
 ## Card templates
 
-Press `t` in a column to create a card from a template instead of starting blank. A
-template is a Markdown file whose YAML frontmatter declares a multi-step form (text
-inputs, selects, multi-selects, confirms — rendered with
+Press `n` in a column to open the create menu: start an empty Markdown card, or
+choose from column-level and board-level templates. A template is a Markdown file
+whose YAML frontmatter declares a multi-step form (text inputs, selects,
+multi-selects, confirms — rendered with
 [huh](https://github.com/charmbracelet/huh)); the body is a Go `text/template` that
 receives your answers plus the standard board variables.
 

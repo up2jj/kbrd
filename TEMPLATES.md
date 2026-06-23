@@ -1,8 +1,9 @@
 # Card templates
 
-Create pre-structured cards from reusable templates. Press `t` in a column to pick a
-template, fill in its form (multi-step, powered by [huh](https://github.com/charmbracelet/huh)),
-and kbrd renders the result into a new `.md` card in that column.
+Create pre-structured cards from reusable templates. Press `n` in a column to open
+the create menu, then pick an empty Markdown file or a template. Template forms
+are multi-step, powered by [huh](https://github.com/charmbracelet/huh), and kbrd
+renders the result into a new `.md` card in that column.
 
 A template is itself a Markdown file: YAML frontmatter declares the form, the body is a
 Go [`text/template`](https://pkg.go.dev/text/template) that receives the answers.
@@ -22,7 +23,7 @@ Go [`text/template`](https://pkg.go.dev/text/template) that receives the answers
 
 ## Where templates live
 
-Two locations, merged when you press `t`:
+Two locations, merged when you press `n`:
 
 | Location | Scope |
 | --- | --- |
@@ -33,8 +34,8 @@ The leading `.` keeps these folders out of the board view — they never appear 
 or cards.
 
 **Shadowing:** when a column template and a board template share the same display `name`,
-the column-local one wins. Board-scoped entries are marked `(board)` in the picker so you
-can tell them apart.
+the column-local one wins. The create menu separates column templates from board
+templates so you can tell their scope apart.
 
 ---
 
@@ -344,7 +345,7 @@ exec = true
 
 It is opt-in because a `{{shell}}` command runs with kbrd's **full environment** (including
 secrets like `$ANTHROPIC_API_KEY`) and templates are shared/pasted more casually than whole
-boards. Commands run **only on `t`-submit** — never at render time, and never implicitly on
+boards. Commands run **only on interactive template submit** — never at render time, and never implicitly on
 the Lua path. To open a board you don't fully trust with everything defused, launch
 `kbrd --safe`, which forces scripting, hooks, and template exec off regardless of config
 (see [SECURITY.md](./SECURITY.md)).
@@ -355,8 +356,9 @@ the Lua path. To open a board you don't fully trust with everything defused, lau
 
 | Keys | Action |
 | --- | --- |
-| `t` | Open the template picker for the current column |
-| `↑` / `↓`, `enter` | Pick a template (skipped when there is exactly one) |
+| `n` | Open the create menu for the current column |
+| `↑` / `↓`, `enter` | Pick an empty Markdown file or template |
+| `/` | Fuzzy-search create options |
 | `tab` / `enter` | Next field / next step |
 | `shift+tab` | Previous field / step |
 | `esc` `esc` | Cancel the form (first `esc` arms, any other key disarms) |
@@ -368,14 +370,14 @@ and YAML hooks see template-created cards exactly like manually created ones.
 
 ## Errors & edge cases
 
-- **No templates anywhere** → a toast tells you which folders to create.
+- **No templates anywhere** → the create menu still offers an empty Markdown file.
 - **A template fails to parse or validate** (bad YAML, unknown `type`, `select` without
   `options`, duplicate/reserved `key`, broken `{{...}}` syntax) → it is skipped with a
   warning toast; valid templates still load.
 - **No `steps`** → no form: with a `filename` the card is created immediately on pick;
   without one you are asked just for the filename.
 - **Existing filename** → "file already exists" error, nothing overwritten.
-- **Virtual columns** are read-only — `t` is rejected there.
+- **Virtual columns** are read-only — `n` is rejected there.
 
 ---
 
@@ -413,4 +415,4 @@ Worked examples live in [`examples/templates/`](./examples/templates/):
 - [`meeting.md`](./examples/templates/meeting.md) — two steps, confirm field, scaffolded sections
 - [`bug.md`](./examples/templates/bug.md) — the full field set: select, multiselect with `join`, confirm
 
-Copy them into `<board>/.kbrd_templates/` (or a column's `.kbrd_templates/`) and press `t`.
+Copy them into `<board>/.kbrd_templates/` (or a column's `.kbrd_templates/`) and press `n`.

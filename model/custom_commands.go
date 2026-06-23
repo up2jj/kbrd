@@ -227,7 +227,7 @@ func (b *Board) handleVirtualColumnKey(msg tea.KeyMsg, col *Column) (tea.Cmd, bo
 var virtualBlockedBindings = []key.Binding{
 	Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal, Keys.Copy, Keys.Paste,
 	Keys.OpenExternal, Keys.Pin, Keys.MoveNext, Keys.MoveFirst, Keys.RenameItem,
-	Keys.Delete, Keys.New, Keys.RenameCol, Keys.EditFrontmatter, Keys.NewFromTemplate,
+	Keys.Delete, Keys.New, Keys.RenameCol, Keys.EditFrontmatter,
 }
 
 // isVirtualBlockedKey reports whether a pressed key is virtual-blocked.
