@@ -68,6 +68,44 @@ func TestBuildFilesystemCtx_CarriesFrontmatterData(t *testing.T) {
 	}
 }
 
+func TestBuildVirtualVars_ParallelsFilesystemCtxSharedFields(t *testing.T) {
+	t.Parallel()
+	b := &Board{cfg: config.Config{Path: "/board", BoardName: "demo"}}
+	fsCol := &Column{
+		Name: "Todo",
+		Path: "/board/Todo",
+		Items: []Item{{
+			Name:     "task",
+			Title:    "Task",
+			FullPath: "/board/Todo/task.md",
+			Data:     map[string]any{"assignee": "kuba"},
+		}},
+	}
+	virtualCol := NewVirtualColumn("tasks", "Tasks", DarkPalette())
+	virtualItem := &Item{
+		Name:     "task",
+		Title:    "Task",
+		FullPath: "/board/Todo/task.md",
+		Data:     map[string]any{"assignee": "kuba"},
+		Virtual:  true,
+	}
+	b.columns = []*Column{fsCol, virtualCol}
+
+	fsCtx := b.buildFilesystemCtx(0, &fsCol.Items[0])
+	virtualCtx := b.buildVirtualVars(virtualCol, virtualItem)
+	for _, key := range []string{"boardPath", "boardName", "fileName", "path", "filePath", "title"} {
+		if fsCtx[key] != virtualCtx[key] {
+			t.Fatalf("%s mismatch: filesystem=%v virtual=%v", key, fsCtx[key], virtualCtx[key])
+		}
+	}
+	if virtualCtx["vid"] != "tasks" {
+		t.Fatalf("virtual ctx vid = %v, want tasks", virtualCtx["vid"])
+	}
+	if data, ok := virtualCtx["data"].(map[string]any); !ok || data["assignee"] != "kuba" {
+		t.Fatalf("virtual ctx data = %+v, want assignee", virtualCtx["data"])
+	}
+}
+
 func TestCustomCommandMenu_OpenClose(t *testing.T) {
 	var m CustomCommandMenu
 	if m.Active() {
@@ -152,6 +190,51 @@ func TestCustomCommandMenu_EnterRunsSelected(t *testing.T) {
 	}
 	if run.Vars["filePath"] != "/x" {
 		t.Errorf("vars not forwarded: %+v", run.Vars)
+	}
+}
+
+func TestCustomCommandMenu_EnterForwardsStructuredContext(t *testing.T) {
+	var m CustomCommandMenu
+	vars := map[string]string{"filePath": "/x"}
+	vctx := map[string]any{"path": "/x", "data": map[string]any{"id": "42"}}
+	m.Open(testCommands(), nil, vars, vctx)
+
+	cmd := m.Update(keySpecial(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal("enter should emit a tea.Cmd")
+	}
+	msg := cmd()
+	run, ok := msg.(runCustomCommandMsg)
+	if !ok {
+		t.Fatalf("msg: got %T want runCustomCommandMsg", msg)
+	}
+	if run.Vars["filePath"] != "/x" {
+		t.Fatalf("vars not forwarded: %+v", run.Vars)
+	}
+	if run.VCtx["path"] != "/x" {
+		t.Fatalf("structured ctx not forwarded: %+v", run.VCtx)
+	}
+}
+
+func TestCustomCommandMenu_OpenLineRoutesRunLineCommand(t *testing.T) {
+	var m CustomCommandMenu
+	cmds := []config.Command{{Name: "Upper", ID: "upper", Scope: "line", Template: "tr a-z A-Z"}}
+	vars := map[string]string{"line": "hello"}
+	m.OpenLine(cmds, nil, "hello", 7, vars)
+
+	cmd := m.Update(keySpecial(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal("enter should emit a tea.Cmd")
+	}
+	msg, ok := cmd().(runLineCommandMsg)
+	if !ok {
+		t.Fatalf("msg: got %T want runLineCommandMsg", msg)
+	}
+	if msg.Cmd.ID != "upper" || msg.Line != "hello" || msg.Row != 7 {
+		t.Fatalf("runLineCommandMsg = %+v, want command upper line hello row 7", msg)
+	}
+	if msg.Vars["line"] != "hello" {
+		t.Fatalf("line vars not forwarded: %+v", msg.Vars)
 	}
 }
 

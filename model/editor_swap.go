@@ -82,7 +82,16 @@ type recoverEditorMsg struct{ Content string }
 type recoverApplyMsg struct{ Content string }
 type recoverDiscardMsg struct{}
 
-func (b *Board) handleRecoverEditor(msg recoverEditorMsg) (tea.Model, tea.Cmd) {
+type boardEditorRecovery struct {
+	board *Board
+}
+
+func (b *Board) editorRecovery() boardEditorRecovery {
+	return boardEditorRecovery{board: b}
+}
+
+func (r boardEditorRecovery) handleRecoverEditor(msg recoverEditorMsg) (tea.Model, tea.Cmd) {
+	b := r.board
 	b.dialog.Open(DialogOptions{
 		Title: "Recover unsaved changes?",
 		Body:  "An earlier editing session left unsaved changes for this card.",
@@ -95,12 +104,14 @@ func (b *Board) handleRecoverEditor(msg recoverEditorMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-func (b *Board) handleRecoverApply(msg recoverApplyMsg) (tea.Model, tea.Cmd) {
+func (r boardEditorRecovery) handleRecoverApply(msg recoverApplyMsg) (tea.Model, tea.Cmd) {
+	b := r.board
 	b.editor.recover(msg.Content)
 	return b, nil
 }
 
-func (b *Board) handleRecoverDiscard() (tea.Model, tea.Cmd) {
+func (r boardEditorRecovery) handleRecoverDiscard() (tea.Model, tea.Cmd) {
+	b := r.board
 	b.editor.clearSwap()
 	return b, nil
 }

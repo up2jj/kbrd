@@ -19,7 +19,7 @@ import (
 //
 // Hooks run one at a time, in order, through a single FIFO queue: OnEvent
 // renders the hooks matching an event and appends them; the Board drains the
-// queue via collectHookCmd, running each as a tea.Cmd and starting the next
+// queue via boardHooks.collectCmd, running each as a tea.Cmd and starting the next
 // when hookDoneMsg arrives. A "⚙ hooks" header indicator (derived in
 // updateBuiltinCells) shows while the queue is non-empty. The serial queue is
 // why only low-frequency "action" events are hookable (see events.IsHookable):
@@ -27,7 +27,7 @@ import (
 //
 // The runner is independent of the Lua scripting subsystem — it works even when
 // scripting is disabled. Its state is only touched on the Bubble Tea goroutine
-// (OnEvent runs inside bus.Publish during Update; collectHookCmd and the
+// (OnEvent runs inside bus.Publish during Update; collectCmd and the
 // hookDoneMsg handler also run there), so it needs no locking — the same
 // contract as the rest of the model.
 type hookRunner struct {
@@ -51,12 +51,17 @@ type hookDoneMsg struct {
 	Err      string
 }
 
-// initHooks loads declarative hooks for the current board and subscribes the
+type boardHooks struct {
+	board *Board
+}
+
+// init loads declarative hooks for the current board and subscribes the
 // runner to the event bus. It runs independently of the Lua scripting subsystem
 // (hooks work even when scripting is disabled) and MUST be called after
 // initScripting, which resets b.bus and subscribes the Lua host. Idempotent:
 // safe to call again on board switch (the runner is rebuilt for the new board).
-func (b *Board) initHooks() {
+func (h boardHooks) init() {
+	b := h.board
 	b.hooks = nil
 	if !b.cfg.Hooks.Enabled {
 		return
@@ -78,8 +83,8 @@ func (b *Board) initHooks() {
 
 // newHookRunner builds a runner from the board's config. It depends only on
 // config (which it already needs for config.Hook), not on *Board — the runner
-// is a self-contained event subscriber. The Board-side glue (collectHookCmd /
-// handleHookDone) reads timeout and working dir straight from b.cfg.
+// is a self-contained event subscriber. The Board-side glue (boardHooks) reads
+// timeout and working dir straight from b.cfg.
 func newHookRunner(cfg config.Config, hooks []config.Hook) *hookRunner {
 	byEvent := make(map[string][]config.Hook, len(hooks))
 	for _, h := range hooks {
@@ -110,7 +115,7 @@ func (r *hookRunner) pending() int {
 // OnEvent implements events.Subscriber: render the hooks bound to ev's event and
 // append them to the FIFO queue. Runs on the Bubble Tea goroutine; it only
 // mutates queue state and never blocks (the actual commands run later via
-// collectHookCmd). Render failures are logged and the hook is skipped.
+// boardHooks.collectCmd). Render failures are logged and the hook is skipped.
 func (r *hookRunner) OnEvent(ev events.Event) {
 	name, vars := r.hookVars(ev)
 	if name == "" {
@@ -191,10 +196,11 @@ func (r *hookRunner) hookVars(ev events.Event) (string, map[string]string) {
 	return "", nil
 }
 
-// collectHookCmd starts the head of the hook queue if nothing is running. It is
+// collectCmd starts the head of the hook queue if nothing is running. It is
 // called from the Update wrapper after each message, mirroring collectAsyncCmds
 // — but it dispatches exactly one hook at a time (sequential), not a batch.
-func (b *Board) collectHookCmd() tea.Cmd {
+func (h boardHooks) collectCmd() tea.Cmd {
+	b := h.board
 	r := b.hooks
 	if r == nil || r.running || len(r.queue) == 0 {
 		return nil
@@ -222,10 +228,11 @@ func (b *Board) collectHookCmd() tea.Cmd {
 	}
 }
 
-// handleHookDone clears the running flag so the next queued hook can start (the
-// Update wrapper re-drains via collectHookCmd) and surfaces failures as a toast.
+// handleDone clears the running flag so the next queued hook can start (the
+// Update wrapper re-drains via collectCmd) and surfaces failures as a toast.
 // A failed hook does not abort the rest of the chain.
-func (b *Board) handleHookDone(msg hookDoneMsg) (tea.Model, tea.Cmd) {
+func (h boardHooks) handleDone(msg hookDoneMsg) (tea.Model, tea.Cmd) {
+	b := h.board
 	if b.hooks != nil {
 		b.hooks.running = false
 	}

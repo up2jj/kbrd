@@ -1,18 +1,29 @@
 # Maintainability Refactor Handoff
 
-This refactor is at a reasonable stopping point. The codebase is materially better than where it started, but there are a few unfinished or deliberately deferred areas that should be handled in later, focused passes.
+This refactor is at a reasonable stopping point. The codebase is materially better than where it started, and the previously-blocking `kbrd.editor.open` correctness issue has been fixed. Remaining work should stay focused and test-first.
 
-## Before More Refactoring
+## Completed In Latest Pass
 
-Fix the reviewer finding in `model/scripting.go` around `kbrd.editor.open` path resolution.
+The blocking reviewer finding in `model/scripting.go` is resolved.
 
-- Problem: an invalid absolute/relative path such as `/other-board/todo.md` can fall back to basename matching and open an unrelated current-board card named `todo`.
-- Expected behavior: full-path-like inputs should only match exact current-board item paths. If the path misses, fail instead of falling back to basename/name matching.
-- Add a regression test for stale/cross-board paths with duplicate basenames.
+- `kbrd.editor.open` now treats absolute paths and path-like relative inputs as specific paths.
+- Missing path-like inputs fail instead of falling back to basename/name matching.
+- Bare names such as `todo` and `todo.md` still use the existing basename/name behavior.
+- Regression coverage now locks stale absolute paths, missing relative paths, valid current-board relative paths, and bare basename fallback.
 
-This is a correctness issue and should be resolved before continuing architectural cleanup.
+Two planned helper extractions are also complete:
 
-## Good Stopping Point
+- `model/editor_swap.go` routes recovery handling through `boardEditorRecovery`.
+- `model/hooks.go` routes hook init/drain/done glue through `boardHooks` without changing FIFO scheduling.
+
+Custom-command extraction is still deferred, but several characterization tests were added first:
+
+- filesystem vs virtual structured context parity
+- structured context forwarding from `CustomCommandMenu`
+- line-command menu dispatch to `runLineCommandMsg`
+- virtual default command dispatch using stable selected virtual item identity
+
+## Current Stopping Point
 
 The broad maintainability refactor can stop here for review. Major completed pieces include:
 
@@ -20,6 +31,7 @@ The broad maintainability refactor can stop here for review. Major completed pie
 - Shared `boardops` workflows across web/script/TUI adapters.
 - Narrower script capability interfaces.
 - Helper boundaries for input routing, lifecycle, presenter/view frame, status, mutations, item actions, paste, frontmatter, line commands, help menu, editor eval, quick commands, search/session/managed files.
+- Editor recovery and hook Board-side helper boundaries.
 - Stronger characterization and stable-ref regression coverage.
 - External temporary Go cache discipline for test/vet runs.
 
@@ -27,7 +39,7 @@ The broad maintainability refactor can stop here for review. Major completed pie
 
 ### `custom_commands.go`
 
-Still the largest maintainability concern. Do not casually extract it. It mixes:
+Still the largest maintainability concern. Do not casually extract it, but it is now the best next focused cleanup. It mixes:
 
 - filesystem command context
 - virtual-column command context
@@ -36,7 +48,21 @@ Still the largest maintainability concern. Do not casually extract it. It mixes:
 - script UI yielding/resume behavior
 - virtual item identity
 
-Recommended next pass should be test-first:
+The first layer of characterization exists, but add or confirm coverage for any specific behavior before moving it. The safest next extraction order is:
+
+1. Extract command context building into a small helper.
+   - Move `buildCommandVars`, `buildFilesystemCtx`, `buildVirtualVars`, and `commandsForColumn` together only if the resulting helper owns command availability and dispatch context clearly.
+   - Keep public YAML/Lua command behavior unchanged.
+
+2. Extract virtual command dispatch and virtual key handling.
+   - Move `handleVirtualColumnKey`, `runVirtualDefault`, `virtualDefaultNoItem`, and `dispatchVirtualCommand` behind a virtual-command helper.
+   - Preserve the stable selected item identity behavior covered by `TestVirtualColumn_DefaultCommandUsesStableSelectedItemIdentity`.
+
+3. Leave `CustomCommandMenu` in place unless a later pass has a concrete reason to split menu state/rendering.
+   - It already has direct menu behavior coverage.
+   - Avoid mixing menu rendering refactors with command dispatch changes.
+
+Before changing this file further, keep these scenarios covered:
 
 - filesystem command vars/context parity
 - virtual command vars/context parity
@@ -46,7 +72,12 @@ Recommended next pass should be test-first:
 
 ### `scripting.go`
 
-Still orchestration-heavy and central. Some of that is legitimate because script timers, async work, UI yields, and selection events cross-cut the Bubble Tea root model. Avoid splitting this until there are clearer seams and tests around each queue/dispatch path.
+Still orchestration-heavy and central. Some of that is legitimate because script timers, async work, UI yields, editor-open requests, and selection events cross-cut the Bubble Tea root model. Avoid splitting this until there are clearer seams and tests around each queue/dispatch path.
+
+Possible future extraction, only after `custom_commands.go`:
+
+- a tiny editor-open resolver/helper around `collectEditorOpenCmd` and `resolveEditorTarget`
+- queue-drain helpers for timers/status/async only if tests make the ordering constraints explicit
 
 ### `model.Board`
 
@@ -59,29 +90,33 @@ Still orchestration-heavy and central. Some of that is legitimate because script
 
 Do not chase method count alone.
 
-## Planned But Not Implemented
+## Next Planned Changes
 
-### Editor Recovery Helper
+### Recommended Next Pass
 
-Candidate: extract `model/editor_swap.go` into `boardEditorRecovery`.
+Start with `custom_commands.go`, but only extract one behavior group at a time.
 
-Current methods:
+Suggested first patch:
 
-- `handleRecoverEditor`
-- `handleRecoverApply`
-- `handleRecoverDiscard`
+1. Introduce a `boardCommandContext` or similarly small helper in a new file.
+2. Move command availability/context methods into it.
+3. Keep `runCustomCommandMsg`, dispatch, virtual key handling, and `CustomCommandMenu` in `custom_commands.go`.
+4. Run the targeted custom-command and virtual-column tests before considering the next extraction.
 
-This looks low-risk and isolated, but was not implemented.
+Suggested second patch:
 
-### Hook Helper
+1. Introduce a virtual command helper only after the context helper lands cleanly.
+2. Move virtual key/default dispatch into it.
+3. Preserve the current `handleKey` and help-menu entrypoints.
 
-Candidate: extract hook message handling/collection into `boardHooks`.
+Stop there for another review before touching menu rendering or script resume behavior.
 
-Be careful: hook scheduling is part of post-update draining behavior. Add/confirm tests before moving.
+### Do Not Do Yet
 
-### Custom Command Extraction
-
-Deferred intentionally. This should be a dedicated pass after the reviewer finding is fixed.
+- Do not split `scripting.go` broadly.
+- Do not split `CustomCommandMenu` rendering while moving dispatch/context code.
+- Do not change command YAML, Lua command registration, scopes, `requiresItem`, or keybindings.
+- Do not optimize for Board method count alone.
 
 ## Useful Audit
 

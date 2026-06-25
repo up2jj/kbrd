@@ -162,7 +162,7 @@ func NewBoard(cfg config.Config) *Board {
 	b.applyPalette()
 	b.initScripting()
 	b.loadCommands()
-	b.initHooks()
+	boardHooks{board: b}.init()
 	b.editorEval().wireCompletions()
 	return b
 }
@@ -697,13 +697,13 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.editorEval().handle(msg)
 
 	case recoverEditorMsg:
-		return b.handleRecoverEditor(msg)
+		return b.editorRecovery().handleRecoverEditor(msg)
 
 	case recoverApplyMsg:
-		return b.handleRecoverApply(msg)
+		return b.editorRecovery().handleRecoverApply(msg)
 
 	case recoverDiscardMsg:
-		return b.handleRecoverDiscard()
+		return b.editorRecovery().handleRecoverDiscard()
 
 	case quitConfirmedMsg:
 		b.editor.Close()
@@ -758,7 +758,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleScriptAsyncDone(msg)
 
 	case hookDoneMsg:
-		return b.handleHookDone(msg)
+		return boardHooks{board: b}.handleDone(msg)
 
 	case git.Msg:
 		// All git orchestration lives in the git package; route opaquely. Git

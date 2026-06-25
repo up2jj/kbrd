@@ -101,7 +101,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	b.virtualCols = nil
 	b.initScripting()
 	b.loadCommands()
-	b.initHooks()
+	boardHooks{board: b}.init()
 
 	if err := b.loadColumns(); err != nil {
 		return nil, fmt.Errorf("failed to load columns: %w", err)

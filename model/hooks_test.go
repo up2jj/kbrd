@@ -42,25 +42,26 @@ func TestHookRunner_SequentialDrain(t *testing.T) {
 	})
 	r.OnEvent(events.ItemCreated{Item: events.ItemRef{Column: "C", Name: "x"}})
 	b := &Board{cfg: testCfg(), hooks: r}
+	hooks := boardHooks{board: b}
 
 	// First drain starts exactly one hook.
-	if cmd := b.collectHookCmd(); cmd == nil {
-		t.Fatal("first collectHookCmd returned nil")
+	if cmd := hooks.collectCmd(); cmd == nil {
+		t.Fatal("first collectCmd returned nil")
 	}
 	if !r.running || len(r.queue) != 1 {
 		t.Fatalf("after first drain: running=%v queueLen=%d want running=true len=1", r.running, len(r.queue))
 	}
 	// Second drain is a no-op while a hook is running (one at a time).
-	if cmd := b.collectHookCmd(); cmd != nil {
-		t.Fatal("second collectHookCmd should be nil while a hook runs")
+	if cmd := hooks.collectCmd(); cmd != nil {
+		t.Fatal("second collectCmd should be nil while a hook runs")
 	}
 	// Finishing clears the flag; the next drain starts the second hook.
-	b.handleHookDone(hookDoneMsg{Name: "a"})
+	hooks.handleDone(hookDoneMsg{Name: "a"})
 	if r.running {
-		t.Fatal("running should be cleared after handleHookDone")
+		t.Fatal("running should be cleared after handleDone")
 	}
-	if cmd := b.collectHookCmd(); cmd == nil {
-		t.Fatal("third collectHookCmd returned nil; second hook never started")
+	if cmd := hooks.collectCmd(); cmd == nil {
+		t.Fatal("third collectCmd returned nil; second hook never started")
 	}
 	if len(r.queue) != 0 {
 		t.Fatalf("queue should be empty after draining both, got %d", len(r.queue))

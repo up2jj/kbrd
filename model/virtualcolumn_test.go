@@ -320,6 +320,69 @@ kbrd.column.set("tasks", {
 	}
 }
 
+func TestVirtualColumn_DefaultCommandUsesStableSelectedItemIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out.txt")
+	script := `
+kbrd.column.set("tasks", {
+  name = "Tasks",
+  items = {
+    { id = "a", title = "Alpha", data = { out = "` + out + `", marker = "A1" } },
+    { id = "b", title = "Beta", data = { out = "` + out + `", marker = "B1" } },
+  },
+  commands = {
+    { id = "touch", name = "Touch", default = true,
+      run = function(ctx) kbrd.fs.write(ctx.data.out, ctx.fileName .. ":" .. ctx.title .. ":" .. ctx.data.marker) end },
+  },
+})`
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Path: dir, ColumnWidth: 20, PreviewLines: 3}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
+	b := NewBoard(cfg)
+	if err := b.loadColumns(); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.columns) != 2 || !b.columns[1].Virtual {
+		t.Fatalf("virtual column not attached: %d columns", len(b.columns))
+	}
+
+	vc := b.columns[1]
+	vc.SelectByName("b")
+	ref := vc.colCmds[0].Ref
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{
+		Name: "Tasks",
+		Items: []events.VirtualItem{
+			{ID: "a", Title: "Alpha", Data: map[string]any{"out": out, "marker": "A2"}},
+			{ID: "b", Title: "Beta", Data: map[string]any{"out": out, "marker": "B2"}},
+		},
+		Commands: []events.VirtualCommand{{
+			ID:           "touch",
+			Name:         "Touch",
+			Default:      true,
+			RequiresItem: true,
+			Ref:          ref,
+		}},
+	})
+
+	b.selectedCol = 1
+	_, cmd := b.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("command did not write output file: %v", err)
+	}
+	if string(got) != "b:Beta:B2" {
+		t.Fatalf("output = %q, want selected item identity b:Beta:B2", got)
+	}
+}
+
 // TestVirtualColumn_BoardLoadFires verifies board_load is actually published on
 // startup (it drives the canonical kbrd.on("board_load", ...) trigger).
 func TestVirtualColumn_BoardLoadFires(t *testing.T) {

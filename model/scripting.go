@@ -188,10 +188,24 @@ func (b *Board) collectEditorOpenCmd() tea.Cmd {
 }
 
 // resolveEditorTarget finds the column index and item for an editor-open request:
-// by path (full path, basename, or item name), by column+name, or — when the
-// target is empty — the current selection.
+// by path (specific current-board path or bare basename/name), by column+name,
+// or — when the target is empty — the current selection.
 func (b *Board) resolveEditorTarget(req script.EditorOpenReq) (int, *Item) {
 	if req.Path != "" {
+		if editorOpenSpecificPath(req.Path) {
+			paths := []string{req.Path}
+			if !filepath.IsAbs(req.Path) {
+				paths = append(paths, filepath.Join(b.cfg.Path, req.Path))
+			}
+			for _, path := range paths {
+				for ci, col := range b.columns {
+					if it := col.ItemByPath(path); it != nil {
+						return ci, it
+					}
+				}
+			}
+			return -1, nil
+		}
 		for ci, col := range b.columns {
 			if it := col.ItemByPath(req.Path); it != nil {
 				return ci, it
@@ -221,6 +235,10 @@ func (b *Board) resolveEditorTarget(req script.EditorOpenReq) (int, *Item) {
 		}
 	}
 	return -1, nil
+}
+
+func editorOpenSpecificPath(path string) bool {
+	return filepath.IsAbs(path) || strings.ContainsAny(path, `/\`)
 }
 
 // handleScriptStatusExpire clears the status-bar message if no newer one has

@@ -393,3 +393,43 @@ func TestEditorOpenResolveAndGoToLine(t *testing.T) {
 		t.Fatalf("GoToLine(4) row = %d, want 3", got)
 	}
 }
+
+func TestEditorOpenPathLikeInputDoesNotFallbackToBasename(t *testing.T) {
+	dir := t.TempDir()
+	col := filepath.Join(dir, "Todo")
+	if err := os.MkdirAll(col, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	currentPath := filepath.Join(col, "todo.md")
+	if err := os.WriteFile(currentPath, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	staleBoard := filepath.Join(t.TempDir(), "other-board")
+	staleCol := filepath.Join(staleBoard, "Todo")
+	if err := os.MkdirAll(staleCol, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stalePath := filepath.Join(staleCol, "todo.md")
+	if err := os.WriteFile(stalePath, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewBoard(config.Config{Path: dir, ColumnWidth: 32, PreviewLines: 3, Editor: config.EditorConfig{Vim: true}})
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+
+	if ci, item := b.resolveEditorTarget(script.EditorOpenReq{Path: stalePath}); item != nil || ci != -1 {
+		t.Fatalf("stale absolute path resolved by basename: ci=%d item=%+v", ci, item)
+	}
+	if ci, item := b.resolveEditorTarget(script.EditorOpenReq{Path: filepath.Join("Archive", "todo.md")}); item != nil || ci != -1 {
+		t.Fatalf("missing relative path resolved by basename: ci=%d item=%+v", ci, item)
+	}
+	if ci, item := b.resolveEditorTarget(script.EditorOpenReq{Path: filepath.Join("Todo", "todo.md")}); item == nil || ci != 0 || item.FullPath != currentPath {
+		t.Fatalf("relative current-board path: ci=%d item=%+v, want %q", ci, item, currentPath)
+	}
+	if ci, item := b.resolveEditorTarget(script.EditorOpenReq{Path: "todo.md"}); item == nil || ci != 0 || item.FullPath != currentPath {
+		t.Fatalf("bare basename fallback: ci=%d item=%+v, want %q", ci, item, currentPath)
+	}
+}
