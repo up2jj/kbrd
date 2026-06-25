@@ -3,6 +3,8 @@ package model
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // card returns a synthetic file path inside the given column directory.
@@ -38,6 +40,18 @@ func TestBoard_SingleDirtyColumn(t *testing.T) {
 				t.Errorf("singleDirtyColumn = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIgnoreWatchEvent(t *testing.T) {
+	if !ignoreWatchEvent(fsnotify.Event{Name: "/board/1. todo/.note.md.kbrd-swap", Op: fsnotify.Write}) {
+		t.Fatal("swap sidecar write should be ignored")
+	}
+	if !ignoreWatchEvent(fsnotify.Event{Name: "/board/1. todo/note.md", Op: fsnotify.Chmod}) {
+		t.Fatal("chmod-only event should be ignored")
+	}
+	if ignoreWatchEvent(fsnotify.Event{Name: "/board/1. todo/note.md", Op: fsnotify.Write}) {
+		t.Fatal("normal markdown write should not be ignored")
 	}
 }
 

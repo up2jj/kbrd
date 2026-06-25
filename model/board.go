@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -318,10 +319,7 @@ func (b *Board) watchCmd() tea.Cmd {
 				if !ok {
 					return nil
 				}
-				// Chmod-only events fire on atime updates (e.g. when git diff
-				// reads tracked files). Ignore them — we only care about real
-				// content changes.
-				if ev.Op == fsnotify.Chmod {
+				if ignoreWatchEvent(ev) {
 					continue
 				}
 				return watchEventMsg{Path: ev.Name}
@@ -333,6 +331,18 @@ func (b *Board) watchCmd() tea.Cmd {
 			}
 		}
 	}
+}
+
+func ignoreWatchEvent(ev fsnotify.Event) bool {
+	// Chmod-only events fire on atime updates (e.g. when git diff reads tracked
+	// files). Ignore them — we only care about real content changes.
+	if ev.Op == fsnotify.Chmod {
+		return true
+	}
+	// Vim-mode crash-recovery sidecars are written while typing. They are not
+	// board content, and treating them as changes causes board_refresh hooks
+	// (notably async virtual-column scans) to run on every editor keystroke.
+	return strings.HasSuffix(filepath.Base(ev.Name), ".kbrd-swap")
 }
 
 // buildColumns reads the board's columns and items from disk and returns fresh
