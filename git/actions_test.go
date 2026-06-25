@@ -150,6 +150,73 @@ func TestHandleAutoSyncDone_ClearsFlag_Error(t *testing.T) {
 	}
 }
 
+func TestSyncState_ExpiresStaleAutoSync(t *testing.T) {
+	c := newTestController("")
+	c.hasRemote = true
+	c.syncing = true
+	c.syncDeadline = time.Now().Add(-time.Second)
+	c.activeSyncSeq = 7
+
+	state := c.SyncState()
+	if state.Syncing {
+		t.Fatal("expected stale sync to be cleared")
+	}
+	if !state.Failed {
+		t.Fatal("expected stale sync to be marked failed")
+	}
+	if c.activeSyncSeq != 0 {
+		t.Fatal("expected active sync sequence to be cleared")
+	}
+}
+
+func TestShouldAutoSync_ExpiredSyncCanRecover(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	c := newTestController(dir)
+	c.syncing = true
+	c.syncDeadline = time.Now().Add(-time.Second)
+	c.activeSyncSeq = 3
+
+	if !c.shouldAutoSync() {
+		t.Fatal("expected expired sync state to allow another auto-sync")
+	}
+}
+
+func TestHandleAutoSyncDone_IgnoresLateStaleResult(t *testing.T) {
+	c := newTestController("")
+	c.syncing = true
+	c.syncDeadline = time.Now().Add(time.Minute)
+	c.activeSyncSeq = 2
+
+	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Seq: 1, Stage: "push"})
+	if cmd != nil {
+		t.Fatal("expected no command for stale result")
+	}
+	if !c.syncing {
+		t.Fatal("expected current sync to remain active")
+	}
+	if c.lastSyncFailed {
+		t.Fatal("stale success must not alter current sync outcome")
+	}
+}
+
+func TestHandleAutoSyncDone_IgnoresCompletionAfterExpiry(t *testing.T) {
+	c := newTestController("")
+	c.hasRemote = true
+	c.syncing = true
+	c.syncDeadline = time.Now().Add(-time.Second)
+	c.activeSyncSeq = 4
+
+	_ = c.SyncState()
+	cmd := c.handleAutoSyncDone(autoSyncDoneMsg{Seq: 4, Stage: "push"})
+	if cmd != nil {
+		t.Fatal("expected no command for expired sync result")
+	}
+	if !c.lastSyncFailed {
+		t.Fatal("expired sync result must not overwrite failed state")
+	}
+}
+
 func TestHandleAutoSyncDone_ShutdownPending_Signals(t *testing.T) {
 	c := newTestController("")
 	c.syncing = true

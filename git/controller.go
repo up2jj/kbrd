@@ -63,6 +63,10 @@ type Controller struct {
 
 	syncing         bool // auto-sync in progress
 	shutdownPending bool // host asked to quit; signal once the in-flight sync settles
+	syncDeadline    time.Time
+	autoSyncSeq     int64
+	activeSyncSeq   int64
+	expiredSyncSeq  int64
 
 	hasRemote         bool      // cached: repo has an "origin" (drives the sync indicator)
 	lastSyncFailed    bool      // the most recent reconcile errored
@@ -111,6 +115,7 @@ func (c *Controller) refreshRemote() {
 
 // SyncState reports the current header sync-indicator state.
 func (c *Controller) SyncState() SyncStatus {
+	c.expireStaleAutoSync(time.Now())
 	return SyncStatus{
 		HasRemote: c.hasRemote,
 		Syncing:   c.syncing,
@@ -143,15 +148,19 @@ func (c *Controller) SetPalette(p theme.Palette) {
 
 func (c *Controller) SetSize(w, h int) { c.termW, c.termH = w, h }
 
-func (c *Controller) Active() bool     { return c.panel.Active() }
-func (c *Controller) View() string     { return c.panel.View() }
-func (c *Controller) Syncing() bool    { return c.syncing }
+func (c *Controller) Active() bool { return c.panel.Active() }
+func (c *Controller) View() string { return c.panel.View() }
+func (c *Controller) Syncing() bool {
+	c.expireStaleAutoSync(time.Now())
+	return c.syncing
+}
 func (c *Controller) RepoRoot() string { return c.repoRoot }
 
 // RequestShutdown reports whether an auto-sync is in flight. When it returns
 // true, the host should wait; the controller will invoke OnSyncSettled once the
 // sync finishes. When false, the host may quit immediately.
 func (c *Controller) RequestShutdown() bool {
+	c.expireStaleAutoSync(time.Now())
 	if !c.syncing {
 		return false
 	}

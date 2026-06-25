@@ -267,6 +267,7 @@ type autoSyncTickMsg struct{ gitMsg }
 
 type autoSyncDoneMsg struct {
 	gitMsg
+	Seq      int64
 	Stage    string // "merge" or "push"
 	Err      error
 	Sidecars []string // conflict copies created during the reconcile
@@ -282,6 +283,7 @@ func (c *Controller) scheduleAutoSync() tea.Cmd {
 }
 
 func (c *Controller) shouldAutoSync() bool {
+	c.expireStaleAutoSync(time.Now())
 	if c.syncing {
 		return false
 	}
@@ -318,6 +320,10 @@ func (c *Controller) SyncOnce() tea.Cmd {
 		return nil
 	}
 	c.syncing = true
+	c.syncDeadline = time.Now().Add(autoSyncGitTimeout)
+	c.autoSyncSeq++
+	c.activeSyncSeq = c.autoSyncSeq
+	seq := c.activeSyncSeq
 	root := c.repoRoot
 	label := c.conflictLabel()
 	autoCommit := c.cfg.GitAutoCommit
@@ -328,7 +334,7 @@ func (c *Controller) SyncOnce() tea.Cmd {
 			if err != nil && ctx.Err() != nil {
 				err = fmt.Errorf("timed out after %s during %s", autoSyncGitTimeout, stage)
 			}
-			return autoSyncDoneMsg{Stage: stage, Err: err, Sidecars: sidecars}
+			return autoSyncDoneMsg{Seq: seq, Stage: stage, Err: err, Sidecars: sidecars}
 		}
 		if autoCommit {
 			// Empty identity uses the user's git config, matching handleGitCommit.
@@ -363,7 +369,17 @@ func (c *Controller) handleAutoSyncTick() tea.Cmd {
 }
 
 func (c *Controller) handleAutoSyncDone(msg autoSyncDoneMsg) tea.Cmd {
+	if msg.Seq != 0 {
+		if msg.Seq <= c.expiredSyncSeq {
+			return nil
+		}
+		if c.activeSyncSeq != 0 && msg.Seq != c.activeSyncSeq {
+			return nil
+		}
+	}
 	c.syncing = false
+	c.syncDeadline = time.Time{}
+	c.activeSyncSeq = 0
 	if c.shutdownPending {
 		// A quit was deferred until this sync settled — signal the host.
 		if c.onSyncSettled != nil {
@@ -384,6 +400,20 @@ func (c *Controller) handleAutoSyncDone(msg autoSyncDoneMsg) tea.Cmd {
 		return c.notifier.Success("auto-sync — " + conflictCopyNote(n))
 	}
 	return nil
+}
+
+func (c *Controller) expireStaleAutoSync(now time.Time) bool {
+	if !c.syncing || c.syncDeadline.IsZero() || now.Before(c.syncDeadline) {
+		return false
+	}
+	c.syncing = false
+	c.syncDeadline = time.Time{}
+	if c.activeSyncSeq > c.expiredSyncSeq {
+		c.expiredSyncSeq = c.activeSyncSeq
+	}
+	c.activeSyncSeq = 0
+	c.lastSyncFailed = true
+	return true
 }
 
 // conflictLabel tags conflict-copy filenames: the instance name when set, else
