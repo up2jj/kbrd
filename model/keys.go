@@ -63,6 +63,7 @@ type KeyMap struct {
 	EditorRedo         key.Binding
 	EditorToggleExpand key.Binding
 	EditorCommand      key.Binding
+	EditorTaskPrefix   key.Binding
 
 	// Dialog
 	DialogPrev    key.Binding
@@ -178,6 +179,7 @@ var Keys = KeyMap{
 	EditorRedo:         key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "redo")),
 	EditorToggleExpand: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "toggle expanded")),
 	EditorCommand:      key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "run line command")),
+	EditorTaskPrefix:   key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "insert task")),
 
 	// Dialog
 	DialogPrev:    key.NewBinding(key.WithKeys("left", "h", "shift+tab"), key.WithHelp("←/h", "previous")),

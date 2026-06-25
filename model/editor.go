@@ -554,6 +554,11 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 					return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 				}, nil
 			}
+		case key.Matches(keyMsg, Keys.EditorTaskPrefix):
+			if !isInputState(e.state) {
+				e.insertTextareaTaskPrefix()
+				return nil, nil
+			}
 		}
 	}
 
@@ -620,6 +625,17 @@ func (e *Editor) redoOnce() {
 	e.textarea.SetValue(target)
 	e.textarea.CursorEnd()
 	e.lastCommitted = target
+	e.lastCommitAt = time.Now()
+}
+
+func (e *Editor) insertTextareaTaskPrefix() {
+	prev := e.textarea.Value()
+	if e.lastCommitted != prev {
+		e.pushUndo(e.lastCommitted)
+		e.lastCommitted = prev
+	}
+	e.redo = e.redo[:0]
+	e.textarea.InsertString(vimbuf.TaskPrefix)
 	e.lastCommitAt = time.Now()
 }
 
@@ -719,6 +735,10 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 		return func() tea.Msg {
 			return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 		}, nil
+	case key.Matches(keyMsg, Keys.EditorTaskPrefix) && e.buf.Mode() != vimbuf.ModeCommand:
+		e.buf.InsertTaskPrefix()
+		e.flushSwap()
+		return nil, nil
 	}
 	e.status = ""
 	// A KeyRunes message can carry several runes at once — fast typing, an IME
@@ -912,6 +932,7 @@ func vimCheatsheet(p Palette, width int) string {
 		{"Surround / Markdown", []row{
 			{"S{c} (visual)", "wrap selection"},
 			{"ds{c} cs{o}{n}", "delete / change surround"},
+			{"ctrl+t", "insert task prefix"},
 			{"tab", "toggle [ ] checkbox"},
 			{"enter o", "continue list / checkbox"},
 		}},
@@ -1015,7 +1036,7 @@ func (e *Editor) vimFooter() string {
 		status += "  " + lipgloss.NewStyle().Bold(true).Foreground(p.Danger).
 			Render("⚠ swap write failed — crash recovery off")
 	}
-	hints := RenderInlineHints([]Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+l", "line cmd"}, {":help", "keys"}})
+	hints := RenderInlineHints([]Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+t", "task"}, {"ctrl+l", "line cmd"}, {":help", "keys"}})
 	return status + "\n" + hints
 }
 
@@ -1060,7 +1081,7 @@ func (e *Editor) View() string {
 	if e.expanded {
 		expandLabel = "collapse"
 	}
-	textareaHints = append(textareaHints, Shortcut{"ctrl+e", expandLabel}, Shortcut{"ctrl+l", "line cmd"}, Shortcut{"esc", "cancel"})
+	textareaHints = append(textareaHints, Shortcut{"ctrl+t", "task"}, Shortcut{"ctrl+e", expandLabel}, Shortcut{"ctrl+l", "line cmd"}, Shortcut{"esc", "cancel"})
 	switch e.state {
 	case editorEdit:
 		label = "Edit: " + e.FileName

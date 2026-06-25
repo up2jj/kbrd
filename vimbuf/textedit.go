@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// TaskPrefix is the literal markdown unchecked-task marker inserted by ctrl+t.
+const TaskPrefix = "- [ ] "
+
 // incrementNumber finds the number at or after the cursor on the current line
 // and adds delta to it (ctrl+a / ctrl+x), leaving the cursor on the last digit.
 func (b *Buffer) incrementNumber(delta int) {
@@ -62,6 +65,54 @@ func (b *Buffer) InsertText(s string) {
 	// grouping stays open and the next edit folds into the paste's undo step — one
 	// u would revert both.
 	b.endGroup()
+}
+
+// InsertTaskPrefix inserts an unchecked markdown task marker at the cursor, or
+// prefixes every line touched by a visual selection after its indentation.
+func (b *Buffer) InsertTaskPrefix() {
+	if b.mode != ModeVisual && b.mode != ModeVisualLine {
+		if b.mode == ModeNormal {
+			b.resetPending()
+			b.discardRec()
+		}
+		b.InsertText(TaskPrefix)
+		return
+	}
+	f, t := orderPos(b.anchor, b.cursor)
+	changed := false
+	for row := f.Row; row <= t.Row; row++ {
+		line := b.lineAt(row)
+		if isTaskLine(line) {
+			continue
+		}
+		if !changed {
+			b.begin()
+			changed = true
+		}
+		i := len(leadingWhitespace(line))
+		nl := append([]rune{}, line[:i]...)
+		nl = append(nl, []rune(TaskPrefix)...)
+		nl = append(nl, line[i:]...)
+		b.lines[row] = nl
+	}
+	if changed {
+		b.recMutated = true
+		b.endGroup()
+	}
+	b.cursor = Pos{f.Row, len(leadingWhitespace(b.lineAt(f.Row))) + len([]rune(TaskPrefix))}
+	b.exitVisual()
+	b.scrollToCursor()
+}
+
+func isTaskLine(line []rune) bool {
+	i := len(leadingWhitespace(line))
+	return i+5 <= len(line) &&
+		(line[i] == '-' || line[i] == '*' || line[i] == '+') &&
+		line[i+1] == ' ' &&
+		line[i+2] == '[' &&
+		(line[i+3] == ' ' || line[i+3] == 'x' || line[i+3] == 'X') &&
+		line[i+4] == ']' &&
+		(i+5 == len(line) || line[i+5] == ' ')
 }
 
 // toggleCheckbox flips a markdown task checkbox ("[ ]" <-> "[x]") on the current

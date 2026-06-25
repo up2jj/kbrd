@@ -82,6 +82,7 @@ Example: select a word and `S*` → `*word*`; `cs"'` turns `"x"` into `'x'`.
 
 | Keys | Action |
 | --- | --- |
+| `ctrl+t` | insert `- [ ] ` at the cursor; in Visual/Visual Line mode, prefix selected lines after indentation |
 | `tab` (Normal) | toggle a `- [ ]` ↔ `- [x]` checkbox on the line |
 | `enter` (Insert), `o` | continue the list marker (`-`, `*`, `1.`, `- [ ]`); ordered numbers increment |
 

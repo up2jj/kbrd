@@ -359,6 +359,50 @@ func TestToggleCheckbox(t *testing.T) {
 	mustText(t, b, "- [ ] task")
 }
 
+func TestInsertTaskPrefixAtCursor(t *testing.T) {
+	b := New("task")
+	b.HandleKey("ctrl+t")
+	mustText(t, b, "- [ ] task")
+
+	b = New("task")
+	b.HandleKey("i")
+	b.HandleKey("ctrl+t")
+	mustText(t, b, "- [ ] task")
+	if b.Mode() != ModeInsert {
+		t.Fatalf("mode = %v, want insert", b.Mode())
+	}
+}
+
+func TestInsertTaskPrefixVisualRange(t *testing.T) {
+	b := New("alpha\n  bravo\ncharlie")
+	keys(b, "vj")
+	b.HandleKey("ctrl+t")
+
+	mustText(t, b, "- [ ] alpha\n  - [ ] bravo\ncharlie")
+	if b.Mode() != ModeNormal {
+		t.Fatalf("mode = %v, want normal", b.Mode())
+	}
+}
+
+func TestInsertTaskPrefixVisualLineSkipsExistingTasks(t *testing.T) {
+	b := New("plain\n  indented\n- [ ] done\n  - [x] checked\n- item")
+	keys(b, "Vjjjj")
+	b.HandleKey("ctrl+t")
+
+	mustText(t, b, "- [ ] plain\n  - [ ] indented\n- [ ] done\n  - [x] checked\n- [ ] - item")
+}
+
+func TestInsertTaskPrefixVisualUndoOneStep(t *testing.T) {
+	original := "alpha\nbravo\ncharlie"
+	b := New(original)
+	keys(b, "Vj")
+	b.HandleKey("ctrl+t")
+	mustText(t, b, "- [ ] alpha\n- [ ] bravo\ncharlie")
+
+	b.HandleKey("u")
+	mustText(t, b, original)
+}
+
 func TestSubstituteCurrentLine(t *testing.T) {
 	b := New("foo foo foo")
 	b.HandleKey(":")

@@ -175,3 +175,21 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 		t.Fatalf("ctrl+e marked the buffer dirty")
 	}
 }
+
+func TestTextareaTaskPrefixShortcutUndo(t *testing.T) {
+	e := openEditorWith(t, "body")
+	e.textarea.CursorStart()
+
+	e.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	if got := e.textarea.Value(); got != "- [ ] body" {
+		t.Fatalf("after ctrl+t, value = %q", got)
+	}
+	if !e.IsDirty() {
+		t.Fatal("ctrl+t did not mark the buffer dirty")
+	}
+
+	e.Update(tea.KeyMsg{Type: tea.KeyCtrlZ})
+	if got := e.textarea.Value(); got != "body" {
+		t.Fatalf("after undo, value = %q", got)
+	}
+}

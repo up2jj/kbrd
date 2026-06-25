@@ -536,6 +536,10 @@ func (b *Buffer) lastVisibleRow() int {
 // HandleKey processes one key (a tea.KeyMsg.String() value) and returns any
 // host-level Effect. It dispatches by mode.
 func (b *Buffer) HandleKey(key string) Effect {
+	if key == "ctrl+t" && b.mode != ModeCommand {
+		b.InsertTaskPrefix()
+		return Effect{}
+	}
 	if !b.replaying {
 		// Begin recording a potential "." change at the start of a normal-mode
 		// command, then capture every key (including the ensuing insert session)
