@@ -48,7 +48,8 @@ func TestBuildFilesystemCtx_CarriesFrontmatterData(t *testing.T) {
 		t.Fatalf("expected frontmatter-carrying item, got %+v", item)
 	}
 
-	ctx := b.buildFilesystemCtx(0, item)
+	cmdCtx := b.commandContext()
+	ctx := cmdCtx.filesystemCtx(0, item)
 	if ctx["boardName"] != "demo" || ctx["columnName"] != "1. TO DO" || ctx["fileName"] != "task" {
 		t.Errorf("ctx = %+v, want board/column/file fields", ctx)
 	}
@@ -57,7 +58,7 @@ func TestBuildFilesystemCtx_CarriesFrontmatterData(t *testing.T) {
 	}
 	// Strict superset of the flat string vars — scripts reading ctx.fileDir
 	// must keep working when a card gains frontmatter.
-	for k, v := range b.buildCommandVars(0, item) {
+	for k, v := range cmdCtx.vars(0, item) {
 		if ctx[k] != v {
 			t.Errorf("ctx[%q] = %v, want %q (flat var parity)", k, ctx[k], v)
 		}
@@ -91,8 +92,9 @@ func TestBuildVirtualVars_ParallelsFilesystemCtxSharedFields(t *testing.T) {
 	}
 	b.columns = []*Column{fsCol, virtualCol}
 
-	fsCtx := b.buildFilesystemCtx(0, &fsCol.Items[0])
-	virtualCtx := b.buildVirtualVars(virtualCol, virtualItem)
+	cmdCtx := b.commandContext()
+	fsCtx := cmdCtx.filesystemCtx(0, &fsCol.Items[0])
+	virtualCtx := cmdCtx.virtualVars(virtualCol, virtualItem)
 	for _, key := range []string{"boardPath", "boardName", "fileName", "path", "filePath", "title"} {
 		if fsCtx[key] != virtualCtx[key] {
 			t.Fatalf("%s mismatch: filesystem=%v virtual=%v", key, fsCtx[key], virtualCtx[key])

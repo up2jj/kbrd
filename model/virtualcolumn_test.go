@@ -176,7 +176,8 @@ func TestVirtualColumn_ScopeFiltering(t *testing.T) {
 		{ID: "default", Name: "Default"}, // empty scope == files
 	}
 
-	real := b.commandsForColumn(b.columns[0])
+	cmdCtx := b.commandContext()
+	real := cmdCtx.commandsForColumn(b.columns[0])
 	if has(real, "VirtOnly") || !has(real, "FilesOnly") || !has(real, "Both") || !has(real, "Default") {
 		t.Errorf("real column scope wrong: %v", names(real))
 	}
@@ -184,7 +185,7 @@ func TestVirtualColumn_ScopeFiltering(t *testing.T) {
 		t.Error("column-scoped command leaked onto a real column")
 	}
 
-	virt := b.commandsForColumn(b.columns[1])
+	virt := cmdCtx.commandsForColumn(b.columns[1])
 	if !has(virt, "Done") || !has(virt, "VirtOnly") || !has(virt, "Both") {
 		t.Errorf("virtual column missing expected commands: %v", names(virt))
 	}
@@ -218,7 +219,8 @@ func TestCommandsForColumn_EmptyColumnItemFilter(t *testing.T) {
 	}
 
 	// Empty real column: only requiresItem: false files/all globals survive.
-	real := b.commandsForColumn(b.columns[0])
+	cmdCtx := b.commandContext()
+	real := cmdCtx.commandsForColumn(b.columns[0])
 	if !has(real, "Sync") || !has(real, "FilesAdd") {
 		t.Errorf("empty real column dropped item-independent commands: %v", names(real))
 	}
@@ -228,7 +230,7 @@ func TestCommandsForColumn_EmptyColumnItemFilter(t *testing.T) {
 
 	// Empty virtual column: item-independent column command + virtual/all
 	// item-independent globals; item-requiring ones gone.
-	virt := b.commandsForColumn(b.columns[1])
+	virt := cmdCtx.commandsForColumn(b.columns[1])
 	if !has(virt, "Add") || !has(virt, "Sync") {
 		t.Errorf("empty virtual column dropped item-independent commands: %v", names(virt))
 	}

@@ -225,10 +225,10 @@ func (h boardHelpActions) runCustomCommand(id string) tea.Cmd {
 	var vctx map[string]any
 	switch {
 	case col.Virtual:
-		vctx = b.buildVirtualVars(col, item)
+		vctx = b.commandContext().virtualVars(col, item)
 	case item != nil && item.Data != nil:
-		vctx = b.buildFilesystemCtx(b.selectedCol, item)
+		vctx = b.commandContext().filesystemCtx(b.selectedCol, item)
 	}
-	vars := b.buildCommandVars(b.selectedCol, item)
+	vars := b.commandContext().vars(b.selectedCol, item)
 	return func() tea.Msg { return runCustomCommandMsg{Cmd: cmd, Vars: vars, VCtx: vctx} }
 }

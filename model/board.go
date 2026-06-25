@@ -860,7 +860,7 @@ func (b *Board) handleBoardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, col.UpdateList(msg)
 	}
 	if col.Virtual {
-		if cmd, handled := b.handleVirtualColumnKey(msg, col); handled {
+		if cmd, handled := b.virtualCommands().handleKey(msg, col); handled {
 			return b, cmd
 		}
 	}

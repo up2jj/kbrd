@@ -16,12 +16,14 @@ Two planned helper extractions are also complete:
 - `model/editor_swap.go` routes recovery handling through `boardEditorRecovery`.
 - `model/hooks.go` routes hook init/drain/done glue through `boardHooks` without changing FIFO scheduling.
 
-Custom-command extraction is still deferred, but several characterization tests were added first:
+The first custom-command extraction pass is complete:
 
 - filesystem vs virtual structured context parity
 - structured context forwarding from `CustomCommandMenu`
 - line-command menu dispatch to `runLineCommandMsg`
 - virtual default command dispatch using stable selected virtual item identity
+- command availability/context now lives behind `boardCommandContext`
+- virtual-column key/default dispatch now lives behind `boardVirtualCommands`
 
 ## Current Stopping Point
 
@@ -32,6 +34,7 @@ The broad maintainability refactor can stop here for review. Major completed pie
 - Narrower script capability interfaces.
 - Helper boundaries for input routing, lifecycle, presenter/view frame, status, mutations, item actions, paste, frontmatter, line commands, help menu, editor eval, quick commands, search/session/managed files.
 - Editor recovery and hook Board-side helper boundaries.
+- Custom command context/availability and virtual-command helper boundaries.
 - Stronger characterization and stable-ref regression coverage.
 - External temporary Go cache discipline for test/vet runs.
 
@@ -39,36 +42,16 @@ The broad maintainability refactor can stop here for review. Major completed pie
 
 ### `custom_commands.go`
 
-Still the largest maintainability concern. Do not casually extract it, but it is now the best next focused cleanup. It mixes:
+Much improved. It now keeps command loading, shell/Lua execution, completion messages, and `CustomCommandMenu` state/rendering. The context/availability and virtual-column dispatch responsibilities have moved out.
 
-- filesystem command context
-- virtual-column command context
-- shell/Lua command dispatch
-- command menu state
-- script UI yielding/resume behavior
-- virtual item identity
+Do not split it further casually. The remaining mixed areas are:
 
-The first layer of characterization exists, but add or confirm coverage for any specific behavior before moving it. The safest next extraction order is:
+- shell/Lua command execution and terminal restore behavior
+- command menu state, filtering, MRU ordering, and rendering
+- line-command menu routing via `CustomCommandMenu.OpenLine`
+- script UI yielding/resume behavior through `handleScriptResult`
 
-1. Extract command context building into a small helper.
-   - Move `buildCommandVars`, `buildFilesystemCtx`, `buildVirtualVars`, and `commandsForColumn` together only if the resulting helper owns command availability and dispatch context clearly.
-   - Keep public YAML/Lua command behavior unchanged.
-
-2. Extract virtual command dispatch and virtual key handling.
-   - Move `handleVirtualColumnKey`, `runVirtualDefault`, `virtualDefaultNoItem`, and `dispatchVirtualCommand` behind a virtual-command helper.
-   - Preserve the stable selected item identity behavior covered by `TestVirtualColumn_DefaultCommandUsesStableSelectedItemIdentity`.
-
-3. Leave `CustomCommandMenu` in place unless a later pass has a concrete reason to split menu state/rendering.
-   - It already has direct menu behavior coverage.
-   - Avoid mixing menu rendering refactors with command dispatch changes.
-
-Before changing this file further, keep these scenarios covered:
-
-- filesystem command vars/context parity
-- virtual command vars/context parity
-- `runCustomCommandMsg` construction from menus/help
-- command completion routing
-- virtual default command dispatch by stable virtual item identity
+Further extraction should be optional and test-first. The next plausible split would be menu state/rendering, but only if there is a concrete follow-up that needs it.
 
 ### `scripting.go`
 
@@ -94,27 +77,25 @@ Do not chase method count alone.
 
 ### Recommended Next Pass
 
-Start with `custom_commands.go`, but only extract one behavior group at a time.
+Stop here for review unless there is a specific follow-up feature or bug. The custom-command refactor now has clear boundaries and coverage for the tricky context/virtual-command paths.
 
-Suggested first patch:
+If continuing maintainability work, prefer one of these focused passes:
 
-1. Introduce a `boardCommandContext` or similarly small helper in a new file.
-2. Move command availability/context methods into it.
-3. Keep `runCustomCommandMsg`, dispatch, virtual key handling, and `CustomCommandMenu` in `custom_commands.go`.
-4. Run the targeted custom-command and virtual-column tests before considering the next extraction.
+1. Audit `custom_commands.go` menu rendering/state only.
+   - Keep command dispatch and script resume behavior untouched.
+   - Add menu-view or state-machine tests before moving rendering helpers.
 
-Suggested second patch:
+2. Audit `scripting.go` queue/drain paths.
+   - Do not split broadly.
+   - Start only with a tiny editor-open resolver/helper or timer/status/async drain helper if tests make ordering constraints explicit.
 
-1. Introduce a virtual command helper only after the context helper lands cleanly.
-2. Move virtual key/default dispatch into it.
-3. Preserve the current `handleKey` and help-menu entrypoints.
-
-Stop there for another review before touching menu rendering or script resume behavior.
+3. Run the non-gating Board surface audit and use it only as navigation.
+   - Do not optimize for method count alone.
 
 ### Do Not Do Yet
 
 - Do not split `scripting.go` broadly.
-- Do not split `CustomCommandMenu` rendering while moving dispatch/context code.
+- Do not split `CustomCommandMenu` rendering together with command dispatch changes.
 - Do not change command YAML, Lua command registration, scopes, `requiresItem`, or keybindings.
 - Do not optimize for Board method count alone.
 

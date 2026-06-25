@@ -76,7 +76,7 @@ func (l boardLineCommands) vars(msg openLineCommandsMsg) map[string]string {
 	}
 	if col, item, err := b.resolveDelayedItemRef(target); err == nil {
 		if colIdx := b.indexOfColumn(col); colIdx >= 0 {
-			vars = b.buildCommandVars(colIdx, item)
+			vars = b.commandContext().vars(colIdx, item)
 		}
 	}
 	vars["line"] = msg.Line

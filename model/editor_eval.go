@@ -71,7 +71,7 @@ func (e boardEditorEval) handle(msg editorEvalMsg) (tea.Model, tea.Cmd) {
 }
 
 // buildEditorEvalCtx assembles the `ctx` table for a :lua command: the standard
-// board/column/file context (reusing buildFilesystemCtx) plus the operand —
+// board/column/file context (reusing commandContext.filesystemCtx) plus the operand —
 // `line`/`text` for a single line, or `lines`/`text`/`range` for a row range.
 func (e boardEditorEval) ctx(rng *evalRange) map[string]any {
 	b := e.board
@@ -82,7 +82,7 @@ func (e boardEditorEval) ctx(rng *evalRange) map[string]any {
 	}
 	if col, item, err := b.resolveDelayedItemRef(target); err == nil {
 		colIdx := b.indexOfColumn(col)
-		ctx = b.buildFilesystemCtx(colIdx, item)
+		ctx = b.commandContext().filesystemCtx(colIdx, item)
 	}
 	if b.editor.buf == nil {
 		return ctx

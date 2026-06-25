@@ -178,18 +178,19 @@ func (b *Board) handleCustomCommandsKey(col *Column, item *Item) (tea.Model, tea
 		return b, nil, true
 	}
 	b.loadCommands()
-	cmds := b.commandsForColumn(col)
+	cmdCtx := b.commandContext()
+	cmds := cmdCtx.commandsForColumn(col)
 	if len(cmds) == 0 {
 		return b, nil, true
 	}
 	var vctx map[string]any
 	switch {
 	case col.Virtual:
-		vctx = b.buildVirtualVars(col, item)
+		vctx = cmdCtx.virtualVars(col, item)
 	case item != nil && item.Data != nil:
-		vctx = b.buildFilesystemCtx(b.selectedCol, item)
+		vctx = cmdCtx.filesystemCtx(b.selectedCol, item)
 	}
-	b.customCmds.Open(cmds, b.commandWarnings, b.buildCommandVars(b.selectedCol, item), vctx)
+	b.customCmds.Open(cmds, b.commandWarnings, cmdCtx.vars(b.selectedCol, item), vctx)
 	return b, nil, true
 }
 
