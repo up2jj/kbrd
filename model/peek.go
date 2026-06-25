@@ -21,14 +21,23 @@ type Peek struct {
 
 func (p *Peek) Active() bool { return p.active }
 
-// peekScrollbarGutter is the width reserved on the right of the body for the
-// scrollbar (1 bar + 1 gap). Reserved unconditionally so the body wraps to the
-// same width whether or not the bar is showing — keeps the modal height fixed.
+const (
+	peekTermMargin = 4
+	peekMaxWidth   = 120
+	peekMinWidth   = 24
+	peekMinHeight  = 8
+
+	// One separator row plus one footer row when OverlayFrame joins Body/Footer.
+	peekFooterRows = 2
+)
+
+// peekScrollbarGutter reserves one gap plus one scrollbar column. Reserved
+// unconditionally so the body wraps to the same width whether or not the bar is
+// showing, keeping the modal height fixed.
 const peekScrollbarGutter = 2
 
 func (p *Peek) Open(title, markdown string, termWidth int) tea.Cmd {
-	innerWidth := peekInnerWidth(termWidth) - peekScrollbarGutter
-	rendered := renderMarkdown(markdown, innerWidth)
+	rendered := renderMarkdown(markdown, peekBodyWidth(termWidth))
 	rendered = strings.TrimRight(rendered, "\n")
 	p.active = true
 	p.title = title
@@ -122,9 +131,29 @@ func (p *Peek) HandleMouse(msg tea.MouseMsg) {
 }
 
 func peekInnerWidth(termWidth int) int {
-	w := max(min(termWidth-4, 120), 20)
-	// account for borders (2) + padding (2*2) = 6
-	return w - 6
+	return max(peekFrameWidth(termWidth)-2*overlayPadH, 1)
+}
+
+func peekOuterWidth(termWidth int) int {
+	return max(min(termWidth-peekTermMargin, peekMaxWidth), peekMinWidth)
+}
+
+func peekOuterHeight(termHeight int) int {
+	return max(termHeight-peekTermMargin, peekMinHeight)
+}
+
+func peekFrameWidth(termWidth int) int {
+	return max(peekOuterWidth(termWidth)-lipgloss.Width(lipgloss.RoundedBorder().Left+lipgloss.RoundedBorder().Right), 1)
+}
+
+func peekBodyWidth(termWidth int) int {
+	return max(peekInnerWidth(termWidth)-peekScrollbarGutter, 1)
+}
+
+func peekPageSize(termHeight int) int {
+	border := lipgloss.RoundedBorder()
+	frameRows := lipgloss.Height(border.Top+"\n"+border.Bottom) + 2*overlayPadV
+	return max(peekOuterHeight(termHeight)-frameRows-peekFooterRows, 1)
 }
 
 // --- lightweight markdown renderer ---------------------------------------
@@ -481,26 +510,23 @@ func (p *Peek) View(termWidth, termHeight int) string {
 		return ""
 	}
 
-	outerWidth := max(min(termWidth-4, 120), 24)
-	outerHeight := max(termHeight-4, 8)
-
-	// Width(outerWidth-2) + Padding(1,3) → content width outerWidth-8.
-	innerWidth := outerWidth - 8
-	pageSize := max(
-		/*border bottom 1 + title line 1*/
-		/*padding 2*/
-		/*body blank + footer 2*/
-		outerHeight-2-2-2, 1)
+	pageSize := peekPageSize(termHeight)
 	p.pageSize = pageSize
 
-	if p.offset >= len(p.lines) {
+	maxOffset := max(len(p.lines)-pageSize, 0)
+	if p.offset < 0 {
 		p.offset = 0
+	}
+	if p.offset > maxOffset {
+		p.offset = maxOffset
 	}
 	end := min(p.offset+pageSize, len(p.lines))
 	visible := p.lines[p.offset:end]
 
+	bodyWidth := peekBodyWidth(termWidth)
+	blankRow := strings.Repeat(" ", max(bodyWidth, 1))
 	for len(visible) < pageSize {
-		visible = append(visible, "")
+		visible = append(visible, blankRow)
 	}
 
 	totalPages := max((len(p.lines)+pageSize-1)/pageSize, 1)
@@ -511,12 +537,16 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	// The scrollbar gutter is always reserved (see peekScrollbarGutter), so the
 	// body wraps to a constant width and the modal height never changes; the bar
 	// itself only appears once content overflows a page.
-	bodyWidth := innerWidth - peekScrollbarGutter
 	bodyBlock := lipgloss.NewStyle().Width(bodyWidth).Render(body)
-	if len(p.lines) > pageSize {
-		bar := strings.Join(p.scrollbar(pageSize, len(p.lines)), "\n")
-		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
+	blankGutter := make([]string, pageSize)
+	for i := range blankGutter {
+		blankGutter[i] = " "
 	}
+	bar := strings.Join(blankGutter, "\n")
+	if len(p.lines) > pageSize {
+		bar = strings.Join(p.scrollbar(pageSize, len(p.lines)), "\n")
+	}
+	bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
 
 	hints := []Shortcut{
 		{"j/k", "scroll"},
@@ -529,14 +559,14 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	}
 	footerLeft := RenderInlineHints(hints)
 	footerRight := helpDimStyle.Render(fmt.Sprintf("%d/%d", currentPage, totalPages))
-	gap := max(innerWidth-lipgloss.Width(footerLeft)-lipgloss.Width(footerRight), 1)
+	gap := max(peekInnerWidth(termWidth)-lipgloss.Width(footerLeft)-lipgloss.Width(footerRight), 1)
 	footer := footerLeft + strings.Repeat(" ", gap) + footerRight
 
 	return OverlayFrame{
 		Title:   p.title,
 		Body:    bodyBlock,
 		Footer:  footer,
-		Width:   outerWidth - 2,
+		Width:   peekFrameWidth(termWidth),
 		Palette: p.palette,
 	}.Render()
 }

@@ -3,6 +3,8 @@ package model
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func openTestPeek(t *testing.T, b *Board) {
@@ -114,5 +116,43 @@ func TestPeekFooterIncludesItemActions(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("peek footer missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestPeekViewMaintainsHeightWhileScrolling(t *testing.T) {
+	t.Parallel()
+
+	const (
+		termWidth  = 120
+		termHeight = 18
+	)
+	lineCount := 30
+	lines := make([]string, lineCount)
+	longLine := strings.Repeat("wrapped ", 18)
+	for i := range lines {
+		lines[i] = longLine
+	}
+
+	var p Peek
+	p.palette = DarkPalette()
+	p.Open("task", strings.Join(lines, "\n"), termWidth)
+
+	top := lipgloss.Height(p.View(termWidth, termHeight))
+	if p.pageSize <= 0 {
+		t.Fatal("peek pageSize was not established by View")
+	}
+
+	for _, offset := range []int{1, p.pageSize / 2, p.pageSize, lineCount - 1} {
+		p.offset = offset
+		if got := lipgloss.Height(p.View(termWidth, termHeight)); got != top {
+			t.Fatalf("height at offset %d = %d, want %d", offset, got, top)
+		}
+	}
+
+	var short Peek
+	short.palette = DarkPalette()
+	short.Open("short", "only one line", termWidth)
+	if got := lipgloss.Height(short.View(termWidth, termHeight)); got != top {
+		t.Fatalf("short content height = %d, want %d", got, top)
 	}
 }
