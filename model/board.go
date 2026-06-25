@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -71,8 +72,8 @@ type Board struct {
 	shuttingDown    bool // waiting for an in-flight git sync before quitting
 	editor          *Editor
 	notifier        *Notifier
-	quickCmdMode    bool
-	quickCmdInput   textinput.Model
+	mnemonicMode    bool
+	mnemonicInput   textinput.Model
 	theme           string
 	palette         Palette
 	watcher         *kbrdfs.Watcher
@@ -143,7 +144,7 @@ func NewBoard(cfg config.Config) *Board {
 	palette := PaletteFor(cfg.Theme)
 	ti := textinput.New()
 	ti.Prompt = ": "
-	ti.Placeholder = "e.g. e<tag> edit, d<tag> delete, r refresh — enter to run"
+	ti.Placeholder = "card mnemonic, enter to jump"
 	ti.CharLimit = 64
 	ti.Width = 60
 	applyInputPalette(&ti, palette)
@@ -152,7 +153,7 @@ func NewBoard(cfg config.Config) *Board {
 		visibleHeight: 20,
 		editor:        NewEditor(cfg.Editor.Vim),
 		notifier:      NewNotifier(cfg.NotifyBackend),
-		quickCmdInput: ti,
+		mnemonicInput: ti,
 		theme:         cfg.Theme,
 		palette:       palette,
 		zellij:        NewZellij(),
@@ -228,7 +229,7 @@ func applyInputPalette(ti *textinput.Model, p Palette) {
 func (b *Board) applyPalette() {
 	b.palette = PaletteFor(b.theme)
 	applyPackageStyles(b.palette)
-	applyInputPalette(&b.quickCmdInput, b.palette)
+	applyInputPalette(&b.mnemonicInput, b.palette)
 	b.dialog.palette = b.palette
 	b.peek.palette = b.palette
 	b.switcher.palette = b.palette
@@ -720,9 +721,6 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.resetEditor()
 		return b.finishShutdown()
 
-	case quickCommandMsg:
-		return b.quickCommands().handleCommand(msg)
-
 	case switchBoardMsg:
 		return b.session().handleSwitchBoard(msg)
 
@@ -869,6 +867,9 @@ func (b *Board) handleBoardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if col.IsFiltering() {
 		return b, col.UpdateList(msg)
 	}
+	if key.Matches(msg, Keys.MnemonicJump) {
+		return b, b.mnemonicSelector().open()
+	}
 	if col.Virtual {
 		if cmd, handled := b.virtualCommands().handleKey(msg, col); handled {
 			return b, cmd
@@ -895,8 +896,4 @@ func (b *Board) boardLabel() string {
 		return "[" + b.cfg.BoardName + "] " + filepath.Base(b.cfg.Path)
 	}
 	return filepath.Base(b.cfg.Path)
-}
-
-type quickCommandMsg struct {
-	Command string
 }

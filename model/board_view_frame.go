@@ -74,8 +74,8 @@ func (f boardViewFrame) renderBase(w, h int) (string, int, int) {
 	header := b.statusPresenter().renderHeader(w)
 	columnsView := b.presenter.renderColumns(b, w)
 	result := header + "\n" + columnsView
-	if quickCmdView := f.renderQuickCommand(); quickCmdView != "" {
-		result += "\n" + quickCmdView
+	if mnemonicView := f.renderMnemonicJump(w); mnemonicView != "" {
+		result += "\n" + mnemonicView
 	}
 
 	// The board is always rendered with the keybar pinned to the bottom row, so it
@@ -118,7 +118,7 @@ func (f boardViewFrame) renderStatusBar() string {
 		width = 80
 	}
 
-	ctx := ShortcutContext{QuickCmdMode: b.quickCmdMode, Zoomed: b.zoom.Active()}
+	ctx := ShortcutContext{MnemonicMode: b.mnemonicMode, Zoomed: b.zoom.Active()}
 	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
 	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
 		col := b.columns[b.selectedCol]
@@ -142,16 +142,17 @@ func (f boardViewFrame) renderStatusBar() string {
 		Render(secondary)
 }
 
-func (f boardViewFrame) renderQuickCommand() string {
+func (f boardViewFrame) renderMnemonicJump(width int) string {
 	b := f.b
-	if !b.quickCmdMode {
+	if !b.mnemonicMode {
 		return ""
 	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(b.palette.BorderActive).
+		Width(b.mnemonicInput.Width+lipgloss.Width(b.mnemonicInput.Prompt)).
 		Padding(0, 1)
-	return box.Render(b.quickCmdInput.View())
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonicInput.View()))
 }
 
 func (f boardViewFrame) renderEditor() string {

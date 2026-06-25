@@ -72,8 +72,8 @@ func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if b.zellij.Active() {
 		return b, b.zellij.Update(msg)
 	}
-	if b.quickCmdMode {
-		return b.quickCommands().handleKey(msg)
+	if b.mnemonicMode {
+		return b.mnemonicSelector().handleKey(msg)
 	}
 
 	return b.handleBoardKey(msg)

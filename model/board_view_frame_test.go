@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"kbrd/config"
 )
 
@@ -99,15 +101,38 @@ func TestBoardViewFrame_RenderTinyShortCircuits(t *testing.T) {
 	}
 }
 
-func TestBoardViewFrame_RenderBaseIncludesQuickCommand(t *testing.T) {
+func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 2, 2)
-	b.quickCmdMode = true
-	b.quickCmdInput.SetValue("r")
+	b.mnemonicMode = true
+	b.mnemonicInput.SetValue("sf")
 
 	out, _, _ := boardViewFrame{b: b}.renderBase(120, 30)
-	if !strings.Contains(out, ": r") {
-		t.Fatalf("base view missing quick command input:\n%s", out)
+	if !strings.Contains(out, ": sf") {
+		t.Fatalf("base view missing mnemonic input:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, ": sf") {
+			if !strings.HasPrefix(line, " ") {
+				t.Fatalf("mnemonic input line is not centered:\n%s", out)
+			}
+			return
+		}
+	}
+	t.Fatalf("base view missing mnemonic input line:\n%s", out)
+}
+
+func TestBoardViewFrame_MnemonicJumpWidthStable(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 2, 2)
+	b.mnemonicMode = true
+
+	empty := strings.TrimSpace(boardViewFrame{b: b}.renderMnemonicJump(120))
+	b.mnemonicInput.SetValue("sf")
+	filled := strings.TrimSpace(boardViewFrame{b: b}.renderMnemonicJump(120))
+
+	if lipgloss.Width(empty) != lipgloss.Width(filled) {
+		t.Fatalf("mnemonic input width changed: empty=%d filled=%d\nempty: %q\nfilled: %q", lipgloss.Width(empty), lipgloss.Width(filled), empty, filled)
 	}
 }
 

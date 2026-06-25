@@ -30,7 +30,9 @@ func refForItem(c *Column, it *Item) itemRefStable {
 	ref := itemRefStable{Column: refForColumn(c)}
 	if it != nil {
 		ref.FileName = it.Name
-		ref.ItemPath = it.FullPath
+		if c == nil || !c.Virtual {
+			ref.ItemPath = it.FullPath
+		}
 	}
 	return ref
 }
@@ -91,6 +93,16 @@ func (b *Board) resolveItemRef(ref itemRefStable, fallbackIdx int) (*Column, *It
 	col, err := b.resolveColumnRef(ref.Column, fallbackIdx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if col.Virtual {
+		if ref.FileName != "" {
+			for i := range col.Items {
+				if col.Items[i].Name == ref.FileName {
+					return col, &col.Items[i], nil
+				}
+			}
+		}
+		return nil, nil, fmt.Errorf("item no longer exists: %s", ref.FileName)
 	}
 	if ref.ItemPath != "" {
 		for i := range col.Items {

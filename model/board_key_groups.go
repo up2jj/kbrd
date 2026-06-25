@@ -17,8 +17,8 @@ func (b *Board) handleGlobalBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, te
 	case key.Matches(msg, Keys.ConfigMenu):
 		b.configMenuOpen = true
 		return b, nil, true
-	case key.Matches(msg, Keys.QuickCmd):
-		return b, b.quickCommands().open(), true
+	case key.Matches(msg, Keys.MnemonicJump):
+		return b, b.mnemonicSelector().open(), true
 	case key.Matches(msg, Keys.SwitchBoard):
 		return b, b.session().openSwitcher(), true
 	case key.Matches(msg, Keys.Search):

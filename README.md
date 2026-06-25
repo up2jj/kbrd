@@ -103,7 +103,7 @@ A quick, scannable rundown of everything kbrd does:
 
 **Interface & integrations**
 
-- **Themes** — toggle light / dark palettes on the fly (quick command `.` → `t`).
+- **Themes** — light / dark palettes for the terminal UI.
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Zellij integration** — inside a [zellij](https://zellij.dev) session, open a card in a floating or tiled editor pane, or a shell scoped to the board (`z`); the tab is named after the board.
 
@@ -268,7 +268,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | --- | --- |
 | `n` | Create item |
 | `N` | New item in first column |
-| `.` | Quick command |
+| `:` | Jump to card mnemonic |
 
 **Column**
 

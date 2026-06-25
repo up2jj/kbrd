@@ -35,7 +35,7 @@ type HelpGroup struct {
 
 type ShortcutContext struct {
 	HasSelectedItem bool
-	QuickCmdMode    bool
+	MnemonicMode    bool
 	Filtering       bool
 	// Zoomed is set while a column is zoomed, to surface the exit hint.
 	Zoomed bool
@@ -79,8 +79,8 @@ func setHelpStyles(p Palette) {
 // ContextShortcuts returns the small subset shown on the secondary footer line.
 func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	short := func(keys, label string) Shortcut { return Shortcut{Keys: keys, Label: label} }
-	if ctx.QuickCmdMode {
-		return []Shortcut{bindingShortcut(Keys.QuickCmdCancel)}
+	if ctx.MnemonicMode {
+		return []Shortcut{bindingShortcut(Keys.MnemonicJumpCancel)}
 	}
 	var prefix []Shortcut
 	if ctx.Zoomed {
@@ -91,7 +91,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		out = append(out, ctx.VirtualCmds...)
 		out = append(out,
 			bindingShortcut(Keys.CustomCommands),
-			short(Keys.QuickCmd.Help().Key, "cmd"),
+			short(Keys.MnemonicJump.Help().Key, "jump"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
 		)
 		return out
@@ -106,7 +106,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			bindingShortcut(Keys.TemplateMenu),
 			bindingShortcut(Keys.CustomCommands),
 			short(Keys.GitPanel.Help().Key, "git"),
-			short(Keys.QuickCmd.Help().Key, "cmd"),
+			short(Keys.MnemonicJump.Help().Key, "jump"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
 		)
 	}
@@ -116,7 +116,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		bindingShortcut(Keys.Filter),
 		short(Keys.RenameCol.Help().Key, "rename col"),
 		short(Keys.GitPanel.Help().Key, "git"),
-		short(Keys.QuickCmd.Help().Key, "cmd"),
+		short(Keys.MnemonicJump.Help().Key, "jump"),
 		short(Keys.ToggleHelp.Help().Key, "more"),
 	)
 }

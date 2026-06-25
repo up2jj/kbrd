@@ -39,3 +39,32 @@ func TestDelayedItemResolverUsesStablePathAfterColumnReorder(t *testing.T) {
 		t.Fatalf("resolved col/item = %v/%v, want original path %q", col, item, ref.ItemPath)
 	}
 }
+
+func TestVirtualItemRefUsesNameWithinVirtualColumn(t *testing.T) {
+	col := NewVirtualColumn("tasks", "Tasks", DarkPalette())
+	col.Items = []Item{
+		{Name: "a", Title: "Alpha", FullPath: "/tmp/old.md", Virtual: true},
+	}
+	col.syncDelegate()
+	col.list.Reload()
+
+	ref := refForItem(col, &col.Items[0])
+	if ref.ItemPath != "" {
+		t.Fatalf("virtual item ref ItemPath = %q, want empty", ref.ItemPath)
+	}
+
+	col.Items = []Item{
+		{Name: "a", Title: "Alpha", FullPath: "/tmp/new.md", Virtual: true},
+	}
+	col.syncDelegate()
+	col.list.Reload()
+	b := &Board{columns: []*Column{col}}
+
+	gotCol, gotItem, err := b.resolveDelayedItemRef(ref)
+	if err != nil {
+		t.Fatalf("resolve virtual item ref: %v", err)
+	}
+	if gotCol != col || gotItem == nil || gotItem.FullPath != "/tmp/new.md" {
+		t.Fatalf("resolved col/item = %v/%v, want virtual item at new path", gotCol, gotItem)
+	}
+}

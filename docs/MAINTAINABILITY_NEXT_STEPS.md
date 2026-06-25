@@ -32,7 +32,7 @@ The broad maintainability refactor can stop here for review. Major completed pie
 - Stable item/column references for delayed mutations.
 - Shared `boardops` workflows across web/script/TUI adapters.
 - Narrower script capability interfaces.
-- Helper boundaries for input routing, lifecycle, presenter/view frame, status, mutations, item actions, paste, frontmatter, line commands, help menu, editor eval, quick commands, search/session/managed files.
+- Helper boundaries for input routing, lifecycle, presenter/view frame, status, mutations, item actions, paste, frontmatter, line commands, help menu, editor eval, mnemonic selector, search/session/managed files.
 - Editor recovery and hook Board-side helper boundaries.
 - Custom command context/availability and virtual-command helper boundaries.
 - Stronger characterization and stable-ref regression coverage.

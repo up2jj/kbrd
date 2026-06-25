@@ -13,8 +13,8 @@ import (
 func TestContextShortcuts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("quick command mode shows only cancel", func(t *testing.T) {
-		got := ContextShortcuts(ShortcutContext{QuickCmdMode: true})
+	t.Run("mnemonic mode shows only cancel", func(t *testing.T) {
+		got := ContextShortcuts(ShortcutContext{MnemonicMode: true})
 		if len(got) != 1 {
 			t.Fatalf("len = %d, want 1: %+v", len(got), got)
 		}
@@ -23,8 +23,8 @@ func TestContextShortcuts(t *testing.T) {
 		}
 	})
 
-	t.Run("quick command mode wins over selected item", func(t *testing.T) {
-		got := ContextShortcuts(ShortcutContext{QuickCmdMode: true, HasSelectedItem: true})
+	t.Run("mnemonic mode wins over selected item", func(t *testing.T) {
+		got := ContextShortcuts(ShortcutContext{MnemonicMode: true, HasSelectedItem: true})
 		if len(got) != 1 || got[0].Keys != "esc" {
 			t.Errorf("got %+v, want only {esc, cancel}", got)
 		}

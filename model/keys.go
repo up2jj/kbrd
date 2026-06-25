@@ -8,12 +8,12 @@ import (
 
 type KeyMap struct {
 	// Global
-	Quit        key.Binding
-	ToggleHelp  key.Binding
-	QuickCmd    key.Binding
-	SwitchBoard key.Binding
-	Search      key.Binding
-	Refresh     key.Binding
+	Quit         key.Binding
+	ToggleHelp   key.Binding
+	MnemonicJump key.Binding
+	SwitchBoard  key.Binding
+	Search       key.Binding
+	Refresh      key.Binding
 
 	// Navigation
 	PrevCol     key.Binding
@@ -92,9 +92,9 @@ type KeyMap struct {
 	SearchNext    key.Binding
 	SearchConfirm key.Binding
 
-	// Quick command
-	QuickCmdCancel  key.Binding
-	QuickCmdConfirm key.Binding
+	// Mnemonic jump
+	MnemonicJumpCancel  key.Binding
+	MnemonicJumpConfirm key.Binding
 
 	// Help overlay
 	HelpClose key.Binding
@@ -124,12 +124,12 @@ type KeyMap struct {
 
 var Keys = KeyMap{
 	// Global
-	Quit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-	ToggleHelp:  key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
-	QuickCmd:    key.NewBinding(key.WithKeys("."), key.WithHelp(".", "quick command")),
-	SwitchBoard: key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
-	Search:      key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
-	Refresh:     key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
+	Quit:         key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+	ToggleHelp:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
+	MnemonicJump: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "jump to card mnemonic")),
+	SwitchBoard:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
+	Search:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
+	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
 	// Navigation
 	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column")),
@@ -208,9 +208,9 @@ var Keys = KeyMap{
 	SearchNext:    key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
 	SearchConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 
-	// Quick command
-	QuickCmdCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
-	QuickCmdConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "run")),
+	// Mnemonic jump
+	MnemonicJumpCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	MnemonicJumpConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "jump")),
 
 	// Help overlay
 	HelpClose: key.NewBinding(key.WithKeys("esc", "q", "?"), key.WithHelp("q/esc", "close")),
@@ -331,7 +331,7 @@ func HelpMenuGroups() []HelpGroup {
 				helpEntry(Keys.New, "Open the create menu for an empty card or template."),
 				helpEntry(Keys.NewFirst, "Create a new card at the top of the focused column."),
 				helpEntry(Keys.TemplateMenu, "Open template management for the focused column."),
-				helpEntry(Keys.QuickCmd, "Open the quick-command input to run a command by name."),
+				helpEntry(Keys.MnemonicJump, "Open the mnemonic prompt to jump to a visible card."),
 			},
 		},
 		{

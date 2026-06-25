@@ -66,9 +66,9 @@ func TestBoardKeyGroups_FilteringColumnOwnsBoardKeys(t *testing.T) {
 		t.Fatal("filter key did not put column into filtering mode")
 	}
 
-	_, _ = b.handleBoardKey(keyRunes("."))
-	if b.quickCmdMode {
-		t.Fatal("quick command opened while column filter was active")
+	_, _ = b.handleBoardKey(keyRunes(":"))
+	if b.mnemonicMode {
+		t.Fatal("mnemonic selector opened while column filter was active")
 	}
 }
 
