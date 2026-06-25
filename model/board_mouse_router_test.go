@@ -1,6 +1,7 @@
 package model
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -140,5 +141,58 @@ func TestBoardMouseRouter_WheelScrollsHelpMenu(t *testing.T) {
 	}
 	if b.helpMenu.scroll != 0 {
 		t.Fatalf("help scroll after wheel up = %d, want 0", b.helpMenu.scroll)
+	}
+}
+
+func TestBoardMouseRouter_WheelOverGitPanelDoesNotScrollColumn(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	colA := newTestColumn(t, map[string]string{"a": "alpha"})
+	colBFiles := map[string]string{}
+	for i := 0; i < 20; i++ {
+		name := "item-" + strconv.Itoa(i)
+		colBFiles[name] = name
+	}
+	colB := newTestColumn(t, colBFiles)
+	b := &Board{
+		cfg:            config.Config{Path: filepath.Dir(colA.Path), ColumnWidth: 20, PreviewLines: 1},
+		columns:        []*Column{colA, colB},
+		editor:         NewEditor(false),
+		notifier:       NewNotifier("none"),
+		selectedCol:    0,
+		termWidth:      120,
+		termHeight:     16,
+		visibleHeight:  6,
+		mnemonicByRef:  map[itemRefStable]string{},
+		refByMnemonic:  map[string]itemRefStable{},
+		mnemonicMaxLen: 1,
+	}
+	for _, col := range b.columns {
+		col.SetHeight(b.visibleHeight)
+	}
+	b.initGit()
+	b.git.SetSize(b.termWidth, b.termHeight)
+	_ = b.git.Open()
+	if !b.git.Active() {
+		t.Fatal("expected git panel to be active")
+	}
+	_ = b.View()
+
+	x, y, ok := mousePointForItem(b, 1)
+	if !ok {
+		t.Fatal("failed to find mouse hit point for second column item")
+	}
+	beforeOffset, _, _ := b.columns[1].list.ScrollMetrics()
+
+	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonWheelDown})
+	_ = b.View()
+	afterOffset, _, _ := b.columns[1].list.ScrollMetrics()
+
+	if b.selectedCol != 0 {
+		t.Fatalf("selectedCol changed behind git panel to %d, want 0", b.selectedCol)
+	}
+	if afterOffset != beforeOffset {
+		t.Fatalf("column scrolled behind git panel: before=%d after=%d", beforeOffset, afterOffset)
 	}
 }

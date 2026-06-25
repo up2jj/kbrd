@@ -448,6 +448,16 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+func (p *GitPanel) HandleMouse(msg tea.MouseMsg) tea.Cmd {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		p.right.LineUp(3)
+	case tea.MouseButtonWheelDown:
+		p.right.LineDown(3)
+	}
+	return nil
+}
+
 func (p *GitPanel) toggleFocus() {
 	if p.focus == focusFiles {
 		p.focus = focusDiff

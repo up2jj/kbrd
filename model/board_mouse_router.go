@@ -29,11 +29,15 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	if b.git.Active() {
+		return b, b.git.HandleMouse(msg)
+	}
+
 	// Zoom is excluded because click hit-testing assumes the normal multi-column
 	// slot geometry and card height.
 	// (peek and the editor are already handled by the early returns above.)
 	if b.configMenuOpen || b.dialog.active ||
-		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.git.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
+		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.zellij.Active() || b.quickCmdMode || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {

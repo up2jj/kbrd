@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"kbrd/config"
+	kbrdfs "kbrd/fs"
 )
 
 // stubNotifier satisfies the Notifier interface; it returns non-nil cmds so
@@ -60,6 +62,36 @@ func initSyncRepo(t *testing.T) string {
 	gitRun(t, dir, "add", ".")
 	gitRun(t, dir, "commit", "-m", "initial")
 	return dir
+}
+
+func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 120, 30)
+
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "line " + strconv.Itoa(i)
+	}
+	p.SetLog(strings.Join(lines, "\n"))
+
+	if p.right.YOffset != 0 {
+		t.Fatalf("initial right viewport offset = %d, want 0", p.right.YOffset)
+	}
+
+	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	if p.right.YOffset != 3 {
+		t.Fatalf("right viewport offset after wheel down = %d, want 3", p.right.YOffset)
+	}
+
+	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	if p.right.YOffset != 0 {
+		t.Fatalf("right viewport offset after wheel up = %d, want 0", p.right.YOffset)
+	}
+
+	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonLeft})
+	if p.right.YOffset != 0 {
+		t.Fatalf("right viewport offset after non-wheel mouse = %d, want 0", p.right.YOffset)
+	}
 }
 
 func TestShouldAutoSync_NoRepoRoot(t *testing.T) {

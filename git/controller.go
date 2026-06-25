@@ -204,6 +204,9 @@ func statsFor(repoRoot string) map[string]kbrdfs.DiffStat {
 // HandleKey forwards a key to the panel while it is active.
 func (c *Controller) HandleKey(k tea.KeyMsg) tea.Cmd { return c.panel.Update(k) }
 
+// HandleMouse forwards mouse input to the panel while it is active.
+func (c *Controller) HandleMouse(m tea.MouseMsg) tea.Cmd { return c.panel.HandleMouse(m) }
+
 // gitStatsRefreshedMsg carries off-thread-computed diff stats back to the
 // controller (see RefreshStats).
 type gitStatsRefreshedMsg struct {
