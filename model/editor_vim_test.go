@@ -88,6 +88,63 @@ func TestVimEditAndSave(t *testing.T) {
 	}
 }
 
+func TestVimOpenSavePreservesTrailingNewlines(t *testing.T) {
+	e, _ := openVimEdit(t, "hello\n\n")
+	if got := e.buf.Text(); got != "hello\n\n" {
+		t.Fatalf("opened buffer = %q, want exact trailing newlines", got)
+	}
+	if e.IsDirty() {
+		t.Fatalf("editor should not be dirty immediately after opening exact file text")
+	}
+
+	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyCtrlS})
+	save, ok := msg.(editorSaveMsg)
+	if !ok {
+		t.Fatalf("ctrl+s produced %T, want editorSaveMsg", msg)
+	}
+	if save.Content != "hello\n\n" {
+		t.Fatalf("save content = %q, want exact trailing newlines", save.Content)
+	}
+}
+
+func TestVimManagedFilePreservesTrailingNewlines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.md")
+	if err := os.WriteFile(path, []byte("alpha\n\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	e := NewEditor(true)
+	e.SetTermSize(120, 40)
+	e.OpenManagedFile("config", path)
+	if got := e.buf.Text(); got != "alpha\n\n" {
+		t.Fatalf("managed buffer = %q, want exact trailing newlines", got)
+	}
+	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyCtrlS})
+	save, ok := msg.(managedFileSaveMsg)
+	if !ok {
+		t.Fatalf("ctrl+s produced %T, want managedFileSaveMsg", msg)
+	}
+	if save.Content != "alpha\n\n" {
+		t.Fatalf("save content = %q, want exact trailing newlines", save.Content)
+	}
+}
+
+func TestVimCommandPasteDoesNotMutateBuffer(t *testing.T) {
+	e, _ := openVimEdit(t, "hello")
+	e.Update(runeKey(':'))
+	e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w"), Paste: true})
+	if got := e.buf.Text(); got != "hello" {
+		t.Fatalf("command paste mutated buffer: %q", got)
+	}
+	if got := e.buf.CommandLine(); got != "w" {
+		t.Fatalf("command line after paste = %q, want w", got)
+	}
+	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyEnter})
+	if _, ok := msg.(editorSaveMsg); !ok {
+		t.Fatalf("pasted :w produced %T, want editorSaveMsg", msg)
+	}
+}
+
 // :q on a dirty buffer refuses (stays open with a hint); :q! quits.
 func TestVimQuitGuard(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")

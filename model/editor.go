@@ -241,13 +241,14 @@ func (e *Editor) OpenEdit(colIdx int, colPath, fileName, fullPath string) tea.Cm
 	e.FileName = fileName
 	e.ItemPath = fullPath
 	content, _ := os.ReadFile(fullPath)
-	initial := strings.TrimRight(string(content), "\n")
+	raw := string(content)
+	initial := strings.TrimRight(raw, "\n")
 	if e.vim {
-		e.initialValue = initial
+		e.initialValue = raw
 		e.setSwapTarget(fullPath)
 		e.expanded = false
 		e.status = ""
-		return e.startVim(initial, false)
+		return e.startVim(raw, false)
 	}
 	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
@@ -271,13 +272,14 @@ func (e *Editor) OpenManagedFile(label, path string) tea.Cmd {
 	e.ItemPath = ""
 	e.ManagedPath = path
 	content, _ := os.ReadFile(path)
-	initial := strings.TrimRight(string(content), "\n")
+	raw := string(content)
+	initial := strings.TrimRight(raw, "\n")
 	if e.vim {
-		e.initialValue = initial
+		e.initialValue = raw
 		e.setSwapTarget(path)
 		e.expanded = false
 		e.status = ""
-		return e.startVim(initial, false)
+		return e.startVim(raw, false)
 	}
 	e.textarea.SetValue(initial)
 	e.textarea.CursorEnd()
@@ -701,15 +703,24 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 	}
 	// Bracketed paste (terminal cmd/ctrl+v): insert the pasted text literally.
 	if keyMsg.Paste {
-		e.buf.InsertText(string(keyMsg.Runes))
-		e.flushSwap()
+		if e.buf.Mode() == vimbuf.ModeInsert {
+			e.buf.InsertText(string(keyMsg.Runes))
+			e.flushSwap()
+		} else if e.buf.Mode() == vimbuf.ModeCommand {
+			return e.applyVimEffect(e.feedVimRunes(keyMsg.Runes))
+		}
 		return nil, nil
 	}
 	// ctrl+v pastes the system clipboard at the cursor.
 	if keyStr == "ctrl+v" {
 		if text, err := clipboard.ReadAll(); err == nil && text != "" {
-			e.buf.InsertText(text)
-			e.flushSwap()
+			if e.buf.Mode() == vimbuf.ModeCommand {
+				return e.applyVimEffect(e.feedVimRunes([]rune(text)))
+			}
+			if e.buf.Mode() == vimbuf.ModeNormal || e.buf.Mode() == vimbuf.ModeInsert {
+				e.buf.InsertText(text)
+				e.flushSwap()
+			}
 		}
 		return nil, nil
 	}
@@ -748,14 +759,25 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 	// the runes individually. Special keys arrive with a non-Runes Type and are
 	// unaffected.
 	if keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) > 1 {
-		var eff vimbuf.Effect
-		for _, r := range keyMsg.Runes {
-			eff = e.buf.HandleKey(string(r))
-		}
-		return e.applyVimEffect(eff)
+		return e.applyVimEffect(e.feedVimRunes(keyMsg.Runes))
 	}
 	eff := e.buf.HandleKey(keyStr)
 	return e.applyVimEffect(eff)
+}
+
+func (e *Editor) feedVimRunes(rs []rune) vimbuf.Effect {
+	var eff vimbuf.Effect
+	for _, r := range rs {
+		switch r {
+		case ' ':
+			eff = e.buf.HandleKey("space")
+		case '\n', '\r':
+			eff = e.buf.HandleKey("enter")
+		default:
+			eff = e.buf.HandleKey(string(r))
+		}
+	}
+	return eff
 }
 
 // applyVimEffect carries out the host-level Effect a key produced.
@@ -944,7 +966,7 @@ func vimCheatsheet(p Palette, width int) string {
 			{":lua expr", "eval Lua (ctx.line/lines)"},
 		}},
 		{"Editor", []row{
-			{"ctrl+s", "save (stays open)"},
+			{"ctrl+s", "save (edit stays open)"},
 			{"ctrl+l", "line command menu"},
 			{"ctrl+e", "expand / shrink modal"},
 			{":help :h", "this cheatsheet"},

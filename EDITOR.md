@@ -148,6 +148,6 @@ changes. There is no autosave — only `:w`/`ctrl+s` writes the card.
 
 | Keys | Action |
 | --- | --- |
-| `ctrl+s` | save (keeps the editor open) |
+| `ctrl+s` | save; edit/managed-file sessions stay open, append/prepend/journal close after the write |
 | `ctrl+l` | run a line command |
 | `ctrl+e` | expand / shrink the editor |

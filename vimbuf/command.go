@@ -68,8 +68,8 @@ func (b *Buffer) runCommand() Effect {
 
 	cmd := strings.TrimSpace(line)
 	// A leading range marker selects/operates on a line span: the visual marker
-	// "'<,'>" (captured when ':' was pressed in linewise visual) or a numeric
-	// "N,M" range typed directly.
+	// "'<,'>" (captured when ':' was pressed in linewise visual), "%" for the
+	// whole file, "N,M" for a range, or "Ncmd" for a single addressed line.
 	var rng *Range
 	if strings.HasPrefix(cmd, "%") {
 		rng = &Range{Start: 0, End: len(b.lines) - 1}
@@ -93,6 +93,13 @@ func (b *Buffer) runCommand() Effect {
 			b.scrollToCursor()
 			return Effect{}
 		}
+	} else if s, rest, ok := b.parseNumericAddress(cmd); ok {
+		if rest == "" {
+			b.gotoLineNumber(s + 1)
+			return Effect{}
+		}
+		rng = &Range{Start: s, End: s}
+		cmd = rest
 	}
 
 	switch {
@@ -152,6 +159,22 @@ func (b *Buffer) parseNumericRange(cmd string) (start, end int, rest string, ok 
 	s = max(s, 0)
 	e = min(e, len(b.lines)-1)
 	return s, e, strings.TrimSpace(cmd[j:]), true
+}
+
+// parseNumericAddress parses a leading "N" address (1-based) and returns the
+// addressed row plus any command suffix. A bare "N" is handled by runCommand as
+// a line jump; "Ncmd" applies cmd to row N.
+func (b *Buffer) parseNumericAddress(cmd string) (row int, rest string, ok bool) {
+	i := 0
+	for i < len(cmd) && cmd[i] >= '0' && cmd[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0, "", false
+	}
+	n, _ := strconv.Atoi(cmd[:i])
+	row = min(max(n-1, 0), len(b.lines)-1)
+	return row, strings.TrimSpace(cmd[i:]), true
 }
 
 // GoToLine moves the cursor to the given 1-based line (clamped), used when

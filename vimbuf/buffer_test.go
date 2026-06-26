@@ -273,6 +273,20 @@ func TestGgMotion(t *testing.T) {
 	}
 }
 
+func TestCountedGMotion(t *testing.T) {
+	b := New("one\ntwo\nthree\nfour\nfive")
+	keys(b, "3G")
+	if got := b.Cursor().Row; got != 2 {
+		t.Fatalf("3G row = %d, want 2", got)
+	}
+}
+
+func TestDeleteToCountedG(t *testing.T) {
+	b := New("one\ntwo\nthree\nfour\nfive")
+	keys(b, "d3G")
+	mustText(t, b, "four\nfive")
+}
+
 func TestWordMotions(t *testing.T) {
 	b := New("foo bar baz")
 	keys(b, "w")
@@ -329,6 +343,27 @@ func TestNumericRangeLua(t *testing.T) {
 	eff := b.HandleKey("enter")
 	if eff.EvalRange == nil || eff.EvalRange.Start != 0 || eff.EvalRange.End != 2 {
 		t.Fatalf("EvalRange = %+v, want {0,2}", eff.EvalRange)
+	}
+	if eff.EvalExpr != "up()" {
+		t.Fatalf("EvalExpr = %q", eff.EvalExpr)
+	}
+}
+
+func TestNumericAddressSubstitute(t *testing.T) {
+	b := New("foo\nfoo\nfoo")
+	b.HandleKey(":")
+	keys(b, "2s/foo/bar/")
+	b.HandleKey("enter")
+	mustText(t, b, "foo\nbar\nfoo")
+}
+
+func TestNumericAddressLua(t *testing.T) {
+	b := New("a\nb\nc")
+	b.HandleKey(":")
+	keys(b, "2lua up()")
+	eff := b.HandleKey("enter")
+	if eff.EvalRange == nil || eff.EvalRange.Start != 1 || eff.EvalRange.End != 1 {
+		t.Fatalf("EvalRange = %+v, want {1,1}", eff.EvalRange)
 	}
 	if eff.EvalExpr != "up()" {
 		t.Fatalf("EvalExpr = %q", eff.EvalExpr)

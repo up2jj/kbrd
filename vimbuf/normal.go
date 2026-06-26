@@ -190,6 +190,13 @@ func (b *Buffer) dispatchNormal(key string) Effect {
 // stateful prefixes f/F/t/T and g are handled earlier in dispatchNormal.
 func (b *Buffer) tryMotion(key string) (Pos, motionKind, bool) {
 	switch key {
+	case "G":
+		if b.pendingCount > 0 {
+			row := min(max(b.pendingCount-1, 0), len(b.lines)-1)
+			return Pos{row, firstNonBlank(b.lineAt(row))}, mLinewise, true
+		}
+		row := len(b.lines) - 1
+		return Pos{row, firstNonBlank(b.lineAt(row))}, mLinewise, true
 	case ";":
 		if b.lastFind.cmd != 0 {
 			return b.findChar(b.lastFind.cmd, b.lastFind.target, b.effCount(), true)

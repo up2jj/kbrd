@@ -107,9 +107,6 @@ func (b *Buffer) motion(key string, count int) (Pos, motionKind, bool) {
 			p = b.wordEnd(p)
 		}
 		return p, mInclusive, true
-	case "G":
-		row := len(b.lines) - 1
-		return Pos{row, firstNonBlank(b.lineAt(row))}, mLinewise, true
 	case "}":
 		p := b.cursor
 		for range count {
