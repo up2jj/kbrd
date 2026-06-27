@@ -92,10 +92,10 @@ func (l boardLifecycle) selectionByPath() map[string]string {
 func (l boardLifecycle) applyReloadedColumns(columns []*Column) {
 	b := l.board
 	prevSel := l.selectionByPath()
+	if b.visibleHeight > 0 {
+		setColumnHeights(columns, b.visibleHeight)
+	}
 	for _, col := range columns {
-		if b.visibleHeight > 0 {
-			col.SetHeight(b.visibleHeight)
-		}
 		col.palette = b.palette
 		if name, ok := prevSel[col.Path]; ok {
 			col.SelectByName(name)

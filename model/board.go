@@ -371,10 +371,8 @@ func (b *Board) loadColumns() error {
 	if err != nil {
 		return err
 	}
-	for _, col := range columns {
-		if b.visibleHeight > 0 {
-			col.SetHeight(b.visibleHeight)
-		}
+	if b.visibleHeight > 0 {
+		setColumnHeights(columns, b.visibleHeight)
 	}
 	b.columns = columns
 	b.appendVirtualColumns()
@@ -511,10 +509,8 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.termHeight = msg.Height
 		b.git.SetSize(msg.Width, msg.Height)
 		b.visibleHeight = max(msg.Height-11, 1)
-		for _, col := range b.columns {
-			col.SetHeight(b.visibleHeight)
-		}
-		b.editor.SetTermSize(b.termWidth, b.termHeight)
+		setColumnHeights(b.columns, b.visibleHeight)
+		b.editor.SetSize(b.termWidth, b.termHeight)
 		b.templateFlow.SetSize(b.termWidth, b.termHeight)
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
 		return b, nil

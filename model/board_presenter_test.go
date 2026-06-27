@@ -83,9 +83,7 @@ func TestBoardPresenter_SelectAtMouseIsImmediateNavigationOnly(t *testing.T) {
 		refByMnemonic:  map[string]itemRefStable{},
 		mnemonicMaxLen: 1,
 	}
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 
 	x := slotWidth(b.presenter.colWidthOf(b, 0)) + 1
 	if !b.presenter.selectAtMouse(b, x, 1) {

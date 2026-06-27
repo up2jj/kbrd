@@ -13,7 +13,7 @@ func newBoardEditor(vim bool, palette Palette, termWidth, termHeight int, evalCo
 
 func configureBoardEditor(editor *Editor, palette Palette, termWidth, termHeight int, evalCompletionHost **script.Host) {
 	editor.palette = palette
-	editor.SetTermSize(termWidth, termHeight)
+	editor.SetSize(termWidth, termHeight)
 	editor.SetEvalCompletionsFunc(evalCompletionsFromHost(evalCompletionHost))
 }
 

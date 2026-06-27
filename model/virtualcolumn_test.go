@@ -300,9 +300,7 @@ kbrd.column.set("tasks", {
 	b.termWidth = 200
 	b.termHeight = 40
 	b.visibleHeight = 32
-	for _, c := range b.columns {
-		c.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 
 	// 1 real column (todo) + 1 virtual (tasks).
 	if len(b.columns) != 2 || !b.columns[1].Virtual {

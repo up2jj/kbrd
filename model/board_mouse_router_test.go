@@ -62,9 +62,7 @@ func TestBoardMouseRouter_WheelScrollsHoveredColumnOnly(t *testing.T) {
 		refByMnemonic:  map[string]itemRefStable{},
 		mnemonicMaxLen: 1,
 	}
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 	_ = b.View()
 
 	x, y, ok := mousePointForItem(b, 1)
@@ -104,9 +102,7 @@ func TestBoardMouseRouter_WheelScrollsHelpMenu(t *testing.T) {
 		refByMnemonic:  map[string]itemRefStable{},
 		mnemonicMaxLen: 1,
 	}
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 	_ = b.View()
 	x, y, ok := mousePointForItem(b, 1)
 	if !ok {
@@ -162,9 +158,7 @@ func TestBoardMouseRouter_WheelOverGitPanelDoesNotScrollColumn(t *testing.T) {
 		refByMnemonic:  map[string]itemRefStable{},
 		mnemonicMaxLen: 1,
 	}
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 	b.initGit()
 	b.git.SetSize(b.termWidth, b.termHeight)
 	_ = b.git.Open()

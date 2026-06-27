@@ -756,6 +756,12 @@ func (c *Column) SetHeight(h int) {
 	c.list.SetSize(c.width, c.height)
 }
 
+func setColumnHeights(cols []*Column, h int) {
+	for _, col := range cols {
+		col.SetHeight(h)
+	}
+}
+
 func (c *Column) UpdateList(msg tea.Msg) tea.Cmd {
 	return c.list.Update(msg)
 }

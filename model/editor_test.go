@@ -21,7 +21,7 @@ func TestOpenEditTabbedFileNotDirty(t *testing.T) {
 	}
 
 	e := NewEditor(false)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenEdit(0, "", "note", path)
 
 	if e.IsDirty() {
@@ -39,7 +39,7 @@ func openEditorWith(t *testing.T, content string) *Editor {
 		t.Fatalf("write: %v", err)
 	}
 	e := NewEditor(false)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenEdit(0, "", "note", path)
 	return e
 }
@@ -130,7 +130,7 @@ func TestReplaceCurrentLineKeepsLineVisible(t *testing.T) {
 		fmt.Fprintf(&sb, "line-%02d\n", i)
 	}
 	e := openEditorWith(t, sb.String()) // cursor parked at the last line
-	e.SetTermSize(120, 16)              // small viewport so the buffer scrolls
+	e.SetSize(120, 16)                  // small viewport so the buffer scrolls
 	// Establish the real precondition: a render has primed the viewport content
 	// (so it knows its scroll bounds) and the cursor is followed at the bottom.
 	_ = e.textarea.View()
@@ -160,7 +160,7 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 	}
 
 	e := NewEditor(false)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenEdit(0, "", "note", path)
 
 	before := e.textarea.Width()

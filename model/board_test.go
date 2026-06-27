@@ -116,9 +116,7 @@ func boardWithNCols(t *testing.T, n, visibleCols int) *Board {
 	b.termWidth = visibleCols*slotWidth(b.cfg.ColumnWidth) + 6
 	b.termHeight = 40
 	b.visibleHeight = 32
-	for _, c := range b.columns {
-		c.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 	return b
 }
 
@@ -187,8 +185,16 @@ func TestBoard_WindowSizeMsg_ClampsVisibleHeight(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 2, 2)
 	b.Update(tea.WindowSizeMsg{Width: 200, Height: 3})
+	if b.termWidth != 200 || b.termHeight != 3 {
+		t.Errorf("term size = %dx%d, want 200x3", b.termWidth, b.termHeight)
+	}
 	if b.visibleHeight < 1 {
 		t.Errorf("visibleHeight = %d, want >= 1", b.visibleHeight)
+	}
+	for i, col := range b.columns {
+		if col.height != b.visibleHeight {
+			t.Errorf("columns[%d].height = %d, want %d", i, col.height, b.visibleHeight)
+		}
 	}
 }
 

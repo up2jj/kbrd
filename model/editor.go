@@ -78,7 +78,7 @@ const (
 	editorMaxWidth      = 120
 )
 
-func (e *Editor) SetTermSize(w, h int) {
+func (e *Editor) SetSize(w, h int) {
 	e.termWidth = w
 	e.termHeight = h
 	e.applySize()

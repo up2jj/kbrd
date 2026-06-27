@@ -152,9 +152,7 @@ func TestMouseSelectionDelete_UsesStableRefForDelayedMutation(t *testing.T) {
 		editor:     NewEditor(false),
 	}
 	b.visibleHeight = 20
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+	setColumnHeights(b.columns, b.visibleHeight)
 	_ = b.View()
 
 	x, y, ok := mousePointForItem(b, 1)

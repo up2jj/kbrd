@@ -40,7 +40,7 @@ func openVimEdit(t *testing.T, content string) (*Editor, string) {
 		t.Fatalf("write: %v", err)
 	}
 	e := NewEditor(true)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenEdit(0, "", "note", path)
 	return e, path
 }
@@ -116,7 +116,7 @@ func TestVimManagedFilePreservesTrailingNewlines(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	e := NewEditor(true)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenManagedFile("config", path)
 	if got := e.buf.Text(); got != "alpha\n\n" {
 		t.Fatalf("managed buffer = %q, want exact trailing newlines", got)
@@ -261,7 +261,7 @@ func TestVimSwapRecovery(t *testing.T) {
 
 	// Reopen the (unchanged-on-disk) file: openSwapCheck should offer recovery.
 	e2 := NewEditor(true)
-	e2.SetTermSize(120, 40)
+	e2.SetSize(120, 40)
 	cmd := e2.OpenEdit(0, "", "note", path)
 	if cmd == nil {
 		t.Fatalf("expected a recovery command on reopen")
@@ -336,7 +336,7 @@ func TestVimSaveFailureKeepsDirtyAndSwap(t *testing.T) {
 		t.Fatalf("loadColumns: %v", err)
 	}
 	b.termWidth, b.termHeight = 120, 40
-	b.editor.SetTermSize(120, 40)
+	b.editor.SetSize(120, 40)
 	b.editor.OpenEdit(0, b.columns[0].Path, "note", path)
 
 	b.editor.buf.HandleKey("x") // delete a char -> dirty
@@ -389,7 +389,7 @@ func TestEditorOpenRefusesWhenDirty(t *testing.T) {
 		t.Fatalf("loadColumns: %v", err)
 	}
 	b.termWidth, b.termHeight = 120, 40
-	b.editor.SetTermSize(120, 40)
+	b.editor.SetSize(120, 40)
 
 	b.editor.OpenEdit(0, col, "note", filepath.Join(col, "note.md"))
 	b.editor.buf.HandleKey("x") // dirty
@@ -420,7 +420,7 @@ func TestSwapWriteFailureWarns(t *testing.T) {
 	os.WriteFile(path, []byte("body"), 0o644)
 
 	e := NewEditor(true)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenEdit(0, "", "note", path)
 	e.buf.HandleKey("x") // dirty so flushSwap actually writes
 
@@ -445,7 +445,7 @@ func TestSwapWriteFailureWarns(t *testing.T) {
 // typed text "disappear" in the journal/insert-mode editor.
 func TestVimMultiRuneKeyInserts(t *testing.T) {
 	e := NewEditor(true)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenAppend(0, "", "", "note") // additive state opens in insert mode
 	if e.buf.Mode() != vimbuf.ModeInsert {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
@@ -468,7 +468,7 @@ func TestVimMultiRuneKeyInserts(t *testing.T) {
 // dropped/garbled to "asia" before the multi-rune insert fix.
 func TestVimJournalMultiRunePreservesCase(t *testing.T) {
 	e := NewEditor(true)
-	e.SetTermSize(120, 40)
+	e.SetSize(120, 40)
 	e.OpenJournal(0, "", "", "note") // journal opens in insert mode
 	if e.buf.Mode() != vimbuf.ModeInsert {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
@@ -505,7 +505,7 @@ func TestEditorOpenResolveAndGoToLine(t *testing.T) {
 		t.Fatalf("loadColumns: %v", err)
 	}
 	b.termWidth, b.termHeight = 120, 40
-	b.editor.SetTermSize(120, 40)
+	b.editor.SetSize(120, 40)
 
 	ci, item := b.resolveEditorTarget(script.EditorOpenReq{Path: "note.md"})
 	if item == nil || ci != 0 || item.Name != "note" {
