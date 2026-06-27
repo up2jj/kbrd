@@ -96,6 +96,7 @@ func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
 
 func TestShouldAutoSync_NoRepoRoot(t *testing.T) {
 	c := newTestController("")
+	c.cfg.GitAutoSyncInterval = time.Minute
 	if c.shouldAutoSync() {
 		t.Fatal("expected false when repoRoot is empty")
 	}
@@ -105,6 +106,7 @@ func TestShouldAutoSync_AlreadySyncing(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	c.syncing = true
 	if c.shouldAutoSync() {
 		t.Fatal("expected false when syncing is true")
@@ -114,6 +116,7 @@ func TestShouldAutoSync_AlreadySyncing(t *testing.T) {
 func TestShouldAutoSync_NoRemote(t *testing.T) {
 	dir := initSyncRepo(t)
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	if c.shouldAutoSync() {
 		t.Fatal("expected false when no remote configured")
 	}
@@ -126,6 +129,7 @@ func TestShouldAutoSync_DirtyTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	if c.shouldAutoSync() {
 		t.Fatal("expected false when working tree is dirty")
 	}
@@ -135,6 +139,7 @@ func TestShouldAutoSync_EditorActive(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	c.editorActive = func() bool { return true }
 	if c.shouldAutoSync() {
 		t.Fatal("expected false when editor is active")
@@ -145,6 +150,7 @@ func TestShouldAutoSync_Ready(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	if !c.shouldAutoSync() {
 		t.Fatal("expected true when repo has remote and clean tree")
 	}
@@ -154,6 +160,7 @@ func TestShouldAutoSync_NilEditorActivePreservesReady(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	if c.editorActive != nil {
 		t.Fatal("test controller should not set editorActive")
 	}
@@ -205,6 +212,7 @@ func TestShouldAutoSync_ExpiredSyncCanRecover(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	c.syncing = true
 	c.syncDeadline = time.Now().Add(-time.Second)
 	c.activeSyncSeq = 3
@@ -304,6 +312,7 @@ esac
 	t.Cleanup(func() { autoSyncGitTimeout = oldTimeout })
 
 	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
 	cmd := c.SyncOnce()
 	if cmd == nil {
 		t.Fatal("expected sync command")

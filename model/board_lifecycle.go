@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kbrd/config"
 	"kbrd/events"
 )
 
@@ -51,6 +52,25 @@ func (l boardLifecycle) singleDirtyColumn(dirty map[string]struct{}) string {
 	return match
 }
 
+// shouldReloadConfig reports whether a full reload should also re-read TOML.
+// The trigger is intentionally filesystem-shaped, not git-shaped: any process
+// that writes kbrd.toml (an editor, sync, rsync, unzip, etc.) gets the same path.
+func (l boardLifecycle) shouldReloadConfig(dirty map[string]struct{}) bool {
+	b := l.board
+	if len(dirty) == 0 {
+		return false
+	}
+	for p := range dirty {
+		if p == "" {
+			return true
+		}
+		if samePath(p, filepath.Join(b.cfg.Path, config.FolderConfigFile)) {
+			return true
+		}
+	}
+	return false
+}
+
 // selectionByPath captures each column's currently selected item name keyed by
 // column path, so a reload can restore the cursor after swapping in fresh
 // columns (whose list index defaults to 0). Columns with no selection are
@@ -85,6 +105,23 @@ func (l boardLifecycle) applyReloadedColumns(columns []*Column) {
 	b.appendVirtualColumns()
 	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
 		b.selectedCol = len(b.columns) - 1
+	}
+}
+
+func (l boardLifecycle) applyReloadedConfig(cfg config.Config) {
+	b := l.board
+	old := b.cfg
+	b.cfg = cfg
+	b.theme = cfg.Theme
+	if old.NotifyBackend != cfg.NotifyBackend {
+		b.notifier = NewNotifier(cfg.NotifyBackend)
+		b.templateExec.notifier = b.notifier
+	}
+	b.git.SetConfig(cfg)
+	b.git.SetNotifier(gitNotifier{b.notifier})
+	b.applyPalette()
+	if b.editor != nil && b.editor.state == editorNone && old.Editor.Vim != cfg.Editor.Vim {
+		b.resetEditor()
 	}
 }
 
@@ -154,6 +191,12 @@ func (l boardLifecycle) HandleBoardReloaded(msg boardReloadedMsg) (tea.Model, te
 	b := l.board
 	if msg.Seq != b.watchSeq {
 		return b, nil
+	}
+	if msg.err != nil {
+		return b, b.notifier.Error("config reload skipped: " + msg.err.Error())
+	}
+	if msg.cfg != nil {
+		l.applyReloadedConfig(*msg.cfg)
 	}
 	l.applyReloadedColumns(msg.columns)
 	b.applyColumnTransforms()

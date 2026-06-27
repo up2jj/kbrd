@@ -1,10 +1,13 @@
 package model
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
+
+	"kbrd/config"
 )
 
 // card returns a synthetic file path inside the given column directory.
@@ -112,6 +115,77 @@ func TestBoard_WatchEvent_RootChangeForcesFullReload(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(boardReloadedMsg); !ok {
 		t.Fatalf("root-level change should yield boardReloadedMsg, got %T", msg)
+	}
+}
+
+func TestBoard_WatchEvent_ConfigChangeReloadsTOML(t *testing.T) {
+	b := boardWithNCols(t, 2, 2)
+	b.cfg.InstanceName = "local"
+	b.safeMode = true
+	cfgPath := filepath.Join(b.cfg.Path, config.FolderConfigFile)
+	if err := os.WriteFile(cfgPath, []byte(`
+[display]
+column_width = 41
+preview_lines = 7
+theme = "light"
+
+[scripting]
+enabled = true
+
+[hooks]
+enabled = true
+
+[template]
+exec = true
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	b.updateInner(watchEventMsg{Path: cfgPath})
+	cmd := b.debouncedReload(b.watchSeq)
+	if cmd == nil {
+		t.Fatal("expected a reload cmd")
+	}
+	msg := cmd()
+	if _, ok := msg.(boardReloadedMsg); !ok {
+		t.Fatalf("config change should yield boardReloadedMsg, got %T", msg)
+	}
+	b.updateInner(msg)
+
+	if b.cfg.ColumnWidth != 41 {
+		t.Fatalf("column_width: got %d want 41", b.cfg.ColumnWidth)
+	}
+	if b.cfg.PreviewLines != 7 {
+		t.Fatalf("preview_lines: got %d want 7", b.cfg.PreviewLines)
+	}
+	if b.cfg.Theme != "light" || b.theme != "light" {
+		t.Fatalf("theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)
+	}
+	if b.cfg.InstanceName != "local" {
+		t.Fatalf("instance name: got %q want local", b.cfg.InstanceName)
+	}
+	if b.cfg.Scripting.Enabled || b.cfg.Hooks.Enabled || b.cfg.Template.Exec {
+		t.Fatalf("safe mode overrides not preserved: scripting=%v hooks=%v template=%v",
+			b.cfg.Scripting.Enabled, b.cfg.Hooks.Enabled, b.cfg.Template.Exec)
+	}
+}
+
+func TestBoard_WatchEvent_InvalidConfigKeepsCurrentConfig(t *testing.T) {
+	b := boardWithNCols(t, 2, 2)
+	cfgPath := filepath.Join(b.cfg.Path, config.FolderConfigFile)
+	if err := os.WriteFile(cfgPath, []byte("[display]\ncolumn_width = "), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	b.updateInner(watchEventMsg{Path: cfgPath})
+	cmd := b.debouncedReload(b.watchSeq)
+	if cmd == nil {
+		t.Fatal("expected a reload cmd")
+	}
+	b.updateInner(cmd())
+
+	if b.cfg.ColumnWidth != 20 {
+		t.Fatalf("invalid config mutated column_width: got %d want 20", b.cfg.ColumnWidth)
 	}
 }
 

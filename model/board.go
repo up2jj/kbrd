@@ -44,7 +44,9 @@ type refreshedMsg struct{}
 // Stale results (Seq != b.watchSeq) are discarded.
 type boardReloadedMsg struct {
 	Seq     int
+	cfg     *config.Config
 	columns []*Column
+	err     error
 }
 
 // columnReloadedMsg carries the result of an off-goroutine single-column
@@ -62,6 +64,7 @@ type initBoardDeclineMsg struct{}
 
 type Board struct {
 	cfg             config.Config
+	safeMode        bool
 	columns         []*Column
 	visibleHeight   int
 	termWidth       int
@@ -141,6 +144,17 @@ type Board struct {
 }
 
 func NewBoard(cfg config.Config) *Board {
+	return NewBoardWithOptions(cfg, BoardOptions{})
+}
+
+type BoardOptions struct {
+	Safe bool
+}
+
+func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
+	if opts.Safe {
+		applySafeMode(&cfg)
+	}
 	palette := PaletteFor(cfg.Theme)
 	ti := textinput.New()
 	ti.Prompt = ": "
@@ -150,6 +164,7 @@ func NewBoard(cfg config.Config) *Board {
 	applyInputPalette(&ti, palette)
 	b := &Board{
 		cfg:           cfg,
+		safeMode:      opts.Safe,
 		visibleHeight: 20,
 		editor:        NewEditor(cfg.Editor.Vim),
 		notifier:      NewNotifier(cfg.NotifyBackend),
@@ -167,6 +182,12 @@ func NewBoard(cfg config.Config) *Board {
 	boardHooks{board: b}.init()
 	b.editorEval().wireCompletions()
 	return b
+}
+
+func applySafeMode(cfg *config.Config) {
+	cfg.Scripting.Enabled = false
+	cfg.Hooks.Enabled = false
+	cfg.Template.Exec = false
 }
 
 // MCPStatus is the built-in MCP server's state as reflected in the header chip.
@@ -504,25 +525,44 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 	if colPath := b.lifecycle().singleDirtyColumn(dirty); colPath != "" {
 		return b.reloadColumnCmd(seq, colPath)
 	}
-	return b.reloadCmd(seq)
+	return b.reloadCmd(seq, b.lifecycle().shouldReloadConfig(dirty))
 }
 
 // reloadCmd builds a full board rescan off the UI goroutine. It captures config
 // and palette by value so it touches no Board state; the result is applied by
 // the boardReloadedMsg handler.
-func (b *Board) reloadCmd(seq int) tea.Cmd {
+func (b *Board) reloadCmd(seq int, reloadConfig ...bool) tea.Cmd {
 	cfg := b.cfg
-	palette := b.palette
+	currentPalette := b.palette
+	shouldReloadConfig := len(reloadConfig) > 0 && reloadConfig[0]
 	// Snapshot current items by value on the UI goroutine; the closure only
 	// reads it. Preview slices are shared but only ever reassigned (never
 	// mutated in place) by NewItem/Refresh, so the concurrent read is safe.
 	cache := b.itemsByPath()
+	safeMode := b.safeMode
 	return func() tea.Msg {
+		var reloadedCfg *config.Config
+		if shouldReloadConfig {
+			next, err := config.Load(cfg.Path)
+			if err != nil {
+				return boardReloadedMsg{Seq: seq, err: err}
+			}
+			next.InstanceName = cfg.InstanceName
+			if safeMode {
+				applySafeMode(&next)
+			}
+			cfg = next
+			reloadedCfg = &next
+		}
+		palette := currentPalette
+		if shouldReloadConfig {
+			palette = PaletteFor(cfg.Theme)
+		}
 		columns, err := buildColumns(cfg, palette, cache)
 		if err != nil {
 			return nil // leave the board as-is, matching the old silent path
 		}
-		return boardReloadedMsg{Seq: seq, columns: columns}
+		return boardReloadedMsg{Seq: seq, cfg: reloadedCfg, columns: columns}
 	}
 }
 

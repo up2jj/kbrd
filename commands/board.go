@@ -51,7 +51,7 @@ func runBoard(cwd string, flags cliFlags) error {
 		defer mcpCloser.Close()
 	}
 
-	m := model.NewBoard(cfg)
+	m := model.NewBoardWithOptions(cfg, model.BoardOptions{Safe: flags.safe})
 	m.SetMCPStatus(mcpStatus)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())

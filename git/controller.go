@@ -98,6 +98,13 @@ func New(d Deps) Controller {
 	}
 }
 
+// SetConfig updates the controller's live policy after the board reloads TOML.
+// The reload decision stays with the host/model; git only consumes the latest
+// config snapshot for future actions and ticks.
+func (c *Controller) SetConfig(cfg config.Config) { c.cfg = cfg }
+
+func (c *Controller) SetNotifier(n Notifier) { c.notifier = n }
+
 // Detect locates the repo root for the configured path and computes the initial
 // diff stats. Called once at startup (off the main goroutine).
 func (c *Controller) Detect() {

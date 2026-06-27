@@ -284,6 +284,9 @@ func (c *Controller) scheduleAutoSync() tea.Cmd {
 
 func (c *Controller) shouldAutoSync() bool {
 	c.expireStaleAutoSync(time.Now())
+	if c.cfg.GitAutoSyncInterval <= 0 {
+		return false
+	}
 	if c.syncing {
 		return false
 	}
