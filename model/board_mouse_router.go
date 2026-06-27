@@ -70,7 +70,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// slot geometry and card height.
 	// (peek and the editor are already handled by the early returns above.)
 	if b.configMenuOpen || b.dialog.active ||
-		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.zellij.Active() || b.mnemonicMode || b.zoom.Active() || len(b.columns) == 0 {
+		b.switcher.Active() || b.search.Active() || b.customCmds.Active() || b.scriptUI.Active() || b.templateFlow.Active() || b.frontmatterEdit.Active() || b.zellij.Active() || b.mnemonic.active || b.zoom.Active() || len(b.columns) == 0 {
 		return b, nil
 	}
 	if b.columns[b.selectedCol].IsFiltering() {

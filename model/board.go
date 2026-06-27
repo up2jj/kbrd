@@ -45,8 +45,7 @@ type Board struct {
 	shuttingDown    bool // waiting for an in-flight git sync before quitting
 	editor          *Editor
 	notifier        *Notifier
-	mnemonicMode    bool
-	mnemonicInput   textinput.Model
+	mnemonic        mnemonicSelectorState
 	theme           string
 	palette         Palette
 	watcher         *kbrdfs.Watcher
@@ -129,18 +128,12 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		applySafeMode(&cfg)
 	}
 	palette := PaletteFor(cfg.Theme)
-	ti := textinput.New()
-	ti.Prompt = ": "
-	ti.Placeholder = "card mnemonic, enter to jump"
-	ti.CharLimit = 64
-	ti.SetWidth(60)
-	applyInputPalette(&ti, palette)
 	b := &Board{
 		cfg:           cfg,
 		safeMode:      opts.Safe,
 		visibleHeight: 20,
 		notifier:      NewNotifier(cfg.NotifyBackend),
-		mnemonicInput: ti,
+		mnemonic:      newMnemonicSelectorState(palette),
 		theme:         cfg.Theme,
 		palette:       palette,
 		zellij:        NewZellij(),
@@ -224,7 +217,7 @@ func applyInputPalette(ti *textinput.Model, p Palette) {
 func (b *Board) applyPalette() {
 	b.palette = PaletteFor(b.theme)
 	applyPackageStyles(b.palette)
-	applyInputPalette(&b.mnemonicInput, b.palette)
+	applyInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
 	b.peek.palette = b.palette
 	b.switcher.palette = b.palette
@@ -542,6 +535,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case watchDebounceMsg:
 		return b.lifecycle().HandleWatchDebounce(msg)
+
+	case mnemonicDebounceMsg:
+		return b.mnemonicSelector().handleDebounce(msg)
 
 	case refreshedMsg:
 		b.applyColumnTransforms()

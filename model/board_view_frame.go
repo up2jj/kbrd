@@ -155,7 +155,7 @@ func (f boardViewFrame) renderStatusBar() string {
 		width = 80
 	}
 
-	ctx := ShortcutContext{MnemonicMode: b.mnemonicMode, Zoomed: b.zoom.Active()}
+	ctx := ShortcutContext{MnemonicMode: b.mnemonic.active, Zoomed: b.zoom.Active()}
 	ctx.HasSelectedItem = b.selectedCol < len(b.columns) && b.columns[b.selectedCol].HasSelectedItem()
 	if b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
 		col := b.columns[b.selectedCol]
@@ -181,15 +181,15 @@ func (f boardViewFrame) renderStatusBar() string {
 
 func (f boardViewFrame) renderMnemonicJump(width int) string {
 	b := f.b
-	if !b.mnemonicMode {
+	if !b.mnemonic.active {
 		return ""
 	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(b.palette.BorderActive).
-		Width(b.mnemonicInput.Width()+lipgloss.Width(b.mnemonicInput.Prompt)).
+		Width(b.mnemonic.input.Width()+lipgloss.Width(b.mnemonic.input.Prompt)).
 		Padding(0, 1)
-	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonicInput.View()))
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonic.input.View()))
 }
 
 func (f boardViewFrame) renderEditor(frameH int) string {

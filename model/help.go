@@ -81,7 +81,10 @@ func setHelpStyles(p Palette) {
 func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	short := func(keys, label string) Shortcut { return Shortcut{Keys: keys, Label: label} }
 	if ctx.MnemonicMode {
-		return []Shortcut{bindingShortcut(Keys.MnemonicJumpCancel)}
+		return []Shortcut{
+			bindingShortcut(Keys.MnemonicJumpConfirm),
+			bindingShortcut(Keys.MnemonicJumpCancel),
+		}
 	}
 	var prefix []Shortcut
 	if ctx.Zoomed {

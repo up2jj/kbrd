@@ -105,8 +105,8 @@ func TestBoardViewFrame_RenderTinyShortCircuits(t *testing.T) {
 func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 2, 2)
-	b.mnemonicMode = true
-	b.mnemonicInput.SetValue("sf")
+	b.mnemonic.active = true
+	b.mnemonic.input.SetValue("sf")
 
 	out, _ := boardViewFrame{b: b}.renderBase(120, 30)
 	stripped := ansi.Strip(out)
@@ -127,10 +127,10 @@ func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 func TestBoardViewFrame_MnemonicJumpWidthStable(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 2, 2)
-	b.mnemonicMode = true
+	b.mnemonic.active = true
 
 	empty := strings.TrimSpace(boardViewFrame{b: b}.renderMnemonicJump(120))
-	b.mnemonicInput.SetValue("sf")
+	b.mnemonic.input.SetValue("sf")
 	filled := strings.TrimSpace(boardViewFrame{b: b}.renderMnemonicJump(120))
 
 	if lipgloss.Width(empty) != lipgloss.Width(filled) {

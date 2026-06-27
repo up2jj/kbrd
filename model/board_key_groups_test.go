@@ -67,7 +67,7 @@ func TestBoardKeyGroups_FilteringColumnOwnsBoardKeys(t *testing.T) {
 	}
 
 	_, _ = b.handleBoardKey(keyRunes(":"))
-	if b.mnemonicMode {
+	if b.mnemonic.active {
 		t.Fatal("mnemonic selector opened while column filter was active")
 	}
 }

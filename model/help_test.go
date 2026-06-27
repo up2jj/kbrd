@@ -14,20 +14,23 @@ import (
 func TestContextShortcuts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("mnemonic mode shows only cancel", func(t *testing.T) {
+	t.Run("mnemonic mode shows jump now and cancel", func(t *testing.T) {
 		got := ContextShortcuts(ShortcutContext{MnemonicMode: true})
-		if len(got) != 1 {
-			t.Fatalf("len = %d, want 1: %+v", len(got), got)
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2: %+v", len(got), got)
 		}
-		if got[0].Keys != "esc" || got[0].Label != "cancel" {
-			t.Errorf("got %+v, want {esc, cancel}", got[0])
+		if got[0].Keys != "enter" || got[0].Label != "jump now" {
+			t.Errorf("got %+v, want {enter, jump now}", got[0])
+		}
+		if got[1].Keys != "esc" || got[1].Label != "cancel" {
+			t.Errorf("got %+v, want {esc, cancel}", got[1])
 		}
 	})
 
 	t.Run("mnemonic mode wins over selected item", func(t *testing.T) {
 		got := ContextShortcuts(ShortcutContext{MnemonicMode: true, HasSelectedItem: true})
-		if len(got) != 1 || got[0].Keys != "esc" {
-			t.Errorf("got %+v, want only {esc, cancel}", got)
+		if len(got) != 2 || got[0].Keys != "enter" || got[1].Keys != "esc" {
+			t.Errorf("got %+v, want only {enter, jump now}, {esc, cancel}", got)
 		}
 	})
 

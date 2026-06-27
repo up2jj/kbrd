@@ -210,7 +210,7 @@ var Keys = KeyMap{
 
 	// Mnemonic jump
 	MnemonicJumpCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
-	MnemonicJumpConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "jump")),
+	MnemonicJumpConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "jump now")),
 
 	// Help overlay
 	HelpClose: key.NewBinding(key.WithKeys("esc", "q", "?"), key.WithHelp("q/esc", "close")),
