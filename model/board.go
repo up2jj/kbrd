@@ -138,7 +138,6 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		cfg:           cfg,
 		safeMode:      opts.Safe,
 		visibleHeight: 20,
-		editor:        NewEditor(cfg.Editor.Vim),
 		notifier:      NewNotifier(cfg.NotifyBackend),
 		mnemonicInput: ti,
 		theme:         cfg.Theme,
@@ -149,7 +148,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	b.templateExec.notifier = b.notifier
 	b.initGit()
 	b.applyPalette()
-	b.editorEval().wireCompletions()
+	b.editor = newBoardEditor(b.cfg.Editor.Vim, b.palette, b.termWidth, b.termHeight, &b.scripts)
 	return b
 }
 
@@ -782,17 +781,6 @@ func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
 	}
 	b.quitting = true
 	return b, tea.Quit
-}
-
-// resetEditor replaces the editor with a fresh instance, re-seeding it with the
-// current palette and terminal size. The size matters because applySize() falls
-// back to a fixed default when termWidth/termHeight are 0, which would otherwise
-// make expand/collapse (ctrl+e) a no-op until the next terminal resize.
-func (b *Board) resetEditor() {
-	b.editor = NewEditor(b.cfg.Editor.Vim)
-	b.editor.palette = b.palette
-	b.editor.SetTermSize(b.termWidth, b.termHeight)
-	b.editorEval().wireCompletions()
 }
 
 func (b *Board) handleBoardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -209,6 +209,46 @@ func TestVimLuaEvalMsg(t *testing.T) {
 	}
 }
 
+func TestVimLuaCompletionsFromBoardScripts(t *testing.T) {
+	dir := t.TempDir()
+	col := filepath.Join(dir, "Todo")
+	if err := os.MkdirAll(col, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(col, "note.md")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.register("indent", function() return "" end, "indent(n)")
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Path: dir, ColumnWidth: 32, PreviewLines: 3, Editor: config.EditorConfig{Vim: true}}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
+	b := NewBoard(cfg)
+	if b.scripts != nil {
+		t.Fatal("precondition: scripts should initialize after board construction")
+	}
+	b.initRuntime()
+	if b.scripts == nil {
+		t.Fatal("scripting host not initialized")
+	}
+
+	b.editor.OpenEdit(0, col, "note", path)
+	b.editor.Update(runeKey(':'))
+	feedRunes(b.editor, "lua ind")
+	b.editor.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+
+	if got := b.editor.buf.CommandLine(); got != "lua indent" {
+		t.Fatalf("cmdline after completion = %q, want %q", got, "lua indent")
+	}
+	if name, usage := b.editor.buf.CompletionHint(); name != "indent" || usage != "indent(n)" {
+		t.Fatalf("completion hint = %q/%q, want indent/indent(n)", name, usage)
+	}
+}
+
 // Editing writes a swap sidecar; a fresh open finds it and offers recovery.
 func TestVimSwapRecovery(t *testing.T) {
 	e, path := openVimEdit(t, "hello")

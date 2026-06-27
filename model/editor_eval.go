@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"kbrd/vimbuf"
 )
 
 type boardEditorEval struct {
@@ -14,24 +12,6 @@ type boardEditorEval struct {
 
 func (b *Board) editorEval() boardEditorEval {
 	return boardEditorEval{board: b}
-}
-
-// wireCompletions injects a provider of :lua autocomplete candidates
-// (registered function names + usage) into the editor, read lazily from the
-// script host each time a vim buffer opens.
-func (e boardEditorEval) wireCompletions() {
-	b := e.board
-	b.editor.SetEvalCompletionsFunc(func() []vimbuf.Completion {
-		if b.scripts == nil {
-			return nil
-		}
-		src := b.scripts.EvalCompletions()
-		out := make([]vimbuf.Completion, len(src))
-		for i, c := range src {
-			out[i] = vimbuf.Completion{Name: c.Name, Usage: c.Usage}
-		}
-		return out
-	})
 }
 
 // editorEvalMsg asks the board to evaluate a Lua expression typed in the editor's
