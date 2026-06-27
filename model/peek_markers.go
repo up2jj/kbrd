@@ -24,8 +24,16 @@ func (b *Board) openPeekForItem(item *Item, content string) tea.Cmd {
 		}
 	}
 	b.peekItemPath = itemPath
-	cmd := b.peek.Open(title, content, b.termWidth)
+	cmd := b.peek.OpenWithLineMarkerGutter(title, content, b.termWidth, b.shouldReservePeekMarkerGutter(itemPath))
 	return batchCmd(cmd, b.loadPeekLineMarkersCmd(seq, itemPath))
+}
+
+func (b *Board) shouldReservePeekMarkerGutter(itemPath string) bool {
+	if itemPath == "" || b.git.RepoRoot() == "" {
+		return false
+	}
+	_, ok := b.git.StatFor(itemPath)
+	return ok
 }
 
 func (b *Board) loadPeekLineMarkersCmd(seq int, itemPath string) tea.Cmd {

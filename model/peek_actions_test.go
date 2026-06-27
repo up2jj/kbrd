@@ -278,11 +278,13 @@ func TestPeekActions_LoadsGitLineMarkers(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x\nchanged\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	b.git.RefreshStatsNow()
 
 	_, cmd := b.inputRouter().HandleKey(keyPressText(" "))
 	if cmd == nil {
 		t.Fatal("peek open returned nil marker command")
 	}
+	before := ansi.Strip(b.peek.View(120, 30))
 	msg := cmd()
 	if _, updateCmd := b.Update(msg); updateCmd != nil {
 		updateCmd()
@@ -291,6 +293,14 @@ func TestPeekActions_LoadsGitLineMarkers(t *testing.T) {
 	out := ansi.Strip(b.peek.View(120, 30))
 	if !strings.Contains(out, "+ changed") {
 		t.Fatalf("peek did not render loaded git marker:\n%s", out)
+	}
+	beforeCol := strings.Index(before, "changed")
+	afterCol := strings.Index(out, "changed")
+	if beforeCol < 0 || afterCol < 0 {
+		t.Fatalf("changed line missing before/after marker load\nbefore:\n%s\nafter:\n%s", before, out)
+	}
+	if beforeCol != afterCol {
+		t.Fatalf("changed line shifted after marker load: before=%d after=%d\nbefore:\n%s\nafter:\n%s", beforeCol, afterCol, before, out)
 	}
 }
 

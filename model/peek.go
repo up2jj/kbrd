@@ -14,16 +14,17 @@ import (
 )
 
 type Peek struct {
-	active      bool
-	title       string
-	rawMarkdown string
-	lines       []string
-	sourceLines []int
-	sourceFirst []bool
-	markers     map[int]PeekLineMarkerKind
-	offset      int
-	pageSize    int
-	palette     Palette
+	active       bool
+	title        string
+	rawMarkdown  string
+	lines        []string
+	sourceLines  []int
+	sourceFirst  []bool
+	markers      map[int]PeekLineMarkerKind
+	markerGutter bool
+	offset       int
+	pageSize     int
+	palette      Palette
 }
 
 func (p *Peek) Active() bool { return p.active }
@@ -58,10 +59,15 @@ const peekScrollbarGutter = 2
 const peekLineMarkerGutter = 2
 
 func (p *Peek) Open(title, markdown string, termWidth int) tea.Cmd {
+	return p.OpenWithLineMarkerGutter(title, markdown, termWidth, false)
+}
+
+func (p *Peek) OpenWithLineMarkerGutter(title, markdown string, termWidth int, reserveGutter bool) tea.Cmd {
 	p.active = true
 	p.title = title
 	p.rawMarkdown = markdown
 	p.markers = nil
+	p.markerGutter = reserveGutter
 	p.renderMarkdown(termWidth)
 	p.offset = 0
 	p.pageSize = 0
@@ -72,6 +78,7 @@ func (p *Peek) SetLineMarkers(markers []PeekLineMarker, termWidth int) {
 	if len(markers) == 0 {
 		p.markers = nil
 	} else {
+		p.markerGutter = true
 		p.markers = make(map[int]PeekLineMarkerKind, len(markers))
 		for _, marker := range markers {
 			if marker.Line > 0 {
@@ -85,7 +92,7 @@ func (p *Peek) SetLineMarkers(markers []PeekLineMarker, termWidth int) {
 }
 
 func (p *Peek) renderMarkdown(termWidth int) {
-	rows := renderMarkdownRows(p.rawMarkdown, peekContentWidth(termWidth, p.hasLineMarkers()))
+	rows := renderMarkdownRows(p.rawMarkdown, peekContentWidth(termWidth, p.hasLineMarkerGutter()))
 	if len(rows) == 0 {
 		rows = []peekMarkdownRow{{Text: "", SourceLine: 1, FirstForSource: true}}
 	}
@@ -100,6 +107,9 @@ func (p *Peek) renderMarkdown(termWidth int) {
 }
 
 func (p *Peek) hasLineMarkers() bool { return len(p.markers) > 0 }
+func (p *Peek) hasLineMarkerGutter() bool {
+	return p.markerGutter || p.hasLineMarkers()
+}
 
 func (p *Peek) Close() {
 	p.active = false
@@ -109,6 +119,7 @@ func (p *Peek) Close() {
 	p.sourceLines = nil
 	p.sourceFirst = nil
 	p.markers = nil
+	p.markerGutter = false
 	p.offset = 0
 }
 
@@ -639,7 +650,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	visibleSources := p.sourceLines[p.offset:end]
 	visibleFirst := p.sourceFirst[p.offset:end]
 
-	bodyWidth := peekContentWidth(termWidth, p.hasLineMarkers())
+	bodyWidth := peekContentWidth(termWidth, p.hasLineMarkerGutter())
 	blankRow := strings.Repeat(" ", max(bodyWidth, 1))
 	for len(visible) < pageSize {
 		visible = append(visible, blankRow)
@@ -689,7 +700,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 }
 
 func (p *Peek) renderMarkedRows(lines []string, sources []int, first []bool) []string {
-	if !p.hasLineMarkers() {
+	if !p.hasLineMarkerGutter() {
 		return lines
 	}
 	out := make([]string, len(lines))

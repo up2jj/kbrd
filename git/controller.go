@@ -6,6 +6,7 @@
 package git
 
 import (
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -182,6 +183,14 @@ func (c *Controller) DirtyCount() int { return len(c.stats) }
 // StatFor returns the diff stat for an absolute path, for render-time badges.
 func (c *Controller) StatFor(abs string) (kbrdfs.DiffStat, bool) {
 	s, ok := c.stats[abs]
+	if ok {
+		return s, true
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil || resolved == abs {
+		return kbrdfs.DiffStat{}, false
+	}
+	s, ok = c.stats[resolved]
 	return s, ok
 }
 
