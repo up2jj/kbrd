@@ -52,9 +52,9 @@ func cardRows(previewLines int) int {
 // itemHeight is the rendered height of one item. A card that declares a
 // frontmatter `render:` list is one row taller (the fields line), and a wrapped
 // title adds one row per extra title line; these are the variable heights vlist
-// stacks. It must match what renderItem / renderVirtualStr draw — both derive
-// the title row count from wrapTitle, so they cannot disagree. Separators keep
-// their single-line rule layout.
+// stacks. It must match what renderItem / renderCardBody draw — both derive the
+// title row count from wrapTitle, so they cannot disagree. Separators keep their
+// single-line rule layout.
 func itemHeight(item Item, cfg renderConfig) int {
 	h := cardRows(cfg.previewLines)
 	if item.Separator {
@@ -75,9 +75,15 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 		return renderSeparatorStr(item, cfg)
 	}
 	if item.Virtual {
-		return renderVirtualStr(item, selected, cfg)
+		return renderCardBody(item, selected, cfg, item.Meta, cfg.palette.BorderMuted)
 	}
+	return renderCardBody(item, selected, cfg, filesystemMeta(item, cfg), cfg.palette.FgSubtle)
+}
 
+// renderCardBody draws the shared card frame for filesystem and virtual items.
+// The callers supply the already-resolved meta text and the selected-but-
+// inactive meta color, which are the only rendering differences between kinds.
+func renderCardBody(item Item, selected bool, cfg renderConfig, meta string, inactiveSelectedMetaFg color.Color) string {
 	isSelected := selected
 	d := cfg
 	gutterW := max(d.gutterW, 2)
@@ -153,8 +159,37 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 	}
 	previewLine := previewBlock(item.Preview, d.previewLines, innerW, gutterW, previewStyle)
 
-	// Line 3 — meta: a frontmatter `meta` replaces the computed modified +
-	// size + git diff block, matching virtual-item semantics.
+	var metaFg color.Color
+	switch {
+	case isSelected && d.isActive:
+		metaFg = p.AccentSoft
+	case isSelected:
+		metaFg = inactiveSelectedMetaFg
+	default:
+		metaFg = p.BorderMuted
+	}
+	metaStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(metaFg)
+	if isSelected && d.isActive {
+		metaStyle = metaStyle.Background(detailBg)
+	}
+	metaLine := metaStyle.Render(truncLine(meta, innerW-gutterW))
+
+	// A frontmatter `render:` list adds one row above meta — the variable height.
+	// The row is reserved whenever render is declared (even if no key resolves),
+	// matching itemHeight so the drawn and declared heights agree.
+	lines := append(titleLines, previewLine)
+	if len(item.Render) > 0 {
+		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
+	}
+	lines = append(lines, metaLine)
+	return renderCard(innerW, cardBorder, lines...)
+}
+
+// filesystemMeta builds the meta row for a filesystem-backed card. A frontmatter
+// `meta` replaces the computed modified + size + git diff block, while tags and
+// malformed-YAML badges are still appended as card annotations.
+func filesystemMeta(item Item, d renderConfig) string {
+	p := d.palette
 	meta := item.Meta
 	if meta == "" {
 		meta = timeAgo(item.Modified) + "  ·  " + item.HumanSize()
@@ -187,30 +222,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 		badStyle := lipgloss.NewStyle().Foreground(p.Warning).Bold(true)
 		meta += "  ·  " + badStyle.Render("⚠ yaml")
 	}
-	var metaFg color.Color
-	switch {
-	case isSelected && d.isActive:
-		metaFg = p.AccentSoft
-	case isSelected:
-		metaFg = p.FgSubtle
-	default:
-		metaFg = p.BorderMuted
-	}
-	metaStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(metaFg)
-	if isSelected && d.isActive {
-		metaStyle = metaStyle.Background(detailBg)
-	}
-	metaLine := metaStyle.Render(truncLine(meta, innerW-gutterW))
-
-	// A frontmatter `render:` list adds one row above meta — the variable height.
-	// The row is reserved whenever render is declared (even if no key resolves),
-	// matching itemHeight so the drawn and declared heights agree.
-	lines := append(titleLines, previewLine)
-	if len(item.Render) > 0 {
-		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
-	}
-	lines = append(lines, metaLine)
-	return renderCard(innerW, cardBorder, lines...)
+	return meta
 }
 
 // fieldsRow renders the frontmatter `render:` line ("key: value  ·  …") styled
@@ -381,87 +393,4 @@ func renderSeparatorStr(item Item, d renderConfig) string {
 		}
 	}
 	return strings.Join(rows, "\n")
-}
-
-// renderVirtualStr draws a script-supplied item in the card frame: icon + title
-// (line 1, tinted by Accent), preview, the optional frontmatter `render:` line,
-// and the script-provided Meta string in place of the filesystem meta line.
-func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
-	p := d.palette
-	gutterW := max(d.gutterW, 2)
-	innerW := max(d.colWidth-2, 1)
-	mnemonic := ""
-	if d.mnemonicOf != nil {
-		mnemonic = d.mnemonicOf(item.Name)
-	}
-
-	var rowBg, mnemFg, nameFg, cardBorder color.Color
-	hasRowBg := false
-	switch {
-	case isSelected && d.isActive:
-		rowBg = p.PrimaryStrong
-		mnemFg = p.Highlight
-		nameFg = p.FgOnAccent
-		cardBorder = p.PrimaryStrong
-		hasRowBg = true
-	default:
-		mnemFg = p.Warning
-		nameFg = p.FgEmphasis
-		cardBorder = p.BorderMuted
-	}
-	if item.Accent != "" && !hasRowBg {
-		nameFg = lipgloss.Color(item.Accent)
-	}
-
-	gutterStyle := lipgloss.NewStyle().Bold(true).Foreground(mnemFg).Width(gutterW)
-	restWidth := max(innerW-gutterW, 1)
-	restStyle := lipgloss.NewStyle().Bold(true).Foreground(nameFg).Width(restWidth).MaxWidth(restWidth)
-	if hasRowBg {
-		gutterStyle = gutterStyle.Background(rowBg)
-		restStyle = restStyle.Background(rowBg)
-	}
-	gutterText := mnemonic
-	if gutterText == "" && isSelected && d.isActive {
-		gutterText = ">"
-	}
-	titleRows := wrapTitle(composeTitle(item), restWidth, d.titleMaxLines, d.wrapTitles)
-	titleLines := make([]string, len(titleRows))
-	for i, row := range titleRows {
-		gt := ""
-		if i == 0 {
-			gt = gutterText
-		}
-		titleLines[i] = gutterStyle.Render(gt) + restStyle.Render(row)
-	}
-
-	var previewFg, detailBg color.Color
-	switch {
-	case isSelected && d.isActive:
-		previewFg = p.FgSelectedPreview
-		detailBg = p.BgSelectedDetail
-	default:
-		previewFg = p.FgSubtle
-	}
-	previewStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(previewFg).Italic(true)
-	if isSelected && d.isActive {
-		previewStyle = previewStyle.Background(detailBg)
-	}
-	previewLine := previewBlock(item.Preview, d.previewLines, innerW, gutterW, previewStyle)
-
-	metaFg := p.BorderMuted
-	if isSelected && d.isActive {
-		metaFg = p.AccentSoft
-	}
-	metaStyle := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(metaFg)
-	if isSelected && d.isActive {
-		metaStyle = metaStyle.Background(detailBg)
-	}
-	metaLine := metaStyle.Render(truncLine(item.Meta, innerW-gutterW))
-
-	lines := append(titleLines, previewLine)
-	if len(item.Render) > 0 {
-		lines = append(lines, fieldsRow(item, isSelected && d.isActive, innerW, gutterW, detailBg, p))
-	}
-	lines = append(lines, metaLine)
-	return renderCard(innerW, cardBorder, lines...)
 }
