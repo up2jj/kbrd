@@ -35,13 +35,14 @@ type Config struct {
 	WrapTitles bool
 	// TitleMaxLines caps the wrapped title height; the last row is
 	// ellipsis-truncated when the title still overflows. Default 2.
-	TitleMaxLines       int
-	Theme               string
-	NotifyBackend       string
-	BoardName           string
-	GitDiffTool         string
-	GitAutoSyncInterval time.Duration
-	GitGenerateReadme   bool
+	TitleMaxLines        int
+	Theme                string
+	NotifyBackend        string
+	BoardName            string
+	BoardItemDoubleClick string
+	GitDiffTool          string
+	GitAutoSyncInterval  time.Duration
+	GitGenerateReadme    bool
 	// GitManualSyncMode controls the TUI's manual sync (the "s" key). "attended"
 	// (default) keeps the loud pull --ff-only that stops on divergence; "auto"
 	// runs the same self-healing merge-with-sidecar reconciliation the automatic
@@ -186,6 +187,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.title_max_lines", 2)
 	v.SetDefault("display.theme", "dark")
 	v.SetDefault("notify.backend", "auto")
+	v.SetDefault("board.item_double_click", "peek")
 	v.SetDefault("git.diff_tool", "auto")
 	v.SetDefault("git.auto_sync_interval", "")
 	v.SetDefault("git.generate_readme", false)
@@ -249,23 +251,28 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	if manualSync != "auto" {
 		manualSync = "attended"
 	}
+	itemDoubleClick := v.GetString("board.item_double_click")
+	if itemDoubleClick != "edit" {
+		itemDoubleClick = "peek"
+	}
 
 	return Config{
-		Path:                folderPath,
-		ColumnWidth:         v.GetInt("display.column_width"),
-		PreviewLines:        v.GetInt("display.preview_lines"),
-		TitleFromHeading:    v.GetBool("display.title_from_heading"),
-		WrapTitles:          v.GetBool("display.wrap_titles"),
-		TitleMaxLines:       v.GetInt("display.title_max_lines"),
-		Theme:               v.GetString("display.theme"),
-		NotifyBackend:       v.GetString("notify.backend"),
-		BoardName:           v.GetString("board.name"),
-		GitDiffTool:         v.GetString("git.diff_tool"),
-		GitAutoSyncInterval: autoSync,
-		GitGenerateReadme:   v.GetBool("git.generate_readme"),
-		GitManualSyncMode:   manualSync,
-		GitSyncOnStartup:    v.GetBool("git.sync_on_startup"),
-		GitAutoCommit:       v.GetBool("git.auto_commit"),
+		Path:                 folderPath,
+		ColumnWidth:          v.GetInt("display.column_width"),
+		PreviewLines:         v.GetInt("display.preview_lines"),
+		TitleFromHeading:     v.GetBool("display.title_from_heading"),
+		WrapTitles:           v.GetBool("display.wrap_titles"),
+		TitleMaxLines:        v.GetInt("display.title_max_lines"),
+		Theme:                v.GetString("display.theme"),
+		NotifyBackend:        v.GetString("notify.backend"),
+		BoardName:            v.GetString("board.name"),
+		BoardItemDoubleClick: itemDoubleClick,
+		GitDiffTool:          v.GetString("git.diff_tool"),
+		GitAutoSyncInterval:  autoSync,
+		GitGenerateReadme:    v.GetBool("git.generate_readme"),
+		GitManualSyncMode:    manualSync,
+		GitSyncOnStartup:     v.GetBool("git.sync_on_startup"),
+		GitAutoCommit:        v.GetBool("git.auto_commit"),
 		Scripting: ScriptingConfig{
 			Enabled:          v.GetBool("scripting.enabled"),
 			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),

@@ -108,6 +108,7 @@ type Board struct {
 	mnemonicByRef  map[itemRefStable]string
 	refByMnemonic  map[string]itemRefStable
 	mnemonicMaxLen int
+	mouseClicks    boardMouseClickState
 }
 
 func NewBoard(cfg config.Config) *Board {

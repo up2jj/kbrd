@@ -13,6 +13,7 @@
 
 [board]
 # name = ""                 # optional label shown in the board switcher
+# item_double_click = "peek" # "peek" opens reader; "edit" opens editor
 
 [git]
 # diff_tool = "auto"        # auto | difft | diff-so-fancy | git

@@ -298,6 +298,49 @@ auto_commit = true
 	}
 }
 
+func TestLoad_BoardItemDoubleClick_DefaultPeek(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	cfg, err := loadFrom(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.BoardItemDoubleClick != "peek" {
+		t.Fatalf("default board.item_double_click: got %q want peek", cfg.BoardItemDoubleClick)
+	}
+}
+
+func TestLoad_BoardItemDoubleClick_Edit(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[board]
+item_double_click = "edit"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.BoardItemDoubleClick != "edit" {
+		t.Fatalf("board.item_double_click: got %q want edit", cfg.BoardItemDoubleClick)
+	}
+}
+
+func TestLoad_BoardItemDoubleClick_UnknownNormalizes(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[board]
+item_double_click = "external"
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.BoardItemDoubleClick != "peek" {
+		t.Fatalf("unknown board.item_double_click should fall back to peek, got %q", cfg.BoardItemDoubleClick)
+	}
+}
+
 func TestLoad_MissingFolderPresentGlobal(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	globalDir := t.TempDir()

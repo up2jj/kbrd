@@ -1,6 +1,31 @@
 package model
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+const boardDoubleClickWindow = 500 * time.Millisecond
+
+type boardMouseClickState struct {
+	ref itemRefStable
+	at  time.Time
+}
+
+func (s *boardMouseClickState) reset() {
+	*s = boardMouseClickState{}
+}
+
+func (s *boardMouseClickState) record(ref itemRefStable, at time.Time) bool {
+	if s.ref == ref && !s.at.IsZero() && at.Sub(s.at) <= boardDoubleClickWindow {
+		s.reset()
+		return true
+	}
+	s.ref = ref
+	s.at = at
+	return false
+}
 
 type boardMouseRouter struct {
 	board *Board
@@ -12,6 +37,13 @@ func (b *Board) mouseRouter() boardMouseRouter {
 
 func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	b := r.board
+	resetClickState := true
+	defer func() {
+		if resetClickState {
+			b.mouseClicks.reset()
+		}
+	}()
+
 	mouse := msg.Mouse()
 	if b.helpMenu.Active() {
 		b.helpMenu.HandleMouse(msg)
@@ -45,6 +77,15 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	// Terminals commonly emit release/motion events between two click presses.
+	// They should not cancel the pending first click; the next actual click is
+	// still re-hit-tested against the selected item before any action runs.
+	switch msg.(type) {
+	case tea.MouseReleaseMsg, tea.MouseMotionMsg:
+		resetClickState = false
+		return b, nil
+	}
+
 	// Only the column strip is interactive. Ignore clicks/wheel on the header, the
 	// padding, and the bottom keybar so they don't select columns by X alone.
 	if !b.presenter.mouseInColumns(mouse.Y) {
@@ -59,8 +100,23 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	b.presenter.selectAtMouse(b, mouse.X, mouse.Y)
+	colIdx, col, item, ok := b.presenter.selectItemAtMouse(b, mouse.X, mouse.Y)
+	if !ok || item == nil || item.Separator {
+		return b, nil
+	}
+	resetClickState = false
+	if b.mouseClicks.record(refForItem(col, item), time.Now()) {
+		return b, r.handleItemDoubleClick(colIdx, col, item)
+	}
 	return b, nil
+}
+
+func (r boardMouseRouter) handleItemDoubleClick(colIdx int, col *Column, item *Item) tea.Cmd {
+	actions := r.board.itemActions()
+	if r.board.cfg.BoardItemDoubleClick == "edit" {
+		return actions.edit(colIdx, col, item)
+	}
+	return actions.peek(col, item)
 }
 
 func (r boardMouseRouter) handleWheel(msg tea.MouseMsg) bool {

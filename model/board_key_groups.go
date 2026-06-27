@@ -164,11 +164,7 @@ func (b *Board) handleItemBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model,
 	case key.Matches(msg, Keys.MoveFirst):
 		return b, actions.moveFirst(b.selectedCol, col, item), true
 	case key.Matches(msg, Keys.Peek):
-		content, err := col.CopyContent(item.Name)
-		if err != nil {
-			return b, b.notifier.ErrorCause("failed to peek", err), true
-		}
-		return b, b.peek.Open(item.Title, string(content), b.termWidth), true
+		return b, actions.peek(col, item), true
 	}
 	return b, nil, false
 }

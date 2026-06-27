@@ -11,29 +11,23 @@ import (
 	"kbrd/config"
 )
 
-func TestBoardMouseRouter_DialogBlocksBoardSelection(t *testing.T) {
-	colA := newTestColumn(t, map[string]string{"a": "alpha"})
-	colB := newTestColumn(t, map[string]string{"b": "bravo"})
-	b := &Board{
-		cfg:            config.Config{Path: filepath.Dir(colA.Path), ColumnWidth: 20, PreviewLines: 3},
-		columns:        []*Column{colA, colB},
-		editor:         NewEditor(false),
-		selectedCol:    0,
-		termWidth:      120,
-		termHeight:     30,
-		visibleHeight:  20,
-		mnemonicByRef:  map[itemRefStable]string{},
-		refByMnemonic:  map[string]itemRefStable{},
-		mnemonicMaxLen: 1,
-	}
-	for _, col := range b.columns {
-		col.SetHeight(b.visibleHeight)
-	}
+func newMouseRouterTestBoard(t *testing.T, cfg config.Config) (*Board, int, int) {
+	t.Helper()
+	b := boardWithNCols(t, 2, 2)
+	b.cfg.BoardItemDoubleClick = cfg.BoardItemDoubleClick
+	b.notifier = NewNotifier("none")
+	writeColItem(t, b.columns[0], "a")
+	writeColItem(t, b.columns[1], "b")
 	_ = b.View()
 	x, y, ok := mousePointForItem(b, 1)
 	if !ok {
 		t.Fatal("failed to find mouse hit point for second column item")
 	}
+	return b, x, y
+}
+
+func TestBoardMouseRouter_DialogBlocksBoardSelection(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{})
 
 	b.dialog.OpenConfirm("Pending action", "Mouse should not select behind this dialog.", deleteConfirmMsg{})
 	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
@@ -194,5 +188,127 @@ func TestBoardMouseRouter_WheelOverGitPanelDoesNotScrollColumn(t *testing.T) {
 	}
 	if afterOffset != beforeOffset {
 		t.Fatalf("column scrolled behind git panel: before=%d after=%d", beforeOffset, afterOffset)
+	}
+}
+
+func TestBoardMouseRouter_SingleClickSelectsWithoutOpening(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{})
+
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if b.selectedCol != 1 {
+		t.Fatalf("single click selected col %d, want 1", b.selectedCol)
+	}
+	if item := b.columns[1].SelectedItem(); item == nil || item.Name != "b" {
+		t.Fatalf("single click selected item %+v, want b", item)
+	}
+	if b.peek.Active() {
+		t.Fatal("single click opened peek")
+	}
+	if b.editor.state != editorNone {
+		t.Fatalf("single click editor state = %v, want none", b.editor.state)
+	}
+}
+
+func TestBoardMouseRouter_DoubleClickDefaultsToPeek(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{})
+
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if !b.peek.Active() {
+		t.Fatal("double click did not open peek")
+	}
+	if b.peek.title != "b" {
+		t.Fatalf("peek title = %q, want b", b.peek.title)
+	}
+	if b.editor.state != editorNone {
+		t.Fatalf("double click default editor state = %v, want none", b.editor.state)
+	}
+}
+
+func TestBoardMouseRouter_DoubleClickSurvivesReleaseBetweenClicks(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{})
+
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	b.mouseRouter().HandleMouse(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if !b.peek.Active() {
+		t.Fatal("double click with release between clicks did not open peek")
+	}
+	if b.peek.title != "b" {
+		t.Fatalf("peek title = %q, want b", b.peek.title)
+	}
+}
+
+func TestBoardMouseRouter_DoubleClickCanEdit(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{BoardItemDoubleClick: "edit"})
+
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if b.peek.Active() {
+		t.Fatal("edit double click opened peek")
+	}
+	if b.editor.state != editorEdit {
+		t.Fatalf("editor state = %v, want edit", b.editor.state)
+	}
+	if b.editor.FileName != "b" {
+		t.Fatalf("editor FileName = %q, want b", b.editor.FileName)
+	}
+}
+
+func TestBoardMouseRouter_DoubleClickRequiresSameItem(t *testing.T) {
+	b, xB, yB := newMouseRouterTestBoard(t, config.Config{})
+	xA, yA, ok := mousePointForItem(b, 0)
+	if !ok {
+		t.Fatal("failed to find mouse hit point for first column item")
+	}
+
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: xA, Y: yA, Button: tea.MouseLeft})
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: xB, Y: yB, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if b.peek.Active() {
+		t.Fatal("clicking a different item opened peek")
+	}
+	if b.editor.state != editorNone {
+		t.Fatalf("clicking a different item editor state = %v, want none", b.editor.state)
+	}
+	if b.selectedCol != 1 {
+		t.Fatalf("second click selected col %d, want 1", b.selectedCol)
+	}
+}
+
+func TestBoardMouseRouter_NonItemClickResetsDoubleClick(t *testing.T) {
+	b, x, y := newMouseRouterTestBoard(t, config.Config{})
+
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: 0, Button: tea.MouseLeft})
+	_, cmd := b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		cmd()
+	}
+
+	if b.peek.Active() {
+		t.Fatal("click after non-item reset opened peek")
+	}
+	if b.editor.state != editorNone {
+		t.Fatalf("click after non-item reset editor state = %v, want none", b.editor.state)
 	}
 }

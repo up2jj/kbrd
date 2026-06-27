@@ -402,7 +402,8 @@ theme         = "dark"      # "light" | "dark"
 backend = "auto"            # auto | osascript | osc9 | osc777 | none
 
 [board]
-name = ""                   # optional label shown in the board switcher
+name = ""                    # optional label shown in the board switcher
+item_double_click = "peek"   # peek | edit
 
 [git]
 diff_tool          = "auto"     # auto | difft | diff-so-fancy | git

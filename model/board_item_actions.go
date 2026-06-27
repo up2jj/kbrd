@@ -26,6 +26,15 @@ func (a boardItemActions) edit(colIdx int, col *Column, item *Item) tea.Cmd {
 	return b.editor.OpenEdit(colIdx, col.Path, item.Name, item.FullPath)
 }
 
+func (a boardItemActions) peek(col *Column, item *Item) tea.Cmd {
+	b := a.board
+	content, err := col.CopyContent(item.Name)
+	if err != nil {
+		return b.notifier.ErrorCause("failed to peek", err)
+	}
+	return b.peek.Open(item.Title, string(content), b.termWidth)
+}
+
 func (a boardItemActions) append(colIdx int, col *Column, item *Item) tea.Cmd {
 	return a.board.editor.OpenAppend(colIdx, col.Path, item.FullPath, item.Name)
 }

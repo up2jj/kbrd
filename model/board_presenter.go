@@ -135,14 +135,22 @@ func (p boardPresenter) itemAtMouse(col *Column, y int) (int, bool) {
 // selection. The rendered indexes stay inside this synchronous navigation step;
 // delayed mutations must re-resolve through stable item/column refs.
 func (p boardPresenter) selectAtMouse(b *Board, x, y int) bool {
+	_, _, _, ok := p.selectItemAtMouse(b, x, y)
+	return ok
+}
+
+func (p boardPresenter) selectItemAtMouse(b *Board, x, y int) (int, *Column, *Item, bool) {
 	colIdx, ok := p.columnAtMouse(b, x)
 	if !ok {
-		return false
+		return 0, nil, nil, false
 	}
 	col := b.columns[colIdx]
 	b.selectedCol = colIdx
 	if itemIdx, ok := p.itemAtMouse(col, y); ok {
 		col.SelectIndex(itemIdx)
+		if item := col.SelectedItem(); item != nil {
+			return colIdx, col, item, true
+		}
 	}
-	return true
+	return colIdx, col, nil, true
 }
