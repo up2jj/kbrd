@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,10 +63,9 @@ func remoteCacheDir() (string, error) {
 }
 
 // resolveRemoteURL turns a require name into the HTTPS URL to fetch. It expands
-// the github:owner/repo/path@ref shorthand to a raw.githubusercontent.com URL
-// (ref defaults to HEAD) and passes plain https:// URLs through. Anything else —
-// including bare http:// in normal use — is rejected by the caller's scheme
-// check; http:// is accepted here so loopback test servers work.
+// the github:owner/repo/path@ref shorthand to a raw.githubusercontent.com URL.
+// Plain https:// URLs pass through. http:// is accepted only for loopback hosts
+// so tests and local development servers can work without weakening normal use.
 func resolveRemoteURL(name string) (string, error) {
 	if spec, ok := strings.CutPrefix(name, "github:"); ok {
 		ref := "HEAD"
@@ -82,10 +83,26 @@ func resolveRemoteURL(name string) (string, error) {
 		}
 		return fmt.Sprintf("%s/%s/%s/%s/%s", rawGitHubBase, parts[0], parts[1], ref, parts[2]), nil
 	}
-	if strings.HasPrefix(name, "https://") || strings.HasPrefix(name, "http://") {
+	if strings.HasPrefix(name, "https://") {
 		return name, nil
 	}
-	return "", fmt.Errorf("unsupported remote require %q: expected https:// or github:owner/repo/path@ref", name)
+	if strings.HasPrefix(name, "http://") && isLoopbackHTTPURL(name) {
+		return name, nil
+	}
+	return "", fmt.Errorf("unsupported remote require %q: expected https://, loopback http://, or github:owner/repo/path@ref", name)
+}
+
+func isLoopbackHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // cacheKey is the cache filename (without extension) for a resolved URL.
@@ -127,10 +144,31 @@ func (h *Host) fetchRemote(name string) (string, error) {
 	// Cache best-effort: a write failure shouldn't fail the require, since we
 	// already have the source in hand. Next load just re-fetches.
 	if mkErr := os.MkdirAll(dir, 0o755); mkErr == nil {
-		_ = os.WriteFile(srcPath, []byte(body), 0o644)
-		_ = os.WriteFile(filepath.Join(dir, cacheKey(url)+".url"), []byte(name), 0o644)
+		_ = writeFileAtomic(srcPath, []byte(body), 0o644)
+		_ = writeFileAtomic(filepath.Join(dir, cacheKey(url)+".url"), []byte(name), 0o644)
 	}
 	return body, nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // httpGet fetches url with a bounded timeout and a size cap, returning the body

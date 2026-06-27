@@ -16,6 +16,10 @@ type boardSession struct {
 	b *Board
 }
 
+type switchBoardLoadMsg struct {
+	Path string
+}
+
 func (s boardSession) openSwitcher() tea.Cmd {
 	b := s.b
 	store, err := recents.Load()
@@ -61,7 +65,14 @@ func (s boardSession) handleRemoveBoard(msg removeBoardMsg) (tea.Model, tea.Cmd)
 
 func (s boardSession) handleSwitchBoard(msg switchBoardMsg) (tea.Model, tea.Cmd) {
 	b := s.b
+	b.showScriptActivity()
+	return b, func() tea.Msg { return switchBoardLoadMsg{Path: msg.Path} }
+}
+
+func (s boardSession) handleSwitchBoardLoad(msg switchBoardLoadMsg) (tea.Model, tea.Cmd) {
+	b := s.b
 	cmd, err := s.loadBoard(msg.Path)
+	b.clearScriptActivity()
 	if err != nil {
 		return b, b.notifier.ErrorCause("", err)
 	}
@@ -98,9 +109,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	// Virtual columns belong to the previous board's (now-closed) script host;
 	// drop them so they don't leak onto the new board before its board_load runs.
 	b.virtualCols = nil
-	b.initScripting()
-	b.loadCommands()
-	boardHooks{board: b}.init()
+	b.initRuntime()
 
 	if err := b.loadColumns(); err != nil {
 		return nil, fmt.Errorf("failed to load columns: %w", err)

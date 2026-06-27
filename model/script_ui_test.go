@@ -42,6 +42,7 @@ func makeBoard(t *testing.T, luaInit string) (*Board, string) {
 		},
 	}
 	b := NewBoard(cfg)
+	b.initRuntime()
 	if err := b.loadColumns(); err != nil {
 		t.Fatal(err)
 	}

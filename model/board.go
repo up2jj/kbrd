@@ -27,6 +27,10 @@ type refreshedMsg struct{}
 type initBoardRequestMsg struct{}
 type initBoardConfirmMsg struct{}
 type initBoardDeclineMsg struct{}
+type scriptInitStartMsg struct{}
+type scriptInitRunMsg struct{}
+
+const scriptActivityCellID = -9
 
 type Board struct {
 	cfg             config.Config
@@ -145,9 +149,6 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	b.templateExec.notifier = b.notifier
 	b.initGit()
 	b.applyPalette()
-	b.initScripting()
-	b.loadCommands()
-	boardHooks{board: b}.init()
 	b.editorEval().wireCompletions()
 	return b
 }
@@ -245,6 +246,19 @@ func (b *Board) applyPalette() {
 }
 
 func (b *Board) Init() tea.Cmd {
+	return func() tea.Msg { return scriptInitStartMsg{} }
+}
+
+func (b *Board) initRuntime() {
+	b.commandWarnings = nil
+	b.initScripting()
+	scriptWarnings := append([]config.CommandLoadWarning(nil), b.commandWarnings...)
+	b.loadCommands()
+	b.commandWarnings = append(scriptWarnings, b.commandWarnings...)
+	boardHooks{board: b}.init()
+}
+
+func (b *Board) startupCmd() tea.Cmd {
 	startup := func() tea.Msg {
 		// Repair any {{shell}} markers left pending by a prior interrupted
 		// session before reading cards, so they load as the interrupted note.
@@ -279,19 +293,25 @@ func (b *Board) Init() tea.Cmd {
 	if c := b.git.StartAutoSync(); c != nil {
 		cmds = append(cmds, c)
 	}
-	// Pick up any timers and async work scheduled at the top level of
-	// init.lua, so the first tick / first goroutine fires without needing
-	// a user command to drive it.
-	if c := b.collectTimerCmds(); c != nil {
-		cmds = append(cmds, c)
-	}
-	if c := b.collectAsyncCmds(); c != nil {
-		cmds = append(cmds, c)
-	}
 	if len(cmds) == 1 {
 		return startup
 	}
 	return tea.Batch(cmds...)
+}
+
+func (b *Board) showScriptActivity() {
+	if !b.cfg.Scripting.Enabled {
+		return
+	}
+	b.cells.SetInternal(Cell{
+		ID:   scriptActivityCellID,
+		Text: "lua loading",
+		FG:   string(b.palette.AccentSoft),
+	})
+}
+
+func (b *Board) clearScriptActivity() {
+	b.cells.Clear(scriptActivityCellID)
 }
 
 func (b *Board) createDefaultColumns() error {
@@ -509,6 +529,15 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
 
+	case scriptInitStartMsg:
+		b.showScriptActivity()
+		return b, func() tea.Msg { return scriptInitRunMsg{} }
+
+	case scriptInitRunMsg:
+		b.initRuntime()
+		b.clearScriptActivity()
+		return b, b.startupCmd()
+
 	case watchStartMsg:
 		return b.lifecycle().HandleWatchStart()
 
@@ -628,6 +657,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case switchBoardMsg:
 		return b.session().handleSwitchBoard(msg)
+
+	case switchBoardLoadMsg:
+		return b.session().handleSwitchBoardLoad(msg)
 
 	case pinBoardMsg:
 		return b.session().handlePinBoard(msg)

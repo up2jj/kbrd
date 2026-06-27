@@ -37,6 +37,7 @@ func newTransformBoard(t *testing.T, luaBody string) *Board {
 	cfg := config.Config{Path: dir, ColumnWidth: 20, PreviewLines: 3}
 	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
 	b := NewBoard(cfg)
+	b.initRuntime()
 	if b.scripts == nil {
 		t.Fatal("scripting host not initialized")
 	}

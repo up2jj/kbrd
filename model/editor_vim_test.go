@@ -341,6 +341,7 @@ func TestEditorOpenRefusesWhenDirty(t *testing.T) {
 	cfg := config.Config{Path: dir, ColumnWidth: 32, PreviewLines: 3, Editor: config.EditorConfig{Vim: true}}
 	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
 	b := NewBoard(cfg)
+	b.initRuntime()
 	if b.scripts == nil {
 		t.Fatal("scripting host not initialized")
 	}

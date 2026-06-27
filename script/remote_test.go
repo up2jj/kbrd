@@ -97,6 +97,9 @@ same = a == b
 	if n := countCachedLua(t, cacheRoot); n != 1 {
 		t.Errorf("cached .lua files = %d, want 1", n)
 	}
+	if n := countCachedExt(t, cacheRoot, ".url"); n != 1 {
+		t.Errorf("cached .url sidecars = %d, want 1", n)
+	}
 }
 
 // TestRemoteRequirePurgeRefetches confirms purge empties the cache and forces a
@@ -179,6 +182,19 @@ func TestRemoteRequire404(t *testing.T) {
 	}
 }
 
+func TestRemoteRequireRejectsNonLoopbackHTTP(t *testing.T) {
+	h, err := loadRemote(t, remoteCfg(), `require("http://example.com/mod.lua")`)
+	if h != nil {
+		defer h.Close()
+	}
+	if err == nil {
+		t.Fatal("expected an error for non-loopback http URL")
+	}
+	if !strings.Contains(err.Error(), "loopback http") {
+		t.Errorf("error = %v, want it to mention loopback http", err)
+	}
+}
+
 // TestResolveRemoteURL covers the github: shorthand and pass-through, with no
 // network involved.
 func TestResolveRemoteURL(t *testing.T) {
@@ -208,6 +224,10 @@ func TestResolveRemoteURL(t *testing.T) {
 
 // countCachedLua counts cached module files under a KBRD_CACHE_DIR root.
 func countCachedLua(t *testing.T, cacheRoot string) int {
+	return countCachedExt(t, cacheRoot, ".lua")
+}
+
+func countCachedExt(t *testing.T, cacheRoot, ext string) int {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join(cacheRoot, remoteCacheSubdir))
 	if err != nil {
@@ -218,7 +238,7 @@ func countCachedLua(t *testing.T, cacheRoot string) int {
 	}
 	n := 0
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".lua") {
+		if strings.HasSuffix(e.Name(), ext) {
 			n++
 		}
 	}
