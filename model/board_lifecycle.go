@@ -175,6 +175,7 @@ func (l boardLifecycle) HandleWatchEvent(msg watchEventMsg) (tea.Model, tea.Cmd)
 		b.watchDirty = map[string]struct{}{}
 	}
 	b.watchDirty[msg.Path] = struct{}{}
+	b.watchReloadConfig = b.watchReloadConfig || msg.ReloadConfig
 	seq := b.watchSeq
 	debounce := tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
 		return watchDebounceMsg{Seq: seq}

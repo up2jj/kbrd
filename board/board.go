@@ -195,20 +195,6 @@ func Columns(boardPath string) ([]string, error) {
 	return cols, nil
 }
 
-// DiscoverPaths returns the directories to watch for a board: the root plus
-// each immediate (non-hidden) column directory, sorted.
-func DiscoverPaths(root string) ([]string, error) {
-	cols, err := Columns(root)
-	if err != nil {
-		return nil, err
-	}
-	paths := []string{root}
-	for _, c := range cols {
-		paths = append(paths, filepath.Join(root, c))
-	}
-	return paths, nil
-}
-
 // ResolveColumn returns the absolute path of a column within a board. When
 // folder is empty, the first column (alphabetical) is used, and ErrNoColumns
 // is returned if the board has none. When folder is named, it is matched

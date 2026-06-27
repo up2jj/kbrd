@@ -3,6 +3,7 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -43,6 +44,74 @@ func TestBoard_SingleDirtyColumn(t *testing.T) {
 				t.Errorf("singleDirtyColumn = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBoardWatchPaths(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"alpha", "bravo"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := boardWatchPaths(root)
+	if err != nil {
+		t.Fatalf("boardWatchPaths: %v", err)
+	}
+
+	want := []string{root, filepath.Join(root, "alpha"), filepath.Join(root, "bravo")}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %v, want %v", paths, want)
+		}
+	}
+}
+
+func TestBoardWatchPaths_SkipsHiddenAndUnderscoreDirs(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"visible", ".git", ".hidden", "_internal"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	paths, err := boardWatchPaths(root)
+	if err != nil {
+		t.Fatalf("boardWatchPaths: %v", err)
+	}
+	want := []string{root, filepath.Join(root, "visible")}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %v, want %v", paths, want)
+		}
+	}
+}
+
+func TestBoardWatchPaths_EmptyDir(t *testing.T) {
+	root := t.TempDir()
+	paths, err := boardWatchPaths(root)
+	if err != nil {
+		t.Fatalf("boardWatchPaths: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != root {
+		t.Fatalf("paths = %v, want [%q]", paths, root)
+	}
+}
+
+func TestBoardWatchPaths_MissingRoot(t *testing.T) {
+	_, err := boardWatchPaths(filepath.Join(t.TempDir(), "nope"))
+	if err == nil {
+		t.Fatal("expected error for missing root")
 	}
 }
 
@@ -167,6 +236,129 @@ exec = true
 	if b.cfg.Scripting.Enabled || b.cfg.Hooks.Enabled || b.cfg.Template.Exec {
 		t.Fatalf("safe mode overrides not preserved: scripting=%v hooks=%v template=%v",
 			b.cfg.Scripting.Enabled, b.cfg.Hooks.Enabled, b.cfg.Template.Exec)
+	}
+}
+
+func TestBoard_WatchEvent_GlobalConfigChangeReloadsWithLocalPrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	b := boardWithNCols(t, 2, 2)
+	globalPath, err := globalConfigPath()
+	if err != nil {
+		t.Fatalf("globalConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatalf("mkdir global config dir: %v", err)
+	}
+	if err := os.WriteFile(globalPath, []byte(`
+[display]
+column_width = 44
+preview_lines = 2
+theme = "light"
+`), 0o644); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+	localPath := filepath.Join(b.cfg.Path, config.FolderConfigFile)
+	if err := os.WriteFile(localPath, []byte(`
+[display]
+preview_lines = 9
+`), 0o644); err != nil {
+		t.Fatalf("write local config: %v", err)
+	}
+
+	msg, ok := b.watchEventForPath(globalPath)
+	if !ok {
+		t.Fatal("global config path should be accepted by custom watch target")
+	}
+	if !msg.ReloadConfig {
+		t.Fatal("global config path should request config reload")
+	}
+	b.updateInner(msg)
+	cmd := b.debouncedReload(b.watchSeq)
+	if cmd == nil {
+		t.Fatal("expected a reload cmd")
+	}
+	b.updateInner(cmd())
+
+	if b.cfg.ColumnWidth != 44 {
+		t.Fatalf("global column_width not applied: got %d want 44", b.cfg.ColumnWidth)
+	}
+	if b.cfg.PreviewLines != 9 {
+		t.Fatalf("local preview_lines should override global: got %d want 9", b.cfg.PreviewLines)
+	}
+	if b.cfg.Theme != "light" || b.theme != "light" {
+		t.Fatalf("global theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)
+	}
+}
+
+func TestBoard_CustomWatch_IgnoresOtherGlobalConfigFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	b := boardWithNCols(t, 2, 2)
+	globalPath, err := globalConfigPath()
+	if err != nil {
+		t.Fatalf("globalConfigPath: %v", err)
+	}
+	other := filepath.Join(filepath.Dir(globalPath), "other.toml")
+	if _, ok := b.watchEventForPath(other); ok {
+		t.Fatal("unrelated global config file should be ignored")
+	}
+}
+
+func TestBoard_WatchPaths_IncludesExistingGlobalConfigDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	b := boardWithNCols(t, 2, 2)
+	globalPath, err := globalConfigPath()
+	if err != nil {
+		t.Fatalf("globalConfigPath: %v", err)
+	}
+	globalDir := filepath.Dir(globalPath)
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("mkdir global config dir: %v", err)
+	}
+	paths, err := b.watchPaths()
+	if err != nil {
+		t.Fatalf("watchPaths: %v", err)
+	}
+	if !slices.ContainsFunc(paths, func(path string) bool { return samePath(path, globalDir) }) {
+		t.Fatalf("watch paths %v missing global config dir %q", paths, globalDir)
+	}
+	if slices.ContainsFunc(paths, func(path string) bool { return samePath(path, filepath.Dir(globalDir)) }) {
+		t.Fatalf("watch paths %v should not include global config parent once config dir exists", paths)
+	}
+}
+
+func TestBoard_WatchPaths_IncludesGlobalConfigParentWhenDirMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	b := boardWithNCols(t, 2, 2)
+	globalPath, err := globalConfigPath()
+	if err != nil {
+		t.Fatalf("globalConfigPath: %v", err)
+	}
+	globalDir := filepath.Dir(globalPath)
+	parent := filepath.Dir(globalDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatalf("mkdir global config parent: %v", err)
+	}
+	paths, err := b.watchPaths()
+	if err != nil {
+		t.Fatalf("watchPaths: %v", err)
+	}
+	if slices.ContainsFunc(paths, func(path string) bool { return samePath(path, globalDir) }) {
+		t.Fatalf("watch paths %v should not include missing global config dir %q", paths, globalDir)
+	}
+	if !slices.ContainsFunc(paths, func(path string) bool { return samePath(path, parent) }) {
+		t.Fatalf("watch paths %v missing global config parent %q", paths, parent)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kbrd/board"
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
@@ -113,7 +112,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	b.bus.Publish(events.BoardLoad{})
 	b.applyColumnTransforms()
 
-	if paths, err := board.DiscoverPaths(b.cfg.Path); err == nil {
+	if paths, err := b.watchPaths(); err == nil {
 		if w, err := kbrdfs.NewWatcher(paths); err == nil {
 			b.watcher = w
 		}
