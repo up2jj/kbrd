@@ -307,7 +307,7 @@ func (m *TemplateMenu) View(termWidth, termHeight int) string {
 		Title:   title,
 		Body:    body,
 		Footer:  footer + strings.Repeat(" ", gap) + pos,
-		Width:   textW + 2*overlayPadH,
+		Width:   overlayWidthForBody(textW),
 		Palette: p,
 	}.Render()
 }

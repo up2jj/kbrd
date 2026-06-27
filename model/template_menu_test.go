@@ -97,6 +97,24 @@ func TestTemplateMenuHeightStableWhileFiltering(t *testing.T) {
 	}
 }
 
+func TestTemplateMenuViewRowsKeepFrameWidth(t *testing.T) {
+	t.Parallel()
+	var menu TemplateMenu
+	menu.SetPalette(DarkPalette())
+	menu.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, []template.Template{
+		{Name: "Bug report", Scope: template.ScopeColumn, Path: "/board/TODO/.kbrd_templates/bug.md"},
+		{Name: "Meeting note", Scope: template.ScopeBoard, Path: "/board/.kbrd_templates/meeting.md"},
+	})
+
+	view := menu.View(100, 40)
+	width := lipgloss.Width(view)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got != width {
+			t.Fatalf("template menu line width = %d, want %d for line %q\n%s", got, width, line, view)
+		}
+	}
+}
+
 func TestTemplateMenuSelectActions(t *testing.T) {
 	t.Parallel()
 	var menu TemplateMenu

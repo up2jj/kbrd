@@ -9,6 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"kbrd/theme"
 )
 
 type Peek struct {
@@ -146,8 +148,7 @@ func (p *Peek) HandleMouse(msg tea.MouseMsg) {
 }
 
 func peekInnerWidth(termWidth int) int {
-	border := lipgloss.RoundedBorder()
-	return max(peekFrameWidth(termWidth)-lipgloss.Width(border.Left+border.Right)-2*overlayPadH, 1)
+	return overlayBodyWidth(peekFrameWidth(termWidth))
 }
 
 func peekOuterWidth(termWidth int) int {
@@ -159,7 +160,7 @@ func peekOuterHeight(termHeight int) int {
 }
 
 func peekFrameWidth(termWidth int) int {
-	return max(peekOuterWidth(termWidth)-lipgloss.Width(lipgloss.RoundedBorder().Left+lipgloss.RoundedBorder().Right), 1)
+	return theme.RoundedFrameContentWidth(peekOuterWidth(termWidth), 0)
 }
 
 func peekBodyWidth(termWidth int) int {

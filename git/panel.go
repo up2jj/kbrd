@@ -203,6 +203,13 @@ func (p *GitPanel) dims() (innerW, innerH, leftW, rightW int) {
 	return
 }
 
+func panelPaneContentWidth(outerW int) int {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		Padding(0, 1)
+	return theme.StyleContentWidth(style, outerW)
+}
+
 func (p *GitPanel) rebuild() {
 	_, innerH, leftW, rightW := p.dims()
 	bodyH := max(
@@ -239,7 +246,7 @@ func (p *GitPanel) rebuild() {
 		table.WithColumns(cols),
 		table.WithRows(rows),
 		table.WithFocused(p.focus == focusFiles),
-		table.WithWidth(max(leftW-4, 1)),
+		table.WithWidth(panelPaneContentWidth(leftW)),
 		table.WithHeight(bodyH-1),
 	)
 	s := table.DefaultStyles()
@@ -257,10 +264,8 @@ func (p *GitPanel) rebuild() {
 	p.table = t
 	p.lastCursor = t.Cursor()
 
-	// The pane's border and Padding(0,1) leave rightW-4 usable columns; reserve
-	// one more for the scrollbar. Sizing the viewport any wider makes its
-	// space-padded lines overflow the content area and wrap.
-	vpW := max(rightW-5, 10)
+	// Reserve one column for the scrollbar inside the pane's content area.
+	vpW := max(panelPaneContentWidth(rightW)-1, 10)
 	vp := viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(bodyH-1)) // -1 to make room for the title row
 	vp.SetContent(p.rightContent)
 	if p.rightTitle == "" {
@@ -573,9 +578,7 @@ func (p *GitPanel) View() string {
 	} else if p.right.TotalLineCount() > 0 {
 		scroll = "all"
 	}
-	titleW := max(
-		// border 2 + padding 2
-		rightW-4, 10)
+	titleW := max(panelPaneContentWidth(rightW), 10)
 	leftTitle := p.rightTitle
 	if w := titleW - len(scroll) - 1; w > 0 && len(leftTitle) > w {
 		leftTitle = leftTitle[:w-1] + "…"

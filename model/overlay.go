@@ -20,6 +20,14 @@ const (
 // Set from the palette in setHelpStyles so it follows theme switches.
 var overlayTitleStyle lipgloss.Style
 
+func overlayWidthForBody(bodyW int) int {
+	return theme.RoundedFrameWidthForContent(bodyW, overlayPadH)
+}
+
+func overlayBodyWidth(frameW int) int {
+	return theme.RoundedFrameContentWidth(frameW, overlayPadH)
+}
+
 // OverlayFrame renders a popup with unified chrome: a rounded border carrying
 // the Title in its top edge, the caller-built Body, and a Footer legend (built
 // by the caller via RenderInlineHints, or a status/warning line).

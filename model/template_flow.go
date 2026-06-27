@@ -690,7 +690,7 @@ func (t *TemplateFlow) viewPicker() string {
 		Title:   "Create item",
 		Body:    body,
 		Footer:  footer,
-		Width:   contentW + 2*overlayPadH,
+		Width:   overlayWidthForBody(contentW),
 		Palette: t.palette,
 	}.Render()
 }

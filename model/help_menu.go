@@ -303,7 +303,7 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 	if m.context != "" {
 		title += " · " + m.context
 	}
-	boxWidth := textW + 2*overlayPadH + 2
+	boxWidth := overlayWidthForBody(textW)
 	menu := OverlayFrame{
 		Title:   title,
 		Body:    body,

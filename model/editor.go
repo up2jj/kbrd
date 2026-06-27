@@ -899,10 +899,7 @@ func (e *Editor) itemTarget() itemRefStable {
 
 func (e *Editor) vimView() string {
 	e.applySize() // re-fit the modal height to the current content before rendering
-	// The frame's body area is its Width minus horizontal padding and side
-	// borders, so add both back to keep the buffer's scrollbar lane unwrapped.
-	border := lipgloss.RoundedBorder()
-	frameW := e.buf.Width() + 2*overlayPadH + lipgloss.Width(border.Left+border.Right)
+	frameW := overlayWidthForBody(e.buf.Width())
 	if e.showHelp {
 		return OverlayFrame{
 			Title:   "Vim cheatsheet",

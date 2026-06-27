@@ -8,6 +8,29 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func roundedBorderWidth() int {
+	b := lipgloss.RoundedBorder()
+	return lipgloss.Width(b.Left + b.Right)
+}
+
+// RoundedFrameWidthForContent returns the width to pass to RoundedFrame when
+// the caller needs exactly contentW cells inside the frame padding.
+func RoundedFrameWidthForContent(contentW, padH int) int {
+	return max(contentW+2*padH+roundedBorderWidth(), 1)
+}
+
+// RoundedFrameContentWidth returns the usable content width inside a RoundedFrame
+// rendered with the given frame width and horizontal padding.
+func RoundedFrameContentWidth(frameW, padH int) int {
+	return max(frameW-2*padH-roundedBorderWidth(), 1)
+}
+
+// StyleContentWidth returns the usable content width inside a styled box with
+// borders, margins, and padding applied.
+func StyleContentWidth(style lipgloss.Style, outerW int) int {
+	return max(outerW-style.GetHorizontalFrameSize(), 1)
+}
+
 // RoundedFrame wraps content in a rounded border whose top edge carries an
 // embedded title (lazygit style: ╭─ Title ─────╮). titleStyle styles the title
 // text; border is the border color; padV/padH are the inner padding; width is
