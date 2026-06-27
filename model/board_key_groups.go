@@ -101,7 +101,7 @@ func (b *Board) handleColumnNavigationKey(msg tea.KeyPressMsg, col *Column) (tea
 		}
 		return b, nil, true
 	case key.Matches(msg, Keys.PanRight):
-		_, count := b.presenter.visibleColRange(b)
+		_, count := boardColumnsRegion{}.visibleColRange(b)
 		maxFirst := max(len(b.columns)-count, 0)
 		if b.firstVisibleCol < maxFirst {
 			b.firstVisibleCol++

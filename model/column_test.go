@@ -907,7 +907,7 @@ func TestColumn_View_PreviewDensity(t *testing.T) {
 
 // TestCollapse_AutoExpandWidth locks the auto-expand-on-focus rule: a column
 // marked collapsed renders thin only while it is *not* the selection. The
-// presenter width rule
+// columns-region width rule
 // is the single seam layout reads, so testing it covers packing/geometry too.
 func TestCollapse_AutoExpandWidth(t *testing.T) {
 	t.Parallel()
@@ -920,14 +920,15 @@ func TestCollapse_AutoExpandWidth(t *testing.T) {
 		cfg:         config.Config{ColumnWidth: 30},
 	}
 
-	if got := board.presenter.colWidthOf(board, 1); got != collapsedContentWidth {
+	region := boardColumnsRegion{}
+	if got := region.colWidthOf(board, 1); got != collapsedContentWidth {
 		t.Fatalf("collapsed + unfocused width = %d, want %d", got, collapsedContentWidth)
 	}
 	board.selectedCol = 1 // focus the collapsed column
-	if got := board.presenter.colWidthOf(board, 1); got != 30 {
+	if got := region.colWidthOf(board, 1); got != 30 {
 		t.Fatalf("collapsed + focused width = %d, want 30 (auto-expand)", got)
 	}
-	if got := board.presenter.colWidthOf(board, 0); got != 30 {
+	if got := region.colWidthOf(board, 0); got != 30 {
 		t.Fatalf("ordinary column width = %d, want 30", got)
 	}
 }

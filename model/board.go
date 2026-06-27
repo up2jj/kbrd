@@ -63,7 +63,6 @@ type Board struct {
 	customCmds      CustomCommandMenu
 	commands        []config.Command
 	commandWarnings []config.CommandLoadWarning
-	presenter       boardPresenter
 	cells           CellBar
 	indicators      colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
 	mcpStatus       MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)

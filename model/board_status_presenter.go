@@ -44,8 +44,7 @@ func (p boardStatusPresenter) renderHeader(width int) string {
 	// Tint the whole header line with a subtle surface background, padded to the
 	// full terminal width, and underline it with a muted rule to separate the
 	// header from the columns. Chips with their own bg keep it; bare text and
-	// the gap inherit the tint. The rule adds a row, which lipgloss.Height picks
-	// up so logoHeight (and thus mouse hit-testing) stays correct.
+	// the gap inherit the tint. The rule adds a row to the rendered height.
 	header = lipgloss.NewStyle().
 		Background(b.palette.BgCodeInline).
 		Width(width).
@@ -53,7 +52,6 @@ func (p boardStatusPresenter) renderHeader(width int) string {
 		BorderBottom(true).
 		BorderForeground(b.palette.BorderMuted).
 		Render(header)
-	b.presenter.logoHeight = lipgloss.Height(header)
 	return header
 }
 

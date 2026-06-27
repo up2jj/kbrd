@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"kbrd/config"
 )
 
@@ -20,8 +22,8 @@ func TestBoardStatusPresenter_RenderHeaderIncludesLogoAndCells(t *testing.T) {
 			t.Fatalf("header missing %q:\n%s", want, header)
 		}
 	}
-	if b.presenter.logoHeight <= 0 {
-		t.Fatalf("logoHeight = %d, want positive", b.presenter.logoHeight)
+	if lipgloss.Height(header) <= 0 {
+		t.Fatalf("header height = %d, want positive", lipgloss.Height(header))
 	}
 }
 

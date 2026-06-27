@@ -108,7 +108,8 @@ func (f boardViewFrame) renderBase(w, h int) (string, boardFrameLayout) {
 func (f boardViewFrame) renderFrameParts(w int) boardFrameLayout {
 	b := f.b
 	header := b.statusPresenter().renderHeader(w)
-	columnsView := b.presenter.renderColumns(b, w)
+	columnsRegion := boardColumnsRegion{logoHeight: lipgloss.Height(header)}
+	columnsView := columnsRegion.renderColumns(b, w)
 	body := columnsView
 	if mnemonicView := f.renderMnemonicJump(w); mnemonicView != "" {
 		body += "\n" + mnemonicView

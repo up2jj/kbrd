@@ -86,13 +86,14 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	// Only the column strip is interactive. Ignore clicks/wheel on the header, the
-	// padding, and the bottom keybar so they don't select columns by X alone.
-	if !b.presenter.mouseInColumns(mouse.Y) {
+	// Only the columns region is interactive. Ignore clicks/wheel on the header,
+	// the padding, and the bottom keybar so they don't select columns by X alone.
+	columnsRegion := currentBoardColumnsRegion(b)
+	if !columnsRegion.mouseInColumns(mouse.Y) {
 		return b, nil
 	}
 
-	if r.handleWheel(msg) {
+	if r.handleWheel(msg, columnsRegion) {
 		return b, nil
 	}
 
@@ -100,7 +101,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	colIdx, col, item, ok := b.presenter.selectItemAtMouse(b, mouse.X, mouse.Y)
+	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(b, mouse.X, mouse.Y)
 	if !ok || item == nil || item.Separator {
 		return b, nil
 	}
@@ -119,7 +120,7 @@ func (r boardMouseRouter) handleItemDoubleClick(colIdx int, col *Column, item *I
 	return actions.peek(col, item)
 }
 
-func (r boardMouseRouter) handleWheel(msg tea.MouseMsg) bool {
+func (r boardMouseRouter) handleWheel(msg tea.MouseMsg, columnsRegion boardColumnsRegion) bool {
 	b := r.board
 	wheel, ok := msg.(tea.MouseWheelMsg)
 	if !ok {
@@ -129,7 +130,7 @@ func (r boardMouseRouter) handleWheel(msg tea.MouseMsg) bool {
 	if mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {
 		return false
 	}
-	if colIdx, ok := b.presenter.columnAtMouse(b, mouse.X); ok {
+	if colIdx, ok := columnsRegion.columnAtMouse(b, mouse.X); ok {
 		delta := 3
 		if mouse.Button == tea.MouseWheelUp {
 			delta = -3

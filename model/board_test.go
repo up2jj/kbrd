@@ -124,13 +124,14 @@ func TestBoard_VisibleColRange_FitsAndPansOnSelection(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 10, 3)
 
-	first, count := b.presenter.visibleColRange(b)
+	region := boardColumnsRegion{}
+	first, count := region.visibleColRange(b)
 	if first != 0 || count != 3 {
 		t.Fatalf("initial range = (%d,%d), want (0,3)", first, count)
 	}
 
 	b.selectedCol = 7
-	first, count = b.presenter.visibleColRange(b)
+	first, count = region.visibleColRange(b)
 	if first != 5 || count != 3 {
 		t.Fatalf("after selecting col 7, range = (%d,%d), want (5,3)", first, count)
 	}
@@ -149,7 +150,7 @@ func TestBoard_PanKeysMoveWindow(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 10, 3)
 	// Force window initialization.
-	b.presenter.visibleColRange(b)
+	boardColumnsRegion{}.visibleColRange(b)
 	if b.firstVisibleCol != 0 {
 		t.Fatalf("firstVisibleCol = %d, want 0", b.firstVisibleCol)
 	}
