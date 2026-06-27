@@ -10,6 +10,36 @@ type boardViewFrame struct {
 	b *Board
 }
 
+type boardFrameLayout struct {
+	header  string
+	body    string
+	footer  string
+	headerH int
+	footerH int
+}
+
+type boardOverlayCandidate struct {
+	active func() bool
+	view   func() string
+}
+
+func overlayCandidate(active func() bool, view func() string) boardOverlayCandidate {
+	return boardOverlayCandidate{active: active, view: view}
+}
+
+func (l boardFrameLayout) overlayBandH(totalH int) int {
+	return totalH - l.headerH - l.footerH
+}
+
+func firstActiveOverlay(candidates ...boardOverlayCandidate) string {
+	for _, candidate := range candidates {
+		if candidate.active() {
+			return candidate.view()
+		}
+	}
+	return ""
+}
+
 func (f boardViewFrame) render() string {
 	b := f.b
 	if len(b.columns) == 0 {
@@ -20,12 +50,12 @@ func (f boardViewFrame) render() string {
 	}
 
 	w, h := f.size()
-	base, headerH, barH := f.renderBase(w, h)
-	overlay := f.activeOverlay(w, h)
+	base, layout := f.renderBase(w, h)
+	overlay := f.activeOverlay(w, h, layout.overlayBandH(h))
 	if overlay == "" {
 		return base
 	}
-	return composeOverlay(base, overlay, w, headerH, h-headerH-barH)
+	return composeOverlay(base, overlay, w, layout.headerH, layout.overlayBandH(h))
 }
 
 func (f boardViewFrame) size() (int, int) {
@@ -69,46 +99,52 @@ func (f boardViewFrame) renderTinyMessage(w, h int) string {
 		lipgloss.NewStyle().Foreground(f.b.palette.FgMuted).Render("terminal too small"))
 }
 
-func (f boardViewFrame) renderBase(w, h int) (string, int, int) {
+func (f boardViewFrame) renderBase(w, h int) (string, boardFrameLayout) {
+	layout := f.renderFrameParts(w)
+	base := f.assembleBaseFrame(layout, h)
+	return base, layout
+}
+
+func (f boardViewFrame) renderFrameParts(w int) boardFrameLayout {
 	b := f.b
 	header := b.statusPresenter().renderHeader(w)
 	columnsView := b.presenter.renderColumns(b, w)
-	result := header + "\n" + columnsView
+	body := columnsView
 	if mnemonicView := f.renderMnemonicJump(w); mnemonicView != "" {
-		result += "\n" + mnemonicView
+		body += "\n" + mnemonicView
 	}
 
-	// The board is always rendered with the keybar pinned to the bottom row, so it
-	// reads as a persistent bar. An active overlay is composited on top, centered
-	// in the band between the header and the keybar, so both stay visible behind
-	// it. The open editor has its own footer, so the board keybar is suppressed to
-	// avoid two competing footers.
-	statusBar := f.renderStatusBar()
-	if b.editor.state != editorNone {
-		statusBar = ""
+	footer := ""
+	if f.boardFooterVisible() {
+		footer = f.renderStatusBar()
 	}
-	headerH := lipgloss.Height(header)
-	barH := 0
-	if statusBar != "" {
-		barH = lipgloss.Height(statusBar)
-	}
-	if pad := h - lipgloss.Height(result) - barH; pad > 0 {
-		result += strings.Repeat("\n", pad)
-	}
-	base := result
-	if statusBar != "" {
-		base += "\n" + statusBar
+	footerH := 0
+	if footer != "" {
+		footerH = lipgloss.Height(footer)
 	}
 
-	// Reserve the header/keybar rows so the editor modal fits the band it is
-	// composited into (below the header) instead of overflowing off-screen. This
-	// reserve is stable, so the buffer height matches at scroll-time and
-	// render-time.
-	if b.editor.state != editorNone {
-		b.editor.headerReserve = headerH + barH
-		b.editor.applySize()
+	return boardFrameLayout{
+		header:  header,
+		body:    body,
+		footer:  footer,
+		headerH: lipgloss.Height(header),
+		footerH: footerH,
 	}
-	return base, headerH, barH
+}
+
+func (f boardViewFrame) boardFooterVisible() bool {
+	return f.b.editor.state == editorNone
+}
+
+func (f boardViewFrame) assembleBaseFrame(layout boardFrameLayout, h int) string {
+	base := layout.header + "\n" + layout.body
+	if pad := h - lipgloss.Height(base) - layout.footerH; pad > 0 {
+		base += strings.Repeat("\n", pad)
+	}
+	if layout.footer != "" {
+		base += "\n" + layout.footer
+	}
+	return base
 }
 
 func (f boardViewFrame) renderStatusBar() string {
@@ -155,22 +191,23 @@ func (f boardViewFrame) renderMnemonicJump(width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonicInput.View()))
 }
 
-func (f boardViewFrame) renderEditor() string {
+func (f boardViewFrame) renderEditor(frameH int) string {
 	if f.b.editor.state == editorNone {
 		return ""
 	}
-	return f.b.editor.View()
+	return f.b.editor.viewInFrame(frameH)
 }
 
 // activeOverlay returns the single popup to draw over the board, or "" when none
 // is open. Priority mirrors the key-routing order in boardInputRouter.
-func (f boardViewFrame) activeOverlay(w, h int) string {
+func (f boardViewFrame) activeOverlay(w, h, frameH int) string {
 	b := f.b
-	if b.helpMenu.Active() {
-		return b.helpMenu.View(w, h)
-	}
-	if b.configMenuOpen {
-		return RenderConfigCommandsOverlay(configCommandEntries())
+
+	if v := firstActiveOverlay(
+		overlayCandidate(b.helpMenu.Active, func() string { return b.helpMenu.View(w, h) }),
+		overlayCandidate(func() bool { return b.configMenuOpen }, func() string { return RenderConfigCommandsOverlay(configCommandEntries()) }),
+	); v != "" {
+		return v
 	}
 	if v := b.dialog.View(); v != "" {
 		return v
@@ -178,38 +215,17 @@ func (f boardViewFrame) activeOverlay(w, h int) string {
 	// The command menu and script UI are checked before the editor: a line
 	// command's menu (and any kbrd.ui.pick/prompt it yields) opens over a
 	// still-open editor and must render on top.
-	if b.customCmds.Active() {
-		return b.customCmds.View(b.termWidth, b.termHeight)
-	}
-	if b.scriptUI.Active() {
-		return b.scriptUI.View()
-	}
-	if v := f.renderEditor(); v != "" {
-		return v
-	}
-	if b.peek.Active() {
-		return b.peek.View(w, h)
-	}
-	if b.switcher.Active() {
-		return b.switcher.View()
-	}
-	if b.search.Active() {
-		return b.search.View(w, h)
-	}
-	if b.templateMenu.Active() {
-		return b.templateMenu.View(w, h)
-	}
-	if b.templateFlow.Active() {
-		return b.templateFlow.View()
-	}
-	if b.frontmatterEdit.Active() {
-		return b.frontmatterEdit.View()
-	}
-	if b.git.Active() {
-		return b.git.View()
-	}
-	if b.zellij.Active() {
-		return b.zellij.View()
-	}
-	return ""
+	return firstActiveOverlay(
+		overlayCandidate(b.customCmds.Active, func() string { return b.customCmds.View(b.termWidth, b.termHeight) }),
+		overlayCandidate(b.scriptUI.Active, b.scriptUI.View),
+		overlayCandidate(func() bool { return b.editor.state != editorNone }, func() string { return f.renderEditor(frameH) }),
+		overlayCandidate(b.peek.Active, func() string { return b.peek.View(w, h) }),
+		overlayCandidate(b.switcher.Active, b.switcher.View),
+		overlayCandidate(b.search.Active, func() string { return b.search.View(w, h) }),
+		overlayCandidate(b.templateMenu.Active, func() string { return b.templateMenu.View(w, h) }),
+		overlayCandidate(b.templateFlow.Active, b.templateFlow.View),
+		overlayCandidate(b.frontmatterEdit.Active, b.frontmatterEdit.View),
+		overlayCandidate(b.git.Active, b.git.View),
+		overlayCandidate(b.zellij.Active, b.zellij.View),
+	)
 }

@@ -27,7 +27,7 @@ func TestBoardViewFrame_OverlayPriorityCustomAndScriptOverEditor(t *testing.T) {
 	b.scriptUI.OpenPicker("cmd", "tok", "Script picker", []string{"script choice"})
 	b.customCmds.Open([]config.Command{{Name: "Custom first"}}, nil, nil, nil)
 
-	overlay := boardViewFrame{b: b}.activeOverlay(120, 30)
+	overlay := boardViewFrame{b: b}.activeOverlay(120, 30, 28)
 	if !strings.Contains(overlay, "Custom commands") || !strings.Contains(overlay, "Custom first") {
 		t.Fatalf("custom command menu should render above script/editor:\n%s", overlay)
 	}
@@ -36,7 +36,7 @@ func TestBoardViewFrame_OverlayPriorityCustomAndScriptOverEditor(t *testing.T) {
 	}
 
 	b.customCmds.Close()
-	overlay = boardViewFrame{b: b}.activeOverlay(120, 30)
+	overlay = boardViewFrame{b: b}.activeOverlay(120, 30, 28)
 	if !strings.Contains(overlay, "Script picker") || !strings.Contains(overlay, "script choice") {
 		t.Fatalf("script UI should render above editor when custom menu is closed:\n%s", overlay)
 	}
@@ -47,7 +47,7 @@ func TestBoardViewFrame_OverlayPriorityEditorBeforePassivePanels(t *testing.T) {
 	b := boardWithNCols(t, 1, 1)
 	openTestEditor(t, b)
 
-	overlay := boardViewFrame{b: b}.activeOverlay(120, 30)
+	overlay := boardViewFrame{b: b}.activeOverlay(120, 30, 28)
 	if overlay == "" {
 		t.Fatal("editor overlay is empty")
 	}
@@ -108,7 +108,7 @@ func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 	b.mnemonicMode = true
 	b.mnemonicInput.SetValue("sf")
 
-	out, _, _ := boardViewFrame{b: b}.renderBase(120, 30)
+	out, _ := boardViewFrame{b: b}.renderBase(120, 30)
 	stripped := ansi.Strip(out)
 	if !strings.Contains(stripped, ": sf") {
 		t.Fatalf("base view missing mnemonic input:\n%s", out)
@@ -155,17 +155,56 @@ func TestBoardViewFrame_EditorSuppressesBoardStatusBar(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 1, 1)
 
-	_, _, barH := boardViewFrame{b: b}.renderBase(120, 30)
-	if barH == 0 {
-		t.Fatal("status bar height = 0 before editor opens, want visible keybar")
+	_, layout := boardViewFrame{b: b}.renderBase(120, 30)
+	if layout.footerH == 0 {
+		t.Fatal("footer height = 0 before editor opens, want visible keybar")
+	}
+	if layout.footer == "" {
+		t.Fatal("footer is empty before editor opens, want visible keybar")
 	}
 
 	openTestEditor(t, b)
-	_, headerH, barH := boardViewFrame{b: b}.renderBase(120, 30)
-	if barH != 0 {
-		t.Fatalf("status bar height = %d with editor open, want 0", barH)
+	_, layout = boardViewFrame{b: b}.renderBase(120, 30)
+	if layout.footerH != 0 {
+		t.Fatalf("footer height = %d with editor open, want 0", layout.footerH)
 	}
-	if b.editor.headerReserve != headerH {
-		t.Fatalf("editor headerReserve = %d, want header height %d", b.editor.headerReserve, headerH)
+	if layout.footer != "" {
+		t.Fatalf("footer rendered with editor open:\n%s", layout.footer)
+	}
+	frameH := layout.overlayBandH(30)
+	overlay := boardViewFrame{b: b}.activeOverlay(120, 30, frameH)
+	if overlay == "" {
+		t.Fatal("editor overlay is empty")
+	}
+	if b.editor.frameHeight != frameH {
+		t.Fatalf("editor frameHeight = %d, want overlay band height %d", b.editor.frameHeight, frameH)
+	}
+}
+
+func TestBoardViewFrame_BaseFramePinsFooterToTerminalHeight(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 1, 1)
+	const termH = 60
+
+	base, layout := boardViewFrame{b: b}.renderBase(120, termH)
+	if layout.footerH == 0 {
+		t.Fatal("footer height = 0, want visible keybar")
+	}
+	if got := lipgloss.Height(base); got != termH {
+		t.Fatalf("base height = %d, want terminal height %d", got, termH)
+	}
+}
+
+func TestBoardViewFrame_OverlayBandExcludesFooter(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 1, 1)
+
+	_, layout := boardViewFrame{b: b}.renderBase(120, 30)
+	if layout.footerH == 0 {
+		t.Fatal("footer height = 0, want visible keybar")
+	}
+	want := 30 - layout.headerH - layout.footerH
+	if got := layout.overlayBandH(30); got != want {
+		t.Fatalf("overlay band height = %d, want %d", got, want)
 	}
 }

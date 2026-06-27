@@ -58,13 +58,13 @@ type Editor struct {
 	expanded      bool
 	termWidth     int
 	termHeight    int
+	frameHeight   int // overlay band rows from the last board frame; keeps vim sizing stable during input
 	palette       Palette
 
 	// vim modal editor (used for text states when cfg.Editor.Vim is true).
 	vim              bool
 	buf              *vimbuf.Buffer
 	showHelp         bool                       // vim cheatsheet overlay (:help) is open
-	headerReserve    int                        // rows the board reserves above/below (header+keybar)
 	status           string                     // transient status line (errors, :q hint)
 	swapFile         string                     // crash-recovery sidecar path ("" = disabled)
 	swapWriteFailed  bool                       // last swap flush failed — crash recovery is unavailable
@@ -107,6 +107,13 @@ func (e *Editor) applySize() {
 	}
 }
 
+func (e *Editor) vimFrameHeight() int {
+	if e.frameHeight > 0 {
+		return e.frameHeight
+	}
+	return e.termHeight
+}
+
 // vimSize returns the buffer's content (width, height) for the modal. It is a
 // fixed generous fraction of the terminal (not fit-to-content) so the editor is
 // a consistently large modal regardless of how much text it holds, while a cap
@@ -121,11 +128,9 @@ func (e *Editor) vimSize() (int, int) {
 		wCap, hCap = 130, 60
 	}
 	w := max(min(e.termWidth-8, wCap), 20)
-	// Reserve the board's header/keybar rows so the modal fits the band it is
-	// composited into; headerReserve is set by the board and is stable, so the
-	// height is identical at scroll-time and render-time (no off-by-one at the
-	// bottom).
-	h := max(min(e.termHeight-9-e.headerReserve, hCap), 6)
+	// Size against the overlay band cached from the last frame so input-time
+	// resizing and render-time sizing agree.
+	h := max(min(e.vimFrameHeight()-9, hCap), 6)
 	return w, h
 }
 
@@ -1091,6 +1096,17 @@ func (e *Editor) modeBadge() string {
 }
 
 func (e *Editor) View() string {
+	return e.view()
+}
+
+func (e *Editor) viewInFrame(frameH int) string {
+	if frameH > 0 {
+		e.frameHeight = frameH
+	}
+	return e.view()
+}
+
+func (e *Editor) view() string {
 	if e.state == editorNone {
 		return ""
 	}
