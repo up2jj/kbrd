@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // boardPresenter owns render-time layout metadata that input handling consults

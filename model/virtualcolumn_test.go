@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -34,7 +34,7 @@ func TestVirtualColumn_SetAppendsAndRenders(t *testing.T) {
 	if !vc.Virtual || vc.VID != "tasks" {
 		t.Fatalf("tail column not the virtual one: virtual=%v vid=%q", vc.Virtual, vc.VID)
 	}
-	out := b.View()
+	out := b.View().Content
 	if !strings.Contains(out, "TASKS") {
 		t.Errorf("View missing virtual column name:\n%s", out)
 	}
@@ -52,7 +52,7 @@ func TestVirtualColumn_TabNavigatesInto(t *testing.T) {
 	b.setVirtualColumn("tasks", vspec("Tasks", "alpha"))
 
 	b.selectedCol = 1 // last filesystem column
-	b.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	b.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	if b.selectedCol != 2 {
 		t.Fatalf("Tab from last fs column: selectedCol = %d, want 2 (virtual)", b.selectedCol)
 	}
@@ -100,7 +100,7 @@ func TestVirtualColumn_EmptyPersistsAndShowsPlaceholder(t *testing.T) {
 	if len(b.columns) != 2 || !b.columns[1].Virtual {
 		t.Fatalf("virtual column lost across reload: %d columns", len(b.columns))
 	}
-	out := b.View()
+	out := b.View().Content
 	if !strings.Contains(out, "no open tasks") {
 		t.Errorf("empty placeholder not rendered:\n%s", out)
 	}
@@ -310,7 +310,7 @@ kbrd.column.set("tasks", {
 
 	// Focus the virtual column and press the command key.
 	b.selectedCol = 1
-	_, cmd := b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	_, cmd := b.handleKey(keyPressText("c"))
 	drain(cmd) // run the produced tea.Cmd(s) so the script executes
 
 	got, err := os.ReadFile(out)
@@ -373,7 +373,7 @@ kbrd.column.set("tasks", {
 	})
 
 	b.selectedCol = 1
-	_, cmd := b.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := b.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	drain(cmd)
 
 	got, err := os.ReadFile(out)

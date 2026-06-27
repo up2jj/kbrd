@@ -5,9 +5,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Peek struct {
@@ -54,7 +55,7 @@ func (p *Peek) Close() {
 	p.offset = 0
 }
 
-func (p *Peek) Update(msg tea.KeyMsg) {
+func (p *Peek) Update(msg tea.KeyPressMsg) {
 	page := p.pageSize
 	if page <= 0 {
 		page = 1
@@ -120,18 +121,33 @@ func (p *Peek) scrollbar(height, total int) []string {
 	return rows
 }
 
+func normalizePeekRows(lines []string, width int) []string {
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		if lipgloss.Width(line) > width {
+			line = ansi.Truncate(line, width, "…")
+		}
+		if pad := width - lipgloss.Width(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		out[i] = line
+	}
+	return out
+}
+
 // HandleMouse scrolls the body on wheel events; other mouse input is ignored.
 func (p *Peek) HandleMouse(msg tea.MouseMsg) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		p.ScrollBy(-3)
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		p.ScrollBy(3)
 	}
 }
 
 func peekInnerWidth(termWidth int) int {
-	return max(peekFrameWidth(termWidth)-2*overlayPadH, 1)
+	border := lipgloss.RoundedBorder()
+	return max(peekFrameWidth(termWidth)-lipgloss.Width(border.Left+border.Right)-2*overlayPadH, 1)
 }
 
 func peekOuterWidth(termWidth int) int {
@@ -528,16 +544,15 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	for len(visible) < pageSize {
 		visible = append(visible, blankRow)
 	}
+	visible = normalizePeekRows(visible, bodyWidth)
 
 	totalPages := max((len(p.lines)+pageSize-1)/pageSize, 1)
 	currentPage := min(p.offset/pageSize+1, totalPages)
 
-	body := strings.Join(visible, "\n")
-
 	// The scrollbar gutter is always reserved (see peekScrollbarGutter), so the
 	// body wraps to a constant width and the modal height never changes; the bar
 	// itself only appears once content overflows a page.
-	bodyBlock := lipgloss.NewStyle().Width(bodyWidth).Render(body)
+	bodyBlock := strings.Join(visible, "\n")
 	blankGutter := make([]string, pageSize)
 	for i := range blankGutter {
 		blankGutter[i] = " "

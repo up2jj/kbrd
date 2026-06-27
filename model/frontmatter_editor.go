@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/frontmatter"
 )
@@ -198,7 +198,7 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 	// Cancelling needs a double esc: the first arms (and still reaches huh, so
 	// field-level esc bindings keep working), the second closes. Any other key
 	// disarms. Mirrors TemplateFlow.
-	if k, ok := msg.(tea.KeyMsg); ok {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
 		if k.String() == "esc" {
 			if e.escArmed {
 				e.Close()
@@ -213,7 +213,7 @@ func (e *FrontmatterEditor) Update(msg tea.Msg) tea.Cmd {
 	// On the value stage the key is already chosen, so ctrl+d removes it
 	// outright. Intercepted before the form so the value Input never sees it.
 	if e.stage == feValue {
-		if k, ok := msg.(tea.KeyMsg); ok && k.String() == "ctrl+d" {
+		if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "ctrl+d" {
 			out := newStableFrontmatterSubmitMsg(e.target, e.colIndex, e.fileName, e.keyVal, "", true)
 			e.Close()
 			return func() tea.Msg { return out }

@@ -2,16 +2,17 @@ package model
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/vimbuf"
 )
@@ -164,7 +165,7 @@ func NewEditor(vim bool) *Editor {
 
 	ti := textinput.New()
 	ti.CharLimit = 120
-	ti.Width = 60
+	ti.SetWidth(60)
 	ti.Placeholder = "filename (without .md)"
 
 	return &Editor{textarea: ta, textinput: ti, palette: DarkPalette(), vim: vim}
@@ -209,10 +210,10 @@ func (e *Editor) HandleMouse(msg tea.MouseMsg) {
 	if !e.vim || e.buf == nil {
 		return
 	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		e.buf.Scroll(-3)
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		e.buf.Scroll(3)
 	}
 }
@@ -460,7 +461,7 @@ func (e *Editor) ReplaceLine(row int, s string) {
 	for e.textarea.Line() > desired {
 		e.textarea.CursorUp()
 	}
-	e.textarea.SetCursor(1 << 30) // clamps to end of the current line
+	e.textarea.SetCursorColumn(1 << 30) // clamps to end of the current line
 
 	// SetValue runs the textarea's Reset, which jumps the viewport to the top.
 	// The viewport only re-follows the cursor inside textarea.Update (never in
@@ -514,8 +515,12 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, tea.Msg) {
 		return nil, nil
 	}
 
+	if paste, ok := msg.(tea.PasteMsg); ok && e.vim && !isInputState(e.state) {
+		return e.updateVimPaste(paste.Content)
+	}
+
 	keyStr := ""
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		keyStr = keyMsg.String()
 		if e.vim && !isInputState(e.state) {
 			return e.updateVim(keyMsg, keyStr)
@@ -695,20 +700,10 @@ func (e *Editor) startVim(initial string, insert bool) tea.Cmd {
 }
 
 // updateVim routes a key in the vim path: chrome chords first, then the buffer.
-func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) {
+func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.Msg) {
 	// The cheatsheet swallows the next key to dismiss itself.
 	if e.showHelp {
 		e.showHelp = false
-		return nil, nil
-	}
-	// Bracketed paste (terminal cmd/ctrl+v): insert the pasted text literally.
-	if keyMsg.Paste {
-		if e.buf.Mode() == vimbuf.ModeInsert {
-			e.buf.InsertText(string(keyMsg.Runes))
-			e.flushSwap()
-		} else if e.buf.Mode() == vimbuf.ModeCommand {
-			return e.applyVimEffect(e.feedVimRunes(keyMsg.Runes))
-		}
 		return nil, nil
 	}
 	// ctrl+v pastes the system clipboard at the cursor.
@@ -752,17 +747,29 @@ func (e *Editor) updateVim(keyMsg tea.KeyMsg, keyStr string) (tea.Cmd, tea.Msg) 
 		return nil, nil
 	}
 	e.status = ""
-	// A KeyRunes message can carry several runes at once — fast typing, an IME
-	// commit, or an unbracketed paste that arrives without the Paste flag. The
-	// per-key handlers (insert-mode rune insert, normal-mode dispatch) take one
-	// key at a time and would otherwise drop a multi-rune chunk entirely, so feed
-	// the runes individually. Special keys arrive with a non-Runes Type and are
-	// unaffected.
-	if keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) > 1 {
-		return e.applyVimEffect(e.feedVimRunes(keyMsg.Runes))
+	// A key press can carry several runes at once — fast typing or an IME
+	// commit. The per-key handlers take one key at a time and would otherwise
+	// drop a multi-rune chunk entirely, so feed the runes individually. Special
+	// keys arrive with empty Text and are unaffected.
+	if rs := []rune(keyMsg.Text); len(rs) > 1 {
+		return e.applyVimEffect(e.feedVimRunes(rs))
 	}
 	eff := e.buf.HandleKey(keyStr)
 	return e.applyVimEffect(eff)
+}
+
+func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {
+	if text == "" {
+		return nil, nil
+	}
+	switch e.buf.Mode() {
+	case vimbuf.ModeInsert:
+		e.buf.InsertText(text)
+		e.flushSwap()
+	case vimbuf.ModeCommand:
+		return e.applyVimEffect(e.feedVimRunes([]rune(text)))
+	}
+	return nil, nil
 }
 
 func (e *Editor) feedVimRunes(rs []rune) vimbuf.Effect {
@@ -892,9 +899,10 @@ func (e *Editor) itemTarget() itemRefStable {
 
 func (e *Editor) vimView() string {
 	e.applySize() // re-fit the modal height to the current content before rendering
-	// The frame's content area is its Width minus the horizontal padding, so add
-	// that padding back to keep the buffer's full content width unwrapped.
-	frameW := e.buf.Width() + 2*overlayPadH
+	// The frame's body area is its Width minus horizontal padding and side
+	// borders, so add both back to keep the buffer's scrollbar lane unwrapped.
+	border := lipgloss.RoundedBorder()
+	frameW := e.buf.Width() + 2*overlayPadH + lipgloss.Width(border.Left+border.Right)
 	if e.showHelp {
 		return OverlayFrame{
 			Title:   "Vim cheatsheet",
@@ -1066,7 +1074,7 @@ func (e *Editor) vimFooter() string {
 // so the active mode is unmistakable at a glance.
 func (e *Editor) modeBadge() string {
 	p := e.palette
-	var bg lipgloss.Color
+	var bg color.Color
 	switch e.buf.Mode() {
 	case vimbuf.ModeInsert:
 		bg = p.Success

@@ -14,10 +14,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"github.com/sahilm/fuzzy"
 )
 
@@ -81,7 +81,7 @@ type Model struct {
 func New(keys KeyMap) Model {
 	ti := textinput.New()
 	ti.Prompt = "Filter: "
-	vp := viewport.New(0, 0)
+	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.MouseWheelEnabled = false // the host routes wheel events via ScrollBy
 	return Model{vp: vp, filter: ti, keys: keys}
 }
@@ -111,12 +111,12 @@ func (m *Model) Reload() { m.rebuildVisible() }
 // Update handles cursor movement and the filter text-input flow. While the
 // filter is focused every key is consumed; otherwise only the up/down bindings.
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
 	}
 	if m.state == filtering {
-		switch km.Type {
+		switch km.Code {
 		case tea.KeyEsc:
 			m.ClearFilter()
 			return nil
@@ -279,7 +279,7 @@ func (m *Model) HitTest(y int) (int, bool) {
 	if y < 0 {
 		return 0, false
 	}
-	abs := m.vp.YOffset + y
+	abs := m.vp.YOffset() + y
 	acc := 0
 	for vi := range m.visible {
 		h := m.heightOf(vi)
@@ -293,8 +293,8 @@ func (m *Model) HitTest(y int) (int, bool) {
 
 // AboveBelow counts visible items scrolled entirely above / below the viewport.
 func (m *Model) AboveBelow() (above, below int) {
-	top := m.vp.YOffset
-	bot := m.vp.YOffset + m.vp.Height
+	top := m.vp.YOffset()
+	bot := m.vp.YOffset() + m.vp.Height()
 	acc := 0
 	for vi := range m.visible {
 		h := m.heightOf(vi)
@@ -318,7 +318,7 @@ func (m *Model) ScrollMetrics() (offset, viewport, content int) {
 	for vi := range m.visible {
 		total += m.heightOf(vi)
 	}
-	return m.vp.YOffset, m.vp.Height, total
+	return m.vp.YOffset(), m.vp.Height(), total
 }
 
 // HeaderLines is the number of rows the filter bar occupies (0 or 1).
@@ -343,10 +343,10 @@ func (m *Model) ScrollBy(n int) {
 
 func (m *Model) syncViewport() {
 	h := max(m.height-m.HeaderLines(), 0)
-	m.vp.Width = m.width
-	m.vp.Height = h
+	m.vp.SetWidth(m.width)
+	m.vp.SetHeight(h)
 	// Size the text area to the column, leaving room for the "Filter: " prompt.
-	m.filter.Width = max(m.width-len(m.filter.Prompt)-1, 1)
+	m.filter.SetWidth(max(m.width-len(m.filter.Prompt)-1, 1))
 }
 
 func (m *Model) rebuildVisible() {
@@ -426,7 +426,7 @@ func (m *Model) pageCursor(dir int) {
 	if len(m.visible) == 0 {
 		return
 	}
-	page := max(m.vp.Height, 1)
+	page := max(m.vp.Height(), 1)
 	target := m.cursor
 	acc := 0
 	for i := m.cursor + dir; i >= 0 && i < len(m.visible); i += dir {
@@ -483,9 +483,9 @@ func (m *Model) ensureVisible() {
 	top := m.offsetOf(m.cursor)
 	h := m.heightOf(m.cursor)
 	switch {
-	case top < m.vp.YOffset:
+	case top < m.vp.YOffset():
 		m.vp.SetYOffset(top)
-	case top+h > m.vp.YOffset+m.vp.Height:
-		m.vp.SetYOffset(top + h - m.vp.Height)
+	case top+h > m.vp.YOffset()+m.vp.Height():
+		m.vp.SetYOffset(top + h - m.vp.Height())
 	}
 }

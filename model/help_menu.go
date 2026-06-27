@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/theme"
@@ -167,7 +167,7 @@ func (m *HelpMenu) SelectedEntry() HelpEntry {
 // calls it only after direct-key execution has had first claim, so a key that
 // names a runnable row runs it and never reaches navigation. ↑/↓ and vim j/k
 // move within the list; ←/→ (handled by the board) switch the focused column.
-func (m *HelpMenu) Update(msg tea.KeyMsg) {
+func (m *HelpMenu) Update(msg tea.KeyPressMsg) {
 	if len(m.nav) == 0 {
 		return
 	}
@@ -197,10 +197,10 @@ func (m *HelpMenu) ScrollBy(delta int) {
 }
 
 func (m *HelpMenu) HandleMouse(msg tea.MouseMsg) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		m.ScrollBy(-3)
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.ScrollBy(3)
 	}
 }
@@ -260,7 +260,7 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
 	}
 	for len(lines) < resultRows {
-		lines = append(lines, "")
+		lines = append(lines, " ")
 	}
 
 	for i, l := range lines {
@@ -269,6 +269,9 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		}
 	}
 	bodyBlock := lipgloss.NewStyle().Width(rowW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	for lipgloss.Height(bodyBlock) < resultRows {
+		bodyBlock += "\n" + strings.Repeat(" ", rowW)
+	}
 	if len(m.rows) > resultRows {
 		bar := strings.Join(m.scrollbar(end-start, len(m.rows), start), "\n")
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
@@ -293,14 +296,14 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		body = lipgloss.JoinVertical(lipgloss.Left, lipgloss.NewStyle().Width(textW).Render(prompt), "", body)
 	}
 
-	gap := max(textW-lipgloss.Width(hints)-lipgloss.Width(pos), 1)
+	gap := max(textW-lipgloss.Width(hints)-lipgloss.Width(pos)-2, 1)
 	footer := hints + strings.Repeat(" ", gap) + pos
 
 	title := "Keybindings"
 	if m.context != "" {
 		title += " · " + m.context
 	}
-	boxWidth := textW + 2*overlayPadH
+	boxWidth := textW + 2*overlayPadH + 2
 	menu := OverlayFrame{
 		Title:   title,
 		Body:    body,

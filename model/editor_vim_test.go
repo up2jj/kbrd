@@ -3,16 +3,18 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 	"kbrd/script"
 	"kbrd/vimbuf"
 )
 
-func runeKey(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
+func runeKey(r rune) tea.KeyPressMsg { return keyPressText(string(r)) }
 
 // feedRunes sends each rune of s as a separate key to the editor.
 func feedRunes(e *Editor, s string) {
@@ -22,7 +24,7 @@ func feedRunes(e *Editor, s string) {
 }
 
 // vimMsg sends one key and returns the message its command produced (if any).
-func vimMsg(e *Editor, k tea.KeyMsg) tea.Msg {
+func vimMsg(e *Editor, k tea.KeyPressMsg) tea.Msg {
 	cmd, _ := e.Update(k)
 	if cmd != nil {
 		return cmd()
@@ -50,7 +52,7 @@ func TestVimEditAndSave(t *testing.T) {
 	// Normal mode: A appends at EOL, type, esc.
 	e.Update(runeKey('A'))
 	feedRunes(e, " world")
-	e.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	e.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if got := e.buf.Text(); got != "hello world" {
 		t.Fatalf("buffer = %q, want %q", got, "hello world")
@@ -62,7 +64,7 @@ func TestVimEditAndSave(t *testing.T) {
 	// :w saves (and stays open for an edit).
 	e.Update(runeKey(':'))
 	e.Update(runeKey('w'))
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyEnter})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: tea.KeyEnter})
 	save, ok := msg.(editorSaveMsg)
 	if !ok {
 		t.Fatalf(":w produced %T, want editorSaveMsg", msg)
@@ -97,7 +99,7 @@ func TestVimOpenSavePreservesTrailingNewlines(t *testing.T) {
 		t.Fatalf("editor should not be dirty immediately after opening exact file text")
 	}
 
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyCtrlS})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	save, ok := msg.(editorSaveMsg)
 	if !ok {
 		t.Fatalf("ctrl+s produced %T, want editorSaveMsg", msg)
@@ -119,7 +121,7 @@ func TestVimManagedFilePreservesTrailingNewlines(t *testing.T) {
 	if got := e.buf.Text(); got != "alpha\n\n" {
 		t.Fatalf("managed buffer = %q, want exact trailing newlines", got)
 	}
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyCtrlS})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	save, ok := msg.(managedFileSaveMsg)
 	if !ok {
 		t.Fatalf("ctrl+s produced %T, want managedFileSaveMsg", msg)
@@ -129,17 +131,42 @@ func TestVimManagedFilePreservesTrailingNewlines(t *testing.T) {
 	}
 }
 
+func TestVimViewScrollbarUsesReservedRightLane(t *testing.T) {
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "x"
+	}
+	e, _ := openVimEdit(t, strings.Join(lines, "\n"))
+
+	out := ansi.Strip(e.View())
+	scrollbarX := 1 + overlayPadH + e.buf.Width() - 1
+	foundThumb := false
+	for _, line := range strings.Split(out, "\n") {
+		x := runeIndex(line, '█')
+		if x < 0 {
+			continue
+		}
+		foundThumb = true
+		if x != scrollbarX {
+			t.Fatalf("vim scrollbar thumb x = %d, want %d in line %q", x, scrollbarX, line)
+		}
+	}
+	if !foundThumb {
+		t.Fatal("vim scrollbar thumb was not rendered")
+	}
+}
+
 func TestVimCommandPasteDoesNotMutateBuffer(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")
 	e.Update(runeKey(':'))
-	e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w"), Paste: true})
+	e.Update(tea.PasteMsg{Content: "w"})
 	if got := e.buf.Text(); got != "hello" {
 		t.Fatalf("command paste mutated buffer: %q", got)
 	}
 	if got := e.buf.CommandLine(); got != "w" {
 		t.Fatalf("command line after paste = %q, want w", got)
 	}
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyEnter})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if _, ok := msg.(editorSaveMsg); !ok {
 		t.Fatalf("pasted :w produced %T, want editorSaveMsg", msg)
 	}
@@ -152,7 +179,7 @@ func TestVimQuitGuard(t *testing.T) {
 
 	e.Update(runeKey(':'))
 	e.Update(runeKey('q'))
-	e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if e.state == editorNone {
 		t.Fatalf(":q on a dirty buffer must not close")
 	}
@@ -161,7 +188,7 @@ func TestVimQuitGuard(t *testing.T) {
 	e.Update(runeKey(':'))
 	e.Update(runeKey('q'))
 	e.Update(runeKey('!'))
-	e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if e.state != editorNone {
 		t.Fatalf(":q! should close, state = %v", e.state)
 	}
@@ -172,7 +199,7 @@ func TestVimLuaEvalMsg(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")
 	e.Update(runeKey(':'))
 	feedRunes(e, "lua up(line)")
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyEnter})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: tea.KeyEnter})
 	ev, ok := msg.(editorEvalMsg)
 	if !ok {
 		t.Fatalf(":lua produced %T, want editorEvalMsg", msg)
@@ -222,7 +249,7 @@ func TestVimSwapRecovery(t *testing.T) {
 // esc from Normal mode closes a clean editor; from Insert it returns to Normal.
 func TestVimEscCloses(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")
-	esc := tea.KeyMsg{Type: tea.KeyEsc}
+	esc := tea.KeyPressMsg{Code: tea.KeyEsc}
 
 	// From Insert: esc returns to Normal, does not close.
 	e.Update(runeKey('i'))
@@ -245,7 +272,7 @@ func TestVimEscCloses(t *testing.T) {
 func TestVimEscDirtyPrompts(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")
 	e.Update(runeKey('x')) // dirty
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyEsc})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if _, ok := msg.(editorConfirmDiscardMsg); !ok {
 		t.Fatalf("esc on dirty buffer produced %T, want editorConfirmDiscardMsg", msg)
 	}
@@ -383,12 +410,12 @@ func TestVimMultiRuneKeyInserts(t *testing.T) {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
 	}
 
-	e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Asia")})
+	e.Update(keyPressText("Asia"))
 	if got := e.buf.Text(); got != "Asia" {
 		t.Fatalf("multi-rune key dropped text: got %q want Asia", got)
 	}
 	// A following single-rune key keeps working.
-	e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
+	e.Update(keyPressText("!"))
 	if got := e.buf.Text(); got != "Asia!" {
 		t.Fatalf("got %q want Asia!", got)
 	}
@@ -406,15 +433,15 @@ func TestVimJournalMultiRunePreservesCase(t *testing.T) {
 		t.Fatalf("expected insert mode, got %v", e.buf.Mode())
 	}
 
-	e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Asia")})
-	e.Update(tea.KeyMsg{Type: tea.KeySpace})
+	e.Update(keyPressText("Asia"))
+	e.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if got := e.buf.Text(); got != "Asia " {
 		t.Fatalf("buffer = %q, want %q", got, "Asia ")
 	}
 
 	// ctrl+s emits the journal save message carrying the buffer text verbatim;
 	// board.DetectDate then preserves the remainder's case (see TestDetectDate).
-	msg := vimMsg(e, tea.KeyMsg{Type: tea.KeyCtrlS})
+	msg := vimMsg(e, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	j, ok := msg.(editorJournalMsg)
 	if !ok {
 		t.Fatalf("save produced %T, want editorJournalMsg", msg)

@@ -1,8 +1,8 @@
 package model
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 type boardInputRouter struct {
@@ -13,7 +13,7 @@ func (b *Board) inputRouter() boardInputRouter {
 	return boardInputRouter{board: b}
 }
 
-func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (r boardInputRouter) HandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := r.board
 	// While waiting for a sync to finish, a second Ctrl+C force-quits.
 	if b.shuttingDown && key.Matches(msg, Keys.Quit) {
@@ -79,7 +79,7 @@ func (r boardInputRouter) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b.handleBoardKey(msg)
 }
 
-func (r boardInputRouter) handleConfigMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (r boardInputRouter) handleConfigMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := r.board
 	switch {
 	case key.Matches(msg, Keys.Quit):
@@ -106,7 +106,7 @@ func (r boardInputRouter) handleConfigMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return b, nil
 }
 
-func (r boardInputRouter) handlePeekAction(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	b := r.board
 	action := byte(0)
 	switch {
@@ -133,7 +133,7 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return b.itemActions().dispatch(action, refForItem(col, col.SelectedItem())), true
 }
 
-func (r boardInputRouter) handleEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (r boardInputRouter) handleEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := r.board
 	// The textarea path treats esc as cancel (with a discard confirm when dirty);
 	// the vim path handles esc itself and quits via :q/:q!.
@@ -148,6 +148,6 @@ func (r boardInputRouter) handleEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, cmd
 }
 
-func (b *Board) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (b *Board) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return b.inputRouter().HandleKey(msg)
 }

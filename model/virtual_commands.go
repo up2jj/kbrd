@@ -3,8 +3,8 @@ package model
 import (
 	"slices"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 type boardVirtualCommands struct {
@@ -19,7 +19,7 @@ func (b *Board) virtualCommands() boardVirtualCommands {
 // handled=true when it consumed the key (a column command, Enter's default
 // action, or a swallowed built-in mutation key); handled=false lets the shared
 // switch process navigation/global keys (and the X menu).
-func (v boardVirtualCommands) handleKey(msg tea.KeyMsg, col *Column) (tea.Cmd, bool) {
+func (v boardVirtualCommands) handleKey(msg tea.KeyPressMsg, col *Column) (tea.Cmd, bool) {
 	// Let the shared switch open the X menu (it builds the scoped command list).
 	if key.Matches(msg, Keys.CustomCommands) {
 		return nil, false
@@ -32,7 +32,7 @@ func (v boardVirtualCommands) handleKey(msg tea.KeyMsg, col *Column) (tea.Cmd, b
 		item = sel
 	}
 
-	if msg.Type == tea.KeyEnter {
+	if msg.Code == tea.KeyEnter {
 		if hasItem {
 			return v.runDefault(col, sel), true
 		}
@@ -114,7 +114,7 @@ var virtualBlockedBindings = []key.Binding{
 }
 
 // isVirtualBlockedKey reports whether a pressed key is virtual-blocked.
-func isVirtualBlockedKey(msg tea.KeyMsg) bool {
+func isVirtualBlockedKey(msg tea.KeyPressMsg) bool {
 	for _, bnd := range virtualBlockedBindings {
 		if key.Matches(msg, bnd) {
 			return true

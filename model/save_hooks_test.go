@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -161,7 +161,7 @@ func TestMouseSelectionDelete_UsesStableRefForDelayedMutation(t *testing.T) {
 	if !ok {
 		t.Fatal("failed to find mouse hit point for second column item")
 	}
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	if b.selectedCol != 1 {
 		t.Fatalf("mouse selected col %d, want 1", b.selectedCol)
 	}

@@ -1,8 +1,8 @@
 package model
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
-	tea "github.com/charmbracelet/bubbletea"
 
 	"kbrd/board"
 	"kbrd/events"

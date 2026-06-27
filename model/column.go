@@ -2,14 +2,15 @@ package model
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/board"
@@ -101,7 +102,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 	// mnemonic cell visually belongs to the row. The card border doubles as a
 	// selection cue: accent when selected, muted otherwise.
 	p := d.palette
-	var rowBg, mnemFg, nameFg, cardBorder lipgloss.Color
+	var rowBg, mnemFg, nameFg, cardBorder color.Color
 	hasRowBg := false
 	switch {
 	case isSelected && d.isActive:
@@ -149,7 +150,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 	}
 
 	// Preview block — N rows depending on the layout's density.
-	var previewFg, detailBg lipgloss.Color
+	var previewFg, detailBg color.Color
 	switch {
 	case isSelected && d.isActive:
 		previewFg = p.FgSelectedPreview
@@ -197,7 +198,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 		badStyle := lipgloss.NewStyle().Foreground(p.Warning).Bold(true)
 		meta += "  ·  " + badStyle.Render("⚠ yaml")
 	}
-	var metaFg lipgloss.Color
+	var metaFg color.Color
 	switch {
 	case isSelected && d.isActive:
 		metaFg = p.AccentSoft
@@ -225,7 +226,7 @@ func renderItem(item Item, selected bool, cfg renderConfig) string {
 
 // fieldsRow renders the frontmatter `render:` line ("key: value  ·  …") styled
 // to sit in the card body, mirroring the preview/meta selected treatment.
-func fieldsRow(item Item, selectedActive bool, innerW, gutterW int, detailBg lipgloss.Color, p Palette) string {
+func fieldsRow(item Item, selectedActive bool, innerW, gutterW int, detailBg color.Color, p Palette) string {
 	style := lipgloss.NewStyle().Width(innerW).MaxWidth(innerW).PaddingLeft(gutterW).Foreground(p.FgEmphasis)
 	if selectedActive {
 		style = style.Foreground(p.FgSelectedPreview).Background(detailBg)
@@ -351,12 +352,11 @@ func previewBlock(lines []string, n, innerW, gutterW int, style lipgloss.Style) 
 // reads as a kanban card. The border consumes 2 columns, bringing the total
 // width back to colWidth, and 2 rows; the body lines determine the rest of the
 // height (title + preview + optional fields + meta).
-func renderCard(innerW int, borderFg lipgloss.Color, lines ...string) string {
+func renderCard(innerW int, borderFg color.Color, lines ...string) string {
 	block := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderFg).
-		Width(innerW).
 		Render(block)
 }
 
@@ -365,7 +365,7 @@ func renderCard(innerW int, borderFg lipgloss.Color, lines ...string) string {
 // stay borderless — they are grouping rules, not cards.
 func renderSeparatorStr(item Item, d renderConfig) string {
 	p := d.palette
-	fg := p.FgMuted
+	var fg color.Color = p.FgMuted
 	if item.Accent != "" {
 		fg = lipgloss.Color(item.Accent)
 	}
@@ -406,7 +406,7 @@ func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 		mnemonic = d.mnemonicOf(item.Name)
 	}
 
-	var rowBg, mnemFg, nameFg, cardBorder lipgloss.Color
+	var rowBg, mnemFg, nameFg, cardBorder color.Color
 	hasRowBg := false
 	switch {
 	case isSelected && d.isActive:
@@ -445,7 +445,7 @@ func renderVirtualStr(item Item, isSelected bool, d renderConfig) string {
 		titleLines[i] = gutterStyle.Render(gt) + restStyle.Render(row)
 	}
 
-	var previewFg, detailBg lipgloss.Color
+	var previewFg, detailBg color.Color
 	switch {
 	case isSelected && d.isActive:
 		previewFg = p.FgSelectedPreview
@@ -515,8 +515,8 @@ type Column struct {
 	// "use the cfg/palette default". Width participates in layout geometry;
 	// headerFG/headerBG paint the header bar in renderHeader.
 	Width    int
-	headerFG lipgloss.Color
-	headerBG lipgloss.Color
+	headerFG color.Color
+	headerBG color.Color
 
 	// Collapsed is the user's persisted intent to shrink this column to a thin
 	// vertical bar (toggled with "|", restored from colstore on load). It is
@@ -774,7 +774,7 @@ func (c *Column) ScrollBy(n int) {
 
 func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicator) string {
 	p := c.palette
-	var nameFg, countFg, sepColor lipgloss.Color
+	var nameFg, countFg, sepColor color.Color
 	if isActive {
 		nameFg = p.FgStrong
 		countFg = p.Primary
@@ -798,11 +798,11 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicato
 	// finished line — every piece (including the plain pad/spacer) must carry
 	// the bg itself, else the gaps between segments show through. withBG adds it
 	// to a styled segment; fill paints a plain run. Both are no-ops when unset.
-	if c.headerFG != "" {
+	if c.headerFG != nil {
 		nameFg = c.headerFG
 	}
 	withBG := func(s lipgloss.Style) lipgloss.Style {
-		if c.headerBG != "" {
+		if c.headerBG != nil {
 			return s.Background(c.headerBG)
 		}
 		return s
@@ -836,7 +836,7 @@ func (c *Column) renderHeader(isActive bool, leftPad, width int, ind colIndicato
 	if ind.Text != "" {
 		// Script-set per-column label (kbrd.column.indicator). Default to the
 		// same soft accent as ƒ; a script-supplied fg/bold wins.
-		fg := c.palette.AccentSoft
+		var fg color.Color = c.palette.AccentSoft
 		if ind.FG != "" {
 			fg = lipgloss.Color(ind.FG)
 		}
@@ -964,8 +964,8 @@ func (c *Column) viewCollapsed(ctx RenderCtx) string {
 	c.width = ctx.Width
 
 	p := c.palette
-	nameFg := p.FgMuted
-	if c.headerFG != "" {
+	var nameFg color.Color = p.FgMuted
+	if c.headerFG != nil {
 		nameFg = c.headerFG
 	} else if c.Virtual {
 		nameFg = p.AccentSoft

@@ -3,9 +3,9 @@ package model
 import (
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type ButtonKind int
@@ -120,7 +120,7 @@ func (d *Dialog) Close() {
 	d.active = false
 }
 
-func (d *Dialog) Update(msg tea.KeyMsg) tea.Cmd {
+func (d *Dialog) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.DialogPrev):
 		if d.selected > 0 {
@@ -139,8 +139,8 @@ func (d *Dialog) Update(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, Keys.DialogCancel):
 		d.Close()
 	default:
-		if len(msg.Runes) == 1 {
-			raw := msg.Runes[0]
+		if len(msg.Text) == 1 {
+			raw := []rune(msg.Text)[0]
 			for i, b := range d.buttons {
 				if b.Hotkey != 0 && raw == b.Hotkey {
 					chosen := d.buttons[i]
@@ -220,9 +220,11 @@ func (d *Dialog) View() string {
 		btnRow = lipgloss.JoinHorizontal(lipgloss.Center, btnRow, "   ", b)
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		bodyStyle.Render(d.body),
-		"",
+	contentRows := make([]string, 0, 5)
+	if d.body != "" {
+		contentRows = append(contentRows, bodyStyle.Render(d.body), "")
+	}
+	contentRows = append(contentRows,
 		btnRow,
 		"",
 		RenderInlineHints([]Shortcut{
@@ -231,6 +233,7 @@ func (d *Dialog) View() string {
 			bindingShortcut(Keys.DialogCancel),
 		}),
 	)
+	content := lipgloss.JoinVertical(lipgloss.Center, contentRows...)
 
 	return OverlayFrame{Title: d.title, Body: content, Palette: p}.Render()
 }

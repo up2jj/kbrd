@@ -1,9 +1,10 @@
 package theme
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -12,7 +13,7 @@ import (
 // text; border is the border color; padV/padH are the inner padding; width is
 // the outer content width passed to lipgloss.Width (0 = fit content). The title
 // is truncated with an ellipsis when it would overflow the top edge.
-func RoundedFrame(title string, titleStyle lipgloss.Style, content string, border lipgloss.Color, padV, padH, width int) string {
+func RoundedFrame(title string, titleStyle lipgloss.Style, content string, border color.Color, padV, padH, width int) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderTop(false).
@@ -28,7 +29,7 @@ func RoundedFrame(title string, titleStyle lipgloss.Style, content string, borde
 
 // titledTopBorder builds the top border line of a rounded box, embedding title
 // after a single dash. outerW is the full box width including both corners.
-func titledTopBorder(title string, titleStyle lipgloss.Style, border lipgloss.Color, outerW int) string {
+func titledTopBorder(title string, titleStyle lipgloss.Style, border color.Color, outerW int) string {
 	b := lipgloss.RoundedBorder()
 	bs := lipgloss.NewStyle().Foreground(border)
 	inner := max(outerW-2, 0) // cells between the two corners

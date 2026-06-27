@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 )
@@ -36,13 +36,13 @@ func TestBoardMouseRouter_DialogBlocksBoardSelection(t *testing.T) {
 	}
 
 	b.dialog.OpenConfirm("Pending action", "Mouse should not select behind this dialog.", deleteConfirmMsg{})
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	if b.selectedCol != 0 {
 		t.Fatalf("selectedCol changed behind dialog to %d, want 0", b.selectedCol)
 	}
 
 	b.dialog.Close()
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	if b.selectedCol != 1 {
 		t.Fatalf("selectedCol after dialog close = %d, want 1", b.selectedCol)
 	}
@@ -79,7 +79,7 @@ func TestBoardMouseRouter_WheelScrollsHoveredColumnOnly(t *testing.T) {
 	}
 	beforeOffset, _, _ := b.columns[1].list.ScrollMetrics()
 
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonWheelDown})
+	b.mouseRouter().HandleMouse(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
 	_ = b.View()
 	afterOffset, _, _ := b.columns[1].list.ScrollMetrics()
 	if b.selectedCol != 0 {
@@ -122,7 +122,7 @@ func TestBoardMouseRouter_WheelScrollsHelpMenu(t *testing.T) {
 
 	b.helpMenu.SetPalette(DarkPalette())
 	b.helpMenu.Open(helpGroupsWithEntries(8))
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonWheelDown})
+	b.mouseRouter().HandleMouse(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
 	afterOffset, _, _ := b.columns[1].list.ScrollMetrics()
 
 	if got := b.helpMenu.SelectedRunKey(); got != "0" {
@@ -135,7 +135,7 @@ func TestBoardMouseRouter_WheelScrollsHelpMenu(t *testing.T) {
 		t.Fatalf("column scrolled behind help menu: before=%d after=%d", beforeOffset, afterOffset)
 	}
 
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonWheelUp})
+	b.mouseRouter().HandleMouse(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelUp})
 	if got := b.helpMenu.SelectedRunKey(); got != "0" {
 		t.Fatalf("help selection after wheel up = %q, want 0", got)
 	}
@@ -185,7 +185,7 @@ func TestBoardMouseRouter_WheelOverGitPanelDoesNotScrollColumn(t *testing.T) {
 	}
 	beforeOffset, _, _ := b.columns[1].list.ScrollMetrics()
 
-	b.mouseRouter().HandleMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonWheelDown})
+	b.mouseRouter().HandleMouse(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
 	_ = b.View()
 	afterOffset, _, _ := b.columns[1].list.ScrollMetrics()
 

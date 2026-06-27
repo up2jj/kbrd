@@ -1,9 +1,10 @@
 package model
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type Shortcut struct {
@@ -51,13 +52,13 @@ var (
 	helpSepStyle     lipgloss.Style
 	helpTitleStyle   lipgloss.Style
 	helpDimStyle     lipgloss.Style
-	helpConfigBorder lipgloss.Color
-	helpRowKey       lipgloss.Color
-	helpRowLabel     lipgloss.Color
-	helpExistsColor  lipgloss.Color
-	helpMissingColor lipgloss.Color
-	helpErrorColor   lipgloss.Color
-	helpPathColor    lipgloss.Color
+	helpConfigBorder color.Color
+	helpRowKey       color.Color
+	helpRowLabel     color.Color
+	helpExistsColor  color.Color
+	helpMissingColor color.Color
+	helpErrorColor   color.Color
+	helpPathColor    color.Color
 )
 
 func setHelpStyles(p Palette) {

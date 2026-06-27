@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func openTestPeek(t *testing.T, b *Board) {
@@ -16,6 +17,24 @@ func openTestPeek(t *testing.T, b *Board) {
 	}
 	if cmd := b.peek.Open(item.Title, "one\ntwo\nthree", b.termWidth); cmd != nil {
 		cmd()
+	}
+}
+
+func TestPeekActions_SpaceOpensPeek(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 1, 1)
+	writeColItem(t, b.columns[0], "task")
+
+	_, cmd := b.inputRouter().HandleKey(keyPressText(" "))
+	if cmd != nil {
+		cmd()
+	}
+
+	if !b.peek.Active() {
+		t.Fatal("space key did not open peek")
+	}
+	if b.peek.title != "task" {
+		t.Fatalf("peek title = %q, want task", b.peek.title)
 	}
 }
 
@@ -75,6 +94,17 @@ func TestPeekActions_PreserveScrollAndCloseKeys(t *testing.T) {
 	}
 	if b.editor.state != editorNone {
 		t.Fatalf("scroll key opened editor state %v", b.editor.state)
+	}
+
+	_, cmd = b.inputRouter().HandleKey(keyPressText(" "))
+	if cmd != nil {
+		cmd()
+	}
+	if !b.peek.Active() {
+		t.Fatal("peek closed on space page-down key")
+	}
+	if b.peek.offset != 2 {
+		t.Fatalf("peek offset after space = %d, want 2", b.peek.offset)
 	}
 
 	_, cmd = b.inputRouter().HandleKey(keyRunes("q"))
@@ -155,4 +185,47 @@ func TestPeekViewMaintainsHeightWhileScrolling(t *testing.T) {
 	if got := lipgloss.Height(short.View(termWidth, termHeight)); got != top {
 		t.Fatalf("short content height = %d, want %d", got, top)
 	}
+}
+
+func TestPeekViewScrollbarUsesReservedRightGutter(t *testing.T) {
+	t.Parallel()
+
+	const (
+		termWidth  = 120
+		termHeight = 20
+	)
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "x"
+	}
+
+	var p Peek
+	p.palette = DarkPalette()
+	p.Open("task", strings.Join(lines, "\n"), termWidth)
+
+	out := ansi.Strip(p.View(termWidth, termHeight))
+	scrollbarX := 1 + overlayPadH + peekBodyWidth(termWidth) + 1
+	foundThumb := false
+	for _, line := range strings.Split(out, "\n") {
+		x := runeIndex(line, '┃')
+		if x < 0 {
+			continue
+		}
+		foundThumb = true
+		if x != scrollbarX {
+			t.Fatalf("scrollbar thumb x = %d, want %d in line %q", x, scrollbarX, line)
+		}
+	}
+	if !foundThumb {
+		t.Fatal("peek scrollbar thumb was not rendered")
+	}
+}
+
+func runeIndex(s string, target rune) int {
+	for i, r := range []rune(s) {
+		if r == target {
+			return i
+		}
+	}
+	return -1
 }

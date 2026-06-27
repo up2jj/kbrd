@@ -1,10 +1,10 @@
 package model
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // scriptResumeMsg carries the user's response back to the Lua coroutine that
@@ -72,7 +72,7 @@ func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
 	ti := textinput.New()
 	ti.Prompt = "› "
 	ti.CharLimit = 256
-	ti.Width = 50
+	ti.SetWidth(50)
 	ti.SetValue(def)
 	ti.Focus()
 	applyInputPalette(&ti, s.palette)
@@ -86,7 +86,7 @@ func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
 
 // Update routes a key event and, when the user resolves the UI, returns a
 // tea.Cmd that emits a scriptResumeMsg with the appropriate result.
-func (s *ScriptUI) Update(msg tea.KeyMsg) tea.Cmd {
+func (s *ScriptUI) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch s.kind {
 	case scriptUIPick:
 		return s.updatePicker(msg)
@@ -96,7 +96,7 @@ func (s *ScriptUI) Update(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (s *ScriptUI) updatePicker(msg tea.KeyMsg) tea.Cmd {
+func (s *ScriptUI) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SwitcherClose):
 		name, token := s.name, s.token
@@ -124,7 +124,7 @@ func (s *ScriptUI) updatePicker(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (s *ScriptUI) updatePrompt(msg tea.KeyMsg) tea.Cmd {
+func (s *ScriptUI) updatePrompt(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SwitcherClose):
 		name, token := s.name, s.token

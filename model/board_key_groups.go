@@ -1,11 +1,11 @@
 package model
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
-func (b *Board) handleGlobalBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleGlobalBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.Quit):
 		m, cmd := b.beginShutdown()
@@ -34,7 +34,7 @@ func (b *Board) handleGlobalBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, te
 	return b, nil, false
 }
 
-func (b *Board) handleColumnBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleColumnBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	if m, cmd, handled := b.handleColumnActionKey(msg, col); handled {
 		return m, cmd, true
 	}
@@ -47,7 +47,7 @@ func (b *Board) handleColumnBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, te
 	return b.handleColumnCreateKey(msg, col)
 }
 
-func (b *Board) handleColumnActionKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleColumnActionKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Path, col.Name), true
@@ -57,7 +57,7 @@ func (b *Board) handleColumnActionKey(msg tea.KeyMsg, col *Column) (tea.Model, t
 	return b, nil, false
 }
 
-func (b *Board) handleColumnDisplayKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleColumnDisplayKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.ZoomToggle):
 		b.zoom.Toggle()
@@ -75,7 +75,7 @@ func (b *Board) handleColumnDisplayKey(msg tea.KeyMsg, col *Column) (tea.Model, 
 	return b, nil, false
 }
 
-func (b *Board) handleColumnNavigationKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleColumnNavigationKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.PrevCol):
 		b.selectedCol--
@@ -90,7 +90,7 @@ func (b *Board) handleColumnNavigationKey(msg tea.KeyMsg, col *Column) (tea.Mode
 		}
 		return b, nil, true
 	case key.Matches(msg, Keys.JumpCol):
-		idx := int(msg.Runes[0] - '1')
+		idx := int(msg.Text[0] - '1')
 		if idx >= 0 && idx < len(b.columns) {
 			b.selectedCol = idx
 		}
@@ -111,7 +111,7 @@ func (b *Board) handleColumnNavigationKey(msg tea.KeyMsg, col *Column) (tea.Mode
 	return b, nil, false
 }
 
-func (b *Board) handleColumnCreateKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleColumnCreateKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, Keys.TemplateMenu):
 		m, cmd := b.templateMenuActions().open(col)
@@ -128,7 +128,7 @@ func (b *Board) handleColumnCreateKey(msg tea.KeyMsg, col *Column) (tea.Model, t
 	return b, nil, false
 }
 
-func (b *Board) handleItemBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+func (b *Board) handleItemBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	if !col.HasSelectedItem() {
 		return b, nil, false
 	}
@@ -194,7 +194,7 @@ func (b *Board) handleCustomCommandsKey(col *Column, item *Item) (tea.Model, tea
 	return b, nil, true
 }
 
-func (b *Board) handleListBoardKey(msg tea.KeyMsg, col *Column) (tea.Model, tea.Cmd) {
+func (b *Board) handleListBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.CustomCommands):
 		m, cmd, _ := b.handleCustomCommandsKey(col, nil)

@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 )
@@ -108,10 +109,11 @@ func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 	b.mnemonicInput.SetValue("sf")
 
 	out, _, _ := boardViewFrame{b: b}.renderBase(120, 30)
-	if !strings.Contains(out, ": sf") {
+	stripped := ansi.Strip(out)
+	if !strings.Contains(stripped, ": sf") {
 		t.Fatalf("base view missing mnemonic input:\n%s", out)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(stripped, "\n") {
 		if strings.Contains(line, ": sf") {
 			if !strings.HasPrefix(line, " ") {
 				t.Fatalf("mnemonic input line is not centered:\n%s", out)

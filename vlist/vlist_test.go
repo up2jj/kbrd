@@ -4,9 +4,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
+
+func keyText(s string) tea.KeyPressMsg {
+	rs := []rune(s)
+	if len(rs) == 0 {
+		return tea.KeyPressMsg{}
+	}
+	code := rs[0]
+	if len(rs) > 1 {
+		code = tea.KeyExtended
+	}
+	return tea.KeyPressMsg{Code: code, Text: s}
+}
 
 // fake is a test Delegate: each item has a height, a selectable flag, and a
 // filter string. Render emits exactly height rows so offsets line up.
@@ -51,7 +63,7 @@ func newModel(f fake, w, h int) Model {
 }
 
 func press(m *Model, k string) {
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	m.Update(keyText(k))
 }
 
 func TestCursorSkipsNonSelectable(t *testing.T) {
@@ -83,8 +95,8 @@ func TestPageCursorMovesByPageAndClamps(t *testing.T) {
 	}
 	m := newModel(fake{items: items}, 20, 4)
 
-	pgdown := func() { m.Update(tea.KeyMsg{Type: tea.KeyPgDown}) }
-	pgup := func() { m.Update(tea.KeyMsg{Type: tea.KeyPgUp}) }
+	pgdown := func() { m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown}) }
+	pgup := func() { m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp}) }
 
 	if m.Index() != 0 {
 		t.Fatalf("start index = %d, want 0", m.Index())
@@ -123,7 +135,7 @@ func TestPageCursorSnapsToSelectable(t *testing.T) {
 	}}
 	m := newModel(f, 20, 2) // page ~= 2 rows
 
-	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if got := m.Index(); !m.selectableAt(got) {
 		t.Fatalf("pgdown landed on non-selectable index %d", got)
 	}
@@ -161,9 +173,9 @@ func TestVariableHeightScrollKeepsCursorVisible(t *testing.T) {
 	m.View() // scrolling happens during View, after content is laid out
 
 	top := m.offsetOf(m.Index()) // 4 * 5 = 20
-	if top < m.vp.YOffset || top+5 > m.vp.YOffset+m.vp.Height {
+	if top < m.vp.YOffset() || top+5 > m.vp.YOffset()+m.vp.Height() {
 		t.Fatalf("cursor row [%d,%d) not within viewport [%d,%d)",
-			top, top+5, m.vp.YOffset, m.vp.YOffset+m.vp.Height)
+			top, top+5, m.vp.YOffset(), m.vp.YOffset()+m.vp.Height())
 	}
 }
 
@@ -193,7 +205,7 @@ func TestFilterNarrowsAndExcludesEmpty(t *testing.T) {
 		t.Fatal("no matches for 'ap', want at least apple")
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // apply
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // apply
 	if m.Filtering() {
 		t.Error("still Filtering after Enter")
 	}

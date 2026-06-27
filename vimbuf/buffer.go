@@ -3,7 +3,7 @@
 // It owns the text, cursor, modes, operator grammar, undo/redo and rendering of
 // a single editable buffer, with no knowledge of Bubble Tea, the board, or the
 // scripting host. Input arrives as key strings (the value of
-// tea.KeyMsg.String()) via HandleKey, which returns an Effect describing any
+// tea.KeyPressMsg.String()) via HandleKey, which returns an Effect describing any
 // side effects the host must carry out (save/quit/eval). This keeps the engine
 // unit-testable in isolation and keeps modal grammar out of the model package.
 package vimbuf
@@ -533,7 +533,7 @@ func (b *Buffer) lastVisibleRow() int {
 	return len(b.lines) - 1
 }
 
-// HandleKey processes one key (a tea.KeyMsg.String() value) and returns any
+// HandleKey processes one key (a tea.KeyPressMsg.String() value) and returns any
 // host-level Effect. It dispatches by mode.
 func (b *Buffer) HandleKey(key string) Effect {
 	if key == "ctrl+t" && b.mode != ModeCommand {

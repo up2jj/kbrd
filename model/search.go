@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/board"
 	"kbrd/recents"
@@ -239,7 +239,7 @@ func (s *Search) Update(m searchMsg) tea.Cmd {
 	return nil
 }
 
-func (s *Search) HandleKey(msg tea.KeyMsg) tea.Cmd {
+func (s *Search) HandleKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SearchClose):
 		s.Close()
@@ -265,22 +265,21 @@ func (s *Search) HandleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyBackspace:
 		if r := []rune(s.filter); len(r) > 0 {
 			s.filter = string(r[:len(r)-1])
 			return s.queryChanged()
 		}
 		return nil
-	case tea.KeyRunes, tea.KeySpace:
-		if str := msg.String(); str != "" {
-			s.filter += str
+	default:
+		if msg.Text != "" {
+			s.filter += msg.Text
 			s.selected = 0
 			return s.queryChanged()
 		}
 		return nil
 	}
-	return nil
 }
 
 // queryChanged bumps the generation and schedules a debounced ripgrep run. An

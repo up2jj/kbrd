@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/config"
 	"kbrd/template"
@@ -110,7 +110,7 @@ func TestTemplateMenuSelectActions(t *testing.T) {
 		t.Fatalf("enter on first row = %+v, %v; want author action", entry, ok)
 	}
 
-	menu.Update(tea.KeyMsg{Type: tea.KeyDown})
+	menu.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	for _, action := range []templateMenuAction{templateMenuUse, templateMenuEdit, templateMenuRemove} {
 		entry, ok = menu.SelectAction(action)
 		if !ok || entry.Label != "Bug report" {

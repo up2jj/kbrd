@@ -1,9 +1,10 @@
 package model
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/theme"
 )
@@ -30,12 +31,12 @@ type OverlayFrame struct {
 	Width   int
 	Palette Palette
 	// Border overrides the border color; empty uses Palette.BorderActive.
-	Border lipgloss.Color
+	Border color.Color
 }
 
 func (f OverlayFrame) Render() string {
 	border := f.Border
-	if border == "" {
+	if border == nil {
 		border = f.Palette.BorderActive
 	}
 	content := f.Body

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -13,7 +13,7 @@ import (
 func TestMnemonicSelector_OpensViaColon(t *testing.T) {
 	b := boardWithNCols(t, 1, 1)
 
-	_, _ = b.handleBoardKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	_, _ = b.handleBoardKey(keyPressText(":"))
 
 	if !b.mnemonicMode {
 		t.Fatal("mnemonic selector did not open")
@@ -39,7 +39,7 @@ func TestMnemonicSelector_PartialMnemonicStaysOpenUntilEnter(t *testing.T) {
 	tag := firstLongMnemonic(t, b)
 	before := b.columns[0].SelectedItem().Name
 	b.mnemonicSelector().open()
-	_, _ = b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tag[:1])})
+	_, _ = b.mnemonicSelector().handleKey(keyPressText(tag[:1]))
 
 	if !b.mnemonicMode {
 		t.Fatal("mnemonic selector closed on partial mnemonic")
@@ -59,7 +59,7 @@ func TestMnemonicSelector_UnknownMnemonicClosesAndClears(t *testing.T) {
 
 	b.mnemonicSelector().open()
 	b.mnemonicInput.SetValue("z")
-	_, cmd := b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := b.mnemonicSelector().handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if b.mnemonicMode {
 		t.Fatal("mnemonic selector stayed open after unknown mnemonic")
@@ -87,7 +87,7 @@ func TestMnemonicSelector_EnterSelectsMatchingCardInAnotherColumn(t *testing.T) 
 	b.selectedCol = 0
 	b.mnemonicSelector().open()
 	b.mnemonicInput.SetValue(tag)
-	_, cmd := b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := b.mnemonicSelector().handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if cmd != nil {
 		t.Fatalf("valid mnemonic returned unexpected command: %T", cmd)
@@ -112,7 +112,7 @@ func TestMnemonicSelector_OpensFromFocusedVirtualColumn(t *testing.T) {
 	})
 	b.selectedCol = 1
 
-	_, cmd := b.handleBoardKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	_, cmd := b.handleBoardKey(keyPressText(":"))
 
 	if cmd == nil {
 		t.Fatal("expected focus command for mnemonic input")
@@ -142,7 +142,7 @@ func TestMnemonicSelector_EnterSelectsVirtualCardByMnemonic(t *testing.T) {
 	vc.SelectByName("a")
 	b.mnemonicSelector().open()
 	b.mnemonicInput.SetValue(tag)
-	_, cmd := b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := b.mnemonicSelector().handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if cmd != nil {
 		t.Fatalf("valid virtual mnemonic returned unexpected command: %T", cmd)
@@ -171,7 +171,7 @@ func TestMnemonicSelector_UsesStableRefAfterColumnReorder(t *testing.T) {
 	b.selectedCol = 1
 	b.mnemonicSelector().open()
 	b.mnemonicInput.SetValue(tag)
-	_, cmd := b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := b.mnemonicSelector().handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if cmd != nil {
 		t.Fatalf("valid mnemonic returned unexpected command: %T", cmd)
@@ -192,7 +192,7 @@ func TestMnemonicSelector_EscapeClosesAndClearsWithoutSelectionChange(t *testing
 
 	b.mnemonicSelector().open()
 	b.mnemonicInput.SetValue("a")
-	_, cmd := b.mnemonicSelector().handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := b.mnemonicSelector().handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if cmd != nil {
 		t.Fatalf("escape returned unexpected command: %T", cmd)

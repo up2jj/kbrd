@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -956,7 +955,7 @@ func TestCollapse_VerticalBar(t *testing.T) {
 	// should exceed that.
 	maxW := collapsedContentWidth + 2
 	for line := range strings.SplitSeq(out, "\n") {
-		if w := len([]rune(line)); w > maxW {
+		if w := lipgloss.Width(line); w > maxW {
 			t.Fatalf("collapsed bar line too wide (%d, want <=%d): %q", w, maxW, line)
 		}
 	}
@@ -1027,7 +1026,7 @@ func TestCollapseFocusShift(t *testing.T) {
 func TestCollapse_ToggleKeyShiftsFocus(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 3, 3)
-	pipe := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("|")}
+	pipe := keyPressText("|")
 
 	// Collapse the left column: focus advances off the bar to the next one.
 	b.handleKey(pipe)

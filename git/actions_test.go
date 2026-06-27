@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 	kbrdfs "kbrd/fs"
@@ -74,23 +76,56 @@ func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
 	}
 	p.SetLog(strings.Join(lines, "\n"))
 
-	if p.right.YOffset != 0 {
-		t.Fatalf("initial right viewport offset = %d, want 0", p.right.YOffset)
+	if p.right.YOffset() != 0 {
+		t.Fatalf("initial right viewport offset = %d, want 0", p.right.YOffset())
 	}
 
-	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
-	if p.right.YOffset != 3 {
-		t.Fatalf("right viewport offset after wheel down = %d, want 3", p.right.YOffset)
+	p.HandleMouse(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if p.right.YOffset() != 3 {
+		t.Fatalf("right viewport offset after wheel down = %d, want 3", p.right.YOffset())
 	}
 
-	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
-	if p.right.YOffset != 0 {
-		t.Fatalf("right viewport offset after wheel up = %d, want 0", p.right.YOffset)
+	p.HandleMouse(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if p.right.YOffset() != 0 {
+		t.Fatalf("right viewport offset after wheel up = %d, want 0", p.right.YOffset())
 	}
 
-	p.HandleMouse(tea.MouseMsg{Button: tea.MouseButtonLeft})
-	if p.right.YOffset != 0 {
-		t.Fatalf("right viewport offset after non-wheel mouse = %d, want 0", p.right.YOffset)
+	p.HandleMouse(tea.MouseClickMsg{Button: tea.MouseLeft})
+	if p.right.YOffset() != 0 {
+		t.Fatalf("right viewport offset after non-wheel mouse = %d, want 0", p.right.YOffset())
+	}
+}
+
+func TestGitPanelRightPaneScrollbarDoesNotWrap(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 120, 30)
+
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "line " + strconv.Itoa(i) + " " + strings.Repeat("wide ", 20)
+	}
+	p.SetLog(strings.Join(lines, "\n"))
+
+	view := ansi.Strip(p.View())
+	if !strings.Contains(view, "task.md") {
+		t.Fatalf("panel left pane did not render changed file row\n%s", view)
+	}
+	gotH := lipgloss.Height(view)
+	const wantH = 24
+	if gotH != wantH {
+		t.Fatalf("panel height = %d, want %d; right pane likely wrapped\n%s", gotH, wantH, view)
+	}
+
+	width := -1
+	for _, line := range strings.Split(view, "\n") {
+		w := lipgloss.Width(line)
+		if width < 0 {
+			width = w
+			continue
+		}
+		if w != width {
+			t.Fatalf("panel line width = %d, want %d for line %q\n%s", w, width, line, view)
+		}
 	}
 }
 

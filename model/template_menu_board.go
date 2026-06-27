@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/board"
 	"kbrd/template"
@@ -45,20 +45,22 @@ func (a templateMenuActions) open(col *Column) (tea.Model, tea.Cmd) {
 	return b, warnCmd
 }
 
-func (a templateMenuActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a templateMenuActions) update(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := a.board
 	if b.templateMenu.Filtering() {
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEsc:
 			b.templateMenu.StopFilter()
 		case tea.KeyEnter:
 			return a.run(templateMenuUse)
 		case tea.KeyBackspace:
 			b.templateMenu.Backspace()
-		case tea.KeyRunes, tea.KeySpace:
-			b.templateMenu.AppendFilter(msg.String())
 		default:
-			b.templateMenu.Update(msg)
+			if msg.Text != "" {
+				b.templateMenu.AppendFilter(msg.Text)
+			} else {
+				b.templateMenu.Update(msg)
+			}
 		}
 		return b, nil
 	}
@@ -68,7 +70,7 @@ func (a templateMenuActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.templateMenu.Close()
 	case msg.String() == "/":
 		b.templateMenu.StartFilter()
-	case msg.Type == tea.KeyEnter || msg.String() == "u":
+	case msg.Code == tea.KeyEnter || msg.String() == "u":
 		return a.run(templateMenuUse)
 	case msg.String() == "a":
 		return a.run(templateMenuAuthor)

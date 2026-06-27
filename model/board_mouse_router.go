@@ -1,6 +1,6 @@
 package model
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 type boardMouseRouter struct {
 	board *Board
@@ -12,6 +12,7 @@ func (b *Board) mouseRouter() boardMouseRouter {
 
 func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	b := r.board
+	mouse := msg.Mouse()
 	if b.helpMenu.Active() {
 		b.helpMenu.HandleMouse(msg)
 		return b, nil
@@ -46,7 +47,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Only the column strip is interactive. Ignore clicks/wheel on the header, the
 	// padding, and the bottom keybar so they don't select columns by X alone.
-	if !b.presenter.mouseInColumns(msg.Y) {
+	if !b.presenter.mouseInColumns(mouse.Y) {
 		return b, nil
 	}
 
@@ -54,22 +55,27 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+	if _, ok := msg.(tea.MouseClickMsg); !ok || mouse.Button != tea.MouseLeft {
 		return b, nil
 	}
 
-	b.presenter.selectAtMouse(b, msg.X, msg.Y)
+	b.presenter.selectAtMouse(b, mouse.X, mouse.Y)
 	return b, nil
 }
 
 func (r boardMouseRouter) handleWheel(msg tea.MouseMsg) bool {
 	b := r.board
-	if msg.Button != tea.MouseButtonWheelUp && msg.Button != tea.MouseButtonWheelDown {
+	wheel, ok := msg.(tea.MouseWheelMsg)
+	if !ok {
 		return false
 	}
-	if colIdx, ok := b.presenter.columnAtMouse(b, msg.X); ok {
+	mouse := wheel.Mouse()
+	if mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {
+		return false
+	}
+	if colIdx, ok := b.presenter.columnAtMouse(b, mouse.X); ok {
 		delta := 3
-		if msg.Button == tea.MouseButtonWheelUp {
+		if mouse.Button == tea.MouseWheelUp {
 			delta = -3
 		}
 		b.columns[colIdx].ScrollBy(delta)

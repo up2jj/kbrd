@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/template"
@@ -334,7 +334,7 @@ func fieldSeed(f template.Field) string {
 func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 	switch t.stage {
 	case tfPick:
-		if k, ok := msg.(tea.KeyMsg); ok {
+		if k, ok := msg.(tea.KeyPressMsg); ok {
 			return t.updatePicker(k)
 		}
 		return nil
@@ -346,19 +346,21 @@ func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (t *TemplateFlow) updatePicker(msg tea.KeyMsg) tea.Cmd {
+func (t *TemplateFlow) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
 	if t.filtering {
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEsc:
 			t.stopFilter()
 		case tea.KeyEnter:
 			return t.runSelectedChoice()
 		case tea.KeyBackspace:
 			t.backspaceFilter()
-		case tea.KeyRunes, tea.KeySpace:
-			t.appendFilter(msg.String())
 		default:
-			t.updateMenuSelection(msg)
+			if msg.Text != "" {
+				t.appendFilter(msg.Text)
+			} else {
+				t.updateMenuSelection(msg)
+			}
 		}
 		return nil
 	}
@@ -490,7 +492,7 @@ func (t *TemplateFlow) backspaceFilter() {
 	t.stopFilter()
 }
 
-func (t *TemplateFlow) updateMenuSelection(msg tea.KeyMsg) {
+func (t *TemplateFlow) updateMenuSelection(msg tea.KeyPressMsg) {
 	if len(t.nav) == 0 {
 		return
 	}
@@ -548,7 +550,7 @@ func (t *TemplateFlow) updateHuhForm(msg tea.Msg) (tea.Cmd, bool) {
 	// still reaches huh, so field-level esc bindings like clearing a select
 	// filter keep working), the second — pressed immediately after — closes.
 	// Any other key disarms.
-	if k, ok := msg.(tea.KeyMsg); ok {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
 		if k.String() == "esc" {
 			if t.escArmed {
 				t.Close()
@@ -820,42 +822,44 @@ func splitCreateMatchIndexes(choice createChoice, matchIdx []int) ([]int, []int)
 
 // huhThemeFor maps the app palette onto a huh theme so embedded forms match
 // the rest of the UI in both light and dark modes.
-func huhThemeFor(p Palette) *huh.Theme {
-	t := huh.ThemeBase()
+func huhThemeFor(p Palette) huh.Theme {
+	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
+		t := huh.ThemeBase(isDark)
 
-	t.Focused.Base = t.Focused.Base.BorderForeground(p.BorderActive)
-	t.Focused.Title = t.Focused.Title.Foreground(p.Primary).Bold(true)
-	t.Focused.NoteTitle = t.Focused.NoteTitle.Foreground(p.Primary).Bold(true)
-	t.Focused.Description = t.Focused.Description.Foreground(p.FgMuted)
-	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(p.Danger)
-	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(p.Danger)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(p.Primary)
-	t.Focused.Option = t.Focused.Option.Foreground(p.FgBase)
-	t.Focused.MultiSelectSelector = t.Focused.MultiSelectSelector.Foreground(p.Primary)
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(p.Primary)
-	t.Focused.SelectedPrefix = t.Focused.SelectedPrefix.Foreground(p.Success)
-	t.Focused.UnselectedOption = t.Focused.UnselectedOption.Foreground(p.FgBase)
-	t.Focused.UnselectedPrefix = t.Focused.UnselectedPrefix.Foreground(p.FgDim)
-	t.Focused.FocusedButton = t.Focused.FocusedButton.Foreground(p.FgOnAccent).Background(p.PrimaryStrong)
-	t.Focused.BlurredButton = t.Focused.BlurredButton.Foreground(p.FgBase).Background(p.BgCodeInline)
-	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(p.Primary)
-	t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(p.FgDim)
-	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(p.Primary)
+		t.Focused.Base = t.Focused.Base.BorderForeground(p.BorderActive)
+		t.Focused.Title = t.Focused.Title.Foreground(p.Primary).Bold(true)
+		t.Focused.NoteTitle = t.Focused.NoteTitle.Foreground(p.Primary).Bold(true)
+		t.Focused.Description = t.Focused.Description.Foreground(p.FgMuted)
+		t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(p.Danger)
+		t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(p.Danger)
+		t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(p.Primary)
+		t.Focused.Option = t.Focused.Option.Foreground(p.FgBase)
+		t.Focused.MultiSelectSelector = t.Focused.MultiSelectSelector.Foreground(p.Primary)
+		t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(p.Primary)
+		t.Focused.SelectedPrefix = t.Focused.SelectedPrefix.Foreground(p.Success)
+		t.Focused.UnselectedOption = t.Focused.UnselectedOption.Foreground(p.FgBase)
+		t.Focused.UnselectedPrefix = t.Focused.UnselectedPrefix.Foreground(p.FgDim)
+		t.Focused.FocusedButton = t.Focused.FocusedButton.Foreground(p.FgOnAccent).Background(p.PrimaryStrong)
+		t.Focused.BlurredButton = t.Focused.BlurredButton.Foreground(p.FgBase).Background(p.BgCodeInline)
+		t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(p.Primary)
+		t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(p.FgDim)
+		t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(p.Primary)
 
-	t.Blurred = t.Focused
-	t.Blurred.Base = t.Blurred.Base.BorderStyle(lipgloss.HiddenBorder())
-	t.Blurred.Title = t.Blurred.Title.Foreground(p.FgSubtle).Bold(false)
-	t.Blurred.NoteTitle = t.Blurred.NoteTitle.Foreground(p.FgSubtle).Bold(false)
+		t.Blurred = t.Focused
+		t.Blurred.Base = t.Blurred.Base.BorderStyle(lipgloss.HiddenBorder())
+		t.Blurred.Title = t.Blurred.Title.Foreground(p.FgSubtle).Bold(false)
+		t.Blurred.NoteTitle = t.Blurred.NoteTitle.Foreground(p.FgSubtle).Bold(false)
 
-	// Match helpDimStyle (the picker/dialog footer): dim italic throughout.
-	dim := lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	t.Help.Ellipsis = dim
-	t.Help.ShortKey = dim
-	t.Help.ShortDesc = dim
-	t.Help.ShortSeparator = dim
-	t.Help.FullKey = dim
-	t.Help.FullDesc = dim
-	t.Help.FullSeparator = dim
+		// Match helpDimStyle (the picker/dialog footer): dim italic throughout.
+		dim := lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+		t.Help.Ellipsis = dim
+		t.Help.ShortKey = dim
+		t.Help.ShortDesc = dim
+		t.Help.ShortSeparator = dim
+		t.Help.FullKey = dim
+		t.Help.FullDesc = dim
+		t.Help.FullSeparator = dim
 
-	return t
+		return t
+	})
 }

@@ -4,9 +4,9 @@ import (
 	"os"
 	"sort"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/recents"
 )
@@ -90,7 +90,7 @@ func (s *Switcher) recompute() {
 	}
 }
 
-func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
+func (s *Switcher) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SwitcherClose):
 		s.Close()
@@ -123,7 +123,7 @@ func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
 		s.Close()
 		return func() tea.Msg { return switchBoardMsg{Path: chosen.Path} }
 	}
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyBackspace:
 		if r := []rune(s.filter); len(r) > 0 {
 			s.filter = string(r[:len(r)-1])
@@ -135,16 +135,14 @@ func (s *Switcher) Update(msg tea.KeyMsg) tea.Cmd {
 		}
 		e := s.entries[s.matches[s.selected].Index]
 		return func() tea.Msg { return removeBoardMsg{Path: e.Path} }
-	case tea.KeyRunes, tea.KeySpace:
-		str := msg.String()
-		if str != "" {
-			s.filter += str
+	default:
+		if msg.Text != "" {
+			s.filter += msg.Text
 			s.selected = 0
 			s.recompute()
 		}
 		return nil
 	}
-	return nil
 }
 
 func (s *Switcher) View() string {

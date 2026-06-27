@@ -11,7 +11,7 @@ import (
 	"kbrd/model"
 	"kbrd/recents"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // runBoard validates the working directory, loads config, brings up the optional
@@ -54,7 +54,7 @@ func runBoard(cwd string, flags cliFlags) error {
 	m := model.NewBoardWithOptions(cfg, model.BoardOptions{Safe: flags.safe})
 	m.SetMCPStatus(mcpStatus)
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m)
 	finalModel, runErr := p.Run()
 	if bd, ok := finalModel.(*model.Board); ok {
 		bd.Close()

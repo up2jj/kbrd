@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type boardViewFrame struct {
@@ -150,7 +150,7 @@ func (f boardViewFrame) renderMnemonicJump(width int) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(b.palette.BorderActive).
-		Width(b.mnemonicInput.Width+lipgloss.Width(b.mnemonicInput.Prompt)).
+		Width(b.mnemonicInput.Width()+lipgloss.Width(b.mnemonicInput.Prompt)).
 		Padding(0, 1)
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonicInput.View()))
 }

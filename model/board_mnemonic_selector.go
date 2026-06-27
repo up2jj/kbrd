@@ -3,15 +3,15 @@ package model
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 type boardMnemonicSelector struct {
 	b *Board
 }
 
-func (s boardMnemonicSelector) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (s boardMnemonicSelector) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := s.b
 	switch {
 	case key.Matches(msg, Keys.MnemonicJumpCancel):

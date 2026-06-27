@@ -8,7 +8,7 @@ package git
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 	"kbrd/events"
@@ -209,7 +209,7 @@ func statsFor(repoRoot string) map[string]kbrdfs.DiffStat {
 }
 
 // HandleKey forwards a key to the panel while it is active.
-func (c *Controller) HandleKey(k tea.KeyMsg) tea.Cmd { return c.panel.Update(k) }
+func (c *Controller) HandleKey(k tea.KeyPressMsg) tea.Cmd { return c.panel.Update(k) }
 
 // HandleMouse forwards mouse input to the panel while it is active.
 func (c *Controller) HandleMouse(m tea.MouseMsg) tea.Cmd { return c.panel.HandleMouse(m) }

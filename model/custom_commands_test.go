@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 )
 
-func key1(r rune) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+func key1(r rune) tea.KeyPressMsg {
+	return keyPressText(string(r))
 }
 
-func keySpecial(t tea.KeyType) tea.KeyMsg {
-	return tea.KeyMsg{Type: t}
+func keySpecial(code rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: code}
 }
 
 func testCommands() []config.Command {

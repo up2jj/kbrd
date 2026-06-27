@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 )
@@ -189,7 +190,7 @@ func TestHelpMenu_RenderContainsContent(t *testing.T) {
 		{Title: "Group One", Items: []HelpEntry{{Keys: "x", Label: "do x", Desc: "does x", RunKey: "x"}}},
 		{Title: "Group Two", Items: []HelpEntry{{Keys: "y", Label: "do y", Desc: "does y", RunKey: "y"}}},
 	})
-	got := m.View(80, 40)
+	got := ansi.Strip(m.View(80, 40))
 	for _, want := range []string{"Keybindings", "Group One", "Group Two", "do x", "do y", "does x", "1 of 2"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("menu missing %q", want)
@@ -209,9 +210,9 @@ func TestHelpMenu_WidthStableWhileNavigating(t *testing.T) {
 	})
 
 	initial := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	down := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	up := lipgloss.Width(m.View(100, 30))
 
 	if down != initial || up != initial {
@@ -225,13 +226,13 @@ func TestHelpMenu_WidthStableAcrossPositionDigitBoundary(t *testing.T) {
 	m.SetPalette(DarkPalette())
 	m.Open(helpGroupsWithEntries(12))
 	for i := 0; i < 8; i++ {
-		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 
 	initial := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	ten := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	eleven := lipgloss.Width(m.View(100, 30))
 
 	if ten != initial || eleven != initial {
@@ -251,9 +252,9 @@ func TestHelpMenu_WidthStableAcrossDescriptions(t *testing.T) {
 	})
 
 	initial := lipgloss.Width(m.View(60, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	longDesc := lipgloss.Width(m.View(60, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	shortDesc := lipgloss.Width(m.View(60, 30))
 
 	if longDesc != initial || shortDesc != initial {
@@ -275,9 +276,9 @@ func TestHelpMenu_FilteredWidthStableWhileNavigating(t *testing.T) {
 	m.AppendFilter("report")
 
 	initial := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	down := lipgloss.Width(m.View(100, 30))
-	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	up := lipgloss.Width(m.View(100, 30))
 
 	if down != initial || up != initial {
@@ -420,7 +421,7 @@ func TestHelpMenu_KeyboardNavigationRestoresSelectedVisibility(t *testing.T) {
 	if m.scroll == 0 {
 		t.Fatal("precondition: mouse-style scroll should move viewport away from top")
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	_ = m.View(100, 14)
 	if got := m.SelectedRunKey(); got != "1" {
 		t.Fatalf("selected after keyboard down = %q, want 1", got)

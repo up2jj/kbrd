@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // The swap sidecar gives the vim editor crash safety without ever auto-writing

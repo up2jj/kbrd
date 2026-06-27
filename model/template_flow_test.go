@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"kbrd/config"
 	"kbrd/template"
@@ -61,7 +61,7 @@ func TestTemplateFlowCreateMenu_EmptyOnly(t *testing.T) {
 		}
 	}
 
-	cmd := flow.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd := flow.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter on empty choice returned nil cmd")
 	}
@@ -109,8 +109,8 @@ func TestTemplateFlowCreateMenu_FuzzySearch(t *testing.T) {
 		{Name: "Meeting note", Scope: template.ScopeBoard, Filename: "meeting"},
 	})
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("meet")})
+	flow.Update(keyPressText("/"))
+	flow.Update(keyPressText("meet"))
 	choice, ok := flow.selectedChoice()
 	if !ok || choice.Label != "Meeting note" {
 		t.Fatalf("selected after filter = %+v, %v; want Meeting note", choice, ok)
@@ -123,18 +123,18 @@ func TestTemplateFlowCreateMenu_FuzzySearch(t *testing.T) {
 		t.Fatalf("filtered row should include scope text, got:\n%s", view)
 	}
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	flow.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	flow.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	flow.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzz")})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	flow.Update(keyPressText("zzz"))
 	if len(flow.nav) != 0 {
 		t.Fatalf("nav len after no-match filter = %d, want 0", len(flow.nav))
 	}
 	if !strings.Contains(flow.View(), "no matches") {
 		t.Fatalf("no-match view missing hint:\n%s", flow.View())
 	}
-	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if flow.filtering {
 		t.Fatal("esc should leave search mode")
 	}
@@ -150,12 +150,12 @@ func TestTemplateFlowCreateMenu_AuthoringChoice(t *testing.T) {
 	flow.SetSize(100, 40)
 	flow.Open(1, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	choice, ok := flow.selectedChoice()
 	if !ok || choice.Kind != createChoiceAuthorTemplate {
 		t.Fatalf("selected choice = %+v, %v; want authoring choice", choice, ok)
 	}
-	cmd := flow.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd := flow.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("authoring choice should initialize a form")
 	}
@@ -174,8 +174,8 @@ func TestTemplateFlowCreateMenu_FuzzySearchFindsAuthoring(t *testing.T) {
 	flow.SetSize(100, 40)
 	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("template")})
+	flow.Update(keyPressText("/"))
+	flow.Update(keyPressText("template"))
 	choice, ok := flow.selectedChoice()
 	if !ok || choice.Kind != createChoiceAuthorTemplate {
 		t.Fatalf("selected after filter = %+v, %v; want authoring choice", choice, ok)
@@ -193,8 +193,8 @@ func TestTemplateFlowFormDoubleEscDoesNotPanic(t *testing.T) {
 	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
 	flow.startForm(template.Template{Name: "Ask", Body: "body"})
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if flow.Active() {
 		t.Fatal("flow should close after double esc")
 	}
@@ -208,8 +208,8 @@ func TestTemplateFlowAuthorFormDoubleEscDoesNotPanic(t *testing.T) {
 	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
 	flow.startAuthorForm()
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	flow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if flow.Active() {
 		t.Fatal("flow should close after double esc")
 	}
@@ -258,11 +258,11 @@ func TestTemplateFlowCreateMenu_WidthStableWhileNavigating(t *testing.T) {
 	})
 
 	initial := lipgloss.Width(flow.View())
-	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	down := lipgloss.Width(flow.View())
-	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	long := lipgloss.Width(flow.View())
-	flow.Update(tea.KeyMsg{Type: tea.KeyUp})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	up := lipgloss.Width(flow.View())
 
 	if down != initial || long != initial || up != initial {
@@ -280,12 +280,12 @@ func TestTemplateFlowCreateMenu_FilteredWidthStableWhileNavigating(t *testing.T)
 		{Name: "Remarkably long report template", Scope: template.ScopeBoard, Filename: "long-report"},
 	})
 
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	flow.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("report")})
+	flow.Update(keyPressText("/"))
+	flow.Update(keyPressText("report"))
 	initial := lipgloss.Width(flow.View())
-	flow.Update(tea.KeyMsg{Type: tea.KeyDown})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	down := lipgloss.Width(flow.View())
-	flow.Update(tea.KeyMsg{Type: tea.KeyUp})
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	up := lipgloss.Width(flow.View())
 
 	if down != initial || up != initial {

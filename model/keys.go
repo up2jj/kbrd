@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
+	"charm.land/bubbles/v2/key"
 )
 
 type KeyMap struct {
@@ -144,7 +144,7 @@ var Keys = KeyMap{
 	ColPageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
 
 	// Item actions
-	Peek:            key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "peek")),
+	Peek:            key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "peek")),
 	Edit:            key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 	Append:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
 	Prepend:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
@@ -189,7 +189,7 @@ var Keys = KeyMap{
 
 	// Peek
 	PeekClose:    key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
-	PeekPageDown: key.NewBinding(key.WithKeys("enter", " ", "pgdown"), key.WithHelp("enter", "page down")),
+	PeekPageDown: key.NewBinding(key.WithKeys("enter", "space", "pgdown"), key.WithHelp("enter", "page down")),
 	PeekDown:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "scroll down")),
 	PeekUp:       key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "scroll up")),
 	PeekTop:      key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),

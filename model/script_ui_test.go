@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 )
@@ -116,7 +116,7 @@ end)`)
 		t.Fatal("scriptUI not active")
 	}
 	// Press enter — should pick the first choice and complete the coroutine.
-	_, c := b.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, c := b.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if c == nil {
 		t.Fatal("expected resume cmd from picker enter")
 	}
@@ -154,22 +154,22 @@ end)`)
 		t.Fatal("scriptUI not active")
 	}
 	// Press down arrow — should move selection from 0 to 1.
-	b.Update(tea.KeyMsg{Type: tea.KeyDown})
+	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if b.scriptUI.selected != 1 {
 		t.Fatalf("expected selected=1 after down, got %d", b.scriptUI.selected)
 	}
 	// Press down again.
-	b.Update(tea.KeyMsg{Type: tea.KeyDown})
+	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if b.scriptUI.selected != 2 {
 		t.Fatalf("expected selected=2, got %d", b.scriptUI.selected)
 	}
 	// Press up.
-	b.Update(tea.KeyMsg{Type: tea.KeyUp})
+	b.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if b.scriptUI.selected != 1 {
 		t.Fatalf("expected selected=1 after up, got %d", b.scriptUI.selected)
 	}
 	// Press esc — should cancel.
-	_, c := b.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, c := b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if c == nil {
 		t.Fatal("esc should produce a resume cmd")
 	}
@@ -262,7 +262,7 @@ func TestScriptUIRendersView(t *testing.T) {
 	b.termHeight = 24
 	cmd := b.commands[0]
 	b.Update(runCustomCommandMsg{Cmd: cmd, Vars: nil})
-	view := b.View()
+	view := b.View().Content
 	if !strings.Contains(view, "Hello") {
 		t.Fatalf("view should contain picker title 'Hello'; got: %s", view)
 	}

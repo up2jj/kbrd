@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
@@ -237,7 +237,7 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 		c.refreshStats()
 		c.refreshPanel()
 		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
-		return tea.Batch(restoreMouse, c.notifier.Error("git "+msg.Stage+" failed: "+msg.Err.Error()))
+		return c.notifier.Error("git " + msg.Stage + " failed: " + msg.Err.Error())
 	}
 	if msg.Stage == "pull" && msg.ThenPush {
 		cmd := kbrdfs.GitCommand(c.repoRoot, "push")
@@ -250,16 +250,10 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 	c.refreshPanel()
 	c.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
 	if n := len(msg.Sidecars); n > 0 {
-		return tea.Batch(restoreMouse, c.notifier.Success("sync ok — "+conflictCopyNote(n)))
+		return c.notifier.Success("sync ok — " + conflictCopyNote(n))
 	}
-	return tea.Batch(restoreMouse, c.notifier.Success("sync ok"))
+	return c.notifier.Success("sync ok")
 }
-
-// restoreMouse re-enables mouse tracking after a tea.ExecProcess. Bubble Tea's
-// RestoreTerminal brings back the alt-screen and bracketed paste but not mouse
-// reporting, so attended git steps (which hand the terminal to git) leave the
-// board mouse-dead until we re-arm it here.
-var restoreMouse tea.Cmd = tea.EnableMouseCellMotion
 
 var autoSyncGitTimeout = 2 * time.Minute
 

@@ -3,7 +3,7 @@ package model
 import (
 	"sort"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // Cell is one entry in the header cells strip. The id is a programmatic handle

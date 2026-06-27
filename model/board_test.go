@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 )
@@ -138,7 +138,7 @@ func TestBoard_VisibleColRange_FitsAndPansOnSelection(t *testing.T) {
 	}
 
 	// View() should mention "◀ 5" (5 hidden left) and "2 ▶" (2 hidden right).
-	out := b.View()
+	out := b.View().Content
 	if !strings.Contains(out, "◀ 5") {
 		t.Errorf("View() missing left indicator '◀ 5':\n%s", out)
 	}
@@ -155,11 +155,11 @@ func TestBoard_PanKeysMoveWindow(t *testing.T) {
 	if b.firstVisibleCol != 0 {
 		t.Fatalf("firstVisibleCol = %d, want 0", b.firstVisibleCol)
 	}
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")})
+	b.handleKey(keyPressText("L"))
 	if b.firstVisibleCol != 1 {
 		t.Errorf("after L, firstVisibleCol = %d, want 1", b.firstVisibleCol)
 	}
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	b.handleKey(keyPressText("H"))
 	if b.firstVisibleCol != 0 {
 		t.Errorf("after H, firstVisibleCol = %d, want 0", b.firstVisibleCol)
 	}
@@ -170,14 +170,14 @@ func TestBoard_View_TinyTerminalShortCircuits(t *testing.T) {
 	b := boardWithNCols(t, 3, 1)
 	b.termWidth = 20 // < ColumnWidth + 4 = 24
 	b.termHeight = 24
-	out := b.View()
+	out := b.View().Content
 	if !strings.Contains(out, "terminal too small") {
 		t.Errorf("expected too-small placeholder, got:\n%s", out)
 	}
 
 	b.termWidth = 200
 	b.termHeight = 5
-	out = b.View()
+	out = b.View().Content
 	if !strings.Contains(out, "terminal too small") {
 		t.Errorf("expected too-small placeholder for short terminal, got:\n%s", out)
 	}
@@ -217,7 +217,7 @@ func TestBoard_MMovesItemToFirstColumn(t *testing.T) {
 	writeColItem(t, b.columns[2], "task")
 	b.selectedCol = 2
 
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+	b.handleKey(keyPressText("M"))
 
 	if b.selectedCol != 0 {
 		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
@@ -242,7 +242,7 @@ func TestBoard_MOnFirstColumnIsNoop(t *testing.T) {
 	writeColItem(t, b.columns[0], "task")
 	b.selectedCol = 0
 
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+	b.handleKey(keyPressText("M"))
 
 	if b.selectedCol != 0 {
 		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
@@ -260,7 +260,7 @@ func TestBoard_MWithoutSelectionDoesNothing(t *testing.T) {
 	b := boardWithNCols(t, 3, 3)
 	b.selectedCol = 1
 
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+	b.handleKey(keyPressText("M"))
 
 	if b.selectedCol != 1 {
 		t.Errorf("selectedCol = %d, want 1 (unchanged)", b.selectedCol)
@@ -327,14 +327,14 @@ func TestBoard_ZoomToggleAndFollowSelection(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 4, 2)
 
-	plus := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")}
+	plus := keyPressText("+")
 	b.handleKey(plus)
 	if !b.zoom.Active() {
 		t.Fatal("+ should activate zoom")
 	}
 
 	// Zoom renders only the selected column, with no pan indicators.
-	out := b.View()
+	out := b.View().Content
 	if strings.Contains(out, "◀") || strings.Contains(out, "▶") {
 		t.Errorf("zoomed view must not show pan indicators:\n%s", out)
 	}
@@ -343,27 +343,27 @@ func TestBoard_ZoomToggleAndFollowSelection(t *testing.T) {
 	}
 
 	// Selection changes keep zoom on; the zoomed column follows.
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	b.handleKey(keyPressText("]"))
 	if !b.zoom.Active() {
 		t.Error("changing columns must not exit zoom")
 	}
 	if b.selectedCol != 1 {
 		t.Errorf("selectedCol = %d, want 1", b.selectedCol)
 	}
-	out = b.View()
+	out = b.View().Content
 	if !strings.Contains(out, "C1") || strings.Contains(out, "C0") {
 		t.Errorf("zoom should follow selection to C1:\n%s", out)
 	}
 
 	// esc exits zoom; pressing esc again is passed through, not consumed.
-	b.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	b.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if b.zoom.Active() {
 		t.Error("esc should exit zoom")
 	}
 
 	// + then - also exits.
 	b.handleKey(plus)
-	b.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("-")})
+	b.handleKey(keyPressText("-"))
 	if b.zoom.Active() {
 		t.Error("- should exit zoom")
 	}

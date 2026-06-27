@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	kbrdfs "kbrd/fs"
 	"kbrd/theme"
@@ -54,10 +54,15 @@ func setGitStyles(p theme.Palette) {
 
 // applyInputPalette restyles a bubbles textinput using the palette colors.
 func applyInputPalette(ti *textinput.Model, p theme.Palette) {
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(p.FgBase)
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(p.Highlight)
+	styles := ti.Styles()
+	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
+	styles.Blurred.Prompt = styles.Focused.Prompt
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(p.FgBase)
+	styles.Blurred.Text = styles.Focused.Text
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+	styles.Blurred.Placeholder = styles.Focused.Placeholder
+	styles.Cursor.Color = p.Highlight
+	ti.SetStyles(styles)
 }
 
 type gitPanelFocus int
@@ -160,7 +165,7 @@ func newPanelInput(prompt string, charLimit int, pal theme.Palette) textinput.Mo
 	ti := textinput.New()
 	ti.Prompt = prompt
 	ti.CharLimit = charLimit
-	ti.Width = 60
+	ti.SetWidth(60)
 	applyInputPalette(&ti, pal)
 	return ti
 }
@@ -234,6 +239,7 @@ func (p *GitPanel) rebuild() {
 		table.WithColumns(cols),
 		table.WithRows(rows),
 		table.WithFocused(p.focus == focusFiles),
+		table.WithWidth(max(leftW-4, 1)),
 		table.WithHeight(bodyH-1),
 	)
 	s := table.DefaultStyles()
@@ -251,11 +257,11 @@ func (p *GitPanel) rebuild() {
 	p.table = t
 	p.lastCursor = t.Cursor()
 
-	// The pane's Padding(0,1) leaves rightW-2 usable columns; reserve 1 more for
-	// the scrollbar. Sizing the viewport any wider makes its space-padded lines
-	// overflow the content area and wrap, doubling the pane's height.
-	vpW := max(rightW-3, 10)
-	vp := viewport.New(vpW, bodyH-1) // -1 to make room for the title row
+	// The pane's border and Padding(0,1) leave rightW-4 usable columns; reserve
+	// one more for the scrollbar. Sizing the viewport any wider makes its
+	// space-padded lines overflow the content area and wrap.
+	vpW := max(rightW-5, 10)
+	vp := viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(bodyH-1)) // -1 to make room for the title row
 	vp.SetContent(p.rightContent)
 	if p.rightTitle == "" {
 		p.rightTitle = "diff"
@@ -331,7 +337,7 @@ func (p *GitPanel) DiffRequestForCurrent() tea.Cmd {
 }
 
 func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
 	}
@@ -449,11 +455,11 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (p *GitPanel) HandleMouse(msg tea.MouseMsg) tea.Cmd {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		p.right.LineUp(3)
-	case tea.MouseButtonWheelDown:
-		p.right.LineDown(3)
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		p.right.ScrollUp(3)
+	case tea.MouseWheelDown:
+		p.right.ScrollDown(3)
 	}
 	return nil
 }
@@ -562,7 +568,7 @@ func (p *GitPanel) View() string {
 
 	// Right pane: viewport with a title row that includes a scroll indicator.
 	scroll := ""
-	if p.right.TotalLineCount() > p.right.Height {
+	if p.right.TotalLineCount() > p.right.Height() {
 		scroll = fmt.Sprintf("%d%%", int(p.right.ScrollPercent()*100))
 	} else if p.right.TotalLineCount() > 0 {
 		scroll = "all"
@@ -576,7 +582,7 @@ func (p *GitPanel) View() string {
 	}
 	pad := max(titleW-len(leftTitle)-len(scroll), 1)
 	rightTitle := gitDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
-	bar := p.renderScrollbar(p.right.Height)
+	bar := p.renderScrollbar(p.right.Height())
 	diffWithBar := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), bar)
 	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, diffWithBar)
 	rightStyle := paneIdleStyle

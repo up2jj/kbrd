@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // A file containing a tab character must not read as dirty the moment it opens:
@@ -67,7 +67,7 @@ func TestReplaceCurrentLine(t *testing.T) {
 // the last one.
 func TestReplaceMiddleLine(t *testing.T) {
 	e := openEditorWith(t, "alpha\nbravo\ncharlie\n")
-	e.Update(tea.KeyMsg{Type: tea.KeyUp}) // move from charlie up to bravo
+	e.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // move from charlie up to bravo
 
 	if got := e.CurrentLine(); got != "bravo" {
 		t.Fatalf("CurrentLine = %q, want %q", got, "bravo")
@@ -90,8 +90,8 @@ func TestReplaceLineTargetsCapturedRow(t *testing.T) {
 	}
 
 	// Cursor moves away before the result lands (the slow-filter race).
-	e.Update(tea.KeyMsg{Type: tea.KeyUp})
-	e.Update(tea.KeyMsg{Type: tea.KeyUp}) // now on alpha (row 0)
+	e.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	e.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // now on alpha (row 0)
 	if got := e.CurrentLine(); got != "alpha" {
 		t.Fatalf("precondition CurrentLine = %q, want alpha", got)
 	}
@@ -134,7 +134,7 @@ func TestReplaceCurrentLineKeepsLineVisible(t *testing.T) {
 	// Establish the real precondition: a render has primed the viewport content
 	// (so it knows its scroll bounds) and the cursor is followed at the bottom.
 	_ = e.textarea.View()
-	e.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	e.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
 	if got := e.CurrentLine(); got != "line-59" {
 		t.Fatalf("CurrentLine = %q, want line-59", got)
 	}
@@ -164,7 +164,7 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 	e.OpenEdit(0, "", "note", path)
 
 	before := e.textarea.Width()
-	ctrlE := tea.KeyMsg{Type: tea.KeyCtrlE}
+	ctrlE := tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}
 	e.Update(ctrlE)
 	after := e.textarea.Width()
 
@@ -180,7 +180,7 @@ func TestTextareaTaskPrefixShortcutUndo(t *testing.T) {
 	e := openEditorWith(t, "body")
 	e.textarea.CursorStart()
 
-	e.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	e.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	if got := e.textarea.Value(); got != "- [ ] body" {
 		t.Fatalf("after ctrl+t, value = %q", got)
 	}
@@ -188,7 +188,7 @@ func TestTextareaTaskPrefixShortcutUndo(t *testing.T) {
 		t.Fatal("ctrl+t did not mark the buffer dirty")
 	}
 
-	e.Update(tea.KeyMsg{Type: tea.KeyCtrlZ})
+	e.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
 	if got := e.textarea.Value(); got != "body" {
 		t.Fatalf("after undo, value = %q", got)
 	}

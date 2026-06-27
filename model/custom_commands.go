@@ -3,9 +3,9 @@ package model
 import (
 	"sort"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/config"
 	"kbrd/shellcmd"
@@ -84,12 +84,10 @@ func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.
 
 func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.Model, tea.Cmd) {
 	_ = b.loadColumns()
-	// ExecProcess handed the terminal to the command; Bubble Tea's restore does
-	// not re-arm mouse reporting, so do it ourselves (see git.restoreMouse).
 	if msg.Err != nil {
-		return b, tea.Batch(tea.EnableMouseCellMotion, b.notifier.ErrorCause(msg.Name, msg.Err))
+		return b, b.notifier.ErrorCause(msg.Name, msg.Err)
 	}
-	return b, tea.Batch(tea.EnableMouseCellMotion, b.notifier.Success(msg.Name+" finished"))
+	return b, b.notifier.Success(msg.Name + " finished")
 }
 
 type CustomCommandMenu struct {
@@ -212,13 +210,13 @@ func (m *CustomCommandMenu) recompute() {
 	}
 }
 
-func (m *CustomCommandMenu) Update(msg tea.KeyMsg) tea.Cmd {
+func (m *CustomCommandMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	// Esc closes regardless of filter state.
 	if key.Matches(msg, Keys.CustomCommandsClose) {
 		m.Close()
 		return nil
 	}
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyUp:
 		if m.selected > 0 {
 			m.selected--
@@ -241,16 +239,14 @@ func (m *CustomCommandMenu) Update(msg tea.KeyMsg) tea.Cmd {
 			m.recompute()
 		}
 		return nil
-	case tea.KeyRunes, tea.KeySpace:
-		s := msg.String()
-		if s != "" {
-			m.filter += s
+	default:
+		if msg.Text != "" {
+			m.filter += msg.Text
 			m.selected = 0
 			m.recompute()
 		}
 		return nil
 	}
-	return nil
 }
 
 func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {

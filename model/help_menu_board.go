@@ -1,8 +1,8 @@
 package model
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
 )
@@ -18,7 +18,7 @@ func (b *Board) helpActions() boardHelpActions {
 // update routes a key to the open `?` keybindings menu. Search mode
 // (entered with `/`) captures typing; otherwise keys run a row, switch the
 // focused column, or navigate.
-func (h boardHelpActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (h boardHelpActions) update(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := h.board
 	if key.Matches(msg, Keys.Quit) {
 		b.helpMenu.Close()
@@ -28,18 +28,20 @@ func (h boardHelpActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Search mode: typing filters; everything else navigates or runs the
 	// selection.
 	if b.helpMenu.Filtering() {
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEsc:
 			b.helpMenu.StopFilter()
 		case tea.KeyEnter:
 			return h.runSelected()
 		case tea.KeyBackspace:
 			b.helpMenu.Backspace()
-		case tea.KeyRunes, tea.KeySpace:
-			b.helpMenu.AppendFilter(msg.String())
 		default:
-			// ↑/↓, ctrl+n/p, page keys move the selection.
-			b.helpMenu.Update(msg)
+			if msg.Text != "" {
+				b.helpMenu.AppendFilter(msg.Text)
+			} else {
+				// ↑/↓, ctrl+n/p, page keys move the selection.
+				b.helpMenu.Update(msg)
+			}
 		}
 		return b, nil
 	}
@@ -49,9 +51,9 @@ func (h boardHelpActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.helpMenu.Close()
 	case msg.String() == "/":
 		b.helpMenu.StartFilter()
-	case msg.Type == tea.KeyEnter:
+	case msg.Code == tea.KeyEnter:
 		return h.runSelected()
-	case msg.Type == tea.KeyLeft:
+	case msg.Code == tea.KeyLeft:
 		// ←/→ switch the focused column (wrapping) so the menu shows that
 		// column's commands; the selection stays in the menu.
 		idx := b.selectedCol - 1
@@ -59,23 +61,23 @@ func (h boardHelpActions) update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			idx = len(b.columns) - 1
 		}
 		h.focusColumn(idx)
-	case msg.Type == tea.KeyRight:
+	case msg.Code == tea.KeyRight:
 		idx := b.selectedCol + 1
 		if idx >= len(b.columns) {
 			idx = 0
 		}
 		h.focusColumn(idx)
-	case len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9':
+	case len(msg.Text) == 1 && msg.Text[0] >= '1' && msg.Text[0] <= '9':
 		// 1-9 jump straight to a column (including virtual ones), keeping the
 		// menu open on the target column.
-		h.focusColumn(int(msg.Runes[0] - '1'))
+		h.focusColumn(int(msg.Text[0] - '1'))
 	default:
 		// Execution gets first claim: a key that names a runnable row runs it
 		// (e.g. `e` edit, `g` git, a column-command key) — matching what the menu
 		// shows. Any other key navigates (↑/↓, j/k, page keys).
 		if run := b.helpMenu.RunKeyFor(msg.String()); run != "" {
 			b.helpMenu.Close()
-			return b.updateInner(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(run)})
+			return b.updateInner(keyPressText(run))
 		}
 		b.helpMenu.Update(msg)
 	}
@@ -191,7 +193,7 @@ func (h boardHelpActions) runSelected() (tea.Model, tea.Cmd) {
 	b.helpMenu.Close()
 	switch {
 	case e.RunKey != "":
-		return b.updateInner(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(e.RunKey)})
+		return b.updateInner(keyPressText(e.RunKey))
 	case e.CmdID != "":
 		return b, h.runCustomCommand(e.CmdID)
 	}

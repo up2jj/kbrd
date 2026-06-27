@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // inZellij reports whether kbrd is running inside a zellij session. zellij
@@ -116,7 +116,7 @@ func (z *Zellij) Done(msg zellijDoneMsg, n *Notifier) tea.Cmd {
 // Update handles the menu's own keys. It is a keyed menu (press f/e/s), not a
 // cursor list, so there is no selection to move. Returns a launch tea.Cmd when
 // the user picks an action.
-func (z *Zellij) Update(msg tea.KeyMsg) tea.Cmd {
+func (z *Zellij) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.ZellijFloating):
 		boardDir, path, existing := z.boardDir, z.path, z.editorPanes[z.path]

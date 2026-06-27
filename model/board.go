@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"kbrd/board"
 	"kbrd/config"
@@ -127,7 +127,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	ti.Prompt = ": "
 	ti.Placeholder = "card mnemonic, enter to jump"
 	ti.CharLimit = 64
-	ti.Width = 60
+	ti.SetWidth(60)
 	applyInputPalette(&ti, palette)
 	b := &Board{
 		cfg:           cfg,
@@ -206,10 +206,15 @@ func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Error(msg) }
 // applyInputPalette restyles a bubbles textinput using the palette colors.
 // Reused by Board, GitPanel, and ScriptUI which all share the same look.
 func applyInputPalette(ti *textinput.Model, p Palette) {
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(p.FgBase)
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(p.Highlight)
+	styles := ti.Styles()
+	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
+	styles.Blurred.Prompt = styles.Focused.Prompt
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(p.FgBase)
+	styles.Blurred.Text = styles.Focused.Text
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
+	styles.Blurred.Placeholder = styles.Focused.Placeholder
+	styles.Cursor.Color = p.Highlight
+	ti.SetStyles(styles)
 }
 
 // applyPalette propagates the current palette to all sub-models and restyles
@@ -494,7 +499,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return b.inputRouter().HandleKey(msg)
 
 	case tea.MouseMsg:
@@ -757,7 +762,7 @@ func (b *Board) resetEditor() {
 	b.editorEval().wireCompletions()
 }
 
-func (b *Board) handleBoardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (b *Board) handleBoardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if len(b.columns) == 0 {
 		return b, nil
 	}
@@ -786,8 +791,11 @@ func (b *Board) handleBoardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b.handleListBoardKey(msg, col)
 }
 
-func (b *Board) View() string {
-	return boardViewFrame{b: b}.render()
+func (b *Board) View() tea.View {
+	view := tea.NewView(boardViewFrame{b: b}.render())
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
 }
 
 func (b *Board) boardLabel() string {
