@@ -32,6 +32,12 @@ func gitOutput(repoRoot string, args ...string) (string, error) {
 	return string(out), nil
 }
 
+// GitOutput runs a read-only git query. It is exported for sibling packages
+// that own higher-level git behavior but still route subprocesses through fs.
+func GitOutput(repoRoot string, args ...string) (string, error) {
+	return gitOutput(repoRoot, args...)
+}
+
 // gitCombined runs a mutating git command in repoRoot and returns its combined
 // output. No --no-optional-locks (mutations may take the index lock); on
 // failure the error carries the combined output, redacted.

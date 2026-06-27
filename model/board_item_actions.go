@@ -32,7 +32,7 @@ func (a boardItemActions) peek(col *Column, item *Item) tea.Cmd {
 	if err != nil {
 		return b.notifier.ErrorCause("failed to peek", err)
 	}
-	return b.peek.Open(item.Title, string(content), b.termWidth)
+	return b.openPeekForItem(item, string(content))
 }
 
 func (a boardItemActions) append(colIdx int, col *Column, item *Item) tea.Cmd {

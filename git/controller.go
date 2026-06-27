@@ -185,6 +185,12 @@ func (c *Controller) StatFor(abs string) (kbrdfs.DiffStat, bool) {
 	return s, ok
 }
 
+// LineChanges returns optional per-line change markers for a file. It is a
+// side-effect-free read path: no git init, panel open, or user notification.
+func (c *Controller) LineChanges(absPath string) []LineChange {
+	return lineChangesFor(c.repoRoot, absPath)
+}
+
 // RefreshStats recomputes the diff stats off-thread and delivers them back as a
 // git message. The host fires this after a board reload; git owns the data.
 func (c *Controller) RefreshStats() tea.Cmd {

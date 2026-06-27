@@ -1,6 +1,9 @@
 package model
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -218,6 +221,93 @@ func TestPeekViewScrollbarUsesReservedRightGutter(t *testing.T) {
 	}
 	if !foundThumb {
 		t.Fatal("peek scrollbar thumb was not rendered")
+	}
+}
+
+func TestPeekViewLineMarkersUseLeftGutter(t *testing.T) {
+	t.Parallel()
+
+	var p Peek
+	p.palette = DarkPalette()
+	p.Open("task", "one\ntwo\nthree", 120)
+
+	base := ansi.Strip(p.View(120, 30))
+	if strings.Contains(base, "+ two") {
+		t.Fatalf("unmarked peek rendered marker gutter:\n%s", base)
+	}
+
+	p.SetLineMarkers([]PeekLineMarker{
+		{Line: 2, Kind: PeekLineAdded},
+		{Line: 3, Kind: PeekLineDeleted},
+	}, 120)
+
+	out := ansi.Strip(p.View(120, 30))
+	for _, want := range []string{"+ two", "- three"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("peek missing marker row %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPeekViewLineMarkerOnlyOnFirstWrappedRow(t *testing.T) {
+	t.Parallel()
+
+	var p Peek
+	p.palette = DarkPalette()
+	p.Open("task", strings.Repeat("wrapped ", 30), 50)
+	p.SetLineMarkers([]PeekLineMarker{{Line: 1, Kind: PeekLineModified}}, 50)
+
+	out := ansi.Strip(p.View(50, 24))
+	if got := strings.Count(out, "~"); got != 1 {
+		t.Fatalf("marker count = %d, want 1:\n%s", got, out)
+	}
+}
+
+func TestPeekActions_LoadsGitLineMarkers(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	b := boardWithNCols(t, 1, 1)
+	writeColItem(t, b.columns[0], "task")
+	runPeekGit(t, b.cfg.Path, "init", "-b", "main")
+	runPeekGit(t, b.cfg.Path, "add", ".")
+	runPeekGit(t, b.cfg.Path, "commit", "-m", "initial")
+	b.git.Detect()
+
+	path := filepath.Join(b.columns[0].Path, "task.md")
+	if err := os.WriteFile(path, []byte("x\nchanged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, cmd := b.inputRouter().HandleKey(keyPressText(" "))
+	if cmd == nil {
+		t.Fatal("peek open returned nil marker command")
+	}
+	msg := cmd()
+	if _, updateCmd := b.Update(msg); updateCmd != nil {
+		updateCmd()
+	}
+
+	out := ansi.Strip(b.peek.View(120, 30))
+	if !strings.Contains(out, "+ changed") {
+		t.Fatalf("peek did not render loaded git marker:\n%s", out)
+	}
+}
+
+func runPeekGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 

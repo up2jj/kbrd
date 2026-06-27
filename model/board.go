@@ -55,6 +55,8 @@ type Board struct {
 	templateMenu    TemplateMenu
 	configMenuOpen  bool
 	peek            Peek
+	peekSeq         int
+	peekItemPath    string
 	zoom            Zoom
 	switcher        Switcher
 	search          Search
@@ -605,6 +607,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteDoneMsg:
 		return b.pasteActions().handleDone(msg)
+
+	case peekLineMarkersLoadedMsg:
+		return b.handlePeekLineMarkersLoaded(msg)
 
 	case renameItemRequestMsg:
 		return b.mutationHandlers().handleRenameItemRequest(msg)

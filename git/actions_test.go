@@ -137,6 +137,146 @@ func TestShouldAutoSync_NoRepoRoot(t *testing.T) {
 	}
 }
 
+func TestLineChanges_NoRepoRoot(t *testing.T) {
+	c := newTestController("")
+	if got := c.LineChanges(filepath.Join(t.TempDir(), "task.md")); got != nil {
+		t.Fatalf("LineChanges without repo root = %+v, want nil", got)
+	}
+}
+
+func TestLineChanges_ChangedFile(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	if err := os.WriteFile(path, []byte("seed\nchanged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 2, Kind: LineAdded}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_ModifiedAndAdded(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-m", "expand seed")
+
+	if err := os.WriteFile(path, []byte("one\nTWO\nthree\nfour\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 2, Kind: LineModified}, {Line: 4, Kind: LineAdded}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_DeletionAnchorsNextSurvivingLine(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-m", "expand seed")
+
+	if err := os.WriteFile(path, []byte("one\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 2, Kind: LineDeleted}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_DeletionAtEOFAnchorsLastLine(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-m", "expand seed")
+
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 2, Kind: LineDeleted}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_StagedChange(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "seed.md")
+
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 1, Kind: LineModified}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_UntrackedIsAllAdded(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "new.md")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestController(dir)
+	got := c.LineChanges(path)
+	want := []LineChange{{Line: 1, Kind: LineAdded}, {Line: 2, Kind: LineAdded}}
+	if !sameLineChanges(got, want) {
+		t.Fatalf("LineChanges = %+v, want %+v", got, want)
+	}
+}
+
+func TestLineChanges_OptionalGitInputs(t *testing.T) {
+	dir := initSyncRepo(t)
+	path := filepath.Join(dir, "seed.md")
+	empty := newTestController("")
+	if got := empty.LineChanges(path); got != nil {
+		t.Fatalf("empty repo root changes = %+v, want nil", got)
+	}
+	nonRepo := newTestController(t.TempDir())
+	if got := nonRepo.LineChanges(path); got != nil {
+		t.Fatalf("non-repo changes = %+v, want nil", got)
+	}
+}
+
+func sameLineChanges(got, want []LineChange) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestShouldAutoSync_AlreadySyncing(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")

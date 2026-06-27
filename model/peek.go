@@ -14,15 +14,32 @@ import (
 )
 
 type Peek struct {
-	active   bool
-	title    string
-	lines    []string
-	offset   int
-	pageSize int
-	palette  Palette
+	active      bool
+	title       string
+	rawMarkdown string
+	lines       []string
+	sourceLines []int
+	sourceFirst []bool
+	markers     map[int]PeekLineMarkerKind
+	offset      int
+	pageSize    int
+	palette     Palette
 }
 
 func (p *Peek) Active() bool { return p.active }
+
+type PeekLineMarkerKind int
+
+const (
+	PeekLineAdded PeekLineMarkerKind = iota
+	PeekLineModified
+	PeekLineDeleted
+)
+
+type PeekLineMarker struct {
+	Line int
+	Kind PeekLineMarkerKind
+}
 
 const (
 	peekTermMargin = 4
@@ -38,22 +55,60 @@ const (
 // unconditionally so the body wraps to the same width whether or not the bar is
 // showing, keeping the modal height fixed.
 const peekScrollbarGutter = 2
+const peekLineMarkerGutter = 2
 
 func (p *Peek) Open(title, markdown string, termWidth int) tea.Cmd {
-	rendered := renderMarkdown(markdown, peekBodyWidth(termWidth))
-	rendered = strings.TrimRight(rendered, "\n")
 	p.active = true
 	p.title = title
-	p.lines = strings.Split(rendered, "\n")
+	p.rawMarkdown = markdown
+	p.markers = nil
+	p.renderMarkdown(termWidth)
 	p.offset = 0
 	p.pageSize = 0
 	return nil
 }
 
+func (p *Peek) SetLineMarkers(markers []PeekLineMarker, termWidth int) {
+	if len(markers) == 0 {
+		p.markers = nil
+	} else {
+		p.markers = make(map[int]PeekLineMarkerKind, len(markers))
+		for _, marker := range markers {
+			if marker.Line > 0 {
+				p.markers[marker.Line] = marker.Kind
+			}
+		}
+	}
+	if p.active {
+		p.renderMarkdown(termWidth)
+	}
+}
+
+func (p *Peek) renderMarkdown(termWidth int) {
+	rows := renderMarkdownRows(p.rawMarkdown, peekContentWidth(termWidth, p.hasLineMarkers()))
+	if len(rows) == 0 {
+		rows = []peekMarkdownRow{{Text: "", SourceLine: 1, FirstForSource: true}}
+	}
+	p.lines = make([]string, len(rows))
+	p.sourceLines = make([]int, len(rows))
+	p.sourceFirst = make([]bool, len(rows))
+	for i, row := range rows {
+		p.lines[i] = row.Text
+		p.sourceLines[i] = row.SourceLine
+		p.sourceFirst[i] = row.FirstForSource
+	}
+}
+
+func (p *Peek) hasLineMarkers() bool { return len(p.markers) > 0 }
+
 func (p *Peek) Close() {
 	p.active = false
 	p.title = ""
+	p.rawMarkdown = ""
 	p.lines = nil
+	p.sourceLines = nil
+	p.sourceFirst = nil
+	p.markers = nil
 	p.offset = 0
 }
 
@@ -167,6 +222,14 @@ func peekBodyWidth(termWidth int) int {
 	return max(peekInnerWidth(termWidth)-peekScrollbarGutter, 1)
 }
 
+func peekContentWidth(termWidth int, withLineMarkers bool) int {
+	width := peekBodyWidth(termWidth)
+	if withLineMarkers {
+		width -= peekLineMarkerGutter
+	}
+	return max(width, 1)
+}
+
 func peekPageSize(termHeight int) int {
 	border := lipgloss.RoundedBorder()
 	frameRows := lipgloss.Height(border.Top+"\n"+border.Bottom) + 2*overlayPadV
@@ -205,6 +268,12 @@ var (
 	reTaskBox  = regexp.MustCompile(`^\[([ xX])\]\s+(.*)$`)
 )
 
+type peekMarkdownRow struct {
+	Text           string
+	SourceLine     int
+	FirstForSource bool
+}
+
 func setMarkdownStyles(p Palette) {
 	mdH1Style = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
 	mdH2Style = lipgloss.NewStyle().Bold(true).Foreground(p.AccentSoft)
@@ -227,15 +296,37 @@ func setMarkdownStyles(p Palette) {
 }
 
 func renderMarkdown(src string, width int) string {
+	rows := renderMarkdownRows(src, width)
+	lines := make([]string, len(rows))
+	for i, row := range rows {
+		lines[i] = row.Text
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderMarkdownRows(src string, width int) []peekMarkdownRow {
 	if width < 10 {
 		width = 10
 	}
 	rawLines := strings.Split(src, "\n")
-	var out []string
+	var rows []peekMarkdownRow
+	appendRows := func(rendered []string, sourceLine int) {
+		for i, row := range rendered {
+			rows = append(rows, peekMarkdownRow{
+				Text:           row,
+				SourceLine:     sourceLine,
+				FirstForSource: i == 0,
+			})
+		}
+	}
+	appendRow := func(rendered string, sourceLine int) {
+		appendRows([]string{rendered}, sourceLine)
+	}
 	inCode := false
 	i := 0
 	for i < len(rawLines) {
 		line := rawLines[i]
+		sourceLine := i + 1
 		trimmed := strings.TrimRight(line, " \t")
 
 		// fenced code blocks (``` or ~~~) with optional language hint
@@ -243,7 +334,7 @@ func renderMarkdown(src string, width int) string {
 			if !inCode {
 				lang := strings.TrimSpace(strings.TrimLeft(t, "`~"))
 				if lang != "" {
-					out = append(out, mdCodeLangStyle.Render(lang))
+					appendRow(mdCodeLangStyle.Render(lang), sourceLine)
 				}
 				inCode = true
 			} else {
@@ -257,7 +348,7 @@ func renderMarkdown(src string, width int) string {
 			if w := lipgloss.Width(padded); w < width {
 				padded = padded + strings.Repeat(" ", width-w)
 			}
-			out = append(out, mdCodeBlock.Render(padded))
+			appendRow(mdCodeBlock.Render(padded), sourceLine)
 			i++
 			continue
 		}
@@ -265,36 +356,36 @@ func renderMarkdown(src string, width int) string {
 		// GFM tables — `| col | col |` followed by alignment row `| --- | --- |`
 		if strings.HasPrefix(strings.TrimSpace(trimmed), "|") && i+1 < len(rawLines) && isTableSeparator(rawLines[i+1]) {
 			tableLines, consumed := collectTable(rawLines[i:])
-			out = append(out, renderTable(tableLines, width)...)
+			appendRows(renderTable(tableLines, width), sourceLine)
 			i += consumed
 			continue
 		}
 
 		// horizontal rule
 		if t := strings.TrimSpace(trimmed); t == "---" || t == "***" || t == "___" {
-			out = append(out, mdRuleStyle.Render(strings.Repeat("─", width)))
+			appendRow(mdRuleStyle.Render(strings.Repeat("─", width)), sourceLine)
 			i++
 			continue
 		}
 
 		// headings (#### / ### / ## / #)
 		if h, ok := strings.CutPrefix(trimmed, "#### "); ok {
-			out = append(out, mdH4Style.Render(h))
+			appendRow(mdH4Style.Render(h), sourceLine)
 			i++
 			continue
 		}
 		if h, ok := strings.CutPrefix(trimmed, "### "); ok {
-			out = append(out, mdH3Style.Render(h))
+			appendRow(mdH3Style.Render(h), sourceLine)
 			i++
 			continue
 		}
 		if h, ok := strings.CutPrefix(trimmed, "## "); ok {
-			out = append(out, mdH2Style.Render(h))
+			appendRow(mdH2Style.Render(h), sourceLine)
 			i++
 			continue
 		}
 		if h, ok := strings.CutPrefix(trimmed, "# "); ok {
-			out = append(out, mdH1Style.Render(h))
+			appendRow(mdH1Style.Render(h), sourceLine)
 			i++
 			continue
 		}
@@ -303,7 +394,7 @@ func renderMarkdown(src string, width int) string {
 		if after, ok := strings.CutPrefix(trimmed, "> "); ok {
 			body := after
 			styled := mdQuoteStyle.Render("│ " + applyInline(body))
-			out = append(out, wrapAnsiLine(styled, width)...)
+			appendRows(wrapAnsiLine(styled, width), sourceLine)
 			i++
 			continue
 		}
@@ -323,36 +414,42 @@ func renderMarkdown(src string, width int) string {
 				prefix = strings.Repeat(" ", indent) + marker
 				body = m[2]
 				if strings.EqualFold(m[1], "x") {
-					out = append(out, wrapAnsiLine(prefix+mdStrikeStyle.Render(body), width)...)
+					appendRows(wrapAnsiLine(prefix+mdStrikeStyle.Render(body), width), sourceLine)
 					i++
 					continue
 				}
 			} else {
 				prefix = strings.Repeat(" ", indent) + mdBulletStyle.Render("• ")
 			}
-			out = append(out, wrapAnsiLine(prefix+applyInline(body), width)...)
+			appendRows(wrapAnsiLine(prefix+applyInline(body), width), sourceLine)
 			i++
 			continue
 		}
 		if m := reOrdered.FindStringSubmatch(t); m != nil {
 			prefix := strings.Repeat(" ", indent) + mdBulletStyle.Render(m[1]+". ")
-			out = append(out, wrapAnsiLine(prefix+applyInline(m[2]), width)...)
+			appendRows(wrapAnsiLine(prefix+applyInline(m[2]), width), sourceLine)
 			i++
 			continue
 		}
 
 		// blank line
 		if trimmed == "" {
-			out = append(out, "")
+			appendRow("", sourceLine)
 			i++
 			continue
 		}
 
 		// default paragraph
-		out = append(out, wrapAnsiLine(applyInline(trimmed), width)...)
+		appendRows(wrapAnsiLine(applyInline(trimmed), width), sourceLine)
 		i++
 	}
-	return strings.Join(out, "\n")
+	for len(rows) > 1 && rows[len(rows)-1].Text == "" {
+		rows = rows[:len(rows)-1]
+	}
+	if len(rows) == 0 {
+		rows = []peekMarkdownRow{{Text: "", SourceLine: 1, FirstForSource: true}}
+	}
+	return rows
 }
 
 func isTableSeparator(line string) bool {
@@ -539,11 +636,15 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	}
 	end := min(p.offset+pageSize, len(p.lines))
 	visible := p.lines[p.offset:end]
+	visibleSources := p.sourceLines[p.offset:end]
+	visibleFirst := p.sourceFirst[p.offset:end]
 
-	bodyWidth := peekBodyWidth(termWidth)
+	bodyWidth := peekContentWidth(termWidth, p.hasLineMarkers())
 	blankRow := strings.Repeat(" ", max(bodyWidth, 1))
 	for len(visible) < pageSize {
 		visible = append(visible, blankRow)
+		visibleSources = append(visibleSources, 0)
+		visibleFirst = append(visibleFirst, false)
 	}
 	visible = normalizePeekRows(visible, bodyWidth)
 
@@ -553,7 +654,7 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	// The scrollbar gutter is always reserved (see peekScrollbarGutter), so the
 	// body wraps to a constant width and the modal height never changes; the bar
 	// itself only appears once content overflows a page.
-	bodyBlock := strings.Join(visible, "\n")
+	bodyBlock := strings.Join(p.renderMarkedRows(visible, visibleSources, visibleFirst), "\n")
 	blankGutter := make([]string, pageSize)
 	for i := range blankGutter {
 		blankGutter[i] = " "
@@ -585,4 +686,37 @@ func (p *Peek) View(termWidth, termHeight int) string {
 		Width:   peekFrameWidth(termWidth),
 		Palette: p.palette,
 	}.Render()
+}
+
+func (p *Peek) renderMarkedRows(lines []string, sources []int, first []bool) []string {
+	if !p.hasLineMarkers() {
+		return lines
+	}
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		marker := " "
+		if i < len(sources) && i < len(first) && first[i] {
+			if kind, ok := p.markers[sources[i]]; ok {
+				marker = p.renderLineMarker(kind)
+			}
+		}
+		if lipgloss.Width(marker) < 1 {
+			marker = " "
+		}
+		out[i] = marker + " " + line
+	}
+	return out
+}
+
+func (p *Peek) renderLineMarker(kind PeekLineMarkerKind) string {
+	switch kind {
+	case PeekLineAdded:
+		return lipgloss.NewStyle().Foreground(p.palette.Success).Bold(true).Render("+")
+	case PeekLineModified:
+		return lipgloss.NewStyle().Foreground(p.palette.Warning).Bold(true).Render("~")
+	case PeekLineDeleted:
+		return lipgloss.NewStyle().Foreground(p.palette.Danger).Bold(true).Render("-")
+	default:
+		return " "
+	}
 }
