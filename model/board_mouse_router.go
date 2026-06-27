@@ -93,14 +93,15 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		width = 80
 	}
 	header := b.statusPresenter().renderHeaderLayout(width)
+	columnsCtx := b.columnsRegionContext()
 	columnsRegion := boardColumnsRegion{}
-	columnsRegion.measure(b, width)
+	columnsRegion.measure(columnsCtx, width)
 	mouseYInColumns := mouse.Y - header.height
 	if !columnsRegion.mouseInColumns(mouseYInColumns) {
 		return b, nil
 	}
 
-	if r.handleWheel(msg, columnsRegion) {
+	if r.handleWheel(msg, columnsCtx, columnsRegion) {
 		return b, nil
 	}
 
@@ -108,7 +109,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(b, mouse.X, mouseYInColumns)
+	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(columnsCtx, mouse.X, mouseYInColumns)
 	if !ok || item == nil || item.Separator {
 		return b, nil
 	}
@@ -127,7 +128,7 @@ func (r boardMouseRouter) handleItemDoubleClick(colIdx int, col *Column, item *I
 	return actions.peek(col, item)
 }
 
-func (r boardMouseRouter) handleWheel(msg tea.MouseMsg, columnsRegion boardColumnsRegion) bool {
+func (r boardMouseRouter) handleWheel(msg tea.MouseMsg, columnsCtx boardColumnsRegionContext, columnsRegion boardColumnsRegion) bool {
 	b := r.board
 	wheel, ok := msg.(tea.MouseWheelMsg)
 	if !ok {
@@ -137,7 +138,7 @@ func (r boardMouseRouter) handleWheel(msg tea.MouseMsg, columnsRegion boardColum
 	if mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {
 		return false
 	}
-	if colIdx, ok := columnsRegion.columnAtMouse(b, mouse.X); ok {
+	if colIdx, ok := columnsRegion.columnAtMouse(columnsCtx, mouse.X); ok {
 		delta := 3
 		if mouse.Button == tea.MouseWheelUp {
 			delta = -3

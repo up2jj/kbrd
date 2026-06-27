@@ -186,10 +186,11 @@ func mousePointForItem(b *Board, wantCol int) (int, int, bool) {
 		width = 80
 	}
 	header := b.statusPresenter().renderHeaderLayout(width)
+	columnsCtx := b.columnsRegionContext()
 	region := boardColumnsRegion{}
-	region.measure(b, width)
+	region.measure(columnsCtx, width)
 	for x := 0; x < b.termWidth; x++ {
-		colIdx, ok := region.columnAtMouse(b, x)
+		colIdx, ok := region.columnAtMouse(columnsCtx, x)
 		if !ok || colIdx != wantCol {
 			continue
 		}

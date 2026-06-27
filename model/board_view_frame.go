@@ -109,7 +109,7 @@ func (f boardViewFrame) renderFrameParts(w int) boardFrameLayout {
 	b := f.b
 	header := b.statusPresenter().renderHeaderLayout(w)
 	columnsRegion := boardColumnsRegion{}
-	columnsView := columnsRegion.renderColumns(b, w)
+	columnsView := columnsRegion.renderColumns(b.renderColumnsRegionContext(), w)
 	body := columnsView
 	if mnemonicView := f.renderMnemonicJump(w); mnemonicView != "" {
 		body += "\n" + mnemonicView

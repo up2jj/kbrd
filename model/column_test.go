@@ -921,14 +921,15 @@ func TestCollapse_AutoExpandWidth(t *testing.T) {
 	}
 
 	region := boardColumnsRegion{}
-	if got := region.colWidthOf(board, 1); got != collapsedContentWidth {
+	ctx := board.columnsRegionContext()
+	if got := region.colWidthOf(ctx, 1); got != collapsedContentWidth {
 		t.Fatalf("collapsed + unfocused width = %d, want %d", got, collapsedContentWidth)
 	}
 	board.selectedCol = 1 // focus the collapsed column
-	if got := region.colWidthOf(board, 1); got != 30 {
+	if got := region.colWidthOf(ctx, 1); got != 30 {
 		t.Fatalf("collapsed + focused width = %d, want 30 (auto-expand)", got)
 	}
-	if got := region.colWidthOf(board, 0); got != 30 {
+	if got := region.colWidthOf(ctx, 0); got != 30 {
 		t.Fatalf("ordinary column width = %d, want 30", got)
 	}
 }

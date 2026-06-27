@@ -18,15 +18,16 @@ func TestBoardColumnsRegion_ColWidthCollapsedFocusRule(t *testing.T) {
 		cfg:         config.Config{ColumnWidth: 30},
 	}
 	region := boardColumnsRegion{}
+	ctx := b.columnsRegionContext()
 
-	if got := region.colWidthOf(b, 1); got != collapsedContentWidth {
+	if got := region.colWidthOf(ctx, 1); got != collapsedContentWidth {
 		t.Fatalf("collapsed + unfocused width = %d, want %d", got, collapsedContentWidth)
 	}
 	b.selectedCol = 1
-	if got := region.colWidthOf(b, 1); got != 30 {
+	if got := region.colWidthOf(ctx, 1); got != 30 {
 		t.Fatalf("collapsed + focused width = %d, want 30", got)
 	}
-	if got := region.colWidthOf(b, 0); got != 30 {
+	if got := region.colWidthOf(ctx, 0); got != 30 {
 		t.Fatalf("ordinary column width = %d, want 30", got)
 	}
 }
@@ -34,14 +35,15 @@ func TestBoardColumnsRegion_ColWidthCollapsedFocusRule(t *testing.T) {
 func TestBoardColumnsRegion_VisibleRangeKeepsSelectionVisible(t *testing.T) {
 	b := boardWithNCols(t, 10, 3)
 	region := boardColumnsRegion{}
+	ctx := b.columnsRegionContext()
 
-	first, count := region.visibleColRange(b)
+	first, count := region.visibleColRange(ctx)
 	if first != 0 || count != 3 {
 		t.Fatalf("initial range = (%d,%d), want (0,3)", first, count)
 	}
 
 	b.selectedCol = 7
-	first, count = region.visibleColRange(b)
+	first, count = region.visibleColRange(ctx)
 	if first != 5 || count != 3 {
 		t.Fatalf("after selecting col 7, range = (%d,%d), want (5,3)", first, count)
 	}
@@ -55,7 +57,7 @@ func TestBoardColumnsRegion_RenderColumnsUpdatesIndicatorsAndMetadata(t *testing
 	b.selectedCol = 7
 	region := boardColumnsRegion{}
 
-	out := region.renderColumns(b, b.termWidth)
+	out := region.renderColumns(b.renderColumnsRegionContext(), b.termWidth)
 	for _, want := range []string{"◀ 5", "2 ▶"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("columns view missing %q:\n%s", want, out)
@@ -87,9 +89,10 @@ func TestBoardColumnsRegion_SelectAtMouseIsImmediateNavigationOnly(t *testing.T)
 	}
 	setColumnHeights(b.columns, b.visibleHeight)
 	region := boardColumnsRegion{columnsHeight: 20}
+	ctx := b.columnsRegionContext()
 
-	x := slotWidth(region.colWidthOf(b, 0)) + 1
-	if !region.selectAtMouse(b, x, 1) {
+	x := slotWidth(region.colWidthOf(ctx, 0)) + 1
+	if !region.selectAtMouse(ctx, x, 1) {
 		t.Fatal("selectAtMouse returned false")
 	}
 	if b.selectedCol != 1 {
