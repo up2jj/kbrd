@@ -86,7 +86,7 @@ func TestBoardColumnsRegion_SelectAtMouseIsImmediateNavigationOnly(t *testing.T)
 		mnemonicMaxLen: 1,
 	}
 	setColumnHeights(b.columns, b.visibleHeight)
-	region := boardColumnsRegion{logoHeight: 0, columnsHeight: 20}
+	region := boardColumnsRegion{columnsHeight: 20}
 
 	x := slotWidth(region.colWidthOf(b, 0)) + 1
 	if !region.selectAtMouse(b, x, 1) {

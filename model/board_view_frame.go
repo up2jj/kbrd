@@ -107,8 +107,8 @@ func (f boardViewFrame) renderBase(w, h int) (string, boardFrameLayout) {
 
 func (f boardViewFrame) renderFrameParts(w int) boardFrameLayout {
 	b := f.b
-	header := b.statusPresenter().renderHeader(w)
-	columnsRegion := boardColumnsRegion{logoHeight: lipgloss.Height(header)}
+	header := b.statusPresenter().renderHeaderLayout(w)
+	columnsRegion := boardColumnsRegion{}
 	columnsView := columnsRegion.renderColumns(b, w)
 	body := columnsView
 	if mnemonicView := f.renderMnemonicJump(w); mnemonicView != "" {
@@ -125,10 +125,10 @@ func (f boardViewFrame) renderFrameParts(w int) boardFrameLayout {
 	}
 
 	return boardFrameLayout{
-		header:  header,
+		header:  header.view,
 		body:    body,
 		footer:  footer,
-		headerH: lipgloss.Height(header),
+		headerH: header.height,
 		footerH: footerH,
 	}
 }

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-
 	"kbrd/config"
 )
 
@@ -16,14 +14,14 @@ func TestBoardStatusPresenter_RenderHeaderIncludesLogoAndCells(t *testing.T) {
 	b := NewBoard(config.Config{BoardName: "Demo", NotifyBackend: "none"})
 	b.columns = []*Column{newTestColumn(t, map[string]string{"a": "alpha"})}
 
-	header := b.statusPresenter().renderHeader(120)
+	header := b.statusPresenter().renderHeaderLayout(120)
 	for _, want := range []string{"kbrd", "Demo", "1 items", "◇ mcp"} {
-		if !strings.Contains(header, want) {
-			t.Fatalf("header missing %q:\n%s", want, header)
+		if !strings.Contains(header.view, want) {
+			t.Fatalf("header missing %q:\n%s", want, header.view)
 		}
 	}
-	if lipgloss.Height(header) <= 0 {
-		t.Fatalf("header height = %d, want positive", lipgloss.Height(header))
+	if header.height <= 0 {
+		t.Fatalf("header height = %d, want positive", header.height)
 	}
 }
 

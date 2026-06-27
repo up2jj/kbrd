@@ -13,22 +13,10 @@ type boardColumnsRegion struct {
 	leftIndicatorWidth int
 	columnsLeftPad     int
 	columnsHeight      int
-	logoHeight         int
-}
-
-func currentBoardColumnsRegion(b *Board) boardColumnsRegion {
-	width := b.termWidth
-	if width == 0 {
-		width = 80
-	}
-	header := b.statusPresenter().renderHeader(width)
-	region := boardColumnsRegion{logoHeight: lipgloss.Height(header)}
-	region.measure(b, width)
-	return region
 }
 
 func (p boardColumnsRegion) mouseInColumns(y int) bool {
-	return y >= p.logoHeight && y < p.logoHeight+p.columnsHeight
+	return y >= 0 && y < p.columnsHeight
 }
 
 // colWidthOf is the content width of column i: its script-set override when one
@@ -165,12 +153,8 @@ func (p boardColumnsRegion) columnAtMouse(b *Board, x int) (int, bool) {
 	return colIdx, true
 }
 
-func (p boardColumnsRegion) itemY(y int) int {
-	return y - p.logoHeight
-}
-
 func (p boardColumnsRegion) itemAtMouse(col *Column, y int) (int, bool) {
-	return col.HitTest(p.itemY(y))
+	return col.HitTest(y)
 }
 
 // selectAtMouse converts rendered mouse coordinates into an immediate UI

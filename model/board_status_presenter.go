@@ -11,6 +11,11 @@ type boardStatusPresenter struct {
 	b *Board
 }
 
+type boardHeaderLayout struct {
+	view   string
+	height int
+}
+
 func (p boardStatusPresenter) renderLogo() string {
 	b := p.b
 	name := lipgloss.NewStyle().
@@ -29,7 +34,7 @@ func (p boardStatusPresenter) renderLogo() string {
 	return "⌨️  " + name + "  " + version + "  " + board
 }
 
-func (p boardStatusPresenter) renderHeader(width int) string {
+func (p boardStatusPresenter) renderHeaderLayout(width int) boardHeaderLayout {
 	b := p.b
 	p.updateBuiltinCells()
 	logo := p.renderLogo()
@@ -52,7 +57,7 @@ func (p boardStatusPresenter) renderHeader(width int) string {
 		BorderBottom(true).
 		BorderForeground(b.palette.BorderMuted).
 		Render(header)
-	return header
+	return boardHeaderLayout{view: header, height: lipgloss.Height(header)}
 }
 
 // updateBuiltinCells recomputes the internal (negative-id) cells from current

@@ -181,16 +181,22 @@ func TestMouseSelectionDelete_UsesStableRefForDelayedMutation(t *testing.T) {
 }
 
 func mousePointForItem(b *Board, wantCol int) (int, int, bool) {
-	region := currentBoardColumnsRegion(b)
+	width := b.termWidth
+	if width == 0 {
+		width = 80
+	}
+	header := b.statusPresenter().renderHeaderLayout(width)
+	region := boardColumnsRegion{}
+	region.measure(b, width)
 	for x := 0; x < b.termWidth; x++ {
 		colIdx, ok := region.columnAtMouse(b, x)
 		if !ok || colIdx != wantCol {
 			continue
 		}
 		col := b.columns[colIdx]
-		for y := region.logoHeight; y < region.logoHeight+region.columnsHeight; y++ {
-			if _, ok := col.HitTest(region.itemY(y)); ok {
-				return x, y, true
+		for y := 0; y < region.columnsHeight; y++ {
+			if _, ok := col.HitTest(y); ok {
+				return x, y + header.height, true
 			}
 		}
 	}

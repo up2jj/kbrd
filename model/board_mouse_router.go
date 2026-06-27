@@ -88,8 +88,15 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Only the columns region is interactive. Ignore clicks/wheel on the header,
 	// the padding, and the bottom keybar so they don't select columns by X alone.
-	columnsRegion := currentBoardColumnsRegion(b)
-	if !columnsRegion.mouseInColumns(mouse.Y) {
+	width := b.termWidth
+	if width == 0 {
+		width = 80
+	}
+	header := b.statusPresenter().renderHeaderLayout(width)
+	columnsRegion := boardColumnsRegion{}
+	columnsRegion.measure(b, width)
+	mouseYInColumns := mouse.Y - header.height
+	if !columnsRegion.mouseInColumns(mouseYInColumns) {
 		return b, nil
 	}
 
@@ -101,7 +108,7 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(b, mouse.X, mouse.Y)
+	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(b, mouse.X, mouseYInColumns)
 	if !ok || item == nil || item.Separator {
 		return b, nil
 	}
