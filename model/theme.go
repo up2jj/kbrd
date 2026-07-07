@@ -81,15 +81,21 @@ func LightPalette() Palette {
 	}
 }
 
-// PaletteFor returns the palette matching the named theme. Unknown names
-// fall back to the dark palette.
-func PaletteFor(name string) Palette {
-	switch name {
+// PaletteForTheme returns the palette matching the configured theme mode. The
+// "auto" mode follows the terminal background; before a terminal answer arrives,
+// callers pass terminalDark=true so startup falls back to the long-standing dark
+// look.
+func PaletteForTheme(mode string, terminalDark bool) Palette {
+	switch mode {
 	case "light":
 		return LightPalette()
+	case "auto":
+		if !terminalDark {
+			return LightPalette()
+		}
 	default:
-		return DarkPalette()
 	}
+	return DarkPalette()
 }
 
 // applyPackageStyles recomputes package-level style variables that are shared

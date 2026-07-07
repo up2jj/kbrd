@@ -47,6 +47,7 @@ type Board struct {
 	notifier        *Notifier
 	mnemonic        mnemonicSelectorState
 	theme           string
+	terminalDark    bool
 	palette         Palette
 	watcher         *kbrdfs.Watcher
 	dialog          Dialog
@@ -127,7 +128,8 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	if opts.Safe {
 		applySafeMode(&cfg)
 	}
-	palette := PaletteFor(cfg.Theme)
+	cfg.Theme = config.NormalizeTheme(cfg.Theme)
+	palette := PaletteForTheme(cfg.Theme, true)
 	b := &Board{
 		cfg:           cfg,
 		safeMode:      opts.Safe,
@@ -135,6 +137,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		notifier:      NewNotifier(cfg.NotifyBackend),
 		mnemonic:      newMnemonicSelectorState(palette),
 		theme:         cfg.Theme,
+		terminalDark:  true,
 		palette:       palette,
 		zellij:        NewZellij(),
 	}
@@ -212,10 +215,10 @@ func applyInputPalette(ti *textinput.Model, p Palette) {
 	ti.SetStyles(styles)
 }
 
-// applyPalette propagates the current palette to all sub-models and restyles
-// any pre-built input widgets. Call after b.palette or b.theme changes.
+// applyPalette propagates the effective palette to all sub-models and restyles
+// any pre-built input widgets. Call after b.theme or b.terminalDark changes.
 func (b *Board) applyPalette() {
-	b.palette = PaletteFor(b.theme)
+	b.palette = PaletteForTheme(b.theme, b.terminalDark)
 	applyPackageStyles(b.palette)
 	applyInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
@@ -239,7 +242,7 @@ func (b *Board) applyPalette() {
 }
 
 func (b *Board) Init() tea.Cmd {
-	return func() tea.Msg { return scriptInitStartMsg{} }
+	return tea.Batch(tea.RequestBackgroundColor, func() tea.Msg { return scriptInitStartMsg{} })
 }
 
 func (b *Board) initRuntime() {
@@ -507,6 +510,13 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.editor.SetSize(b.termWidth, b.termHeight)
 		b.templateFlow.SetSize(b.termWidth, b.termHeight)
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
+		return b, nil
+
+	case tea.BackgroundColorMsg:
+		b.terminalDark = msg.IsDark()
+		if b.theme == "auto" {
+			b.applyPalette()
+		}
 		return b, nil
 
 	case tea.KeyPressMsg:

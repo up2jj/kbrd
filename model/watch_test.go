@@ -1,11 +1,13 @@
 package model
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
 
 	"kbrd/config"
@@ -230,6 +232,9 @@ exec = true
 	if b.cfg.Theme != "light" || b.theme != "light" {
 		t.Fatalf("theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)
 	}
+	if b.palette.Primary != LightPalette().Primary {
+		t.Fatalf("light theme palette not applied: got primary %q want %q", b.palette.Primary, LightPalette().Primary)
+	}
 	if b.cfg.InstanceName != "local" {
 		t.Fatalf("instance name: got %q want local", b.cfg.InstanceName)
 	}
@@ -290,6 +295,43 @@ preview_lines = 9
 	}
 	if b.cfg.Theme != "light" || b.theme != "light" {
 		t.Fatalf("global theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)
+	}
+	if b.palette.Primary != LightPalette().Primary {
+		t.Fatalf("global light theme palette not applied: got primary %q want %q", b.palette.Primary, LightPalette().Primary)
+	}
+}
+
+func TestBoard_WatchEvent_ConfigChangeAutoUsesCurrentTerminalBackground(t *testing.T) {
+	b := boardWithNCols(t, 2, 2)
+	b.cfg.Theme = "dark"
+	b.theme = "dark"
+	b.applyPalette()
+	b.updateInner(tea.BackgroundColorMsg{Color: color.White})
+	if b.palette.Primary != DarkPalette().Primary {
+		t.Fatalf("forced dark should ignore light terminal before reload: got primary %q", b.palette.Primary)
+	}
+
+	cfgPath := filepath.Join(b.cfg.Path, config.FolderConfigFile)
+	if err := os.WriteFile(cfgPath, []byte(`
+[display]
+theme = "auto"
+column_width = 41
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	b.updateInner(watchEventMsg{Path: cfgPath})
+	cmd := b.debouncedReload(b.watchSeq)
+	if cmd == nil {
+		t.Fatal("expected a reload cmd")
+	}
+	b.updateInner(cmd())
+
+	if b.cfg.Theme != "auto" || b.theme != "auto" {
+		t.Fatalf("auto theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)
+	}
+	if b.palette.Primary != LightPalette().Primary {
+		t.Fatalf("auto theme should use current light terminal background: got primary %q want %q", b.palette.Primary, LightPalette().Primary)
 	}
 }
 

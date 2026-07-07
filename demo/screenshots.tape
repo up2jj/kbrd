@@ -71,7 +71,7 @@ Sleep 500ms
 # 5. Template form (board-wide .kbrd_templates/bug.md, run with `t`)
 Type "t"
 Sleep 1s
-Type "Theme contrast regression"
+Type "Terminal contrast regression"
 Sleep 800ms
 Screenshot docs/screenshots/template.png
 Escape

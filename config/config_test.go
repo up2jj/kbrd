@@ -27,7 +27,7 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFrom: %v", err)
 	}
-	if cfg.ColumnWidth != 32 || cfg.PreviewLines != 3 || cfg.Theme != "dark" || cfg.NotifyBackend != "auto" {
+	if cfg.ColumnWidth != 32 || cfg.PreviewLines != 3 || cfg.Theme != "auto" || cfg.NotifyBackend != "auto" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.Path != folder {
@@ -58,6 +58,40 @@ theme = "dark"
 	}
 	if cfg.PreviewLines != 3 {
 		t.Fatalf("preview_lines: got %d want default 3", cfg.PreviewLines)
+	}
+}
+
+func TestLoad_ThemeLightOverride(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[display]
+theme = "light"
+`)
+
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Theme != "light" {
+		t.Fatalf("theme: got %q want light", cfg.Theme)
+	}
+}
+
+func TestLoad_ThemeUnknownNormalizesToAuto(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, "kbrd.toml"), `
+[display]
+theme = "sepia"
+`)
+
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Theme != "auto" {
+		t.Fatalf("unknown theme should fall back to auto, got %q", cfg.Theme)
 	}
 }
 

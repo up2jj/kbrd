@@ -11,21 +11,21 @@ board="$here/sample-board"
 rm -rf "$board"
 mkdir -p "$board/Backlog" "$board/In Progress" "$board/Done"
 
-cat > "$board/Backlog/Polish the theme palette.md" <<'EOF'
+cat > "$board/Backlog/Verify terminal contrast.md" <<'EOF'
 ---
 accent: "#e06c75"
 icon: "🎨"
 meta: due Fri
 tags: [ui, design]
 ---
-# Polish the theme palette
+# Verify terminal contrast
 
-Tune contrast for the **dark** theme and verify the light theme is
-readable on a white terminal.
+Check that the automatic palette stays readable on both light and dark
+terminal backgrounds.
 
 - [ ] Audit border colors
 - [ ] Check selected-row contrast
-- [ ] Screenshot both themes
+- [ ] Screenshot light and dark terminals
 EOF
 
 cat > "$board/Backlog/Investigate file watcher races.md" <<'EOF'
@@ -136,7 +136,7 @@ git add -A
 git commit -q -m "Seed sample board" || true
 
 # Leave one uncommitted change so the git panel shows a modified file.
-printf '\n- [ ] Add a screenshot to the README\n' >> "$board/Backlog/Polish the theme palette.md"
+printf '\n- [ ] Add a screenshot to the README\n' >> "$board/Backlog/Verify terminal contrast.md"
 
 # --- Isolated HOME with a clean recents list (for the switcher screenshot) ---
 # kbrd reads recents from os.UserConfigDir(), i.e.

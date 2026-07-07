@@ -168,6 +168,16 @@ func ResolveInstanceName(flagVal string) string {
 	return ""
 }
 
+// NormalizeTheme returns a supported display.theme mode.
+func NormalizeTheme(theme string) string {
+	switch theme {
+	case "light", "dark":
+		return theme
+	default:
+		return "auto"
+	}
+}
+
 func Load(path string) (Config, error) {
 	globalDir, err := os.UserConfigDir()
 	if err != nil {
@@ -185,7 +195,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.title_from_heading", false)
 	v.SetDefault("display.wrap_titles", true)
 	v.SetDefault("display.title_max_lines", 2)
-	v.SetDefault("display.theme", "dark")
+	v.SetDefault("display.theme", "auto")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("board.item_double_click", "peek")
 	v.SetDefault("git.diff_tool", "auto")
@@ -255,6 +265,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	if itemDoubleClick != "edit" {
 		itemDoubleClick = "peek"
 	}
+	theme := NormalizeTheme(v.GetString("display.theme"))
 
 	return Config{
 		Path:                 folderPath,
@@ -263,7 +274,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		TitleFromHeading:     v.GetBool("display.title_from_heading"),
 		WrapTitles:           v.GetBool("display.wrap_titles"),
 		TitleMaxLines:        v.GetInt("display.title_max_lines"),
-		Theme:                v.GetString("display.theme"),
+		Theme:                theme,
 		NotifyBackend:        v.GetString("notify.backend"),
 		BoardName:            v.GetString("board.name"),
 		BoardItemDoubleClick: itemDoubleClick,

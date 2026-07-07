@@ -110,6 +110,7 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 func (b *Board) reloadCmd(seq int, reloadConfig ...bool) tea.Cmd {
 	cfg := b.cfg
 	currentPalette := b.palette
+	terminalDark := b.terminalDark
 	shouldReloadConfig := len(reloadConfig) > 0 && reloadConfig[0]
 	// Snapshot current items by value on the UI goroutine; the closure only
 	// reads it. Preview slices are shared but only ever reassigned (never
@@ -132,7 +133,7 @@ func (b *Board) reloadCmd(seq int, reloadConfig ...bool) tea.Cmd {
 		}
 		palette := currentPalette
 		if shouldReloadConfig {
-			palette = PaletteFor(cfg.Theme)
+			palette = PaletteForTheme(cfg.Theme, terminalDark)
 		}
 		columns, err := buildColumns(cfg, palette, cache)
 		if err != nil {

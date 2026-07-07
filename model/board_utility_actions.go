@@ -24,16 +24,6 @@ func (u boardUtilityActions) refresh() tea.Cmd {
 	}
 }
 
-func (u boardUtilityActions) toggleTheme() {
-	b := u.b
-	if b.theme == "dark" {
-		b.theme = "light"
-	} else {
-		b.theme = "dark"
-	}
-	b.applyPalette()
-}
-
 func (u boardUtilityActions) copyToClipboard(content []byte) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(string(content)); err != nil {

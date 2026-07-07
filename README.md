@@ -103,7 +103,7 @@ A quick, scannable rundown of everything kbrd does:
 
 **Interface & integrations**
 
-- **Themes** — light / dark palettes for the terminal UI.
+- **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Zellij integration** — inside a [zellij](https://zellij.dev) session, open a card in a floating or tiled editor pane, or a shell scoped to the board (`z`); the tab is named after the board.
 
@@ -396,7 +396,7 @@ Generate templates with `kbrd init` / `kbrd init --global`, or from the config m
 column_width  = 32          # width of each column
 preview_lines = 3           # lines shown in a card preview
 title_from_heading = false  # use the first "# " heading as the card title
-theme         = "dark"      # "light" | "dark"
+theme         = "auto"      # auto follows terminal background; light | dark force a palette
 
 [notify]
 backend = "auto"            # auto | osascript | osc9 | osc777 | none
@@ -646,7 +646,9 @@ same trust caveat as folder-local scripts — see **[SECURITY.md](./SECURITY.md)
 
 ### Theming
 
-Toggle between light and dark palettes with `t`, or set a default with `display.theme`.
+kbrd defaults to `display.theme = "auto"`, asking the terminal whether its background is
+light or dark and choosing a matching palette. Set `display.theme = "light"` or
+`display.theme = "dark"` to force a palette when a terminal reports the wrong background.
 
 ---
 

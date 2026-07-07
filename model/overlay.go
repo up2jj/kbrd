@@ -17,7 +17,7 @@ const (
 )
 
 // overlayTitleStyle styles the title embedded in every overlay's top border.
-// Set from the palette in setHelpStyles so it follows theme switches.
+// Set from the palette in setHelpStyles so it follows palette changes.
 var overlayTitleStyle lipgloss.Style
 
 func overlayWidthForBody(bodyW int) int {

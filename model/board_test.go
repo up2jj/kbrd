@@ -1,6 +1,7 @@
 package model
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"sort"
@@ -93,6 +94,46 @@ func TestBoard_CreateDefaultColumns(t *testing.T) {
 	}
 	if len(b.columns) != 3 {
 		t.Errorf("columns = %d, want 3", len(b.columns))
+	}
+}
+
+func TestBoard_BackgroundColorAutoUpdatesPalette(t *testing.T) {
+	b := NewBoard(config.Config{Theme: "auto", NotifyBackend: "none"})
+
+	b.updateInner(tea.BackgroundColorMsg{Color: color.White})
+	if b.terminalDark {
+		t.Fatal("white terminal background should be recorded as light")
+	}
+	if b.palette.Primary != LightPalette().Primary {
+		t.Fatalf("auto light palette primary = %q, want %q", b.palette.Primary, LightPalette().Primary)
+	}
+
+	b.updateInner(tea.BackgroundColorMsg{Color: color.Black})
+	if !b.terminalDark {
+		t.Fatal("black terminal background should be recorded as dark")
+	}
+	if b.palette.Primary != DarkPalette().Primary {
+		t.Fatalf("auto dark palette primary = %q, want %q", b.palette.Primary, DarkPalette().Primary)
+	}
+}
+
+func TestBoard_BackgroundColorRespectsForcedTheme(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		theme     string
+		bg        color.Color
+		wantColor Palette
+	}{
+		{name: "forced dark ignores light terminal", theme: "dark", bg: color.White, wantColor: DarkPalette()},
+		{name: "forced light ignores dark terminal", theme: "light", bg: color.Black, wantColor: LightPalette()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBoard(config.Config{Theme: tc.theme, NotifyBackend: "none"})
+			b.updateInner(tea.BackgroundColorMsg{Color: tc.bg})
+			if b.palette.Primary != tc.wantColor.Primary {
+				t.Fatalf("palette primary = %q, want %q", b.palette.Primary, tc.wantColor.Primary)
+			}
+		})
 	}
 }
 

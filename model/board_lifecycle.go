@@ -110,6 +110,7 @@ func (l boardLifecycle) applyReloadedColumns(columns []*Column) {
 
 func (l boardLifecycle) applyReloadedConfig(cfg config.Config) {
 	b := l.board
+	cfg.Theme = config.NormalizeTheme(cfg.Theme)
 	old := b.cfg
 	b.cfg = cfg
 	b.theme = cfg.Theme

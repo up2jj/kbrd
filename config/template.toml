@@ -6,7 +6,7 @@
 # title_from_heading = false # use the first "# " heading as the card title
 # wrap_titles   = true      # wrap long card titles instead of truncating
 # title_max_lines = 2       # max wrapped title rows before ellipsis
-# theme         = "dark"    # "light" | "dark"
+# theme         = "auto"    # "auto" follows terminal background; "light" | "dark" force a palette
 
 [notify]
 # backend = "auto"          # auto | osascript | osc9 | osc777 | none
