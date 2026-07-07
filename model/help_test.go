@@ -228,7 +228,7 @@ func TestHelpMenu_WidthStableAcrossPositionDigitBoundary(t *testing.T) {
 	m := &HelpMenu{}
 	m.SetPalette(DarkPalette())
 	m.Open(helpGroupsWithEntries(12))
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 
@@ -459,7 +459,7 @@ func TestBoardHelpActions_RunCustomCommandBuildsCommandMessage(t *testing.T) {
 
 func helpGroupsWithEntries(n int) []HelpGroup {
 	items := make([]HelpEntry, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := string(rune('0' + i%10))
 		items = append(items, HelpEntry{
 			Keys:   key,

@@ -620,7 +620,7 @@ func TestViewNoOverflow(t *testing.T) {
 	long := "this is a very long line that exceeds the viewport width by a lot indeed yes and more"
 	b := New(long + "\n" + long + "\n" + long + "\nshort")
 	b.SetSize(40, 30)
-	for _, ln := range strings.Split(b.View(theme.Palette{}), "\n") {
+	for ln := range strings.SplitSeq(b.View(theme.Palette{}), "\n") {
 		if w := lipgloss.Width(ln); w > 40 {
 			t.Fatalf("rendered line width %d exceeds buffer width 40: %q", w, ln)
 		}

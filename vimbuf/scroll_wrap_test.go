@@ -25,7 +25,7 @@ func TestScrollReachesLastLineWithWrap(t *testing.T) {
 		}
 		b := New(strings.TrimRight(sb.String(), "\n"))
 		b.SetSize(100, 36)
-		for i := 0; i < 200; i++ { // wheel to the bottom, re-sizing like the render loop
+		for range 200 { // wheel to the bottom, re-sizing like the render loop
 			b.Scroll(3)
 			b.SetSize(100, 36)
 		}

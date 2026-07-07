@@ -113,7 +113,7 @@ func TestBoardViewFrame_RenderBaseIncludesMnemonicJump(t *testing.T) {
 	if !strings.Contains(stripped, ": sf") {
 		t.Fatalf("base view missing mnemonic input:\n%s", out)
 	}
-	for _, line := range strings.Split(stripped, "\n") {
+	for line := range strings.SplitSeq(stripped, "\n") {
 		if strings.Contains(line, ": sf") {
 			if !strings.HasPrefix(line, " ") {
 				t.Fatalf("mnemonic input line is not centered:\n%s", out)

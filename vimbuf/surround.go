@@ -145,7 +145,7 @@ func (b *Buffer) findSurround(oc, cc rune) (li, ri int) {
 			}
 		}
 		if left < 0 {
-			for i := 0; i < len(line); i++ {
+			for i := range line {
 				if line[i] == oc {
 					left = i
 					break

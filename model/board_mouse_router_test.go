@@ -45,7 +45,7 @@ func TestBoardMouseRouter_DialogBlocksBoardSelection(t *testing.T) {
 func TestBoardMouseRouter_WheelScrollsHoveredColumnOnly(t *testing.T) {
 	colA := newTestColumn(t, map[string]string{"a": "alpha"})
 	colBFiles := map[string]string{}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		name := "item-" + strconv.Itoa(i)
 		colBFiles[name] = name
 	}
@@ -85,7 +85,7 @@ func TestBoardMouseRouter_WheelScrollsHoveredColumnOnly(t *testing.T) {
 func TestBoardMouseRouter_WheelScrollsHelpMenu(t *testing.T) {
 	colA := newTestColumn(t, map[string]string{"a": "alpha"})
 	colBFiles := map[string]string{}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		name := "item-" + strconv.Itoa(i)
 		colBFiles[name] = name
 	}
@@ -140,7 +140,7 @@ func TestBoardMouseRouter_WheelOverGitPanelDoesNotScrollColumn(t *testing.T) {
 	}
 	colA := newTestColumn(t, map[string]string{"a": "alpha"})
 	colBFiles := map[string]string{}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		name := "item-" + strconv.Itoa(i)
 		colBFiles[name] = name
 	}

@@ -122,7 +122,7 @@ func parseLineChanges(diff string, currentLines int) []LineChange {
 	var cur hunk
 	inHunk := false
 	newLine := 0
-	for _, line := range strings.Split(diff, "\n") {
+	for line := range strings.SplitSeq(diff, "\n") {
 		if strings.HasPrefix(line, "@@ ") {
 			if inHunk {
 				flush(cur)

@@ -141,7 +141,7 @@ func TestVimViewScrollbarUsesReservedRightLane(t *testing.T) {
 	out := ansi.Strip(e.View())
 	scrollbarX := 1 + overlayPadH + e.buf.Width() - 1
 	foundThumb := false
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		x := runeIndex(line, '█')
 		if x < 0 {
 			continue

@@ -117,7 +117,7 @@ func TestGitPanelRightPaneScrollbarDoesNotWrap(t *testing.T) {
 	}
 
 	width := -1
-	for _, line := range strings.Split(view, "\n") {
+	for line := range strings.SplitSeq(view, "\n") {
 		w := lipgloss.Width(line)
 		if width < 0 {
 			width = w

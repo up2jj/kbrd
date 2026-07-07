@@ -108,7 +108,7 @@ func TestTemplateMenuViewRowsKeepFrameWidth(t *testing.T) {
 
 	view := menu.View(100, 40)
 	width := lipgloss.Width(view)
-	for _, line := range strings.Split(view, "\n") {
+	for line := range strings.SplitSeq(view, "\n") {
 		if got := lipgloss.Width(line); got != width {
 			t.Fatalf("template menu line width = %d, want %d for line %q\n%s", got, width, line, view)
 		}
