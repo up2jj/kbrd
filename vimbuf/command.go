@@ -58,12 +58,7 @@ func (b *Buffer) runCommand() Effect {
 	if strings.HasPrefix(line, "/") || strings.HasPrefix(line, "?") {
 		forward := line[0] == '/'
 		term := line[1:]
-		if term != "" {
-			b.lastSearch = term
-			b.searchForward = forward
-			b.doSearch(term, forward)
-		}
-		return Effect{}
+		return b.runSearch(term, forward, 1, true)
 	}
 
 	cmd := strings.TrimSpace(line)

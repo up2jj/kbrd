@@ -1,6 +1,9 @@
 package vimbuf
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // StartInsert puts a freshly opened buffer directly into insert mode (used for
 // the append/prepend/journal "add text" editor states). It opens an undo group
@@ -410,37 +413,65 @@ func (b *Buffer) paragraphObject(io rune) (Pos, Pos, bool, bool) {
 
 // --- search -----------------------------------------------------------------
 
-func (b *Buffer) searchNext(sameDir bool) {
+func (b *Buffer) searchNext(sameDir bool, count int) Effect {
 	if b.lastSearch == "" {
-		return
+		return Effect{Status: "no previous search"}
 	}
 	forward := b.searchForward
 	if !sameDir {
 		forward = !forward
 	}
-	b.doSearch(b.lastSearch, forward)
+	return b.runSearch(b.lastSearch, forward, count, false)
 }
 
-func (b *Buffer) doSearch(term string, forward bool) {
+func (b *Buffer) runSearch(term string, forward bool, count int, remember bool) Effect {
 	if term == "" {
-		return
+		if b.lastSearch == "" {
+			return Effect{Status: "no previous search"}
+		}
+		term = b.lastSearch
 	}
+	re, err := regexp.Compile(term)
+	if err != nil {
+		return Effect{Status: "bad search: " + err.Error()}
+	}
+	if count <= 0 {
+		count = 1
+	}
+	orig := b.cursor
+	if remember {
+		b.lastSearch = term
+		b.searchForward = forward
+	}
+	for range count {
+		if !b.doSearch(re, forward) {
+			b.cursor = orig
+			b.desiredCol = orig.Col
+			b.clampCursor()
+			b.scrollToCursor()
+			return Effect{Status: "pattern not found: " + term}
+		}
+	}
+	return Effect{}
+}
+
+func (b *Buffer) doSearch(re *regexp.Regexp, forward bool) bool {
 	start := b.cursor
 	total := len(b.lines)
 	if forward {
 		for off := 0; off <= total; off++ {
 			row := (start.Row + off) % total
 			line := string(b.lines[row])
-			from := 0
+			from := 0 // byte offset
 			if off == 0 {
-				from = start.Col + 1
+				from = byteIndexOfRune(line, start.Col+1)
 			}
-			if idx := indexFrom(line, term, from); idx >= 0 {
+			if idx := regexpIndexFrom(re, line, from); idx >= 0 {
 				b.cursor = Pos{row, runeLen(line[:idx])}
 				b.desiredCol = b.cursor.Col
 				b.clampCursor()
 				b.scrollToCursor()
-				return
+				return true
 			}
 		}
 	} else {
@@ -451,15 +482,16 @@ func (b *Buffer) doSearch(term string, forward bool) {
 			if off == 0 {
 				limit = byteIndexOfRune(line, start.Col)
 			}
-			if idx := lastIndexBefore(line, term, limit); idx >= 0 {
+			if idx := regexpLastIndexBefore(re, line, limit); idx >= 0 {
 				b.cursor = Pos{row, runeLen(line[:idx])}
 				b.desiredCol = b.cursor.Col
 				b.clampCursor()
 				b.scrollToCursor()
-				return
+				return true
 			}
 		}
 	}
+	return false
 }
 
 // --- low-level line helpers -------------------------------------------------
@@ -483,28 +515,34 @@ func leadingWhitespace(line []rune) []rune {
 	return line[:n]
 }
 
-func indexFrom(s, sub string, from int) int {
+func regexpIndexFrom(re *regexp.Regexp, s string, from int) int {
 	if from > len(s) {
 		return -1
 	}
 	if from < 0 {
 		from = 0
 	}
-	i := strings.Index(s[from:], sub)
-	if i < 0 {
+	loc := re.FindStringIndex(s[from:])
+	if loc == nil {
 		return -1
 	}
-	return from + i
+	return from + loc[0]
 }
 
-func lastIndexBefore(s, sub string, limit int) int {
+func regexpLastIndexBefore(re *regexp.Regexp, s string, limit int) int {
 	if limit > len(s) {
 		limit = len(s)
 	}
 	if limit < 0 {
 		return -1
 	}
-	return strings.LastIndex(s[:limit], sub)
+	locs := re.FindAllStringIndex(s[:limit], -1)
+	for i := len(locs) - 1; i >= 0; i-- {
+		if locs[i][0] < limit {
+			return locs[i][0]
+		}
+	}
+	return -1
 }
 
 func runeLen(s string) int { return len([]rune(s)) }

@@ -17,6 +17,14 @@ func keys(b *Buffer, s string) {
 	}
 }
 
+func keysEffect(b *Buffer, s string) Effect {
+	var eff Effect
+	for _, k := range tokenize(s) {
+		eff = b.HandleKey(k)
+	}
+	return eff
+}
+
 func tokenize(s string) []string {
 	var out []string
 	runes := []rune(s)
@@ -208,6 +216,131 @@ func TestCompletion(t *testing.T) {
 	}
 	if name, usage := b.CompletionHint(); name != "indent" || usage != "indent(n)" {
 		t.Fatalf("hint = %q/%q", name, usage)
+	}
+}
+
+func TestSearchForwardBackwardRepeat(t *testing.T) {
+	b := New("alpha\nbeta\nalphabet\nbeta")
+
+	keys(b, "/beta<enter>")
+	if got := b.Cursor(); got.Row != 1 || got.Col != 0 {
+		t.Fatalf("/beta cursor = %+v, want row 1 col 0", got)
+	}
+
+	keys(b, "n")
+	if got := b.Cursor(); got.Row != 3 || got.Col != 0 {
+		t.Fatalf("n cursor = %+v, want row 3 col 0", got)
+	}
+
+	keys(b, "N")
+	if got := b.Cursor(); got.Row != 1 || got.Col != 0 {
+		t.Fatalf("N cursor = %+v, want row 1 col 0", got)
+	}
+
+	keys(b, "?alpha<enter>")
+	if got := b.Cursor(); got.Row != 0 || got.Col != 0 {
+		t.Fatalf("?alpha cursor = %+v, want row 0 col 0", got)
+	}
+}
+
+func TestSearchRegex(t *testing.T) {
+	b := New("plain\ncard-123\ncard-abc")
+
+	keys(b, "/card-[0-9]+<enter>")
+	if got := b.Cursor(); got.Row != 1 || got.Col != 0 {
+		t.Fatalf("regex cursor = %+v, want row 1 col 0", got)
+	}
+}
+
+func TestSearchEmptyRepeatsLastPatternWithTypedDirection(t *testing.T) {
+	b := New("one\ntwo\nthree\ntwo")
+
+	keys(b, "/two<enter>")
+	if got := b.Cursor(); got.Row != 1 {
+		t.Fatalf("first /two row = %d, want 1", got.Row)
+	}
+
+	keys(b, "/<enter>")
+	if got := b.Cursor(); got.Row != 3 {
+		t.Fatalf("empty / repeat row = %d, want 3", got.Row)
+	}
+
+	keys(b, "?<enter>")
+	if got := b.Cursor(); got.Row != 1 {
+		t.Fatalf("empty ? repeat row = %d, want 1", got.Row)
+	}
+}
+
+func TestSearchCountedRepeat(t *testing.T) {
+	b := New("start\nhit one\nhit two\nhit three")
+
+	keys(b, "/hit<enter>")
+	keys(b, "2n")
+	if got := b.Cursor(); got.Row != 3 || got.Col != 0 {
+		t.Fatalf("2n cursor = %+v, want row 3 col 0", got)
+	}
+}
+
+func TestSearchStatuses(t *testing.T) {
+	b := New("x\nalpha")
+
+	if eff := b.HandleKey("n"); eff.Status != "no previous search" {
+		t.Fatalf("n with no prior search status = %q", eff.Status)
+	}
+
+	keys(b, "/alpha<enter>")
+	before := b.Cursor()
+	if eff := keysEffect(b, "/[<enter>"); eff.Status == "" || !strings.HasPrefix(eff.Status, "bad search: ") {
+		t.Fatalf("bad regex status = %q, want bad search", eff.Status)
+	}
+	if got := b.Cursor(); got != before {
+		t.Fatalf("bad regex moved cursor to %+v, want %+v", got, before)
+	}
+
+	b.cursor = Pos{0, 0}
+	if eff := b.HandleKey("n"); eff.Status != "" {
+		t.Fatalf("previous valid search was not preserved, status = %q", eff.Status)
+	}
+	if got := b.Cursor(); got.Row != 1 || got.Col != 0 {
+		t.Fatalf("n after bad regex cursor = %+v, want row 1 col 0", got)
+	}
+
+	before = b.Cursor()
+	if eff := keysEffect(b, "/missing<enter>"); eff.Status != "pattern not found: missing" {
+		t.Fatalf("missing search status = %q", eff.Status)
+	}
+	if got := b.Cursor(); got != before {
+		t.Fatalf("missing search moved cursor to %+v, want %+v", got, before)
+	}
+}
+
+func TestSearchMultibyteCursorColumn(t *testing.T) {
+	b := New("plain\nzolc żółć needle")
+
+	keys(b, "/needle<enter>")
+	if got := b.Cursor(); got.Row != 1 || got.Col != 10 {
+		t.Fatalf("multibyte search cursor = %+v, want row 1 col 10", got)
+	}
+}
+
+func TestSearchScrollsToMatch(t *testing.T) {
+	var lines []string
+	for i := 0; i < 30; i++ {
+		if i == 25 {
+			lines = append(lines, "target")
+		} else {
+			lines = append(lines, "line")
+		}
+	}
+	b := New(strings.Join(lines, "\n"))
+	b.SetSize(40, 5)
+
+	keys(b, "/target<enter>")
+	if got := b.Cursor(); got.Row != 25 {
+		t.Fatalf("search cursor row = %d, want 25", got.Row)
+	}
+	if b.top > b.Cursor().Row || b.Cursor().Row > b.lastVisibleRow() {
+		t.Fatalf("match row %d not visible with top=%d lastVisible=%d", b.Cursor().Row, b.top, b.lastVisibleRow())
 	}
 }
 

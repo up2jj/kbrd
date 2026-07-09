@@ -356,11 +356,9 @@ func (b *Buffer) standalone(key string) Effect {
 		b.cmdline = []rune(key) // search uses the command-line buffer prefixed by / or ?
 		b.takeCount()
 	case "n":
-		b.searchNext(true)
-		b.takeCount()
+		return b.searchNext(true, b.takeCount())
 	case "N":
-		b.searchNext(false)
-		b.takeCount()
+		return b.searchNext(false, b.takeCount())
 	default:
 		b.resetPending()
 	}

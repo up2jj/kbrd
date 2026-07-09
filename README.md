@@ -302,6 +302,7 @@ back to a plain textarea editor.
 | `i` `a` `o` / `v` `V` / `:` | Insert / Visual / Command-line |
 | `:w` `:q` `:q!` `:wq` · `ctrl+s` | Save / quit (`ctrl+s` saves and stays) |
 | `esc` | Back to Normal · close from Normal |
+| `/regex` `?regex` `n` `N` | Search forward / back · next / previous |
 | `:lua <expr>` | Evaluate Lua against the line/selection (see [SCRIPTING.md](./SCRIPTING.md)) |
 | `ctrl+t` | Insert `- [ ] ` or toggle a task; in Visual/Visual Line mode, prefix selected lines |
 | `ctrl+l` | Run a line command · `ctrl+e` expand · `ctrl+v` paste |

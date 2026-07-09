@@ -97,7 +97,7 @@ Pressing `enter` on an empty list marker ends the list.
 
 | Keys | Action |
 | --- | --- |
-| `/pat` `?pat` `n` `N` | search forward / back · next / previous |
+| `/regex` `?regex` `n` `N` | regex search forward / back · next / previous |
 | `:w` `:q` `:q!` `:wq` `:x` | save / quit (`:q` refuses on unsaved changes) |
 | `:N` | jump to line N |
 | `:N,M` | select lines N–M (linewise visual) |
