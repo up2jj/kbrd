@@ -286,6 +286,32 @@ func TestVimSwapRecovery(t *testing.T) {
 	}
 }
 
+func TestVimSwapSkipsMovementAndClearsAfterUndoToClean(t *testing.T) {
+	e, path := openVimEdit(t, "hello")
+	e.Update(runeKey('x')) // delete -> dirty -> flushSwap
+	swap := filepath.Join(filepath.Dir(path), ".note.md.kbrd-swap")
+	if _, err := os.Stat(swap); err != nil {
+		t.Fatalf("swap not written: %v", err)
+	}
+	writtenRev := e.lastSwapRevision
+	if writtenRev == 0 {
+		t.Fatal("swap write should record the written revision")
+	}
+
+	e.Update(runeKey('l')) // movement must not flush a duplicate swap
+	if e.lastSwapRevision != writtenRev {
+		t.Fatalf("movement rewrote swap revision: got %d, want %d", e.lastSwapRevision, writtenRev)
+	}
+
+	e.Update(runeKey('u')) // undo restores the clean snapshot revision
+	if e.IsDirty() {
+		t.Fatal("undo back to opened content should clear dirty state")
+	}
+	if _, err := os.Stat(swap); !os.IsNotExist(err) {
+		t.Fatalf("clean undo should clear swap, stat err = %v", err)
+	}
+}
+
 // esc from Normal mode closes a clean editor; from Insert it returns to Normal.
 func TestVimEscCloses(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")

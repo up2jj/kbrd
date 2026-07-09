@@ -70,6 +70,10 @@ type Editor struct {
 	swapWriteFailed  bool                       // last swap flush failed — crash recovery is unavailable
 	pendingSaveClose bool                       // a save is in flight that should close the editor on success
 	evalCompletions  func() []vimbuf.Completion // injected by the board for :lua autocomplete
+	cleanRevision    int64                      // vim buffer revision matching the saved/on-disk baseline
+	lastSwapRevision int64                      // latest vim revision successfully written to the swap sidecar
+	lastVimW         int                        // cached modal content width applied to the vim buffer
+	lastVimH         int                        // cached modal content height applied to the vim buffer
 }
 
 const (
@@ -103,7 +107,11 @@ func (e *Editor) applySize() {
 	e.textarea.SetWidth(w)
 	e.textarea.SetHeight(h)
 	if e.vim && e.buf != nil {
-		e.buf.SetSize(e.vimSize())
+		vw, vh := e.vimSize()
+		if vw != e.lastVimW || vh != e.lastVimH {
+			e.buf.SetSize(vw, vh)
+			e.lastVimW, e.lastVimH = vw, vh
+		}
 	}
 }
 
@@ -306,6 +314,7 @@ func (e *Editor) OpenAppend(colIdx int, colPath, itemPath, fileName string) tea.
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
+		e.lastSwapRevision = 0
 		e.expanded = false
 		e.status = ""
 		return e.startVim("", true)
@@ -327,6 +336,7 @@ func (e *Editor) OpenPrepend(colIdx int, colPath, itemPath, fileName string) tea
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
+		e.lastSwapRevision = 0
 		e.expanded = false
 		e.status = ""
 		return e.startVim("", true)
@@ -348,6 +358,7 @@ func (e *Editor) OpenJournal(colIdx int, colPath, itemPath, fileName string) tea
 	if e.vim {
 		e.initialValue = ""
 		e.swapFile = ""
+		e.lastSwapRevision = 0
 		e.expanded = false
 		e.status = ""
 		return e.startVim("", true)
@@ -495,7 +506,7 @@ func (e *Editor) IsDirty() bool {
 		return e.textinput.Value() != e.initialValue
 	}
 	if e.vim && e.buf != nil {
-		return e.buf.Text() != e.initialValue
+		return e.buf.ChangedSince(e.cleanRevision)
 	}
 	return e.textarea.Value() != e.initialValue
 }
@@ -718,6 +729,9 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 // it, and (for an existing file) checks for a recoverable swap.
 func (e *Editor) startVim(initial string, insert bool) tea.Cmd {
 	e.buf = vimbuf.New(initial)
+	e.cleanRevision = e.buf.Revision()
+	e.lastSwapRevision = 0
+	e.lastVimW, e.lastVimH = 0, 0
 	if insert {
 		e.buf.StartInsert()
 	}
@@ -737,11 +751,15 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 	if keyStr == "ctrl+v" {
 		if text, err := clipboard.ReadAll(); err == nil && text != "" {
 			if e.buf.Mode() == vimbuf.ModeCommand {
-				return e.applyVimEffect(e.feedVimRunes([]rune(text)))
+				before := e.buf.Revision()
+				return e.applyVimEffect(e.feedVimRunes([]rune(text)), e.buf.ChangedSince(before))
 			}
 			if e.buf.Mode() == vimbuf.ModeNormal || e.buf.Mode() == vimbuf.ModeInsert {
+				before := e.buf.Revision()
 				e.buf.InsertText(text)
-				e.flushSwap()
+				if e.buf.ChangedSince(before) {
+					e.flushSwap()
+				}
 			}
 		}
 		return nil, nil
@@ -769,8 +787,11 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 			return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 		}, nil
 	case key.Matches(keyMsg, Keys.EditorTaskPrefix) && e.buf.Mode() != vimbuf.ModeCommand:
+		before := e.buf.Revision()
 		e.buf.InsertTaskPrefix()
-		e.flushSwap()
+		if e.buf.ChangedSince(before) {
+			e.flushSwap()
+		}
 		return nil, nil
 	}
 	e.status = ""
@@ -779,10 +800,12 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 	// drop a multi-rune chunk entirely, so feed the runes individually. Special
 	// keys arrive with empty Text and are unaffected.
 	if rs := []rune(keyMsg.Text); len(rs) > 1 {
-		return e.applyVimEffect(e.feedVimRunes(rs))
+		before := e.buf.Revision()
+		return e.applyVimEffect(e.feedVimRunes(rs), e.buf.ChangedSince(before))
 	}
+	before := e.buf.Revision()
 	eff := e.buf.HandleKey(keyStr)
-	return e.applyVimEffect(eff)
+	return e.applyVimEffect(eff, e.buf.ChangedSince(before))
 }
 
 func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {
@@ -791,10 +814,14 @@ func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {
 	}
 	switch e.buf.Mode() {
 	case vimbuf.ModeInsert:
+		before := e.buf.Revision()
 		e.buf.InsertText(text)
-		e.flushSwap()
+		if e.buf.ChangedSince(before) {
+			e.flushSwap()
+		}
 	case vimbuf.ModeCommand:
-		return e.applyVimEffect(e.feedVimRunes([]rune(text)))
+		before := e.buf.Revision()
+		return e.applyVimEffect(e.feedVimRunes([]rune(text)), e.buf.ChangedSince(before))
 	}
 	return nil, nil
 }
@@ -815,7 +842,7 @@ func (e *Editor) feedVimRunes(rs []rune) vimbuf.Effect {
 }
 
 // applyVimEffect carries out the host-level Effect a key produced.
-func (e *Editor) applyVimEffect(eff vimbuf.Effect) (tea.Cmd, tea.Msg) {
+func (e *Editor) applyVimEffect(eff vimbuf.Effect, contentChanged bool) (tea.Cmd, tea.Msg) {
 	if eff.Status != "" {
 		e.status = eff.Status
 	}
@@ -849,7 +876,9 @@ func (e *Editor) applyVimEffect(eff vimbuf.Effect) (tea.Cmd, tea.Msg) {
 		}
 		return func() tea.Msg { return editorEvalMsg{Expr: expr, Range: rng} }, nil
 	}
-	e.flushSwap()
+	if contentChanged {
+		e.flushSwap()
+	}
 	return nil, nil
 }
 
@@ -891,6 +920,7 @@ func (e *Editor) confirmSaved() {
 		e.Close()
 	} else {
 		e.initialValue = e.buf.Text()
+		e.cleanRevision = e.buf.Revision()
 	}
 	e.pendingSaveClose = false
 }

@@ -55,10 +55,10 @@ func (b *Buffer) surroundSelection(c rune) {
 		}
 		b.cursor = f
 	}
-	b.recMutated = true
 	b.endGroup()
 	b.mode = ModeNormal
 	b.clampCursor()
+	b.recordEdit()
 }
 
 // deleteSurround implements ds<char>: removes the nearest surrounding pair for
@@ -83,7 +83,7 @@ func (b *Buffer) deleteSurround(c rune) {
 		b.cursor.Col--
 	}
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }
 
 // changeSurround implements cs<old><new>: replaces the surrounding pair.
@@ -109,7 +109,7 @@ func (b *Buffer) changeSurround(oldc, newc rune) {
 	nl = append(nl, line[ri+1:]...)
 	b.lines[b.cursor.Row] = nl
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }
 
 func (b *Buffer) openingOf(c rune) string {

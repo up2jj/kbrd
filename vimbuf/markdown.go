@@ -66,6 +66,7 @@ func (b *Buffer) insertNewlineSmart() {
 		// Empty marker: clear the line and stay (end the list).
 		b.lines[b.cursor.Row] = []rune{}
 		b.cursor.Col = 0
+		b.markChanged()
 		return
 	}
 	b.insertNewline()

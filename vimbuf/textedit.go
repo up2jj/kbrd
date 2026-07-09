@@ -41,7 +41,7 @@ func (b *Buffer) incrementNumber(delta int) {
 	b.lines[b.cursor.Row] = nl
 	b.cursor.Col = start + len(repl) - 1
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }
 
 // InsertText inserts s (which may contain newlines) at the cursor as one undo
@@ -103,8 +103,8 @@ func (b *Buffer) InsertTaskPrefix() {
 		b.lines[row] = nl
 	}
 	if changed {
-		b.recMutated = true
 		b.endGroup()
+		b.recordEdit()
 	}
 	b.cursor = Pos{f.Row, len(leadingWhitespace(b.lineAt(f.Row))) + len([]rune(TaskPrefix))}
 	b.exitVisual()
@@ -140,5 +140,5 @@ func (b *Buffer) toggleCheckbox() {
 	b.begin()
 	b.lines[b.cursor.Row] = []rune(nl)
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }

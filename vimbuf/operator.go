@@ -40,6 +40,9 @@ func (b *Buffer) deleteRange(from, to Pos) string {
 		}
 		del := string(line[from.Col:to.Col])
 		b.lines[from.Row] = append(append([]rune{}, line[:from.Col]...), line[to.Col:]...)
+		if from.Col != to.Col {
+			b.markChanged()
+		}
 		return del
 	}
 	first := b.lines[from.Row]
@@ -63,6 +66,7 @@ func (b *Buffer) deleteRange(from, to Pos) string {
 	newLines = append(newLines, merged)
 	newLines = append(newLines, b.lines[to.Row+1:]...)
 	b.lines = newLines
+	b.markChanged()
 	return sb.String()
 }
 
@@ -113,6 +117,7 @@ func (b *Buffer) deleteLines(r1, r2 int) string {
 	if len(b.lines) == 0 {
 		b.lines = [][]rune{{}}
 	}
+	b.markChanged()
 	return text
 }
 
@@ -138,20 +143,28 @@ func (b *Buffer) indentLines(r1, r2 int, indent bool) {
 		r1, r2 = r2, r1
 	}
 	pad := []rune(strings.Repeat(" ", b.indentWidth))
+	changed := false
 	for r := r1; r <= r2 && r < len(b.lines); r++ {
 		if indent {
 			if len(b.lines[r]) == 0 {
 				continue
 			}
 			b.lines[r] = append(append([]rune{}, pad...), b.lines[r]...)
+			changed = true
 		} else {
 			line := b.lines[r]
 			n := 0
 			for n < len(line) && n < b.indentWidth && line[n] == ' ' {
 				n++
 			}
+			if n > 0 {
+				changed = true
+			}
 			b.lines[r] = append([]rune{}, line[n:]...)
 		}
+	}
+	if changed {
+		b.markChanged()
 	}
 }
 
@@ -160,10 +173,18 @@ func (b *Buffer) indentLines(r1, r2 int, indent bool) {
 func (b *Buffer) caseRange(op rune, from, to Pos, kind motionKind) {
 	if kind == mLinewise {
 		r1, r2 := rowSpan(from, to)
+		changed := false
 		for r := r1; r <= r2 && r < len(b.lines); r++ {
-			b.lines[r] = mapCase(op, b.lines[r])
+			next := mapCase(op, b.lines[r])
+			if string(next) != string(b.lines[r]) {
+				changed = true
+			}
+			b.lines[r] = next
 		}
 		b.cursor = Pos{r1, 0}
+		if changed {
+			b.markChanged()
+		}
 		return
 	}
 	f, t := orderPos(from, to)
@@ -198,8 +219,16 @@ func (b *Buffer) caseLineSpan(op rune, row, from, to int) {
 	if to > len(line) {
 		to = len(line)
 	}
+	changed := false
 	for i := from; i < to; i++ {
-		line[i] = caseRune(op, line[i])
+		next := caseRune(op, line[i])
+		if next != line[i] {
+			changed = true
+		}
+		line[i] = next
+	}
+	if changed {
+		b.markChanged()
 	}
 }
 
@@ -288,7 +317,7 @@ func (b *Buffer) applyLineOp(op rune, target Pos) {
 		b.lines = newLines
 		b.cursor = Pos{r1, 0}
 		b.enterInsert()
-		b.recMutated = true
+		b.recordEdit()
 	}
 }
 

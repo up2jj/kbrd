@@ -180,6 +180,7 @@ func (b *Buffer) visualDelete(change bool) {
 			b.lines = insertLine(b.lines, f.Row, []rune{})
 			b.cursor = Pos{f.Row, 0}
 			b.enterInsert()
+			b.recordEdit()
 		} else {
 			b.cursor.Row = f.Row
 			b.clampCursor()

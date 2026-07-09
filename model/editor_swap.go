@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+
+	"kbrd/board"
 )
 
 // The swap sidecar gives the vim editor crash safety without ever auto-writing
@@ -19,6 +21,7 @@ func (e *Editor) setSwapTarget(fullPath string) {
 	dir := filepath.Dir(fullPath)
 	base := filepath.Base(fullPath)
 	e.swapFile = filepath.Join(dir, "."+base+".kbrd-swap")
+	e.lastSwapRevision = 0
 }
 
 // flushSwap writes the current buffer to the swap file when there are unsaved
@@ -27,16 +30,22 @@ func (e *Editor) flushSwap() {
 	if e.swapFile == "" || e.buf == nil {
 		return
 	}
-	if e.buf.Text() == e.initialValue {
+	rev := e.buf.Revision()
+	if !e.buf.ChangedSince(e.cleanRevision) {
 		e.clearSwap()
 		return
 	}
+	if rev == e.lastSwapRevision {
+		return
+	}
+	text := e.buf.Text()
 	// A failed swap write means unsaved edits aren't crash-protected; surface it
 	// (vimFooter) so the user knows recovery is off rather than failing silently.
-	if err := os.WriteFile(e.swapFile, []byte(e.buf.Text()), 0o644); err != nil {
+	if err := board.WriteFileAtomicDurable(e.swapFile, []byte(text), 0o644); err != nil {
 		e.swapWriteFailed = true
 		return
 	}
+	e.lastSwapRevision = rev
 	e.swapWriteFailed = false
 }
 
@@ -46,6 +55,7 @@ func (e *Editor) clearSwap() {
 	if e.swapFile != "" {
 		_ = os.Remove(e.swapFile)
 	}
+	e.lastSwapRevision = 0
 	e.swapWriteFailed = false
 }
 

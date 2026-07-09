@@ -93,23 +93,41 @@ func TestReplaceFileContentAtomicPreservesMode(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("mode = %o, want 600", got)
 	}
-	if _, err := os.Stat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("left temp file: %v", err)
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("left temp files: %v", matches)
 	}
 }
 
-func TestWriteAtomicCleansTempOnRenameFailure(t *testing.T) {
+func TestReplaceFileContentMissingDoesNotCreate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.md")
+	if err := ReplaceFileContent(path, "body"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("want os.ErrNotExist, got %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing file was created, stat err = %v", err)
+	}
+}
+
+func TestWriteFileAtomicDurableCleansTempOnRenameFailure(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
 	if err := os.Mkdir(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := writeAtomic(target, []byte("body"), 0o644); err == nil {
+	if err := WriteFileAtomicDurable(target, []byte("body"), 0o644); err == nil {
 		t.Fatal("expected rename over directory to fail")
 	}
-	if _, err := os.Stat(target + ".tmp"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("left temp file after failed rename: %v", err)
+	matches, err := filepath.Glob(filepath.Join(dir, ".target.tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("left temp files after failed rename: %v", matches)
 	}
 	if info, err := os.Stat(target); err != nil || !info.IsDir() {
 		t.Fatalf("target directory damaged: info=%v err=%v", info, err)

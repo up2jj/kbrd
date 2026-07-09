@@ -58,6 +58,41 @@ func TestTextRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRevisionTracksContentState(t *testing.T) {
+	b := New("alpha\nbravo")
+	clean := b.Revision()
+
+	keys(b, "j$")
+	if b.ChangedSince(clean) {
+		t.Fatalf("movement changed revision: clean=%d current=%d", clean, b.Revision())
+	}
+
+	keys(b, ":w")
+	if b.ChangedSince(clean) {
+		t.Fatalf("command-line typing changed content revision")
+	}
+	keys(b, "<esc>")
+
+	keys(b, "A!<esc>")
+	edited := b.Revision()
+	if edited == clean || !b.ChangedSince(clean) {
+		t.Fatalf("edit did not advance revision: clean=%d edited=%d", clean, edited)
+	}
+
+	keys(b, "u")
+	if got := b.Revision(); got != clean {
+		t.Fatalf("undo revision = %d, want clean revision %d", got, clean)
+	}
+	if b.ChangedSince(clean) {
+		t.Fatalf("undo back to original should be clean")
+	}
+
+	keys(b, "<ctrl+r>")
+	if got := b.Revision(); got != edited {
+		t.Fatalf("redo revision = %d, want edited revision %d", got, edited)
+	}
+}
+
 func TestCurrentLineAndReplace(t *testing.T) {
 	b := New("alpha\nbravo\ncharlie")
 	keys(b, "jj") // to charlie

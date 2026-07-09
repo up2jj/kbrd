@@ -105,11 +105,8 @@ func (b *Buffer) View(p theme.Palette) string {
 }
 
 func (b *Buffer) totalVisualRows() int {
-	total := 0
-	for r := range b.lines {
-		total += b.lineRows(r)
-	}
-	return total
+	b.ensureVisualMetrics()
+	return b.visualTotal
 }
 
 // visualThumb returns the [start,end) thumb range over total visual rows, using
@@ -118,10 +115,7 @@ func (b *Buffer) visualThumb(height, total int) (int, int) {
 	if total <= height || height <= 0 {
 		return 0, height
 	}
-	offset := 0
-	for r := 0; r < b.top && r < len(b.lines); r++ {
-		offset += b.lineRows(r)
-	}
+	offset := b.visualOffset(b.top)
 	thumb := max(height*height/total, 1)
 	maxOff := total - height
 	start := 0

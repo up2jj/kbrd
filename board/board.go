@@ -296,18 +296,13 @@ func CreateItem(columnPath, name, content string) (string, error) {
 		return "", err
 	}
 	fullPath := filepath.Join(columnPath, clean+".md")
-	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
 	if content != "" {
 		if !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
-		if _, err := f.WriteString(content); err != nil {
-			return "", err
-		}
+	}
+	if err := writeNewFileNoClobberDurable(fullPath, []byte(content), 0o644); err != nil {
+		return "", err
 	}
 	return fullPath, nil
 }

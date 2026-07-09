@@ -34,8 +34,9 @@ const undoLimit = 200
 
 // snapshot is one undo/redo entry: a deep copy of the buffer text plus cursor.
 type snapshot struct {
-	lines  [][]rune
-	cursor Pos
+	lines    [][]rune
+	cursor   Pos
+	revision int64
 }
 
 // change records the raw key sequence of the last buffer-mutating command so
@@ -77,6 +78,7 @@ type Buffer struct {
 	desiredCol int // sticky column target for vertical (j/k) motion
 	mode       Mode
 	anchor     Pos // visual-mode selection start
+	revision   int64
 
 	// operator-pending state machine
 	pendingOp      rune // 'd' 'c' 'y' '>' '<' 'u' 'U' '~' (case via g) or 0
@@ -97,6 +99,12 @@ type Buffer struct {
 	top    int
 	height int
 	width  int
+
+	visualCacheRev   int64
+	visualCacheTextW int
+	visualRows       []int
+	visualPrefix     []int
+	visualTotal      int
 
 	reg         string // unnamed register contents
 	regLinewise bool   // register holds whole lines (affects p/P)
@@ -173,6 +181,7 @@ func (b *Buffer) SetText(s string) {
 		b.lines = [][]rune{{}}
 	}
 	b.clampCursor()
+	b.markChanged()
 }
 
 // Text joins the buffer back into a newline-separated string.
@@ -183,6 +192,14 @@ func (b *Buffer) Text() string {
 	}
 	return strings.Join(parts, "\n")
 }
+
+// Revision identifies the current content state. Undo/redo restores the
+// revision captured with each snapshot, so returning to the opened content is
+// clean without rebuilding the whole buffer string.
+func (b *Buffer) Revision() int64 { return b.revision }
+
+// ChangedSince reports whether the current content state differs from rev.
+func (b *Buffer) ChangedSince(rev int64) bool { return b.revision != rev }
 
 // Lines returns the buffer as plain strings (for tests and CurrentLine callers).
 func (b *Buffer) Lines() []string {
@@ -312,6 +329,7 @@ func (b *Buffer) ReplaceLineRange(start, end int, s string) {
 	b.clampCursorInsert() // park at end of replacement
 	b.desiredCol = b.cursor.Col
 	b.scrollToCursor()
+	b.markChanged()
 }
 
 // --- undo/redo --------------------------------------------------------------
@@ -321,7 +339,7 @@ func (b *Buffer) snap() snapshot {
 	for i, l := range b.lines {
 		cp[i] = append([]rune(nil), l...)
 	}
-	return snapshot{lines: cp, cursor: b.cursor}
+	return snapshot{lines: cp, cursor: b.cursor, revision: b.revision}
 }
 
 func (b *Buffer) restore(s snapshot) {
@@ -334,8 +352,18 @@ func (b *Buffer) restore(s snapshot) {
 		b.lines = [][]rune{{}}
 	}
 	b.cursor = s.cursor
+	b.revision = s.revision
 	b.clampCursor()
 	b.scrollToCursor()
+}
+
+func (b *Buffer) markChanged() {
+	b.revision++
+}
+
+func (b *Buffer) recordEdit() {
+	b.recMutated = true
+	b.markChanged()
 }
 
 func (b *Buffer) pushUndo() {
@@ -460,12 +488,50 @@ func (b *Buffer) textWidth() int {
 
 // lineRows is how many visual rows a logical line occupies when soft-wrapped.
 func (b *Buffer) lineRows(row int) int {
-	n := len(b.lineAt(row))
+	b.ensureVisualMetrics()
+	if row < 0 || row >= len(b.visualRows) {
+		return 1
+	}
+	return b.visualRows[row]
+}
+
+func (b *Buffer) ensureVisualMetrics() {
+	tw := b.textWidth()
+	if b.visualCacheRev == b.revision &&
+		b.visualCacheTextW == tw &&
+		len(b.visualRows) == len(b.lines) &&
+		len(b.visualPrefix) == len(b.lines)+1 {
+		return
+	}
+	rows := make([]int, len(b.lines))
+	prefix := make([]int, len(b.lines)+1)
+	for i, line := range b.lines {
+		rows[i] = visualRowsForLen(len(line), tw)
+		prefix[i+1] = prefix[i] + rows[i]
+	}
+	b.visualRows = rows
+	b.visualPrefix = prefix
+	b.visualTotal = prefix[len(prefix)-1]
+	b.visualCacheRev = b.revision
+	b.visualCacheTextW = tw
+}
+
+func visualRowsForLen(n, textW int) int {
 	if n == 0 {
 		return 1
 	}
-	tw := b.textWidth()
-	return (n + tw - 1) / tw
+	return (n + textW - 1) / textW
+}
+
+func (b *Buffer) visualOffset(row int) int {
+	b.ensureVisualMetrics()
+	if row <= 0 {
+		return 0
+	}
+	if row >= len(b.visualPrefix) {
+		return b.visualTotal
+	}
+	return b.visualPrefix[row]
 }
 
 func (b *Buffer) scrollToCursor() {

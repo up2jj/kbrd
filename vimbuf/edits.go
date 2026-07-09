@@ -34,8 +34,8 @@ func (b *Buffer) openLineBelow() {
 	newLine := []rune(b.listPrefix(row))
 	b.lines = insertLine(b.lines, row+1, newLine)
 	b.cursor = Pos{row + 1, len(newLine)}
-	b.recMutated = true
 	b.scrollToCursor()
+	b.recordEdit()
 }
 
 func (b *Buffer) openLineAbove() {
@@ -43,8 +43,8 @@ func (b *Buffer) openLineAbove() {
 	newLine := []rune(b.listPrefix(row))
 	b.lines = insertLine(b.lines, row, newLine)
 	b.cursor = Pos{row, len(newLine)}
-	b.recMutated = true
 	b.scrollToCursor()
+	b.recordEdit()
 }
 
 func (b *Buffer) deleteCharsUnderCursor(count int) {
@@ -60,17 +60,22 @@ func (b *Buffer) deleteCharsUnderCursor(count int) {
 	nl := append(append([]rune{}, line[:col]...), line[end:]...)
 	b.lines[b.cursor.Row] = nl
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }
 
 func (b *Buffer) changeLine() {
 	b.begin()
 	b.reg = string(b.curLine()) + "\n"
 	b.regLinewise = true
+	changed := len(b.lines[b.cursor.Row]) > 0
 	b.lines[b.cursor.Row] = []rune{}
 	b.cursor.Col = 0
 	b.enterInsert()
-	b.recMutated = true
+	if changed {
+		b.recordEdit()
+	} else {
+		b.recMutated = true
+	}
 }
 
 func (b *Buffer) changeToEnd() {
@@ -81,6 +86,7 @@ func (b *Buffer) changeToEnd() {
 		b.reg = string(line[col:])
 		b.regLinewise = false
 		b.lines[b.cursor.Row] = append([]rune{}, line[:col]...)
+		b.recordEdit()
 	}
 	b.enterInsert()
 	b.recMutated = true
@@ -94,6 +100,7 @@ func (b *Buffer) deleteToEnd() {
 		b.reg = string(line[col:])
 		b.regLinewise = false
 		b.lines[b.cursor.Row] = append([]rune{}, line[:col]...)
+		b.recordEdit()
 	}
 	b.clampCursor()
 	b.recMutated = true
@@ -105,6 +112,7 @@ func (b *Buffer) joinLines(count int) {
 	}
 	b.begin()
 	joins := count - 1
+	changed := false
 	for range joins {
 		if b.cursor.Row >= len(b.lines)-1 {
 			break
@@ -125,26 +133,40 @@ func (b *Buffer) joinLines(count int) {
 		b.lines[b.cursor.Row] = merged
 		b.lines = append(b.lines[:b.cursor.Row+1], b.lines[b.cursor.Row+2:]...)
 		b.cursor.Col = joinCol
+		changed = true
 	}
 	b.clampCursor()
-	b.recMutated = true
+	if changed {
+		b.recordEdit()
+	} else {
+		b.recMutated = true
+	}
 }
 
 func (b *Buffer) toggleCharCase(count int) {
 	b.begin()
 	line := append([]rune{}, b.curLine()...)
 	col := b.cursor.Col
+	changed := false
 	for range count {
 		if col >= len(line) {
 			break
 		}
-		line[col] = caseRune('~', line[col])
+		next := caseRune('~', line[col])
+		if next != line[col] {
+			changed = true
+		}
+		line[col] = next
 		col++
 	}
 	b.lines[b.cursor.Row] = line
 	b.cursor.Col = col
 	b.clampCursor()
-	b.recMutated = true
+	if changed {
+		b.recordEdit()
+	} else {
+		b.recMutated = true
+	}
 }
 
 func (b *Buffer) doReplaceChar(key string, count int) {
@@ -165,7 +187,7 @@ func (b *Buffer) doReplaceChar(key string, count int) {
 	b.lines[b.cursor.Row] = nl
 	b.cursor.Col = col + count - 1
 	b.clampCursor()
-	b.recMutated = true
+	b.recordEdit()
 }
 
 func (b *Buffer) paste(after bool, count int) {
@@ -207,6 +229,7 @@ func (b *Buffer) paste(after bool, count int) {
 	b.clampCursor()
 	b.recMutated = true
 	b.scrollToCursor()
+	b.markChanged()
 }
 
 // --- text objects -----------------------------------------------------------

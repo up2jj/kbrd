@@ -70,6 +70,7 @@ func (b *Buffer) insertRunes(rs []rune) {
 	b.cursor.Col = col + len(rs)
 	b.desiredCol = b.cursor.Col
 	b.scrollToCursor()
+	b.markChanged()
 }
 
 func (b *Buffer) insertNewline() {
@@ -82,6 +83,7 @@ func (b *Buffer) insertNewline() {
 	b.cursor = Pos{b.cursor.Row + 1, 0}
 	b.desiredCol = 0
 	b.scrollToCursor()
+	b.markChanged()
 }
 
 func (b *Buffer) insertBackspace() {
@@ -92,6 +94,7 @@ func (b *Buffer) insertBackspace() {
 		b.lines[b.cursor.Row] = nl
 		b.cursor.Col--
 		b.desiredCol = b.cursor.Col
+		b.markChanged()
 		return
 	}
 	// join with previous line
@@ -107,6 +110,7 @@ func (b *Buffer) insertBackspace() {
 	b.cursor = Pos{b.cursor.Row - 1, joinCol}
 	b.desiredCol = joinCol
 	b.scrollToCursor()
+	b.markChanged()
 }
 
 func spaces(n int) string {

@@ -111,7 +111,7 @@ func (b *Buffer) substitute(start, end int, pat, repl string, global bool) (int,
 	b.cursor.Row = lastRow
 	b.clampCursor()
 	b.scrollToCursor()
-	b.recMutated = true
+	b.recordEdit()
 	return count, nil
 }
 
