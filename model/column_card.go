@@ -24,6 +24,7 @@ type renderConfig struct {
 	titleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
 	statFor       func(absPath string) (kbrdfs.DiffStat, bool)
 	palette       Palette
+	isMarked      func(name string) bool
 }
 
 // cardDelegate adapts a column's items to vlist.Delegate: the list addresses
@@ -39,7 +40,8 @@ func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], 
 func (d cardDelegate) FilterValue(i int) string { return d.items[i].FilterValue() }
 func (d cardDelegate) Selectable(i int) bool    { return !d.items[i].Separator }
 func (d cardDelegate) Render(i int, selected bool) string {
-	return renderItem(d.items[i], selected, d.cfg)
+	marked := d.cfg.isMarked != nil && d.cfg.isMarked(d.items[i].Name)
+	return renderItem(d.items[i], selected, marked, d.cfg)
 }
 
 // cardRows is the base height of one card slot for a given preview density:
@@ -70,20 +72,20 @@ func itemHeight(item Item, cfg renderConfig) int {
 
 // renderItem draws one item to a string, dispatching by kind. selected marks the
 // cursor row; cfg carries the per-frame render context.
-func renderItem(item Item, selected bool, cfg renderConfig) string {
+func renderItem(item Item, selected, marked bool, cfg renderConfig) string {
 	if item.Separator {
 		return renderSeparatorStr(item, cfg)
 	}
 	if item.Virtual {
-		return renderCardBody(item, selected, cfg, item.Meta, cfg.palette.BorderMuted)
+		return renderCardBody(item, selected, marked, cfg, item.Meta, cfg.palette.BorderMuted)
 	}
-	return renderCardBody(item, selected, cfg, filesystemMeta(item, cfg), cfg.palette.FgSubtle)
+	return renderCardBody(item, selected, marked, cfg, filesystemMeta(item, cfg), cfg.palette.FgSubtle)
 }
 
 // renderCardBody draws the shared card frame for filesystem and virtual items.
 // The callers supply the already-resolved meta text and the selected-but-
 // inactive meta color, which are the only rendering differences between kinds.
-func renderCardBody(item Item, selected bool, cfg renderConfig, meta string, inactiveSelectedMetaFg color.Color) string {
+func renderCardBody(item Item, selected, marked bool, cfg renderConfig, meta string, inactiveSelectedMetaFg color.Color) string {
 	isSelected := selected
 	d := cfg
 	gutterW := max(d.gutterW, 2)
@@ -106,6 +108,10 @@ func renderCardBody(item Item, selected bool, cfg renderConfig, meta string, ina
 		nameFg = p.FgOnAccent
 		cardBorder = p.PrimaryStrong
 		hasRowBg = true
+	case marked:
+		mnemFg = p.Highlight
+		nameFg = p.AccentAlt
+		cardBorder = p.AccentAlt
 	default:
 		mnemFg = p.Warning
 		nameFg = p.FgEmphasis
@@ -132,6 +138,8 @@ func renderCardBody(item Item, selected bool, cfg renderConfig, meta string, ina
 	if gutterText == "" {
 		if isSelected && d.isActive {
 			gutterText = ">"
+		} else if marked {
+			gutterText = "✓"
 		}
 	}
 	titleRows := wrapTitle(composeTitle(item), restWidth, d.titleMaxLines, d.wrapTitles)

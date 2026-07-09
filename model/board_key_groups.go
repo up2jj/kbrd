@@ -49,6 +49,10 @@ func (b *Board) handleColumnBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Mode
 
 func (b *Board) handleColumnActionKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
 	switch {
+	case key.Matches(msg, Keys.ToggleMark):
+		return b, b.toggleFocusedMark(), true
+	case key.Matches(msg, Keys.ClearMarks):
+		return b, b.clearFocusedMarks(), true
 	case key.Matches(msg, Keys.RenameCol):
 		return b, b.editor.OpenRenameColumn(b.selectedCol, col.Path, col.Name), true
 	case key.Matches(msg, Keys.Filter):
@@ -129,47 +133,24 @@ func (b *Board) handleColumnCreateKey(msg tea.KeyPressMsg, col *Column) (tea.Mod
 }
 
 func (b *Board) handleItemBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
-	if !col.HasSelectedItem() {
-		return b, nil, false
-	}
-	item := col.SelectedItem()
-	actions := b.itemActions()
-	switch {
-	case key.Matches(msg, Keys.RenameItem):
-		return b, b.editor.OpenRenameItem(b.selectedCol, col.Path, item.FullPath, item.Name), true
-	case key.Matches(msg, Keys.CustomCommands):
-		return b.handleCustomCommandsKey(col, item)
-	case key.Matches(msg, Keys.Edit):
-		return b, actions.edit(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Append):
-		return b, actions.append(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Prepend):
-		return b, actions.prepend(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Journal):
-		return b, actions.journal(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Copy):
-		return b, actions.copy(col, item), true
-	case key.Matches(msg, Keys.Paste):
-		return b, actions.paste(b.selectedCol, item), true
-	case key.Matches(msg, Keys.OpenExternal):
-		return b, actions.openExternal(col, item), true
-	case key.Matches(msg, Keys.Pin):
-		return b, actions.togglePin(col, item), true
-	case key.Matches(msg, Keys.EditFrontmatter):
-		return b, b.frontmatterActions().openEditor(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Delete):
-		return b, actions.confirmDelete(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.MoveNext):
-		return b, actions.moveNext(b.selectedCol, col, item, true), true
-	case key.Matches(msg, Keys.MoveFirst):
-		return b, actions.moveFirst(b.selectedCol, col, item), true
-	case key.Matches(msg, Keys.Peek):
-		return b, actions.peek(col, item), true
-	}
-	return b, nil, false
+	cmd, handled := b.itemActions().InvokeKey(msg, actionSourceKey)
+	return b, cmd, handled
 }
 
 func (b *Board) handleCustomCommandsKey(col *Column, item *Item) (tea.Model, tea.Cmd, bool) {
+	ctx, ok := b.itemActions().contextFor(itemActionSpec{ID: actionCustomCommands, Cardinality: actionMultiEach}, actionSourceKey)
+	if !ok {
+		return b, nil, false
+	}
+	ctx.Column = col
+	ctx.Item = item
+	ctx.ColIdx = b.selectedCol
+	return b.openCustomCommands(ctx)
+}
+
+func (b *Board) openCustomCommands(ctx itemActionContext) (tea.Model, tea.Cmd, bool) {
+	col := ctx.Column
+	item := ctx.Item
 	if item != nil && item.Separator {
 		return b, nil, true
 	}
@@ -179,22 +160,23 @@ func (b *Board) handleCustomCommandsKey(col *Column, item *Item) (tea.Model, tea
 	if len(cmds) == 0 {
 		return b, nil, true
 	}
-	var vctx map[string]any
-	switch {
-	case col.Virtual:
-		vctx = cmdCtx.virtualVars(col, item)
-	case item != nil && item.Data != nil:
-		vctx = cmdCtx.filesystemCtx(b.selectedCol, item)
+	vars, vctx, ok := customCommandContextForItem(b, col, item)
+	if !ok {
+		return b, nil, false
 	}
-	b.customCmds.Open(cmds, b.commandWarnings, cmdCtx.vars(b.selectedCol, item), vctx)
+	var batch []customCommandRunContext
+	if len(ctx.Targets) > 0 && col.MarkedCount() > 0 {
+		batch = customCommandRunsForTargets(b, ctx, ctx.Targets)
+	}
+	b.customCmds.OpenWithBatch(cmds, b.commandWarnings, vars, vctx, batch)
 	return b, nil, true
 }
 
 func (b *Board) handleListBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.CustomCommands):
-		m, cmd, _ := b.handleCustomCommandsKey(col, nil)
-		return m, cmd
+		cmd, _ := b.itemActions().Invoke(actionCustomCommands, actionSourceKey)
+		return b, cmd
 	case key.Matches(msg, Keys.CursorDown):
 		if col.CursorAtBottom() {
 			col.SelectFirst()

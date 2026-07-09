@@ -49,6 +49,7 @@ func (c *Column) loadItems(cache itemCache) error {
 	}
 
 	c.Items = SortItems(items)
+	c.pruneMarks()
 	c.syncDelegate()
 	c.list.Reload()
 	return nil
@@ -63,6 +64,7 @@ func (c *Column) SetItems(items []Item) {
 		prevName = sel.Name
 	}
 	c.Items = items
+	c.pruneMarks()
 	c.syncDelegate()
 	c.list.Reload()
 	if prevName != "" {

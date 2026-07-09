@@ -811,7 +811,7 @@ func TestColumn_View_WrappedCardHeightMatchesItemHeight(t *testing.T) {
 
 	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24 - scrollGutterW, wrapTitles: true, titleMaxLines: 2}
 	declared := itemHeight(col.Items[0], cfg)
-	drawn := lipgloss.Height(renderItem(col.Items[0], false, cfg))
+	drawn := lipgloss.Height(renderItem(col.Items[0], false, false, cfg))
 	if declared != drawn {
 		t.Errorf("declared itemHeight %d != drawn card height %d (sync invariant broken)", declared, drawn)
 	}
@@ -828,7 +828,7 @@ func TestItemHeight_VirtualWrappedTitleMatchesDraw(t *testing.T) {
 	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24, wrapTitles: true, titleMaxLines: 2}
 
 	declared := itemHeight(v, cfg)
-	drawn := lipgloss.Height(renderItem(v, false, cfg))
+	drawn := lipgloss.Height(renderItem(v, false, false, cfg))
 	if declared != drawn {
 		t.Errorf("virtual declared itemHeight %d != drawn %d", declared, drawn)
 	}

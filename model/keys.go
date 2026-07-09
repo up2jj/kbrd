@@ -29,6 +29,8 @@ type KeyMap struct {
 
 	// Item actions
 	Peek            key.Binding
+	ToggleMark      key.Binding
+	ClearMarks      key.Binding
 	Edit            key.Binding
 	Append          key.Binding
 	Prepend         key.Binding
@@ -145,6 +147,8 @@ var Keys = KeyMap{
 
 	// Item actions
 	Peek:            key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "peek")),
+	ToggleMark:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "mark/unmark")),
+	ClearMarks:      key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "clear marks")),
 	Edit:            key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 	Append:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
 	Prepend:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
@@ -273,11 +277,6 @@ func menuKey(helpKey string) string {
 // keybindings menu (the `?` overlay). Rows in the Item group are flagged
 // NeedsItem so the menu can disable them when no card is selected.
 func HelpMenuGroups() []HelpGroup {
-	item := func(b key.Binding, tip string) HelpEntry {
-		e := helpEntry(b, tip)
-		e.NeedsItem = true
-		return e
-	}
 	global := []HelpEntry{
 		helpEntry(Keys.Refresh, "Reload every column from disk, picking up external edits."),
 		helpEntry(Keys.SwitchBoard, "Open the board switcher to jump to a recent or pinned board."),
@@ -307,23 +306,14 @@ func HelpMenuGroups() []HelpGroup {
 		},
 		{
 			Title: "Item",
-			Items: []HelpEntry{
-				item(Keys.Peek, "Preview the selected card's rendered markdown in a reader."),
-				item(Keys.Edit, "Open the selected card in the editor to change its body."),
-				item(Keys.Append, "Append text to the end of the selected card."),
-				item(Keys.Prepend, "Prepend text to the start of the selected card."),
-				item(Keys.Journal, "Add a timestamped journal entry to the selected card."),
-				item(Keys.Copy, "Copy the selected card to the internal clipboard."),
-				item(Keys.Paste, "Paste the copied card into the focused column."),
-				item(Keys.OpenExternal, "Open the selected card in your $EDITOR."),
-				item(Keys.Pin, "Pin or unpin the selected card to the top of its column."),
-				item(Keys.MoveNext, "Move the selected card to the next column."),
-				item(Keys.MoveFirst, "Move the selected card to the first column."),
-				item(Keys.RenameItem, "Rename the selected card's file."),
-				item(Keys.Delete, "Delete the selected card (asks to confirm)."),
-				item(Keys.CustomCommands, "Run a custom command against the selected card."),
-				item(Keys.EditFrontmatter, "Edit the selected card's YAML frontmatter."),
-			},
+			Items: append([]HelpEntry{
+				func() HelpEntry {
+					e := helpEntry(Keys.ToggleMark, "Mark or unmark the selected card for batch actions.")
+					e.NeedsItem = true
+					return e
+				}(),
+				helpEntry(Keys.ClearMarks, "Clear marks in the focused column."),
+			}, itemActionHelpEntries()...),
 		},
 		{
 			Title: "Create & Command",

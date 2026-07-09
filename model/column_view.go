@@ -131,6 +131,7 @@ func (c *Column) View(ctx RenderCtx) string {
 		titleMaxLines: ctx.TitleMaxLines,
 		statFor:       ctx.StatFor,
 		palette:       c.palette,
+		isMarked:      c.IsMarked,
 	}
 	c.width = ctx.Width
 	c.list.SetSize(listW, c.height)

@@ -9,14 +9,6 @@ import (
 	"kbrd/events"
 )
 
-type boardItemActions struct {
-	board *Board
-}
-
-func (b *Board) itemActions() boardItemActions {
-	return boardItemActions{board: b}
-}
-
 func (a boardItemActions) edit(colIdx int, col *Column, item *Item) tea.Cmd {
 	b := a.board
 	b.bus.Publish(events.ItemOpen{

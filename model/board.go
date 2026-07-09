@@ -605,6 +605,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case deleteConfirmMsg:
 		return b.mutationHandlers().handleDelete(msg)
 
+	case batchDeleteConfirmMsg:
+		return b, b.itemActions().handleBatchDelete(msg)
+
 	case templateRemoveConfirmMsg:
 		return b.mutationHandlers().handleTemplateRemoveConfirm(msg)
 
@@ -682,6 +685,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)
+
+	case runCustomCommandBatchMsg:
+		return b.handleRunCustomCommandBatch(msg)
 
 	case openLineCommandsMsg:
 		return b, b.lineCommands().open(msg)

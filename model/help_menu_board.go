@@ -3,8 +3,6 @@ package model
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-
-	"kbrd/config"
 )
 
 type boardHelpActions struct {
@@ -204,33 +202,6 @@ func (h boardHelpActions) runSelected() (tea.Model, tea.Cmd) {
 // through the normal custom-command path, building vars/context for the focused
 // column and selected item exactly as the `x` menu does.
 func (h boardHelpActions) runCustomCommand(id string) tea.Cmd {
-	b := h.board
-	if b.selectedCol >= len(b.columns) {
-		return nil
-	}
-	col := b.columns[b.selectedCol]
-	var cmd config.Command
-	found := false
-	for _, c := range b.commands {
-		if c.ID == id {
-			cmd, found = c, true
-			break
-		}
-	}
-	if !found {
-		return nil
-	}
-	var item *Item
-	if col.HasSelectedItem() {
-		item = col.SelectedItem()
-	}
-	var vctx map[string]any
-	switch {
-	case col.Virtual:
-		vctx = b.commandContext().virtualVars(col, item)
-	case item != nil && item.Data != nil:
-		vctx = b.commandContext().filesystemCtx(b.selectedCol, item)
-	}
-	vars := b.commandContext().vars(b.selectedCol, item)
-	return func() tea.Msg { return runCustomCommandMsg{Cmd: cmd, Vars: vars, VCtx: vctx} }
+	cmd, _ := h.board.itemActions().InvokeCustomCommand(id, actionSourceHelp)
+	return cmd
 }

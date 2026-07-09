@@ -18,6 +18,7 @@ type Column struct {
 	itemOpts    ItemOptions
 	listYOffset int
 	palette     Palette
+	marked      map[string]struct{}
 
 	// width/height are the last geometry the layout handed this column; renderCfg
 	// is the last per-frame render context. They are kept so the list's delegate

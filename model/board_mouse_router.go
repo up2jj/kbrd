@@ -109,23 +109,24 @@ func (r boardMouseRouter) HandleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	colIdx, col, item, ok := columnsRegion.selectItemAtMouse(columnsCtx, mouse.X, mouseYInColumns)
+	_, col, item, ok := columnsRegion.selectItemAtMouse(columnsCtx, mouse.X, mouseYInColumns)
 	if !ok || item == nil || item.Separator {
 		return b, nil
 	}
 	resetClickState = false
 	if b.mouseClicks.record(refForItem(col, item), time.Now()) {
-		return b, r.handleItemDoubleClick(colIdx, col, item)
+		return b, r.handleItemDoubleClick()
 	}
 	return b, nil
 }
 
-func (r boardMouseRouter) handleItemDoubleClick(colIdx int, col *Column, item *Item) tea.Cmd {
-	actions := r.board.itemActions()
+func (r boardMouseRouter) handleItemDoubleClick() tea.Cmd {
 	if r.board.cfg.BoardItemDoubleClick == "edit" {
-		return actions.edit(colIdx, col, item)
+		cmd, _ := r.board.itemActions().Invoke(actionEdit, actionSourceMouse)
+		return cmd
 	}
-	return actions.peek(col, item)
+	cmd, _ := r.board.itemActions().Invoke(actionPeek, actionSourceMouse)
+	return cmd
 }
 
 func (r boardMouseRouter) handleWheel(msg tea.MouseMsg, columnsCtx boardColumnsRegionContext, columnsRegion boardColumnsRegion) bool {

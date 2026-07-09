@@ -20,6 +20,16 @@ type runCustomCommandMsg struct {
 	VCtx map[string]any
 }
 
+type customCommandRunContext struct {
+	Vars map[string]string
+	VCtx map[string]any
+}
+
+type runCustomCommandBatchMsg struct {
+	Cmd  config.Command
+	Runs []customCommandRunContext
+}
+
 type customCommandFinishedMsg struct {
 	Name string
 	Err  error
@@ -60,6 +70,43 @@ func mergeWithLuaCommands(shell, lua []config.Command) []config.Command {
 	return out
 }
 
+func commandByID(cmds []config.Command, id string) (config.Command, bool) {
+	for _, cmd := range cmds {
+		if cmd.ID == id {
+			return cmd, true
+		}
+	}
+	return config.Command{}, false
+}
+
+func customCommandContextForItem(b *Board, col *Column, item *Item) (map[string]string, map[string]any, bool) {
+	colIdx := b.indexOfColumn(col)
+	if colIdx < 0 {
+		return nil, nil, false
+	}
+	var vctx map[string]any
+	switch {
+	case col.Virtual:
+		vctx = b.commandContext().virtualVars(col, item)
+	case item != nil && item.Data != nil:
+		vctx = b.commandContext().filesystemCtx(colIdx, item)
+	}
+	return b.commandContext().vars(colIdx, item), vctx, true
+}
+
+func customCommandRunsForTargets(b *Board, ctx itemActionContext, targets []itemActionTarget) []customCommandRunContext {
+	runs := make([]customCommandRunContext, 0, len(targets))
+	for _, target := range targets {
+		it := target.Item
+		vars, vctx, ok := customCommandContextForItem(b, ctx.Column, &it)
+		if !ok {
+			continue
+		}
+		runs = append(runs, customCommandRunContext{Vars: vars, VCtx: vctx})
+	}
+	return runs
+}
+
 func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.Cmd) {
 	if msg.Cmd.Source == config.SourceLua {
 		if msg.VCtx != nil {
@@ -82,6 +129,20 @@ func (b *Board) handleRunCustomCommand(msg runCustomCommandMsg) (tea.Model, tea.
 	})
 }
 
+func (b *Board) handleRunCustomCommandBatch(msg runCustomCommandBatchMsg) (tea.Model, tea.Cmd) {
+	if len(msg.Runs) == 0 {
+		return b, nil
+	}
+	cmds := make([]tea.Cmd, 0, len(msg.Runs))
+	for _, run := range msg.Runs {
+		run := run
+		cmds = append(cmds, func() tea.Msg {
+			return runCustomCommandMsg{Cmd: msg.Cmd, Vars: run.Vars, VCtx: run.VCtx}
+		})
+	}
+	return b, tea.Sequence(cmds...)
+}
+
 func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.Model, tea.Cmd) {
 	_ = b.loadColumns()
 	if msg.Err != nil {
@@ -99,7 +160,8 @@ type CustomCommandMenu struct {
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
 	vctx     map[string]any // rich Lua ctx for virtual-column dispatch; nil otherwise
-	mru      []string       // command ids in MRU order (index 0 = most recent); session-only
+	batch    []customCommandRunContext
+	mru      []string // command ids in MRU order (index 0 = most recent); session-only
 	palette  Palette
 
 	// lineMode marks the menu as the in-editor line-command picker: run() emits
@@ -121,11 +183,16 @@ func (m *CustomCommandMenu) commandHaystack(i int) string {
 }
 
 func (m *CustomCommandMenu) Open(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]any) {
+	m.OpenWithBatch(commands, warnings, vars, vctx, nil)
+}
+
+func (m *CustomCommandMenu) OpenWithBatch(commands []config.Command, warnings []config.CommandLoadWarning, vars map[string]string, vctx map[string]any, batch []customCommandRunContext) {
 	m.active = true
 	m.commands = sortByUsage(commands, m.mru)
 	m.warnings = warnings
 	m.vars = vars
 	m.vctx = vctx
+	m.batch = batch
 	m.selected = 0
 	m.filter = ""
 	m.recompute()
@@ -148,6 +215,7 @@ func (m *CustomCommandMenu) Close() {
 	m.warnings = nil
 	m.vars = nil
 	m.vctx = nil
+	m.batch = nil
 	m.selected = 0
 	m.filter = ""
 	m.lineMode = false
@@ -253,6 +321,7 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	m.recordUse(c.ID)
 	vars := m.vars
 	vctx := m.vctx
+	batch := append([]customCommandRunContext(nil), m.batch...)
 	lineMode := m.lineMode
 	line := m.line
 	lineRow := m.lineRow
@@ -260,6 +329,11 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	if lineMode {
 		return func() tea.Msg {
 			return runLineCommandMsg{Cmd: c, Line: line, Row: lineRow, Vars: vars}
+		}
+	}
+	if c.NeedsItem() && len(batch) > 0 {
+		return func() tea.Msg {
+			return runCustomCommandBatchMsg{Cmd: c, Runs: batch}
 		}
 	}
 	return func() tea.Msg {

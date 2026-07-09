@@ -108,16 +108,16 @@ func (r boardInputRouter) handleConfigMenu(msg tea.KeyPressMsg) (tea.Model, tea.
 
 func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	b := r.board
-	action := byte(0)
+	action := itemActionID("")
 	switch {
 	case key.Matches(msg, Keys.Edit):
-		action = 'e'
+		action = actionEdit
 	case key.Matches(msg, Keys.Append):
-		action = 'a'
+		action = actionAppend
 	case key.Matches(msg, Keys.Prepend):
-		action = 'p'
+		action = actionPrepend
 	case key.Matches(msg, Keys.Journal):
-		action = 'J'
+		action = actionJournal
 	default:
 		return nil, false
 	}
@@ -130,7 +130,8 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) 
 	if !col.HasSelectedItem() {
 		return b.notifier.Error("item no longer exists"), true
 	}
-	return b.itemActions().dispatch(action, refForItem(col, col.SelectedItem())), true
+	cmd, _ := b.itemActions().Invoke(action, actionSourcePeek)
+	return cmd, true
 }
 
 func (r boardInputRouter) handleEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
