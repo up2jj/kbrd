@@ -72,7 +72,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
-- **Journal entries** — append timestamped notes to a card (`b`).
+- **Journal entries** — append timestamped notes to a card (`b`), with optional natural-date prefixes like `yesterday` or `next monday`.
 - **Copy / paste** — move text between cards, persists across sessions (`c` / `v`).
 - **Pin cards** — float important cards to the top of a column (`!`).
 - **Move cards** — to the next column (`m`) or back to the first (`M`).
@@ -310,6 +310,28 @@ back to a plain textarea editor.
 > `ctrl+z`/`ctrl+y` to undo/redo, `ctrl+t` to insert a task, `ctrl+e` to expand,
 > and `esc` to cancel.
 
+### Journal entries (`b`)
+
+Press `b` on a card to open the editor for a one-shot journal entry. Saving appends a
+line like `2026-06-24 19:09:00 - called client` to the card.
+
+By default, `[journal] detect_date = true` treats a leading natural-language date as
+the entry timestamp and drops that date phrase from the saved text:
+
+| Entry text | Saved timestamp | Saved body |
+| --- | --- | --- |
+| `yesterday fixed login` | yesterday | `fixed login` |
+| `next monday call client` | next Monday | `call client` |
+| `2 weeks ago reviewed PR` | two weeks ago | `reviewed PR` |
+| `wczoraj naprawilem blad` | yesterday | `naprawilem blad` |
+| `za 2 tygodnie sprawdzic raport` | two weeks from now | `sprawdzic raport` |
+
+Only a leading phrase is parsed, and the longest valid leading date wins. If the
+phrase is not recognized, or the entry would become empty (`tomorrow` alone), kbrd
+keeps the full text and stamps it with the current time. Date-only phrases inherit
+the current time of day; include a time (`next monday at 19:09`, `wczoraj o 8:30`) to
+override it.
+
 ### Peek
 
 | Keys | Action |
@@ -419,6 +441,9 @@ command_timeout_ms = 2000     # timeout for command callbacks
 hook_timeout_ms    = 500      # timeout for event hooks and timers
 instruction_limit  = 10000000 # CPU backstop per script run
 error_threshold    = 3        # auto-disable a failing hook/timer after N errors (0 = never)
+
+[journal]
+detect_date = true          # parse a leading natural-language date in journal entries
 
 [mcp]
 enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)

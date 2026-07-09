@@ -30,9 +30,10 @@
 
 [journal]
 # detect_date = true        # read a leading natural-language date ("yesterday ...",
-#                           #   "next monday ...", "2 weeks ago ...") from a journal entry
-#                           #   and stamp it with that date instead of now; the date phrase
-#                           #   is dropped from the text. EN + PL. false = always use now.
+#                           #   "next monday ...", "2 weeks ago ...", "2026-06-24 ...",
+#                           #   "wczoraj ...") from a journal entry and stamp it with
+#                           #   that date instead of now; the date phrase is dropped
+#                           #   from the text. EN + PL. false = always use now.
 
 [editor]
 # vim = true                 # modal, vim-like card editor (Normal/Insert/Visual modes,
