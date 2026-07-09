@@ -303,11 +303,11 @@ back to a plain textarea editor.
 | `:w` `:q` `:q!` `:wq` · `ctrl+s` | Save / quit (`ctrl+s` saves and stays) |
 | `esc` | Back to Normal · close from Normal |
 | `:lua <expr>` | Evaluate Lua against the line/selection (see [SCRIPTING.md](./SCRIPTING.md)) |
-| `ctrl+t` | Insert `- [ ] `; in Visual/Visual Line mode, prefix selected lines |
+| `ctrl+t` | Insert `- [ ] ` or toggle a task; in Visual/Visual Line mode, prefix selected lines |
 | `ctrl+l` | Run a line command · `ctrl+e` expand · `ctrl+v` paste |
 
 > The non-vim fallback (`[editor] vim = false`) uses `ctrl+s`/`enter` to save,
-> `ctrl+z`/`ctrl+y` to undo/redo, `ctrl+t` to insert a task, `ctrl+e` to expand,
+> `ctrl+z`/`ctrl+y` to undo/redo, `ctrl+t` to insert/toggle a task, `ctrl+e` to expand,
 > and `esc` to cancel.
 
 ### Journal entries (`b`)

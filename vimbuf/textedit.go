@@ -67,13 +67,20 @@ func (b *Buffer) InsertText(s string) {
 	b.endGroup()
 }
 
-// InsertTaskPrefix inserts an unchecked markdown task marker at the cursor, or
-// prefixes every line touched by a visual selection after its indentation.
+// InsertTaskPrefix toggles an existing task marker on the current line, inserts
+// an unchecked markdown task marker at the cursor, or prefixes every line
+// touched by a visual selection after its indentation.
 func (b *Buffer) InsertTaskPrefix() {
 	if b.mode != ModeVisual && b.mode != ModeVisualLine {
 		if b.mode == ModeNormal {
 			b.resetPending()
 			b.discardRec()
+		}
+		if isTaskLine(b.curLine()) {
+			b.toggleCheckbox()
+			b.endGroup()
+			b.scrollToCursor()
+			return
 		}
 		b.InsertText(TaskPrefix)
 		return

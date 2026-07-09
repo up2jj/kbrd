@@ -176,20 +176,54 @@ func TestToggleExpandResizesTextarea(t *testing.T) {
 	}
 }
 
+func TestTextareaTaskPrefixShortcutInsertOrToggle(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain", in: "body", want: "- [ ] body"},
+		{name: "unchecked", in: "- [ ] body", want: "- [x] body"},
+		{name: "checked", in: "- [x] body", want: "- [ ] body"},
+		{name: "checked uppercase", in: "- [X] body", want: "- [ ] body"},
+		{name: "indented", in: "  - [ ] body", want: "  - [x] body"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := openEditorWith(t, tt.in)
+			e.textarea.CursorStart()
+
+			e.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+			if got := e.textarea.Value(); got != tt.want {
+				t.Fatalf("after ctrl+t, value = %q, want %q", got, tt.want)
+			}
+			if !e.IsDirty() {
+				t.Fatal("ctrl+t did not mark the buffer dirty")
+			}
+		})
+	}
+}
+
 func TestTextareaTaskPrefixShortcutUndo(t *testing.T) {
-	e := openEditorWith(t, "body")
-	e.textarea.CursorStart()
-
-	e.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
-	if got := e.textarea.Value(); got != "- [ ] body" {
-		t.Fatalf("after ctrl+t, value = %q", got)
-	}
-	if !e.IsDirty() {
-		t.Fatal("ctrl+t did not mark the buffer dirty")
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{name: "insert", in: "body"},
+		{name: "toggle", in: "- [ ] body"},
 	}
 
-	e.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
-	if got := e.textarea.Value(); got != "body" {
-		t.Fatalf("after undo, value = %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := openEditorWith(t, tt.in)
+			e.textarea.CursorStart()
+
+			e.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+			e.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+			if got := e.textarea.Value(); got != tt.in {
+				t.Fatalf("after undo, value = %q, want %q", got, tt.in)
+			}
+		})
 	}
 }

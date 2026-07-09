@@ -408,6 +408,40 @@ func TestInsertTaskPrefixAtCursor(t *testing.T) {
 	}
 }
 
+func TestInsertTaskPrefixTogglesExistingTask(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "unchecked", in: "- [ ] task", want: "- [x] task"},
+		{name: "checked", in: "- [x] task", want: "- [ ] task"},
+		{name: "checked uppercase", in: "- [X] task", want: "- [ ] task"},
+		{name: "indented plus", in: "  + [ ] task", want: "  + [x] task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := New(tt.in)
+			b.HandleKey("ctrl+t")
+			mustText(t, b, tt.want)
+			b.HandleKey("u")
+			mustText(t, b, tt.in)
+		})
+	}
+}
+
+func TestInsertTaskPrefixTogglesExistingTaskInInsertMode(t *testing.T) {
+	b := New("- [ ] task")
+	b.HandleKey("i")
+	b.HandleKey("ctrl+t")
+
+	mustText(t, b, "- [x] task")
+	if b.Mode() != ModeInsert {
+		t.Fatalf("mode = %v, want insert", b.Mode())
+	}
+}
+
 func TestInsertTaskPrefixVisualRange(t *testing.T) {
 	b := New("alpha\n  bravo\ncharlie")
 	keys(b, "vj")

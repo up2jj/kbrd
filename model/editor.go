@@ -641,6 +641,10 @@ func (e *Editor) redoOnce() {
 }
 
 func (e *Editor) insertTextareaTaskPrefix() {
+	if line, ok := toggleTaskLine(e.CurrentLine()); ok {
+		e.ReplaceCurrentLine(line)
+		return
+	}
 	prev := e.textarea.Value()
 	if e.lastCommitted != prev {
 		e.pushUndo(e.lastCommitted)
@@ -649,6 +653,24 @@ func (e *Editor) insertTextareaTaskPrefix() {
 	e.redo = e.redo[:0]
 	e.textarea.InsertString(vimbuf.TaskPrefix)
 	e.lastCommitAt = time.Now()
+}
+
+func toggleTaskLine(line string) (string, bool) {
+	i := len(line) - len(strings.TrimLeft(line, " \t"))
+	if i+5 > len(line) || (line[i] != '-' && line[i] != '*' && line[i] != '+') || line[i+1] != ' ' || line[i+2] != '[' || line[i+4] != ']' {
+		return "", false
+	}
+	if i+5 < len(line) && line[i+5] != ' ' {
+		return "", false
+	}
+	switch line[i+3] {
+	case ' ':
+		return line[:i+3] + "x" + line[i+4:], true
+	case 'x', 'X':
+		return line[:i+3] + " " + line[i+4:], true
+	default:
+		return "", false
+	}
 }
 
 func (e *Editor) submit() (tea.Cmd, tea.Msg) {
@@ -964,7 +986,7 @@ func vimCheatsheet(p Palette, width int) string {
 		{"Surround / Markdown", []row{
 			{"S{c} (visual)", "wrap selection"},
 			{"ds{c} cs{o}{n}", "delete / change surround"},
-			{"ctrl+t", "insert task prefix"},
+			{"ctrl+t", "insert/toggle task"},
 			{"tab", "toggle [ ] checkbox"},
 			{"enter o", "continue list / checkbox"},
 		}},
