@@ -13,6 +13,7 @@ import (
 	"kbrd/colstore"
 	"kbrd/events"
 	"kbrd/frontmatter"
+	kbrdfs "kbrd/fs"
 	"kbrd/template"
 )
 
@@ -224,7 +225,7 @@ func CreateColumn(boardRoot, name string) (ColumnRef, error) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return ColumnRef{}, err
 	}
-	_ = os.WriteFile(filepath.Join(dir, ".gitkeep"), nil, 0o644)
+	_ = kbrdfs.WriteNewFileNoClobberDurable(filepath.Join(dir, ".gitkeep"), nil, 0o644)
 	return ColumnRef{Name: clean, Path: dir}, nil
 }
 

@@ -751,13 +751,14 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 	if keyStr == "ctrl+v" {
 		if text, err := clipboard.ReadAll(); err == nil && text != "" {
 			if e.buf.Mode() == vimbuf.ModeCommand {
-				before := e.buf.Revision()
-				return e.applyVimEffect(e.feedVimRunes([]rune(text)), e.buf.ChangedSince(before))
+				var eff vimbuf.Effect
+				changed := e.withVimRevisionChange(func() {
+					eff = e.feedVimRunes([]rune(text))
+				})
+				return e.applyVimEffect(eff, changed)
 			}
 			if e.buf.Mode() == vimbuf.ModeNormal || e.buf.Mode() == vimbuf.ModeInsert {
-				before := e.buf.Revision()
-				e.buf.InsertText(text)
-				if e.buf.ChangedSince(before) {
+				if e.withVimRevisionChange(func() { e.buf.InsertText(text) }) {
 					e.flushSwap()
 				}
 			}
@@ -787,9 +788,7 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 			return newStableOpenLineCommandsMsg(target, col, fn, line, row)
 		}, nil
 	case key.Matches(keyMsg, Keys.EditorTaskPrefix) && e.buf.Mode() != vimbuf.ModeCommand:
-		before := e.buf.Revision()
-		e.buf.InsertTaskPrefix()
-		if e.buf.ChangedSince(before) {
+		if e.withVimRevisionChange(e.buf.InsertTaskPrefix) {
 			e.flushSwap()
 		}
 		return nil, nil
@@ -800,12 +799,17 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 	// drop a multi-rune chunk entirely, so feed the runes individually. Special
 	// keys arrive with empty Text and are unaffected.
 	if rs := []rune(keyMsg.Text); len(rs) > 1 {
-		before := e.buf.Revision()
-		return e.applyVimEffect(e.feedVimRunes(rs), e.buf.ChangedSince(before))
+		var eff vimbuf.Effect
+		changed := e.withVimRevisionChange(func() {
+			eff = e.feedVimRunes(rs)
+		})
+		return e.applyVimEffect(eff, changed)
 	}
-	before := e.buf.Revision()
-	eff := e.buf.HandleKey(keyStr)
-	return e.applyVimEffect(eff, e.buf.ChangedSince(before))
+	var eff vimbuf.Effect
+	changed := e.withVimRevisionChange(func() {
+		eff = e.buf.HandleKey(keyStr)
+	})
+	return e.applyVimEffect(eff, changed)
 }
 
 func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {
@@ -814,16 +818,23 @@ func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {
 	}
 	switch e.buf.Mode() {
 	case vimbuf.ModeInsert:
-		before := e.buf.Revision()
-		e.buf.InsertText(text)
-		if e.buf.ChangedSince(before) {
+		if e.withVimRevisionChange(func() { e.buf.InsertText(text) }) {
 			e.flushSwap()
 		}
 	case vimbuf.ModeCommand:
-		before := e.buf.Revision()
-		return e.applyVimEffect(e.feedVimRunes([]rune(text)), e.buf.ChangedSince(before))
+		var eff vimbuf.Effect
+		changed := e.withVimRevisionChange(func() {
+			eff = e.feedVimRunes([]rune(text))
+		})
+		return e.applyVimEffect(eff, changed)
 	}
 	return nil, nil
+}
+
+func (e *Editor) withVimRevisionChange(fn func()) bool {
+	before := e.buf.Revision()
+	fn()
+	return e.buf.ChangedSince(before)
 }
 
 func (e *Editor) feedVimRunes(rs []rune) vimbuf.Effect {

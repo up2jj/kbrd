@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	kbrdfs "kbrd/fs"
 )
 
 // Config editor: a token-authed page for editing the board's kbrd.toml from
@@ -79,7 +81,7 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := os.WriteFile(s.opts.ConfigFile, []byte(content), 0o644); err != nil {
+	if err := kbrdfs.WriteFileAtomicDurable(s.opts.ConfigFile, []byte(content), 0o644); err != nil {
 		renderErr("Save failed: "+err.Error(), contentHash(current))
 		return
 	}

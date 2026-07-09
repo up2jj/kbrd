@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"kbrd/board"
+	kbrdfs "kbrd/fs"
 	"kbrd/template"
 )
 
@@ -57,21 +58,11 @@ func createColumnTemplate(columnPath string, values templateAuthorValues) (colum
 }
 
 func writeNewColumnTemplate(path, content string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
+	if err := kbrdfs.WriteNewFileNoClobberDurable(path, []byte(content), 0o644); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return err
 		}
 		return fmt.Errorf("failed to create template: %w", err)
-	}
-	if _, err := f.WriteString(content); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("failed to write template: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return fmt.Errorf("failed to write template: %w", err)
 	}
 	return nil
 }

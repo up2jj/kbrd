@@ -13,6 +13,7 @@ import (
 	"kbrd/boardops"
 	"kbrd/config"
 	"kbrd/events"
+	kbrdfs "kbrd/fs"
 	"kbrd/script"
 	"kbrd/shellcmd"
 )
@@ -451,7 +452,7 @@ func (a boardScriptAPI) FSRead(path string) (string, error) {
 }
 
 func (a boardScriptAPI) FSWrite(path, body string) error {
-	return os.WriteFile(a.resolve(path), []byte(body), 0o644)
+	return kbrdfs.WriteFileAtomicDurable(a.resolve(path), []byte(body), 0o644)
 }
 
 func (a boardScriptAPI) FSExists(path string) bool {

@@ -3,11 +3,12 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"io/fs"
+	stdfs "io/fs"
 	"os"
 	"path/filepath"
 
 	"kbrd/config"
+	kbrdfs "kbrd/fs"
 
 	"github.com/spf13/cobra"
 )
@@ -56,10 +57,10 @@ func writeLocalTemplate(cwd string) error {
 func writeTemplate(target string) error {
 	if _, err := os.Stat(target); err == nil {
 		return fmt.Errorf("refusing to overwrite existing file: %s", target)
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	} else if !errors.Is(err, stdfs.ErrNotExist) {
 		return fmt.Errorf("stat %s: %w", target, err)
 	}
-	if err := os.WriteFile(target, config.Template, 0o644); err != nil {
+	if err := kbrdfs.WriteNewFileNoClobberDurable(target, config.Template, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", target, err)
 	}
 	fmt.Printf("wrote %s\n", target)

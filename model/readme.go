@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,7 +101,7 @@ func (b *Board) writeBoardReadme() error {
 		root = b.cfg.Path
 	}
 	content := buildBoardReadme(name, b.columns, recentCommits(root, 5), root)
-	return os.WriteFile(filepath.Join(root, "README.md"), content, 0o644)
+	return kbrdfs.WriteFileAtomicDurable(filepath.Join(root, "README.md"), content, 0o644)
 }
 
 // recentCommits returns up to n recent commit lines ("<short-sha> <date> <subject>",

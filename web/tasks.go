@@ -11,6 +11,7 @@ import (
 	"kbrd/boardops"
 	"kbrd/config"
 	"kbrd/events"
+	kbrdfs "kbrd/fs"
 	"kbrd/script"
 	"kbrd/template"
 )
@@ -147,7 +148,7 @@ func (a boardTaskAPI) FSRead(path string) (string, error) {
 }
 
 func (a boardTaskAPI) FSWrite(path, body string) error {
-	if err := os.WriteFile(a.resolvePath(path), []byte(body), 0o644); err != nil {
+	if err := kbrdfs.WriteFileAtomicDurable(a.resolvePath(path), []byte(body), 0o644); err != nil {
 		return err
 	}
 	return a.commit("kbrd: write " + path)

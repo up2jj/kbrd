@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"kbrd/board"
+	kbrdfs "kbrd/fs"
 )
 
 // The swap sidecar gives the vim editor crash safety without ever auto-writing
@@ -41,7 +41,7 @@ func (e *Editor) flushSwap() {
 	text := e.buf.Text()
 	// A failed swap write means unsaved edits aren't crash-protected; surface it
 	// (vimFooter) so the user knows recovery is off rather than failing silently.
-	if err := board.WriteFileAtomicDurable(e.swapFile, []byte(text), 0o644); err != nil {
+	if err := kbrdfs.WriteFileAtomicDurable(e.swapFile, []byte(text), 0o644); err != nil {
 		e.swapWriteFailed = true
 		return
 	}

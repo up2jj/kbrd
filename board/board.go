@@ -19,6 +19,7 @@ import (
 
 	"github.com/sahilm/fuzzy"
 
+	kbrdfs "kbrd/fs"
 	"kbrd/recents"
 )
 
@@ -301,7 +302,7 @@ func CreateItem(columnPath, name, content string) (string, error) {
 			content += "\n"
 		}
 	}
-	if err := writeNewFileNoClobberDurable(fullPath, []byte(content), 0o644); err != nil {
+	if err := kbrdfs.WriteNewFileNoClobberDurable(fullPath, []byte(content), 0o644); err != nil {
 		return "", err
 	}
 	return fullPath, nil
