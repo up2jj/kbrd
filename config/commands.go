@@ -115,50 +115,11 @@ func LoadCommands(folderPath string) ([]Command, []CommandLoadWarning, error) {
 }
 
 func loadCommandsFrom(globalDir, folderPath string) ([]Command, []CommandLoadWarning, error) {
-	var warnings []CommandLoadWarning
-
-	var global []Command
-	if globalDir != "" {
-		path := filepath.Join(globalDir, GlobalCommandsFile)
-		cmds, ws, err := readCommandsFile(path)
-		if err != nil {
-			return nil, warnings, err
-		}
-		warnings = append(warnings, ws...)
-		global = cmds
-	}
-
-	var local []Command
-	if folderPath != "" {
-		path := filepath.Join(folderPath, FolderCommandsFile)
-		cmds, ws, err := readCommandsFile(path)
-		if err != nil {
-			return nil, warnings, err
-		}
-		warnings = append(warnings, ws...)
-		local = cmds
-	}
-
-	merged := mergeCommands(global, local)
-	warnings = append(warnings, detectDuplicates(merged)...)
-	return merged, warnings, nil
-}
-
-func detectDuplicates(cmds []Command) []CommandLoadWarning {
-	var warnings []CommandLoadWarning
-	seen := make(map[string]string, len(cmds))
-	for _, c := range cmds {
-		if winner, ok := seen[c.ID]; ok {
-			warnings = append(warnings, CommandLoadWarning{
-				Source: FolderCommandsFile,
-				Message: fmt.Sprintf("duplicate id %q: %q shadowed by %q",
-					c.ID, c.Name, winner),
-			})
-			continue
-		}
-		seen[c.ID] = c.Name
-	}
-	return warnings
+	return loadScopedEntries(globalDir, folderPath, GlobalCommandsFile, FolderCommandsFile,
+		readCommandsFile,
+		func(c Command) string { return c.ID },
+		func(c Command) string { return c.Name },
+	)
 }
 
 func readCommandsFile(path string) ([]Command, []CommandLoadWarning, error) {
@@ -201,22 +162,6 @@ func validateCommand(c Command) error {
 		return fmt.Errorf("id is required")
 	}
 	return nil
-}
-
-func mergeCommands(global, local []Command) []Command {
-	merged := make([]Command, 0, len(global)+len(local))
-	overridden := make(map[string]bool, len(local))
-	for _, c := range local {
-		overridden[c.ID] = true
-	}
-	for _, c := range global {
-		if overridden[c.ID] {
-			continue
-		}
-		merged = append(merged, c)
-	}
-	merged = append(merged, local...)
-	return merged
 }
 
 // Render expands the command's template against the provided variables.

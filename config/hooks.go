@@ -50,48 +50,11 @@ func LoadHooks(folderPath string) ([]Hook, []CommandLoadWarning, error) {
 }
 
 func loadHooksFrom(globalDir, folderPath string) ([]Hook, []CommandLoadWarning, error) {
-	var warnings []CommandLoadWarning
-
-	var global []Hook
-	if globalDir != "" {
-		hooks, ws, err := readHooksFile(filepath.Join(globalDir, GlobalHooksFile))
-		if err != nil {
-			return nil, warnings, err
-		}
-		warnings = append(warnings, ws...)
-		global = hooks
-	}
-
-	var local []Hook
-	if folderPath != "" {
-		hooks, ws, err := readHooksFile(filepath.Join(folderPath, FolderHooksFile))
-		if err != nil {
-			return nil, warnings, err
-		}
-		warnings = append(warnings, ws...)
-		local = hooks
-	}
-
-	merged := mergeHooks(global, local)
-	warnings = append(warnings, detectHookDuplicates(merged)...)
-	return merged, warnings, nil
-}
-
-func detectHookDuplicates(hooks []Hook) []CommandLoadWarning {
-	var warnings []CommandLoadWarning
-	seen := make(map[string]string, len(hooks))
-	for _, h := range hooks {
-		if winner, ok := seen[h.ID]; ok {
-			warnings = append(warnings, CommandLoadWarning{
-				Source: FolderHooksFile,
-				Message: fmt.Sprintf("duplicate id %q: %q shadowed by %q",
-					h.ID, h.Name, winner),
-			})
-			continue
-		}
-		seen[h.ID] = h.Name
-	}
-	return warnings
+	return loadScopedEntries(globalDir, folderPath, GlobalHooksFile, FolderHooksFile,
+		readHooksFile,
+		func(h Hook) string { return h.ID },
+		func(h Hook) string { return h.Name },
+	)
 }
 
 func readHooksFile(path string) ([]Hook, []CommandLoadWarning, error) {
@@ -141,22 +104,6 @@ func validateHook(h Hook) error {
 		return fmt.Errorf("event %q is not hookable from YAML; use a Lua kbrd.on(%q, ...) hook instead", h.Event, h.Event)
 	}
 	return nil
-}
-
-func mergeHooks(global, local []Hook) []Hook {
-	merged := make([]Hook, 0, len(global)+len(local))
-	overridden := make(map[string]bool, len(local))
-	for _, h := range local {
-		overridden[h.ID] = true
-	}
-	for _, h := range global {
-		if overridden[h.ID] {
-			continue
-		}
-		merged = append(merged, h)
-	}
-	merged = append(merged, local...)
-	return merged
 }
 
 // Render expands the hook's command template against the provided variables,
