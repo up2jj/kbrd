@@ -548,6 +548,68 @@ esac
 	}
 }
 
+func TestSyncOnce_SkipsPushWhenAlreadySynced(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	fakeDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "push-called")
+	fakeGit := filepath.Join(fakeDir, "git")
+	script := `#!/bin/sh
+if [ "$1" = "--no-optional-locks" ]; then
+	shift
+fi
+if [ "$1" = "-C" ]; then
+	shift 2
+fi
+case "$1" in
+	remote)
+		echo origin
+		exit 0
+		;;
+	status|fetch|merge)
+		exit 0
+		;;
+	rev-list)
+		echo 0
+		exit 0
+		;;
+	push)
+		touch "$PUSH_MARKER"
+		exit 0
+		;;
+	*)
+		echo "unexpected fake git command: $*" >&2
+		exit 1
+		;;
+esac
+`
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PUSH_MARKER", marker)
+
+	c := newTestController(dir)
+	c.cfg.GitAutoSyncInterval = time.Minute
+	cmd := c.SyncOnce()
+	if cmd == nil {
+		t.Fatal("expected auto-sync command")
+	}
+	msg, ok := cmd().(autoSyncDoneMsg)
+	if !ok {
+		t.Fatalf("expected autoSyncDoneMsg, got %T", msg)
+	}
+	if msg.Err != nil {
+		t.Fatalf("auto-sync failed: %v", msg.Err)
+	}
+	if msg.Stage != "merge" {
+		t.Fatalf("stage = %q, want merge when push is skipped", msg.Stage)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("push ran despite no commits ahead: stat err=%v", err)
+	}
+}
+
 func TestHandleGitAddRemote_AddsOrigin(t *testing.T) {
 	dir := initSyncRepo(t)
 	c := newTestController(dir)

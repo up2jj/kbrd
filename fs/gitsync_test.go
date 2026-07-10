@@ -74,6 +74,30 @@ func TestGitCommitAllAndPush(t *testing.T) {
 	}
 }
 
+func TestGitAheadOfUpstreamContext(t *testing.T) {
+	_, clone := initRepoPair(t)
+	ahead, err := GitAheadOfUpstreamContext(context.Background(), clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ahead {
+		t.Fatal("fresh clone should not be ahead of upstream")
+	}
+	if err := os.WriteFile(filepath.Join(clone, "ahead.md"), []byte("local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GitCommitAll(clone, "local commit", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+	ahead, err = GitAheadOfUpstreamContext(context.Background(), clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ahead {
+		t.Fatal("local commit should be ahead of upstream")
+	}
+}
+
 // pushFromOther clones bare into a throwaway dir, applies mutate, commits, and
 // pushes — simulating another machine moving the remote ahead.
 func pushFromOther(t *testing.T, bare string, mutate func(dir string)) {

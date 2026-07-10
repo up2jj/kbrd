@@ -328,10 +328,11 @@ func (c *Controller) shouldSync(requireInterval bool) bool {
 //
 // Auto-sync self-heals like every automatic flow: GitMergeResolveSidecar merges
 // the remote, auto-resolving true conflicts into sidecar copies (local wins)
-// rather than failing loudly, then pushes so the merge — and any copies —
-// propagate. It runs only when no in-app editor is active, and only on a clean
-// tree unless git.auto_commit is set; with auto_commit, it commits pending edits
-// first on ticks that happen after the editor closes.
+// rather than failing loudly, then pushes only when HEAD is ahead so merges —
+// and any copies — propagate without a no-op push on every timer tick. It runs
+// only when no in-app editor is active, and only on a clean tree unless
+// git.auto_commit is set; with auto_commit, it commits pending edits first on
+// ticks that happen after the editor closes.
 func (c *Controller) SyncOnce() tea.Cmd {
 	return c.syncOnce(true)
 }
@@ -375,6 +376,13 @@ func (c *Controller) syncOnce(requireInterval bool) tea.Cmd {
 		sidecars, err := kbrdfs.GitMergeResolveSidecarContext(ctx, root, label, "", "")
 		if err != nil {
 			return done("merge", err, nil)
+		}
+		ahead, err := kbrdfs.GitAheadOfUpstreamContext(ctx, root)
+		if err != nil {
+			return done("push", err, sidecars)
+		}
+		if !ahead {
+			return done("merge", nil, sidecars)
 		}
 		return done("push", kbrdfs.GitPushContext(ctx, root), sidecars)
 	}

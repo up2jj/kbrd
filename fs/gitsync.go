@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -60,6 +61,21 @@ func GitPush(repoRoot string) error {
 // GitPushContext is GitPush with a caller-owned deadline/cancellation.
 func GitPushContext(ctx context.Context, repoRoot string) error {
 	return gitRunContext(ctx, repoRoot, "push")
+}
+
+// GitAheadOfUpstreamContext reports whether HEAD has commits that its upstream
+// does not. Call it after a fetch/merge to avoid a needless no-op push while
+// still publishing locally-created commits and merge resolutions.
+func GitAheadOfUpstreamContext(ctx context.Context, repoRoot string) (bool, error) {
+	out, err := gitCombinedOutputContext(ctx, repoRoot, "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return false, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return false, fmt.Errorf("parse commits ahead of upstream: %w", err)
+	}
+	return n > 0, nil
 }
 
 // GitPullFFOnly runs `git pull --ff-only`: fast-forward or fail loudly.
