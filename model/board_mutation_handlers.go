@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"kbrd/board"
-	"kbrd/events"
 	"kbrd/template"
 )
 
@@ -70,9 +69,7 @@ func (h boardMutationHandlers) writeExistingItem(target itemRefStable, fallbackN
 		return b, b.notifier.ErrorCause(errorPrefix, err)
 	}
 	b.editor.confirmSaved()
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(item.Name)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: item.Name}, Kind: kind})
+	b.finalizeItemSave(col, item.Name, kind)
 	return b, b.notifier.Success(success(item.Name))
 }
 

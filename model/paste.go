@@ -7,7 +7,6 @@ import (
 	"github.com/atotto/clipboard"
 
 	"kbrd/board"
-	"kbrd/events"
 )
 
 // pasteMode selects how a clipboard paste merges into the target card.
@@ -173,9 +172,7 @@ func (a boardPasteActions) handleDone(msg pasteDoneMsg) (tea.Model, tea.Cmd) {
 	if col == nil {
 		return b, nil
 	}
-	b.reloadColumnAfterMutation(col)
-	col.SelectByName(msg.FileName)
-	b.bus.Publish(events.ItemSaved{Item: events.ItemRef{Column: col.Name, Name: msg.FileName}, Kind: msg.Kind})
+	b.finalizeItemSave(col, msg.FileName, msg.Kind)
 	return b, b.notifier.Success(msg.Verb + msg.FileName)
 }
 
