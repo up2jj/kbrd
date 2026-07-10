@@ -1,10 +1,13 @@
 package model
 
 import (
+	"strings"
+	"unicode"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/board"
 )
@@ -30,6 +33,7 @@ type pasteRequestMsg struct {
 	ItemPath string
 	FileName string
 	Mode     pasteMode
+	Content  string
 }
 
 // pasteDoneMsg reports a successful clipboard paste back to the Update loop so
@@ -53,6 +57,16 @@ type pasteNewItemMsg struct {
 	Content  string
 }
 
+// pasteMenuTarget captures the paste destination before issuing an async OSC52
+// request. It uses stable column/item identities so a response cannot bind to
+// a changed selection.
+type pasteMenuTarget struct {
+	Column   columnRef
+	ColIndex int
+	ItemPath string
+	FileName string
+}
+
 type boardPasteActions struct {
 	board *Board
 }
@@ -61,16 +75,11 @@ func (b *Board) pasteActions() boardPasteActions {
 	return boardPasteActions{board: b}
 }
 
-// openMenu reads the clipboard and opens the paste-mode picker. The target is
-// resolved here, on the UI goroutine, into stable identities carried by each
-// request, so nothing downstream depends on the column's current index. An
-// empty/unavailable clipboard is reported without opening.
+// openMenu validates and captures the paste target, then requests the terminal
+// clipboard through Bubble Tea. openMenuWithText opens the picker when its
+// ClipboardMsg response arrives.
 func (a boardPasteActions) openMenu(colIdx int, col *Column, item *Item) tea.Cmd {
 	b := a.board
-	text, err := clipboard.ReadAll()
-	if err != nil || text == "" {
-		return b.notifier.Error("clipboard empty or unavailable")
-	}
 	if colIdx < 0 || colIdx >= len(b.columns) {
 		return b.notifier.Error("column not found")
 	}
@@ -80,24 +89,40 @@ func (a boardPasteActions) openMenu(colIdx int, col *Column, item *Item) tea.Cmd
 	if col.Virtual {
 		return b.notifier.ErrorCause("", errVirtualColumn)
 	}
+	target := pasteMenuTarget{Column: refForColumn(col), ColIndex: colIdx}
+	if item != nil {
+		target.FileName = item.Name
+		target.ItemPath = col.fullPathFor(item.Name)
+		if target.ItemPath == "" {
+			return b.notifier.Error("item not found: " + item.Name)
+		}
+	}
+	return b.clipboardActions().readPasteMenu(target)
+}
+
+func (a boardPasteActions) openMenuWithText(target pasteMenuTarget, text string) (tea.Model, tea.Cmd) {
+	b := a.board
+	if text == "" {
+		return b, b.notifier.Error("clipboard empty or unavailable")
+	}
+	col, err := b.resolveDelayedColumnRef(target.Column)
+	if err != nil {
+		return b, b.notifier.ErrorCause("", err)
+	}
 
 	entries := []pasteMenuEntry{
 		{
 			Label: "Paste as new file",
 			Desc:  "Create a .md card in " + col.Name + " from clipboard text",
-			Msg:   pasteNewItemMsg{Column: refForColumn(col), ColIndex: colIdx, Content: text},
+			Msg:   pasteNewItemMsg{Column: target.Column, ColIndex: target.ColIndex, Content: text},
 		},
 	}
 
 	defaultIndex := 0
-	if item != nil {
-		fileName := item.Name
-		itemPath := col.fullPathFor(fileName)
-		if itemPath == "" {
-			return b.notifier.Error("item not found: " + fileName)
-		}
+	if target.FileName != "" {
+		fileName := target.FileName
 		req := func(mode pasteMode) pasteRequestMsg {
-			return pasteRequestMsg{ColName: col.Name, ColPath: col.Path, ItemPath: itemPath, FileName: fileName, Mode: mode}
+			return pasteRequestMsg{ColName: col.Name, ColPath: col.Path, ItemPath: target.ItemPath, FileName: fileName, Mode: mode, Content: text}
 		}
 		into := "Into " + fileName + ".md"
 		entries = append(entries,
@@ -109,7 +134,8 @@ func (a boardPasteActions) openMenu(colIdx int, col *Column, item *Item) tea.Cmd
 	}
 
 	b.pasteMenu.Open(entries, defaultIndex)
-	return nil
+	b.pasteMenu.preview = text
+	return b, nil
 }
 
 func (a boardPasteActions) openNewItem(msg pasteNewItemMsg) (tea.Model, tea.Cmd) {
@@ -121,7 +147,7 @@ func (a boardPasteActions) openNewItem(msg pasteNewItemMsg) (tea.Model, tea.Cmd)
 	return b, b.editor.OpenNewWithContent(msg.ColIndex, col.Name, col.Path, msg.Content)
 }
 
-// pasteToItem performs the clipboard write for a chosen mode on a goroutine,
+// pasteToItem performs the captured clipboard write for a chosen mode on a goroutine,
 // writing directly to the request's captured item path (never touching
 // b.columns, which may have changed). Completion is reported via pasteDoneMsg so
 // handlePasteDone can finish on the UI thread.
@@ -131,10 +157,8 @@ func (a boardPasteActions) pasteToItem(msg pasteRequestMsg) tea.Cmd {
 	// Board state (a board switch / config reload could race it).
 	detectDate := b.cfg.Journal.DetectDate
 	return func() tea.Msg {
-		text, err := clipboard.ReadAll()
-		if err != nil || text == "" {
-			return notifyMsg{Message: "clipboard empty or unavailable", Type: notifyError}
-		}
+		text := msg.Content
+		var err error
 		var verb, kind string
 		switch msg.Mode {
 		case pasteAtStart:
@@ -208,6 +232,7 @@ type PasteMenu struct {
 	active bool
 	fuzzyList
 	entries []pasteMenuEntry
+	preview string
 	palette Palette
 }
 
@@ -222,6 +247,7 @@ func (m *PasteMenu) Open(entries []pasteMenuEntry, defaultIndex int) {
 func (m *PasteMenu) Close() {
 	m.active = false
 	m.entries = nil
+	m.preview = ""
 	m.fuzzyList.Clear()
 }
 
@@ -330,7 +356,19 @@ func (m *PasteMenu) View(termWidth, termHeight int) string {
 		{Keys: "enter", Label: "paste"},
 		{Keys: "esc", Label: "cancel"},
 	})
-	inner := lipgloss.JoinVertical(lipgloss.Left, filterLine, "", body)
+	preview := ""
+	if m.preview != "" {
+		previewWidth := max(termWidth-16, 24)
+		preview = lipgloss.JoinVertical(lipgloss.Left,
+			descStyle.Render("Clipboard preview"),
+			lipgloss.NewStyle().Foreground(p.FgBase).Render(formatClipboardPreview(m.preview, previewWidth)),
+		)
+	}
+	parts := []string{filterLine, "", body}
+	if preview != "" {
+		parts = append(parts, "", preview)
+	}
+	inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	minInner := 50
 	if termWidth > 0 && termWidth-12 < minInner {
 		minInner = termWidth - 12
@@ -339,4 +377,26 @@ func (m *PasteMenu) View(termWidth, termHeight int) string {
 		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
 	}
 	return OverlayFrame{Title: "Paste from clipboard", Body: inner, Footer: footer, Palette: p}.Render()
+}
+
+// formatClipboardPreview returns at most three safe, terminal-width-aware
+// lines. Clipboard contents are otherwise kept untouched and written verbatim.
+func formatClipboardPreview(text string, width int) string {
+	const maxLines = 3
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) > maxLines {
+		lines = append(lines[:maxLines-1], lines[maxLines-1]+" …")
+	}
+	for i, line := range lines {
+		line = ansi.Strip(line)
+		line = strings.ReplaceAll(line, "\t", "    ")
+		line = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return -1
+			}
+			return r
+		}, line)
+		lines[i] = ansi.Truncate(line, max(width, 1), "…")
+	}
+	return strings.Join(lines, "\n")
 }

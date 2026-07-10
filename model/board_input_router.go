@@ -64,7 +64,11 @@ func (r boardInputRouter) HandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b.templateMenuActions().update(msg)
 	}
 	if b.templateFlow.Active() {
-		return b, b.templateFlow.Update(msg)
+		cmd := b.templateFlow.Update(msg)
+		if !b.templateFlow.Active() {
+			b.clipboardActions().cancelTemplateRead()
+		}
+		return b, cmd
 	}
 	if b.frontmatterEdit.Active() {
 		return b, b.frontmatterEdit.Update(msg)

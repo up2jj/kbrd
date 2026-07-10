@@ -14,7 +14,7 @@ func TestPasteMenuRunsSelectedEntry(t *testing.T) {
 	var m PasteMenu
 	m.Open([]pasteMenuEntry{
 		{Label: "Paste as new file", Msg: pasteNewItemMsg{Content: "body"}},
-		{Label: "Append at end", Msg: pasteRequestMsg{Mode: pasteAtEnd}},
+		{Label: "Append at end", Msg: pasteRequestMsg{Mode: pasteAtEnd, Content: "previewed body"}},
 	}, 1)
 
 	if !m.Active() {
@@ -39,8 +39,77 @@ func TestPasteMenuRunsSelectedEntry(t *testing.T) {
 	if msg.Mode != pasteAtEnd {
 		t.Fatalf("mode = %v, want pasteAtEnd", msg.Mode)
 	}
+	if msg.Content != "previewed body" {
+		t.Fatalf("content = %q, want previewed body", msg.Content)
+	}
 	if m.Active() {
 		t.Fatal("paste menu stayed open after selection")
+	}
+}
+
+func TestPasteMenuOpensFromClipboardMsgWithPreview(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	col := b.columns[0]
+	cmd := b.pasteActions().openMenu(0, col, nil)
+	if cmd == nil {
+		t.Fatal("opening paste menu returned nil OSC52 request")
+	}
+	if b.pasteMenu.Active() {
+		t.Fatal("paste menu opened before clipboard response")
+	}
+
+	model, _ := b.Update(tea.ClipboardMsg{Content: "one\ntwo\nthree\nfour"})
+	b = model.(*Board)
+	if !b.pasteMenu.Active() {
+		t.Fatal("paste menu did not open after clipboard response")
+	}
+	view := ansi.Strip(b.pasteMenu.View(80, 40))
+	for _, want := range []string{"Clipboard preview", "one", "two", "three"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("preview missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "four") {
+		t.Fatalf("preview should be compact:\n%s", view)
+	}
+
+	selected := b.pasteMenu.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg, ok := selected().(pasteNewItemMsg)
+	if !ok {
+		t.Fatalf("selected message = %T, want pasteNewItemMsg", msg)
+	}
+	if msg.Content != "one\ntwo\nthree\nfour" {
+		t.Fatalf("selected content = %q, want exact clipboard content", msg.Content)
+	}
+}
+
+func TestPasteMenuOpensFromSystemClipboardFallback(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	cmd := b.pasteActions().openMenu(0, b.columns[0], nil)
+	if cmd == nil {
+		t.Fatal("opening paste menu returned nil request")
+	}
+	request := b.clipboardRead.request
+
+	model, fallbackCmd := b.Update(clipboardFallbackMsg{request: request})
+	b = model.(*Board)
+	if fallbackCmd == nil {
+		t.Fatal("clipboard fallback did not request a system read")
+	}
+	model, _ = b.Update(clipboardSystemReadMsg{request: request, content: "from system clipboard"})
+	b = model.(*Board)
+	if !b.pasteMenu.Active() {
+		t.Fatal("paste menu did not open from system clipboard fallback")
+	}
+}
+
+func TestFormatClipboardPreview(t *testing.T) {
+	got := formatClipboardPreview("\x1b[31mred\x1b[0m\tvalue\nsecond\nthird\nfourth", 12)
+	if strings.Contains(got, "\x1b") || strings.Contains(got, "fourth") {
+		t.Fatalf("preview should be safe and compact: %q", got)
+	}
+	if !strings.Contains(got, "red") || !strings.Contains(got, "second") {
+		t.Fatalf("preview lost content: %q", got)
 	}
 }
 

@@ -757,21 +757,7 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 	}
 	// ctrl+v pastes the system clipboard at the cursor.
 	if keyStr == "ctrl+v" {
-		if text, err := clipboard.ReadAll(); err == nil && text != "" {
-			if e.buf.Mode() == vimbuf.ModeCommand {
-				var eff vimbuf.Effect
-				changed := e.withVimRevisionChange(func() {
-					eff = e.feedVimRunes([]rune(text))
-				})
-				return e.applyVimEffect(eff, changed)
-			}
-			if e.buf.Mode() == vimbuf.ModeNormal || e.buf.Mode() == vimbuf.ModeInsert {
-				if e.withVimRevisionChange(func() { e.buf.InsertText(text) }) {
-					e.flushSwap()
-				}
-			}
-		}
-		return nil, nil
+		return func() tea.Msg { return editorClipboardReadMsg{} }, nil
 	}
 	// esc closes the editor from Normal mode (a convenience over vim's :q); in
 	// Insert/Visual/Command it falls through to the buffer, which returns to
@@ -818,6 +804,33 @@ func (e *Editor) updateVim(keyMsg tea.KeyPressMsg, keyStr string) (tea.Cmd, tea.
 		eff = e.buf.HandleKey(keyStr)
 	})
 	return e.applyVimEffect(eff, changed)
+}
+
+// editorClipboardReadMsg asks the Board to request the terminal clipboard.
+// It keeps OSC52 response routing out of Editor, which has no Update case for
+// arbitrary clipboard messages.
+type editorClipboardReadMsg struct{}
+
+// PasteClipboard applies an OSC52 response using the same semantics ctrl+v
+// previously had for Vim's normal, insert, and command modes.
+func (e *Editor) PasteClipboard(text string) tea.Cmd {
+	if text == "" || e.state == editorNone || !e.vim || isInputState(e.state) || e.buf == nil {
+		return nil
+	}
+	if e.buf.Mode() == vimbuf.ModeCommand {
+		var eff vimbuf.Effect
+		changed := e.withVimRevisionChange(func() {
+			eff = e.feedVimRunes([]rune(text))
+		})
+		cmd, _ := e.applyVimEffect(eff, changed)
+		return cmd
+	}
+	if e.buf.Mode() == vimbuf.ModeNormal || e.buf.Mode() == vimbuf.ModeInsert {
+		if e.withVimRevisionChange(func() { e.buf.InsertText(text) }) {
+			e.flushSwap()
+		}
+	}
+	return nil
 }
 
 func (e *Editor) updateVimPaste(text string) (tea.Cmd, tea.Msg) {

@@ -172,6 +172,14 @@ func TestVimCommandPasteDoesNotMutateBuffer(t *testing.T) {
 	}
 }
 
+func TestVimPasteClipboardUsesCapturedOSC52Content(t *testing.T) {
+	e, _ := openVimEdit(t, "hello")
+	e.PasteClipboard(" world")
+	if got := e.buf.Text(); got != " worldhello" {
+		t.Fatalf("normal-mode clipboard paste = %q, want insertion at cursor", got)
+	}
+}
+
 // :q on a dirty buffer refuses (stays open with a hint); :q! quits.
 func TestVimQuitGuard(t *testing.T) {
 	e, _ := openVimEdit(t, "hello")

@@ -32,42 +32,44 @@ type scriptInitRunMsg struct{}
 const scriptActivityCellID = -9
 
 type Board struct {
-	cfg             config.Config
-	safeMode        bool
-	columns         []*Column
-	visibleHeight   int
-	termWidth       int
-	termHeight      int
-	selectedCol     int
-	firstVisibleCol int
-	quitting        bool
-	shuttingDown    bool // waiting for an in-flight git sync before quitting
-	editor          *Editor
-	notifier        *Notifier
-	mnemonic        mnemonicSelectorState
-	theme           string
-	terminalDark    bool
-	palette         Palette
-	watcher         *kbrdfs.Watcher
-	dialog          Dialog
-	helpMenu        HelpMenu
-	pasteMenu       PasteMenu
-	templateMenu    TemplateMenu
-	configMenuOpen  bool
-	peek            Peek
-	peekSeq         int
-	peekItemPath    string
-	zoom            Zoom
-	switcher        Switcher
-	search          Search
-	git             git.Controller
-	zellij          Zellij
-	customCmds      CustomCommandMenu
-	commands        []config.Command
-	commandWarnings []config.CommandLoadWarning
-	cells           CellBar
-	indicators      colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
-	mcpStatus       MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
+	cfg              config.Config
+	safeMode         bool
+	columns          []*Column
+	visibleHeight    int
+	termWidth        int
+	termHeight       int
+	selectedCol      int
+	firstVisibleCol  int
+	quitting         bool
+	shuttingDown     bool // waiting for an in-flight git sync before quitting
+	editor           *Editor
+	notifier         *Notifier
+	mnemonic         mnemonicSelectorState
+	theme            string
+	terminalDark     bool
+	palette          Palette
+	watcher          *kbrdfs.Watcher
+	dialog           Dialog
+	helpMenu         HelpMenu
+	pasteMenu        PasteMenu
+	clipboardRead    clipboardReadState
+	clipboardReadSeq uint64
+	templateMenu     TemplateMenu
+	configMenuOpen   bool
+	peek             Peek
+	peekSeq          int
+	peekItemPath     string
+	zoom             Zoom
+	switcher         Switcher
+	search           Search
+	git              git.Controller
+	zellij           Zellij
+	customCmds       CustomCommandMenu
+	commands         []config.Command
+	commandWarnings  []config.CommandLoadWarning
+	cells            CellBar
+	indicators       colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
+	mcpStatus        MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -487,6 +489,10 @@ func batchCmd(a, b tea.Cmd) tea.Cmd {
 // updateInner is the original Update body. Wrapped by Update so that hooks
 // fired anywhere along the call path get their timer side-effects scheduled.
 func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if model, cmd, handled := b.clipboardActions().handle(msg); handled {
+		return model, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width

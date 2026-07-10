@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 	"kbrd/template"
@@ -17,23 +17,47 @@ import (
 func TestFieldSeed(t *testing.T) {
 	// No prefill: the default seeds the field.
 	f := template.Field{Type: "input", Default: "dflt"}
-	if got := fieldSeed(f); got != "dflt" {
+	if got := fieldSeed(f, "ignored"); got != "dflt" {
 		t.Errorf("default seed = %q", got)
 	}
 
-	// prefill: clipboard — exercised only where a clipboard exists (skipped
-	// in headless CI). The form must start with the clipboard's content.
-	// Save and restore the user's clipboard around the check.
+	// Clipboard prefill receives the content delivered by Bubble Tea's OSC52
+	// ClipboardMsg; it does not touch the host clipboard synchronously.
 	f = template.Field{Type: "input", Prefill: template.PrefillClipboard}
-	saved, savedErr := clipboard.ReadAll()
-	if err := clipboard.WriteAll("from-clipboard"); err != nil {
-		t.Skipf("no clipboard available: %v", err)
-	}
-	if savedErr == nil {
-		defer func() { _ = clipboard.WriteAll(saved) }()
-	}
-	if got := fieldSeed(f); got != "from-clipboard" {
+	if got := fieldSeed(f, "from-clipboard"); got != "from-clipboard" {
 		t.Errorf("clipboard seed = %q", got)
+	}
+}
+
+func TestTemplateClipboardPrefillUsesClipboardMsg(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	col := b.columns[0]
+	tmpl := template.Template{
+		Name:     "Clipboard note",
+		Filename: "note",
+		Body:     "{{.body}}",
+		Steps: []template.Step{{Fields: []template.Field{{
+			Key: "body", Type: "text", Prefill: template.PrefillClipboard,
+		}}}},
+	}
+
+	cmd := b.clipboardActions().openTemplate(templateStartFormMsg{
+		Column: refForColumn(col), ColIndex: 0, Template: tmpl,
+	})
+	if cmd == nil || b.templateFlow.stage != tfClipboard {
+		t.Fatal("clipboard-prefilled template did not wait for OSC52 content")
+	}
+
+	model, initCmd := b.Update(tea.ClipboardMsg{Content: "from OSC52"})
+	b = model.(*Board)
+	if b.templateFlow.stage != tfForm {
+		t.Fatalf("template flow stage = %v, want tfForm", b.templateFlow.stage)
+	}
+	if initCmd != nil {
+		b.templateFlow.Update(initCmd())
+	}
+	if view := ansi.Strip(b.templateFlow.View()); !strings.Contains(view, "from OSC52") {
+		t.Fatalf("template view missing OSC52 prefill:\n%s", view)
 	}
 }
 
@@ -191,7 +215,7 @@ func TestTemplateFlowFormDoubleEscDoesNotPanic(t *testing.T) {
 	flow.SetPalette(DarkPalette())
 	flow.SetSize(100, 40)
 	flow.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil)
-	flow.startForm(template.Template{Name: "Ask", Body: "body"})
+	flow.startForm(template.Template{Name: "Ask", Body: "body"}, "")
 
 	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	flow.Update(tea.KeyPressMsg{Code: tea.KeyEsc})

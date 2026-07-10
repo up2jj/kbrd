@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/template"
@@ -25,14 +24,23 @@ type templateSubmitMsg struct {
 	Values   map[string]any
 }
 
+// templateStartFormMsg asks the Board to open a template form, requesting the
+// terminal clipboard first when any field declares prefill: clipboard.
+type templateStartFormMsg struct {
+	Column   columnRef
+	ColIndex int
+	Template template.Template
+}
+
 // templateFlowStage tracks which screen of the flow is showing.
 type templateFlowStage int
 
 const (
-	tfNone   templateFlowStage = iota
-	tfPick                     // choosing what to create
-	tfForm                     // filling the huh form
-	tfAuthor                   // filling the column-template authoring form
+	tfNone      templateFlowStage = iota
+	tfPick                        // choosing what to create
+	tfForm                        // filling the huh form
+	tfAuthor                      // filling the column-template authoring form
+	tfClipboard                   // awaiting an OSC52 prefill response
 )
 
 type createChoiceKind int
@@ -158,7 +166,7 @@ func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template
 	return nil
 }
 
-func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl template.Template) tea.Cmd {
+func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl template.Template, clipboard string) tea.Cmd {
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = nil
@@ -167,7 +175,21 @@ func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl templat
 	t.filter = ""
 	t.stage = tfForm
 	t.reopenMenu = false
-	return t.startForm(tmpl)
+	return t.startForm(tmpl, clipboard)
+}
+
+// WaitForClipboard keeps the create overlay modal while Bubble Tea fetches a
+// template's prefill: clipboard value.
+func (t *TemplateFlow) WaitForClipboard(colIndex int, column columnRef, tmpl template.Template) {
+	t.colIndex = colIndex
+	t.column = column
+	t.templates = nil
+	t.tmpl = tmpl
+	t.selected = 0
+	t.filtering = false
+	t.filter = ""
+	t.stage = tfClipboard
+	t.reopenMenu = false
 }
 
 func (t *TemplateFlow) OpenAuthor(colIndex int, column columnRef, reopenMenu bool) tea.Cmd {
@@ -184,14 +206,14 @@ func (t *TemplateFlow) OpenAuthor(colIndex int, column columnRef, reopenMenu boo
 // startForm builds the huh form for tmpl: one group per step, plus a
 // synthetic filename group when the template declares no filename template.
 // A template with no fields at all skips the form and submits directly.
-func (t *TemplateFlow) startForm(tmpl template.Template) tea.Cmd {
+func (t *TemplateFlow) startForm(tmpl template.Template, clipboard string) tea.Cmd {
 	t.tmpl = tmpl
 
 	var groups []*huh.Group
 	for _, step := range tmpl.Steps {
 		fields := make([]huh.Field, 0, len(step.Fields))
 		for _, f := range step.Fields {
-			fields = append(fields, buildField(f))
+			fields = append(fields, buildField(f, clipboard))
 		}
 		if len(fields) == 0 {
 			continue
@@ -268,11 +290,11 @@ func (t *TemplateFlow) startAuthorForm() tea.Cmd {
 }
 
 // buildField maps one declared template field onto a huh field.
-func buildField(f template.Field) huh.Field {
+func buildField(f template.Field, clipboard string) huh.Field {
 	switch f.Type {
 	case "text":
 		v := new(string)
-		*v = fieldSeed(f)
+		*v = fieldSeed(f, clipboard)
 		// Validator covers required + pattern/length, shared with the Lua path.
 		return huh.NewText().Key(f.Key).Title(f.Title).Description(f.Description).
 			Placeholder(f.Placeholder).Lines(4).Value(v).Validate(f.Validator())
@@ -305,7 +327,7 @@ func buildField(f template.Field) huh.Field {
 		return huh.NewNote().Title(f.Title).Description(f.Description)
 	default: // "input" (types are validated at parse time)
 		v := new(string)
-		*v = fieldSeed(f)
+		*v = fieldSeed(f, clipboard)
 		// Validator covers required + pattern/length, shared with the Lua path.
 		return huh.NewInput().Key(f.Key).Title(f.Title).Description(f.Description).
 			Placeholder(f.Placeholder).Value(v).Validate(f.Validator())
@@ -313,17 +335,13 @@ func buildField(f template.Field) huh.Field {
 }
 
 // fieldSeed returns the initial value an input/text field starts with: its
-// default, or — for prefill: clipboard — the system clipboard's content. The
-// prefilled value lands in the visible form field where the user can edit or
-// clear it before submitting; templates can never read the clipboard at
-// render time. A failed clipboard read (headless session, empty clipboard)
-// degrades to an empty field.
-func fieldSeed(f template.Field) string {
+// default, or — for prefill: clipboard — content received through Bubble Tea.
+// The prefilled value lands in the visible form field where the user can edit
+// or clear it before submitting; templates can never read the clipboard at
+// render time. An empty response seeds an empty field.
+func fieldSeed(f template.Field, clipboard string) string {
 	if f.Prefill == template.PrefillClipboard {
-		if s, err := clipboard.ReadAll(); err == nil {
-			return s
-		}
-		return ""
+		return clipboard
 	}
 	return f.Default
 }
@@ -342,6 +360,11 @@ func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 		return t.updateForm(msg)
 	case tfAuthor:
 		return t.updateAuthorForm(msg)
+	case tfClipboard:
+		if k, ok := msg.(tea.KeyPressMsg); ok && k.Code == tea.KeyEsc {
+			t.Close()
+		}
+		return nil
 	}
 	return nil
 }
@@ -534,7 +557,9 @@ func (t *TemplateFlow) runSelectedChoice() tea.Cmd {
 		t.Close()
 		return func() tea.Msg { return msg }
 	case createChoiceTemplate:
-		return t.startForm(choice.Template)
+		return func() tea.Msg {
+			return templateStartFormMsg{Column: t.column, ColIndex: t.colIndex, Template: choice.Template}
+		}
 	case createChoiceAuthorTemplate:
 		t.reopenMenu = false
 		return t.startAuthorForm()
@@ -665,6 +690,9 @@ func (t *TemplateFlow) View() string {
 			title = "New column template"
 		}
 		return OverlayFrame{Title: title, Body: t.form.View(), Footer: footer, Palette: t.palette}.Render()
+	case tfClipboard:
+		footer := RenderInlineHints([]Shortcut{{Keys: "esc", Label: "cancel"}})
+		return OverlayFrame{Title: t.tmpl.Name, Body: "Reading clipboard…", Footer: footer, Palette: t.palette}.Render()
 	}
 	return ""
 }

@@ -96,7 +96,7 @@ func (a templateMenuActions) run(action templateMenuAction) (tea.Model, tea.Cmd)
 			return a.run(templateMenuAuthor)
 		}
 		b.templateMenu.Close()
-		return b, b.templateFlow.OpenTemplate(b.templateMenu.colIndex, b.templateMenu.column, entry.Template)
+		return b, b.clipboardActions().openTemplate(templateStartFormMsg{Column: b.templateMenu.column, ColIndex: b.templateMenu.colIndex, Template: entry.Template})
 	case templateMenuAuthor:
 		b.templateMenu.Close()
 		return b, b.templateFlow.OpenAuthor(b.templateMenu.colIndex, b.templateMenu.column, true)
