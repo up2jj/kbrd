@@ -20,13 +20,10 @@ type HelpMenu struct {
 	active  bool
 	palette Palette
 
-	groups   []HelpGroup // board-composed source, re-filtered on the fly
-	rows     []helpRow   // visible lines (headers + entries), in display order
-	nav      []int       // indices into rows that are selectable (enabled entries)
-	selected int         // index into nav
-	scroll   int         // top row of the visible viewport
-	follow   bool        // true when keyboard navigation should keep selection visible
-	context  string      // focused column name, shown in the title
+	groups []HelpGroup // board-composed source, re-filtered on the fly
+	rows   []helpRow   // visible lines (headers + entries), in display order
+	groupedMenuNav
+	context string // focused column name, shown in the title
 
 	// filtering is true while the user is searching (entered with `/`); filter
 	// holds the query. While filtering, rows are a flat, fuzzy-ranked list.
@@ -61,9 +58,7 @@ func (m *HelpMenu) Open(groups []HelpGroup) {
 	m.groups = groups
 	m.filtering = false
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.Reset()
 	m.recompute()
 }
 
@@ -72,7 +67,7 @@ func (m *HelpMenu) Open(groups []HelpGroup) {
 // flat, fuzzy-ranked list of runnable entries with match offsets for highlight.
 func (m *HelpMenu) recompute() {
 	m.rows = m.rows[:0]
-	m.nav = m.nav[:0]
+	m.groupedMenuNav.BeginRebuild()
 
 	if m.filtering && m.filter != "" {
 		var cands []HelpEntry
@@ -101,8 +96,7 @@ func (m *HelpMenu) recompute() {
 		}
 	}
 
-	m.selected = min(max(m.selected, 0), max(len(m.nav)-1, 0))
-	m.scroll = min(max(m.scroll, 0), max(len(m.rows)-1, 0))
+	m.groupedMenuNav.Clamp(len(m.rows))
 }
 
 // Filtering reports whether the menu is in search mode.
@@ -112,9 +106,7 @@ func (m *HelpMenu) Filtering() bool { return m.filtering }
 func (m *HelpMenu) StartFilter() {
 	m.filtering = true
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
@@ -122,9 +114,7 @@ func (m *HelpMenu) StartFilter() {
 func (m *HelpMenu) StopFilter() {
 	m.filtering = false
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
@@ -132,18 +122,14 @@ func (m *HelpMenu) StopFilter() {
 // (leaving search mode when the query empties).
 func (m *HelpMenu) AppendFilter(s string) {
 	m.filter += s
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
 func (m *HelpMenu) Backspace() {
 	if r := []rune(m.filter); len(r) > 0 {
 		m.filter = string(r[:len(r)-1])
-		m.selected = 0
-		m.scroll = 0
-		m.follow = true
+		m.groupedMenuNav.ResetSelection()
 		m.recompute()
 	} else {
 		m.StopFilter()
@@ -157,10 +143,11 @@ func (m *HelpMenu) SelectedRunKey() string {
 
 // SelectedEntry returns the highlighted entry (zero value if none selected).
 func (m *HelpMenu) SelectedEntry() HelpEntry {
-	if m.selected < 0 || m.selected >= len(m.nav) {
+	row, ok := m.groupedMenuNav.SelectedRow()
+	if !ok {
 		return HelpEntry{}
 	}
-	return m.rows[m.nav[m.selected]].entry
+	return m.rows[row].entry
 }
 
 // Update moves the item selection in response to a navigation key. The board
@@ -168,32 +155,11 @@ func (m *HelpMenu) SelectedEntry() HelpEntry {
 // names a runnable row runs it and never reaches navigation. ↑/↓ and vim j/k
 // move within the list; ←/→ (handled by the board) switch the focused column.
 func (m *HelpMenu) Update(msg tea.KeyPressMsg) {
-	if len(m.nav) == 0 {
-		return
-	}
-	switch msg.String() {
-	case "down", "j", "ctrl+n", "tab":
-		m.selected = min(m.selected+1, len(m.nav)-1)
-	case "up", "k", "ctrl+p", "shift+tab":
-		m.selected = max(m.selected-1, 0)
-	case "g", "home":
-		m.selected = 0
-	case "G", "end":
-		m.selected = len(m.nav) - 1
-	case "pgdown", "ctrl+d":
-		m.selected = min(m.selected+10, len(m.nav)-1)
-	case "pgup", "ctrl+u":
-		m.selected = max(m.selected-10, 0)
-	}
-	m.follow = true
+	m.groupedMenuNav.UpdateKey(msg.String())
 }
 
 func (m *HelpMenu) ScrollBy(delta int) {
-	if len(m.rows) == 0 {
-		return
-	}
-	m.scroll = min(max(m.scroll+delta, 0), max(len(m.rows)-1, 0))
-	m.follow = false
+	m.groupedMenuNav.ScrollBy(len(m.rows), delta)
 }
 
 func (m *HelpMenu) HandleMouse(msg tea.MouseMsg) {
@@ -234,21 +200,18 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		resultRows = max(maxBody-2, 1)
 	}
 	selRow := -1
-	if m.selected < len(m.nav) {
-		selRow = m.nav[m.selected]
+	if row, ok := m.groupedMenuNav.SelectedRow(); ok {
+		selRow = row
 	}
 	if m.follow {
-		m.ensureSelectedVisible(resultRows)
+		m.groupedMenuNav.EnsureSelectedVisible(resultRows)
 	}
-	start, end := m.viewportRows(resultRows)
+	start, end := m.groupedMenuNav.Viewport(len(m.rows), resultRows)
 
 	// Footer: hints on the left, "N of M" position indicator on the right.
 	hints := m.footerHints()
-	cur := 0
-	if len(m.nav) > 0 {
-		cur = m.selected + 1
-	}
-	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, len(m.nav)))
+	cur, total := m.groupedMenuNav.Position()
+	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, total))
 
 	textW := m.contentWidth(termWidth, keyCol)
 	rowW := max(textW-helpScrollbarGutter, 1)
@@ -273,7 +236,9 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 		bodyBlock += "\n" + strings.Repeat(" ", rowW)
 	}
 	if len(m.rows) > resultRows {
-		bar := strings.Join(m.scrollbar(end-start, len(m.rows), start), "\n")
+		track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
+		thumb := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
+		bar := strings.Join(groupedMenuScrollbar(end-start, len(m.rows), start, track, thumb), "\n")
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
 	} else {
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, strings.Repeat(" ", helpScrollbarGutter))
@@ -432,47 +397,6 @@ func (m *HelpMenu) renderRow(r helpRow, selected bool, keyCol lipgloss.Style) st
 	}
 }
 
-func (m *HelpMenu) scrollbar(height, total, start int) []string {
-	thumb := max(height*height/total, 1)
-	maxStart := total - height
-	pos := min(max((height-thumb)*start/maxStart, 0), height-thumb)
-	track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
-	bar := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
-	rows := make([]string, height)
-	for i := range rows {
-		if i >= pos && i < pos+thumb {
-			rows[i] = bar
-		} else {
-			rows[i] = track
-		}
-	}
-	return rows
-}
-
-func (m *HelpMenu) viewportRows(size int) (int, int) {
-	if len(m.rows) <= size {
-		m.scroll = 0
-		return 0, len(m.rows)
-	}
-	start := min(max(m.scroll, 0), len(m.rows)-size)
-	m.scroll = start
-	return start, start + size
-}
-
-func (m *HelpMenu) ensureSelectedVisible(size int) {
-	if size <= 0 || m.selected < 0 || m.selected >= len(m.nav) {
-		return
-	}
-	selRow := m.nav[m.selected]
-	if selRow < m.scroll {
-		m.scroll = selRow
-		return
-	}
-	if selRow >= m.scroll+size {
-		m.scroll = selRow - size + 1
-	}
-}
-
 func (m *HelpMenu) selectedDescBlock(width int) string {
 	desc := m.SelectedDesc()
 	if lipgloss.Width(desc) > width {
@@ -483,10 +407,11 @@ func (m *HelpMenu) selectedDescBlock(width int) string {
 
 // SelectedDesc returns the tooltip of the highlighted row.
 func (m *HelpMenu) SelectedDesc() string {
-	if m.selected < 0 || m.selected >= len(m.nav) {
+	row, ok := m.groupedMenuNav.SelectedRow()
+	if !ok {
 		return ""
 	}
-	return m.rows[m.nav[m.selected]].entry.Desc
+	return m.rows[row].entry.Desc
 }
 
 // windowRows returns a [start,end) slice of total rows of at most size, keeping

@@ -52,10 +52,7 @@ type TemplateMenu struct {
 	context   string
 	templates []template.Template
 	rows      []templateMenuRow
-	nav       []int
-	selected  int
-	scroll    int
-	follow    bool
+	groupedMenuNav
 	filtering bool
 	filter    string
 }
@@ -74,15 +71,13 @@ func (m *TemplateMenu) Open(colIdx int, column columnRef, templates []template.T
 	m.templates = templates
 	m.filtering = false
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.Reset()
 	m.recompute()
 }
 
 func (m *TemplateMenu) recompute() {
 	m.rows = m.rows[:0]
-	m.nav = m.nav[:0]
+	m.groupedMenuNav.BeginRebuild()
 
 	if m.filtering && m.filter != "" {
 		entries := m.entries()
@@ -103,8 +98,7 @@ func (m *TemplateMenu) recompute() {
 		m.appendGroup("Board templates", m.templateEntries(template.ScopeBoard))
 	}
 
-	m.selected = min(max(m.selected, 0), max(len(m.nav)-1, 0))
-	m.scroll = min(max(m.scroll, 0), max(len(m.rows)-1, 0))
+	m.groupedMenuNav.Clamp(len(m.rows))
 }
 
 func (m *TemplateMenu) appendGroup(title string, entries []templateMenuEntry) {
@@ -162,35 +156,27 @@ func (m *TemplateMenu) Filtering() bool { return m.filtering }
 func (m *TemplateMenu) StartFilter() {
 	m.filtering = true
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
 func (m *TemplateMenu) StopFilter() {
 	m.filtering = false
 	m.filter = ""
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
 func (m *TemplateMenu) AppendFilter(s string) {
 	m.filter += s
-	m.selected = 0
-	m.scroll = 0
-	m.follow = true
+	m.groupedMenuNav.ResetSelection()
 	m.recompute()
 }
 
 func (m *TemplateMenu) Backspace() {
 	if r := []rune(m.filter); len(r) > 0 {
 		m.filter = string(r[:len(r)-1])
-		m.selected = 0
-		m.scroll = 0
-		m.follow = true
+		m.groupedMenuNav.ResetSelection()
 		m.recompute()
 		return
 	}
@@ -198,31 +184,15 @@ func (m *TemplateMenu) Backspace() {
 }
 
 func (m *TemplateMenu) Update(msg tea.KeyPressMsg) {
-	if len(m.nav) == 0 {
-		return
-	}
-	switch msg.String() {
-	case "down", "j", "ctrl+n", "tab":
-		m.selected = min(m.selected+1, len(m.nav)-1)
-	case "up", "k", "ctrl+p", "shift+tab":
-		m.selected = max(m.selected-1, 0)
-	case "g", "home":
-		m.selected = 0
-	case "G", "end":
-		m.selected = len(m.nav) - 1
-	case "pgdown", "ctrl+d":
-		m.selected = min(m.selected+10, len(m.nav)-1)
-	case "pgup", "ctrl+u":
-		m.selected = max(m.selected-10, 0)
-	}
-	m.follow = true
+	m.groupedMenuNav.UpdateKey(msg.String())
 }
 
 func (m *TemplateMenu) SelectedEntry() templateMenuEntry {
-	if m.selected < 0 || m.selected >= len(m.nav) {
+	row, ok := m.groupedMenuNav.SelectedRow()
+	if !ok {
 		return templateMenuEntry{}
 	}
-	return m.rows[m.nav[m.selected]].entry
+	return m.rows[row].entry
 }
 
 func (m *TemplateMenu) SelectAction(action templateMenuAction) (templateMenuEntry, bool) {
@@ -247,22 +217,19 @@ func (m *TemplateMenu) View(termWidth, termHeight int) string {
 		resultRows = max(maxBody-2, 1)
 	}
 	if m.follow {
-		m.ensureSelectedVisible(resultRows)
+		m.groupedMenuNav.EnsureSelectedVisible(resultRows)
 	}
-	start, end := m.viewportRows(resultRows)
+	start, end := m.groupedMenuNav.Viewport(len(m.rows), resultRows)
 
 	footer := m.footerHints()
-	cur := 0
-	if len(m.nav) > 0 {
-		cur = m.selected + 1
-	}
-	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, len(m.nav)))
+	cur, total := m.groupedMenuNav.Position()
+	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, total))
 	textW := m.contentWidth(termWidth)
 	rowW := max(textW-helpScrollbarGutter, 1)
 
 	selRow := -1
-	if m.selected < len(m.nav) {
-		selRow = m.nav[m.selected]
+	if row, ok := m.groupedMenuNav.SelectedRow(); ok {
+		selRow = row
 	}
 	lines := make([]string, 0, resultRows)
 	for i := start; i < end; i++ {
@@ -281,7 +248,9 @@ func (m *TemplateMenu) View(termWidth, termHeight int) string {
 	}
 	bodyBlock := lipgloss.NewStyle().Width(rowW).Height(resultRows).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	if len(m.rows) > resultRows {
-		bar := strings.Join(m.scrollbar(end-start, len(m.rows), start), "\n")
+		track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
+		thumb := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
+		bar := strings.Join(groupedMenuScrollbar(end-start, len(m.rows), start, track, thumb), "\n")
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
 	} else {
 		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, strings.Repeat(" ", helpScrollbarGutter))
@@ -415,45 +384,4 @@ func (m *TemplateMenu) renderRow(row templateMenuRow, selected bool) string {
 		label = selStyle.Render(" ") + label + selStyle.Render(" ")
 	}
 	return gutter + " " + label
-}
-
-func (m *TemplateMenu) scrollbar(height, total, start int) []string {
-	thumb := max(height*height/total, 1)
-	maxStart := total - height
-	pos := min(max((height-thumb)*start/maxStart, 0), height-thumb)
-	track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
-	bar := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
-	rows := make([]string, height)
-	for i := range rows {
-		if i >= pos && i < pos+thumb {
-			rows[i] = bar
-		} else {
-			rows[i] = track
-		}
-	}
-	return rows
-}
-
-func (m *TemplateMenu) viewportRows(size int) (int, int) {
-	if len(m.rows) <= size {
-		m.scroll = 0
-		return 0, len(m.rows)
-	}
-	start := min(max(m.scroll, 0), len(m.rows)-size)
-	m.scroll = start
-	return start, start + size
-}
-
-func (m *TemplateMenu) ensureSelectedVisible(size int) {
-	if size <= 0 || m.selected < 0 || m.selected >= len(m.nav) {
-		return
-	}
-	selRow := m.nav[m.selected]
-	if selRow < m.scroll {
-		m.scroll = selRow
-		return
-	}
-	if selRow >= m.scroll+size {
-		m.scroll = selRow - size + 1
-	}
 }
