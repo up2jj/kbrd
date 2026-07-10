@@ -22,13 +22,8 @@ type HelpMenu struct {
 
 	groups []HelpGroup // board-composed source, re-filtered on the fly
 	rows   []helpRow   // visible lines (headers + entries), in display order
-	groupedMenuNav
+	groupedPicker
 	context string // focused column name, shown in the title
-
-	// filtering is true while the user is searching (entered with `/`); filter
-	// holds the query. While filtering, rows are a flat, fuzzy-ranked list.
-	filtering bool
-	filter    string
 }
 
 // helpRow is one visible line: a section header or a keybinding entry. matchIdx
@@ -56,9 +51,7 @@ func (m *HelpMenu) SetContext(s string) { m.context = s }
 func (m *HelpMenu) Open(groups []HelpGroup) {
 	m.active = true
 	m.groups = groups
-	m.filtering = false
-	m.filter = ""
-	m.groupedMenuNav.Reset()
+	m.groupedPicker.Reset()
 	m.recompute()
 }
 
@@ -104,32 +97,25 @@ func (m *HelpMenu) Filtering() bool { return m.filtering }
 
 // StartFilter enters search mode with an empty query.
 func (m *HelpMenu) StartFilter() {
-	m.filtering = true
-	m.filter = ""
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.StartFilter()
 	m.recompute()
 }
 
 // StopFilter leaves search mode and restores the grouped list.
 func (m *HelpMenu) StopFilter() {
-	m.filtering = false
-	m.filter = ""
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.StopFilter()
 	m.recompute()
 }
 
 // AppendFilter adds typed text to the query; Backspace removes the last rune
 // (leaving search mode when the query empties).
 func (m *HelpMenu) AppendFilter(s string) {
-	m.filter += s
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.AppendFilter(s)
 	m.recompute()
 }
 
 func (m *HelpMenu) Backspace() {
-	if r := []rune(m.filter); len(r) > 0 {
-		m.filter = string(r[:len(r)-1])
-		m.groupedMenuNav.ResetSelection()
+	if m.groupedPicker.Backspace() {
 		m.recompute()
 	} else {
 		m.StopFilter()
@@ -190,76 +176,15 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 
 	// Keys sit in a right-aligned column so labels line up across every group.
 	keyCol := lipgloss.NewStyle().Width(m.keyColumnWidth()).Align(lipgloss.Right)
-	labelStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
-
-	// Vertical budget: reserve the title border, padding, footer, and desc pane.
-	maxBody := max(termHeight-12, 6)
-	resultRows := maxBody
-	if m.filtering {
-		// The filter prompt and spacer live inside the normal body budget.
-		resultRows = max(maxBody-2, 1)
-	}
-	selRow := -1
-	if row, ok := m.groupedMenuNav.SelectedRow(); ok {
-		selRow = row
-	}
-	if m.follow {
-		m.groupedMenuNav.EnsureSelectedVisible(resultRows)
-	}
-	start, end := m.groupedMenuNav.Viewport(len(m.rows), resultRows)
 
 	// Footer: hints on the left, "N of M" position indicator on the right.
 	hints := m.footerHints()
-	cur, total := m.groupedMenuNav.Position()
-	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, total))
-
 	textW := m.contentWidth(termWidth, keyCol)
-	rowW := max(textW-helpScrollbarGutter, 1)
-	lines := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		lines = append(lines, m.renderRow(m.rows[i], i == selRow, keyCol))
-	}
-	if m.filtering && len(m.nav) == 0 {
-		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
-	}
-	for len(lines) < resultRows {
-		lines = append(lines, " ")
-	}
-
-	for i, l := range lines {
-		if lipgloss.Width(l) > rowW {
-			lines[i] = ansi.Truncate(l, rowW, "…")
-		}
-	}
-	bodyBlock := lipgloss.NewStyle().Width(rowW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-	for lipgloss.Height(bodyBlock) < resultRows {
-		bodyBlock += "\n" + strings.Repeat(" ", rowW)
-	}
-	if len(m.rows) > resultRows {
-		track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
-		thumb := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
-		bar := strings.Join(groupedMenuScrollbar(end-start, len(m.rows), start, track, thumb), "\n")
-		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
-	} else {
-		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, strings.Repeat(" ", helpScrollbarGutter))
-	}
-	body := bodyBlock
-
-	// While searching, a filter prompt sits above the results.
-	if m.filtering {
-		cursor := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Render("> ")
-		query := m.filter
-		if query == "" {
-			query = labelStyle.Render("type to filter…")
-		} else {
-			query = lipgloss.NewStyle().Foreground(p.Highlight).Render(query)
-		}
-		prompt := cursor + query
-		if lipgloss.Width(prompt) > textW {
-			prompt = ansi.Truncate(prompt, textW, "…")
-		}
-		body = lipgloss.JoinVertical(lipgloss.Left, lipgloss.NewStyle().Width(textW).Render(prompt), "", body)
-	}
+	body, pos := renderGroupedPickerBody(groupedPickerBody{
+		Palette: p, Rows: len(m.rows), TermHeight: termHeight, TextWidth: textW,
+		Filtering: m.filtering, Filter: m.filter, Nav: &m.groupedMenuNav,
+		RenderRow: func(row int, selected bool) string { return m.renderRow(m.rows[row], selected, keyCol) },
+	})
 
 	gap := max(textW-lipgloss.Width(hints)-lipgloss.Width(pos)-2, 1)
 	footer := hints + strings.Repeat(" ", gap) + pos
@@ -280,7 +205,7 @@ func (m *HelpMenu) View(termWidth, termHeight int) string {
 	// Description pane: a thin box below the menu, same width, showing the
 	// highlighted row's tooltip.
 	descBlock := lipgloss.NewStyle().Width(textW).Height(2).Foreground(p.FgMuted).Render(m.selectedDescBlock(textW))
-	pane := theme.RoundedFrame("", overlayTitleStyle, descBlock, p.BorderMuted, 0, overlayPadH, boxWidth)
+	pane := theme.RoundedFrame("", theme.OverlayTitleStyle(p), descBlock, p.BorderMuted, 0, overlayPadH, boxWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Center, menu, pane)
 }

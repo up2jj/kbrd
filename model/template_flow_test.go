@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,25 @@ import (
 	"kbrd/config"
 	"kbrd/template"
 )
+
+func TestTemplateFlowPickerUsesBoundedViewport(t *testing.T) {
+	flow := TemplateFlow{}
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(80, 24)
+	templates := make([]template.Template, 30)
+	for i := range templates {
+		templates[i] = template.Template{Name: fmt.Sprintf("template-%02d", i), Scope: template.ScopeColumn}
+	}
+	flow.Open(0, columnRef{Name: "todo"}, templates)
+
+	view := flow.View()
+	if h := lipgloss.Height(view); h > 24 {
+		t.Fatalf("picker height = %d, want <= terminal height 24\n%s", h, view)
+	}
+	if !strings.Contains(view, "┃") {
+		t.Fatalf("overflowing picker did not render a scrollbar\n%s", view)
+	}
+}
 
 func TestFieldSeed(t *testing.T) {
 	// No prefill: the default seeds the field.

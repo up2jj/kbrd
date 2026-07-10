@@ -1,12 +1,10 @@
 package model
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/template"
 )
@@ -52,9 +50,7 @@ type TemplateMenu struct {
 	context   string
 	templates []template.Template
 	rows      []templateMenuRow
-	groupedMenuNav
-	filtering bool
-	filter    string
+	groupedPicker
 }
 
 func (m *TemplateMenu) Active() bool { return m.active }
@@ -69,9 +65,7 @@ func (m *TemplateMenu) Open(colIdx int, column columnRef, templates []template.T
 	m.colIndex = colIdx
 	m.context = column.Name
 	m.templates = templates
-	m.filtering = false
-	m.filter = ""
-	m.groupedMenuNav.Reset()
+	m.groupedPicker.Reset()
 	m.recompute()
 }
 
@@ -154,29 +148,22 @@ func newTemplateAuthorEntry() templateMenuEntry {
 func (m *TemplateMenu) Filtering() bool { return m.filtering }
 
 func (m *TemplateMenu) StartFilter() {
-	m.filtering = true
-	m.filter = ""
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.StartFilter()
 	m.recompute()
 }
 
 func (m *TemplateMenu) StopFilter() {
-	m.filtering = false
-	m.filter = ""
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.StopFilter()
 	m.recompute()
 }
 
 func (m *TemplateMenu) AppendFilter(s string) {
-	m.filter += s
-	m.groupedMenuNav.ResetSelection()
+	m.groupedPicker.AppendFilter(s)
 	m.recompute()
 }
 
 func (m *TemplateMenu) Backspace() {
-	if r := []rune(m.filter); len(r) > 0 {
-		m.filter = string(r[:len(r)-1])
-		m.groupedMenuNav.ResetSelection()
+	if m.groupedPicker.Backspace() {
 		m.recompute()
 		return
 	}
@@ -211,62 +198,13 @@ func (m *TemplateMenu) View(termWidth, termHeight int) string {
 		return ""
 	}
 	p := m.palette
-	maxBody := max(termHeight-12, 6)
-	resultRows := maxBody
-	if m.filtering {
-		resultRows = max(maxBody-2, 1)
-	}
-	if m.follow {
-		m.groupedMenuNav.EnsureSelectedVisible(resultRows)
-	}
-	start, end := m.groupedMenuNav.Viewport(len(m.rows), resultRows)
-
 	footer := m.footerHints()
-	cur, total := m.groupedMenuNav.Position()
-	pos := helpDimStyle.Render(fmt.Sprintf("%d of %d", cur, total))
 	textW := m.contentWidth(termWidth)
-	rowW := max(textW-helpScrollbarGutter, 1)
-
-	selRow := -1
-	if row, ok := m.groupedMenuNav.SelectedRow(); ok {
-		selRow = row
-	}
-	lines := make([]string, 0, resultRows)
-	for i := start; i < end; i++ {
-		lines = append(lines, m.renderRow(m.rows[i], i == selRow))
-	}
-	if m.filtering && len(m.nav) == 0 {
-		lines = append(lines, "  "+helpDimStyle.Render("no matches"))
-	}
-	for len(lines) < resultRows {
-		lines = append(lines, " ")
-	}
-	for i, line := range lines {
-		if lipgloss.Width(line) > rowW {
-			lines[i] = ansi.Truncate(line, rowW, "…")
-		}
-	}
-	bodyBlock := lipgloss.NewStyle().Width(rowW).Height(resultRows).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-	if len(m.rows) > resultRows {
-		track := lipgloss.NewStyle().Foreground(m.palette.FgDim).Render("│")
-		thumb := lipgloss.NewStyle().Foreground(m.palette.FgMuted).Render("┃")
-		bar := strings.Join(groupedMenuScrollbar(end-start, len(m.rows), start, track, thumb), "\n")
-		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
-	} else {
-		bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, strings.Repeat(" ", helpScrollbarGutter))
-	}
-	body := bodyBlock
-	if m.filtering {
-		cursor := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Render("> ")
-		query := m.filter
-		if query == "" {
-			query = lipgloss.NewStyle().Foreground(p.FgMuted).Render("type to filter…")
-		} else {
-			query = lipgloss.NewStyle().Foreground(p.Highlight).Render(query)
-		}
-		body = lipgloss.JoinVertical(lipgloss.Left, lipgloss.NewStyle().Width(textW).Render(cursor+query), "", body)
-	}
-	body = lipgloss.NewStyle().Width(textW).Height(maxBody).Render(body)
+	body, pos := renderGroupedPickerBody(groupedPickerBody{
+		Palette: p, Rows: len(m.rows), TermHeight: termHeight, TextWidth: textW,
+		Filtering: m.filtering, Filter: m.filter, Nav: &m.groupedMenuNav,
+		RenderRow: func(row int, selected bool) string { return m.renderRow(m.rows[row], selected) },
+	})
 	gap := max(textW-lipgloss.Width(footer)-lipgloss.Width(pos), 1)
 	title := "Templates"
 	if m.context != "" {

@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/template"
 )
@@ -94,15 +93,12 @@ const (
 // TemplateFlow is the unified create overlay: a grouped, fuzzy-searchable
 // create menu followed by embedded huh forms for template use and authoring.
 type TemplateFlow struct {
-	stage      templateFlowStage
-	column     columnRef
-	colIndex   int
-	templates  []template.Template
-	rows       []createMenuRow
-	nav        []int
-	selected   int
-	filtering  bool
-	filter     string
+	stage     templateFlowStage
+	column    columnRef
+	colIndex  int
+	templates []template.Template
+	rows      []createMenuRow
+	groupedPicker
 	tmpl       template.Template
 	author     templateAuthorValues
 	form       *huh.Form
@@ -120,10 +116,7 @@ func (t *TemplateFlow) Close() {
 	t.column = columnRef{}
 	t.templates = nil
 	t.rows = nil
-	t.nav = nil
-	t.selected = 0
-	t.filtering = false
-	t.filter = ""
+	t.groupedPicker.Reset()
 	t.tmpl = template.Template{}
 	t.author = templateAuthorValues{}
 	t.form = nil
@@ -158,9 +151,7 @@ func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = templates
-	t.selected = 0
-	t.filtering = false
-	t.filter = ""
+	t.groupedPicker.Reset()
 	t.stage = tfPick
 	t.recomputeMenu()
 	return nil
@@ -170,9 +161,7 @@ func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl templat
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = nil
-	t.selected = 0
-	t.filtering = false
-	t.filter = ""
+	t.groupedPicker.Reset()
 	t.stage = tfForm
 	t.reopenMenu = false
 	return t.startForm(tmpl, clipboard)
@@ -185,9 +174,7 @@ func (t *TemplateFlow) WaitForClipboard(colIndex int, column columnRef, tmpl tem
 	t.column = column
 	t.templates = nil
 	t.tmpl = tmpl
-	t.selected = 0
-	t.filtering = false
-	t.filter = ""
+	t.groupedPicker.Reset()
 	t.stage = tfClipboard
 	t.reopenMenu = false
 }
@@ -196,9 +183,7 @@ func (t *TemplateFlow) OpenAuthor(colIndex int, column columnRef, reopenMenu boo
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = nil
-	t.selected = 0
-	t.filtering = false
-	t.filter = ""
+	t.groupedPicker.Reset()
 	t.reopenMenu = reopenMenu
 	return t.startAuthorForm()
 }
@@ -403,7 +388,7 @@ func (t *TemplateFlow) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
 
 func (t *TemplateFlow) recomputeMenu() {
 	t.rows = t.rows[:0]
-	t.nav = t.nav[:0]
+	t.groupedMenuNav.BeginRebuild()
 
 	if t.filtering {
 		choices := t.menuChoices()
@@ -425,7 +410,7 @@ func (t *TemplateFlow) recomputeMenu() {
 		t.appendMenuGroup("Board templates", t.templateChoices(template.ScopeBoard))
 	}
 
-	t.selected = min(max(t.selected, 0), max(len(t.nav)-1, 0))
+	t.groupedMenuNav.Clamp(len(t.rows))
 }
 
 func (t *TemplateFlow) appendMenuGroup(title string, choices []createChoice) {
@@ -483,32 +468,22 @@ func authorTemplateChoice() createChoice {
 }
 
 func (t *TemplateFlow) startFilter() {
-	t.filtering = true
-	t.filter = ""
-	t.selected = 0
+	t.groupedPicker.StartFilter()
 	t.recomputeMenu()
 }
 
 func (t *TemplateFlow) stopFilter() {
-	t.filtering = false
-	t.filter = ""
-	t.selected = 0
+	t.groupedPicker.StopFilter()
 	t.recomputeMenu()
 }
 
 func (t *TemplateFlow) appendFilter(s string) {
-	if s == "" {
-		return
-	}
-	t.filter += s
-	t.selected = 0
+	t.groupedPicker.AppendFilter(s)
 	t.recomputeMenu()
 }
 
 func (t *TemplateFlow) backspaceFilter() {
-	if r := []rune(t.filter); len(r) > 0 {
-		t.filter = string(r[:len(r)-1])
-		t.selected = 0
+	if t.groupedPicker.Backspace() {
 		t.recomputeMenu()
 		return
 	}
@@ -516,30 +491,15 @@ func (t *TemplateFlow) backspaceFilter() {
 }
 
 func (t *TemplateFlow) updateMenuSelection(msg tea.KeyPressMsg) {
-	if len(t.nav) == 0 {
-		return
-	}
-	switch msg.String() {
-	case "down", "j", "ctrl+n", "tab":
-		t.selected = min(t.selected+1, len(t.nav)-1)
-	case "up", "k", "ctrl+p", "shift+tab":
-		t.selected = max(t.selected-1, 0)
-	case "g", "home":
-		t.selected = 0
-	case "G", "end":
-		t.selected = len(t.nav) - 1
-	case "pgdown", "ctrl+d":
-		t.selected = min(t.selected+10, len(t.nav)-1)
-	case "pgup", "ctrl+u":
-		t.selected = max(t.selected-10, 0)
-	}
+	t.groupedMenuNav.UpdateKey(msg.String())
 }
 
 func (t *TemplateFlow) selectedChoice() (createChoice, bool) {
-	if t.selected < 0 || t.selected >= len(t.nav) {
+	rowIndex, ok := t.groupedMenuNav.SelectedRow()
+	if !ok || rowIndex < 0 || rowIndex >= len(t.rows) {
 		return createChoice{}, false
 	}
-	row := t.rows[t.nav[t.selected]]
+	row := t.rows[rowIndex]
 	if row.header {
 		return createChoice{}, false
 	}
@@ -724,40 +684,16 @@ func (t *TemplateFlow) viewPicker() string {
 }
 
 func (t *TemplateFlow) viewCreateMenuBody(contentW int) string {
-	p := t.palette
-	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
-	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
-	hiStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight)
-
-	var lines []string
-	if t.filtering {
-		cursor := hiStyle.Render("> ")
-		query := t.filter
-		if query == "" {
-			query = descStyle.Render("type to filter…")
-		} else {
-			query = nameStyle.Render(query)
-		}
-		lines = append(lines, cursor+query, "")
+	height := t.height
+	if height == 0 {
+		height = 24
 	}
-
-	selRow := -1
-	if t.selected < len(t.nav) {
-		selRow = t.nav[t.selected]
-	}
-	for i, row := range t.rows {
-		lines = append(lines, t.renderCreateMenuRow(row, i == selRow))
-	}
-	if len(t.nav) == 0 {
-		lines = append(lines, helpDimStyle.Render("no matches"))
-	}
-
-	for i, line := range lines {
-		if lipgloss.Width(line) > contentW {
-			lines[i] = ansi.Truncate(line, contentW, "…")
-		}
-	}
-	return lipgloss.NewStyle().Width(contentW).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	body, _ := renderGroupedPickerBody(groupedPickerBody{
+		Palette: t.palette, Rows: len(t.rows), TermHeight: height, TextWidth: contentW,
+		Filtering: t.filtering, Filter: t.filter, Nav: &t.groupedMenuNav,
+		RenderRow: func(row int, selected bool) string { return t.renderCreateMenuRow(t.rows[row], selected) },
+	})
+	return body
 }
 
 func (t *TemplateFlow) createMenuContentWidth(footer string) int {
