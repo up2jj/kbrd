@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // credentialRe matches userinfo embedded in URLs (e.g. a PAT in
@@ -121,12 +122,24 @@ func GitMergeResolveSidecarContext(ctx context.Context, repoRoot, conflictLabel,
 	if mErr == nil {
 		return nil, nil // clean: fast-forward, up-to-date, or auto-merged
 	}
+	// From this point Git may have written MERGE_HEAD and conflicted index
+	// entries. Every failure path below must restore the pre-merge checkout;
+	// otherwise one failed sidecar write or timed-out command blocks all future
+	// sync attempts behind an unresolved merge.
+	mergeActive := true
+	defer func() {
+		if err == nil || !mergeActive {
+			return
+		}
+		if abortErr := abortMerge(repoRoot); abortErr != nil {
+			err = fmt.Errorf("%w; additionally failed to abort merge: %v", err, abortErr)
+		}
+	}()
 
 	// A non-zero merge means either resolvable conflicts or a hard error
 	// (dirty tree, unrelated histories). Unmerged entries distinguish the two.
 	conflicted, lsErr := unmergedPaths(repoRoot)
 	if lsErr != nil || len(conflicted) == 0 {
-		_ = gitRunContext(ctx, repoRoot, "merge", "--abort")
 		if lsErr != nil {
 			return nil, lsErr
 		}
@@ -185,7 +198,17 @@ func GitMergeResolveSidecarContext(ctx context.Context, repoRoot, conflictLabel,
 	if err := gitRunContext(ctx, repoRoot, commitArgs(authorName, authorEmail, mergeMessage(mappings))...); err != nil {
 		return sidecars, err
 	}
+	mergeActive = false
 	return sidecars, nil
+}
+
+// abortMerge restores the pre-merge checkout even when the caller's context
+// has expired. A fresh, short cleanup context is necessary because a cancelled
+// context cannot run the abort command that makes the repository usable again.
+func abortMerge(repoRoot string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return gitRunContext(ctx, repoRoot, "merge", "--abort")
 }
 
 // unmergedPaths returns the repo-relative paths with unresolved merge conflicts.

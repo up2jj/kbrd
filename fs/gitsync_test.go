@@ -179,6 +179,51 @@ func TestGitMergeResolveSidecarConflict(t *testing.T) {
 	}
 }
 
+func TestGitMergeResolveSidecar_AbortsOnResolutionFailure(t *testing.T) {
+	bare, clone := initRepoPair(t)
+	locked := filepath.Join(clone, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(locked, "seed.md")
+	if err := os.WriteFile(seed, []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GitCommitAll(clone, "add locked card", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+	if err := GitPush(clone); err != nil {
+		t.Fatal(err)
+	}
+
+	pushFromOther(t, bare, func(dir string) {
+		if err := os.WriteFile(filepath.Join(dir, "locked", "seed.md"), []byte("theirs\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.WriteFile(seed, []byte("ours\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GitCommitAll(clone, "our locked edit", "u", "u@u"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := GitMergeResolveSidecar(clone, "laptop", "u", "u@u"); err == nil {
+		t.Fatal("expected sidecar write to fail in read-only directory")
+	}
+
+	if _, err := gitOutput(clone, "rev-parse", "--verify", "-q", "MERGE_HEAD"); err == nil {
+		t.Fatal("resolution failure left MERGE_HEAD behind")
+	}
+	if !GitWorkingTreeClean(clone) {
+		t.Fatal("resolution failure left the worktree dirty")
+	}
+}
+
 // TestGitMergeResolveSidecarModifyDelete covers both modify/delete directions:
 // local always wins the primary slot, and a discarded *incoming* edit is kept.
 func TestGitMergeResolveSidecarModifyDelete(t *testing.T) {
