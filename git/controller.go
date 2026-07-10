@@ -151,7 +151,6 @@ func (c *Controller) StartAutoSync() tea.Cmd { return c.scheduleAutoSync() }
 
 func (c *Controller) SetPalette(p theme.Palette) {
 	c.panel.SetPalette(p)
-	setGitStyles(p)
 }
 
 func (c *Controller) SetSize(w, h int) { c.termW, c.termH = w, h }

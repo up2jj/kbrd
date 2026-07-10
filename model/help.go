@@ -66,7 +66,6 @@ func setHelpStyles(p Palette) {
 	helpLabelStyle = lipgloss.NewStyle().Foreground(p.FgMuted)
 	helpSepStyle = lipgloss.NewStyle().Foreground(p.FgDim)
 	helpTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
-	overlayTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
 	helpDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
 	helpConfigBorder = p.AccentAlt
 	helpRowKey = p.FgBase

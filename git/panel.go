@@ -34,24 +34,6 @@ var panelKeys = struct {
 	FocusToggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus pane")),
 }
 
-// Git-local copies of the host's help-row styles, rebuilt from the palette on
-// SetPalette. Kept here so the git package does not depend on the host's styles.
-var (
-	gitTitleStyle lipgloss.Style
-	gitSepStyle   lipgloss.Style
-	gitKeyStyle   lipgloss.Style
-	gitLabelStyle lipgloss.Style
-	gitDimStyle   lipgloss.Style
-)
-
-func setGitStyles(p theme.Palette) {
-	gitKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
-	gitLabelStyle = lipgloss.NewStyle().Foreground(p.FgMuted)
-	gitSepStyle = lipgloss.NewStyle().Foreground(p.FgDim)
-	gitTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.Primary)
-	gitDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-}
-
 type gitPanelFocus int
 
 const (
@@ -474,17 +456,6 @@ func (p *GitPanel) startCommitInput(thenSync bool) {
 	p.commitIn.Focus()
 }
 
-func joinSep(parts []string, sep string) string {
-	var out strings.Builder
-	for i, s := range parts {
-		if i > 0 {
-			out.WriteString(sep)
-		}
-		out.WriteString(s)
-	}
-	return out.String()
-}
-
 func (p *GitPanel) startRemoteInput() {
 	p.input = inputRemote
 	p.remoteIn.SetValue("")
@@ -541,14 +512,14 @@ func (p *GitPanel) View() string {
 	if branchLabel == "" {
 		branchLabel = "(no branch)"
 	}
-	sep := gitSepStyle.Render(" · ")
+	dimStyle := lipgloss.NewStyle().Foreground(p.palette.FgDim).Italic(true)
 
 	_, _, leftW, rightW := p.dims()
 
 	// Left pane: file table (or "clean" message).
 	var leftBody string
 	if len(p.files) == 0 {
-		leftBody = gitDimStyle.Render("working tree clean")
+		leftBody = dimStyle.Render("working tree clean")
 	} else {
 		leftBody = p.table.View()
 	}
@@ -571,7 +542,7 @@ func (p *GitPanel) View() string {
 		leftTitle = leftTitle[:w-1] + "…"
 	}
 	pad := max(titleW-len(leftTitle)-len(scroll), 1)
-	rightTitle := gitDimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
+	rightTitle := dimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
 	bar := p.renderScrollbar(p.right.Height())
 	diffWithBar := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), bar)
 	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, diffWithBar)
@@ -583,9 +554,9 @@ func (p *GitPanel) View() string {
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
 
-	parts := []string{}
+	hints := []theme.Hint{}
 	add := func(k, label string) {
-		parts = append(parts, gitKeyStyle.Render(k)+" "+gitLabelStyle.Render(label))
+		hints = append(hints, theme.Hint{Keys: k, Label: label})
 	}
 	if p.focus == focusDiff {
 		add("j/k", "scroll")
@@ -611,10 +582,10 @@ func (p *GitPanel) View() string {
 		add("→/tab", "scroll diff")
 		add("q/esc", "close")
 	}
-	footer := joinSep(parts, sep)
+	footer := theme.RenderHints(p.palette, hints)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, row, "", footer)
-	panel := theme.RoundedFrame("git · "+branchLabel, gitTitleStyle, content, p.palette.BorderActive, 1, 3, 0)
+	panel := theme.OverlayFrame{Title: "git · " + branchLabel, Body: content, Palette: p.palette}.Render()
 
 	if p.input != inputNone {
 		return lipgloss.Place(
@@ -628,10 +599,6 @@ func (p *GitPanel) View() string {
 }
 
 func (p *GitPanel) inputDialog() string {
-	sep := gitSepStyle.Render(" · ")
-	keyLabel := func(k, label string) string {
-		return gitKeyStyle.Render(k) + " " + gitLabelStyle.Render(label)
-	}
 	var title, body, hint string
 	switch p.input {
 	case inputCommit:
@@ -642,12 +609,12 @@ func (p *GitPanel) inputDialog() string {
 			confirmLabel = "commit all + sync"
 		}
 		body = p.commitIn.View()
-		hint = keyLabel("enter", confirmLabel) + sep + keyLabel("esc", "cancel")
+		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: confirmLabel}, {Keys: "esc", Label: "cancel"}})
 	case inputRemote:
 		title = "Add remote"
 		body = p.remoteIn.View()
-		hint = keyLabel("enter", "add as origin") + sep + keyLabel("esc", "cancel")
+		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: "add as origin"}, {Keys: "esc", Label: "cancel"}})
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, body, "", hint)
-	return theme.RoundedFrame(title, gitTitleStyle, content, p.palette.BorderActive, 1, 3, 0)
+	return theme.OverlayFrame{Title: title, Body: content, Palette: p.palette}.Render()
 }
