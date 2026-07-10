@@ -21,66 +21,8 @@ func (r boardInputRouter) HandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	}
 
-	// The interactive keybindings menu owns all input while open.
-	if b.helpMenu.Active() {
-		return b.helpActions().update(msg)
-	}
-
-	if b.configMenuOpen {
-		return r.handleConfigMenu(msg)
-	}
-	if b.dialog.active {
-		return b, b.dialog.Update(msg)
-	}
-
-	// Custom commands and script UI can be layered over an editor.
-	if b.customCmds.Active() {
-		return b, b.customCmds.Update(msg)
-	}
-	if b.pasteMenu.Active() {
-		return b, b.pasteMenu.Update(msg)
-	}
-	if b.scriptUI.Active() {
-		return b, b.scriptUI.Update(msg)
-	}
-
-	if b.editor.state != editorNone {
-		return r.handleEditor(msg)
-	}
-	if b.peek.Active() {
-		if cmd, handled := r.handlePeekAction(msg); handled {
-			return b, cmd
-		}
-		b.peek.Update(msg)
-		return b, nil
-	}
-	if b.switcher.Active() {
-		return b, b.switcher.Update(msg)
-	}
-	if b.search.Active() {
-		return b, b.search.HandleKey(msg)
-	}
-	if b.templateMenu.Active() {
-		return b.templateMenuActions().update(msg)
-	}
-	if b.templateFlow.Active() {
-		cmd := b.templateFlow.Update(msg)
-		if !b.templateFlow.Active() {
-			b.clipboardActions().cancelTemplateRead()
-		}
-		return b, cmd
-	}
-	if b.frontmatterEdit.Active() {
-		return b, b.frontmatterEdit.Update(msg)
-	}
-	if b.git.Active() {
-		return b, b.git.HandleKey(msg)
-	}
-	if b.zellij.Active() {
-		return b, b.zellij.Update(msg)
-	}
-	if b.mnemonic.active {
-		return b.mnemonicSelector().handleKey(msg)
+	if layer := b.activeModalLayer(); layer != nil {
+		return layer.key(msg)
 	}
 
 	return b.handleBoardKey(msg)

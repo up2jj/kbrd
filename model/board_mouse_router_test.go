@@ -42,6 +42,36 @@ func TestBoardMouseRouter_DialogBlocksBoardSelection(t *testing.T) {
 	}
 }
 
+func TestBoardMouseRouter_MenusBlockBoardSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		open func(*Board)
+	}{
+		{
+			name: "paste",
+			open: func(b *Board) {
+				b.pasteMenu.Open([]pasteMenuEntry{{Label: "Paste", Msg: pasteNewItemMsg{}}}, 0)
+			},
+		},
+		{
+			name: "templates",
+			open: func(b *Board) {
+				b.templateMenu.Open(0, refForColumn(b.columns[0]), nil)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, x, y := newMouseRouterTestBoard(t, config.Config{})
+			tc.open(b)
+
+			b.mouseRouter().HandleMouse(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+			if b.selectedCol != 0 {
+				t.Fatalf("selectedCol changed behind %s menu to %d, want 0", tc.name, b.selectedCol)
+			}
+		})
+	}
+}
+
 func TestBoardMouseRouter_WheelScrollsHoveredColumnOnly(t *testing.T) {
 	colA := newTestColumn(t, map[string]string{"a": "alpha"})
 	colBFiles := map[string]string{}

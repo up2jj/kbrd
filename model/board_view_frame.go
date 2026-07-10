@@ -18,26 +18,8 @@ type boardFrameLayout struct {
 	footerH int
 }
 
-type boardOverlayCandidate struct {
-	active func() bool
-	view   func() string
-}
-
-func overlayCandidate(active func() bool, view func() string) boardOverlayCandidate {
-	return boardOverlayCandidate{active: active, view: view}
-}
-
 func (l boardFrameLayout) overlayBandH(totalH int) int {
 	return totalH - l.headerH - l.footerH
-}
-
-func firstActiveOverlay(candidates ...boardOverlayCandidate) string {
-	for _, candidate := range candidates {
-		if candidate.active() {
-			return candidate.view()
-		}
-	}
-	return ""
 }
 
 func (f boardViewFrame) render() string {
@@ -192,42 +174,11 @@ func (f boardViewFrame) renderMnemonicJump(width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, box.Render(b.mnemonic.input.View()))
 }
 
-func (f boardViewFrame) renderEditor(frameH int) string {
-	if f.b.editor.state == editorNone {
-		return ""
-	}
-	return f.b.editor.viewInFrame(frameH)
-}
-
 // activeOverlay returns the single popup to draw over the board, or "" when none
-// is open. Priority mirrors the key-routing order in boardInputRouter.
+// is open. Priority is defined once by Board.modalLayers.
 func (f boardViewFrame) activeOverlay(w, h, frameH int) string {
-	b := f.b
-
-	if v := firstActiveOverlay(
-		overlayCandidate(b.helpMenu.Active, func() string { return b.helpMenu.View(w, h) }),
-		overlayCandidate(func() bool { return b.configMenuOpen }, func() string { return RenderConfigCommandsOverlay(configCommandEntries()) }),
-	); v != "" {
-		return v
+	if layer := f.b.activeModalLayer(); layer != nil {
+		return layer.view(w, h, frameH)
 	}
-	if v := b.dialog.View(); v != "" {
-		return v
-	}
-	// The command menu and script UI are checked before the editor: a line
-	// command's menu (and any kbrd.ui.pick/prompt it yields) opens over a
-	// still-open editor and must render on top.
-	return firstActiveOverlay(
-		overlayCandidate(b.customCmds.Active, func() string { return b.customCmds.View(b.termWidth, b.termHeight) }),
-		overlayCandidate(b.pasteMenu.Active, func() string { return b.pasteMenu.View(b.termWidth, b.termHeight) }),
-		overlayCandidate(b.scriptUI.Active, b.scriptUI.View),
-		overlayCandidate(func() bool { return b.editor.state != editorNone }, func() string { return f.renderEditor(frameH) }),
-		overlayCandidate(b.peek.Active, func() string { return b.peek.View(w, h) }),
-		overlayCandidate(b.switcher.Active, b.switcher.View),
-		overlayCandidate(b.search.Active, func() string { return b.search.View(w, h) }),
-		overlayCandidate(b.templateMenu.Active, func() string { return b.templateMenu.View(w, h) }),
-		overlayCandidate(b.templateFlow.Active, b.templateFlow.View),
-		overlayCandidate(b.frontmatterEdit.Active, b.frontmatterEdit.View),
-		overlayCandidate(b.git.Active, b.git.View),
-		overlayCandidate(b.zellij.Active, b.zellij.View),
-	)
+	return ""
 }
