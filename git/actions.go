@@ -214,6 +214,12 @@ func (c *Controller) handleGitLog() tea.Cmd {
 // loudly on divergence for the user to resolve. "auto" runs the same
 // self-healing merge-with-sidecar reconcile the automatic flows use, off-thread.
 func (c *Controller) handleGitSync() tea.Cmd {
+	if c.syncing {
+		return c.notifier.Error("sync already in progress")
+	}
+	// Manual and automatic reconciliations mutate the same index and refs. Keep
+	// the guard set across the whole pull→push sequence, not just auto-sync.
+	c.syncing = true
 	if c.cfg.GitManualSyncMode == "auto" {
 		root := c.repoRoot
 		label := c.conflictLabel()
@@ -233,10 +239,14 @@ func (c *Controller) handleGitSync() tea.Cmd {
 
 func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 	if msg.Err != nil {
+		settle := c.settleSync()
 		c.recordSyncOutcome(msg.Err, 0)
 		c.refreshStats()
 		c.refreshPanel()
 		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
+		if settle != nil {
+			return settle
+		}
 		return c.notifier.Error("git " + msg.Stage + " failed: " + msg.Err.Error())
 	}
 	if msg.Stage == "pull" && msg.ThenPush {
@@ -245,10 +255,14 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 			return gitSyncStepMsg{Stage: "push", Err: err}
 		})
 	}
+	settle := c.settleSync()
 	c.recordSyncOutcome(nil, len(msg.Sidecars))
 	c.refreshStats()
 	c.refreshPanel()
 	c.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
+	if settle != nil {
+		return settle
+	}
 	if n := len(msg.Sidecars); n > 0 {
 		return c.notifier.Success("sync ok — " + conflictCopyNote(n))
 	}
@@ -277,8 +291,15 @@ func (c *Controller) scheduleAutoSync() tea.Cmd {
 }
 
 func (c *Controller) shouldAutoSync() bool {
+	return c.shouldSync(true)
+}
+
+// shouldSync checks the common safety preconditions for an unattended
+// reconciliation. Recurring sync also requires an interval; startup sync is a
+// one-shot policy and deliberately does not.
+func (c *Controller) shouldSync(requireInterval bool) bool {
 	c.expireStaleAutoSync(time.Now())
-	if c.cfg.GitAutoSyncInterval <= 0 {
+	if requireInterval && c.cfg.GitAutoSyncInterval <= 0 {
 		return false
 	}
 	if c.syncing {
@@ -301,10 +322,9 @@ func (c *Controller) shouldAutoSync() bool {
 	return true
 }
 
-// SyncOnce runs one guarded reconcile→push cycle off-thread, emitting
-// autoSyncDoneMsg. It self-skips (returns nil) when a sync is not due, so any
-// caller — the auto-sync ticker today, a background-task scheduler tomorrow —
-// can drive it without knowing git's preconditions.
+// SyncOnce runs one recurring reconcile→push cycle off-thread, emitting
+// autoSyncDoneMsg. It self-skips (returns nil) when automatic sync is disabled
+// or its safety preconditions do not hold.
 //
 // Auto-sync self-heals like every automatic flow: GitMergeResolveSidecar merges
 // the remote, auto-resolving true conflicts into sidecar copies (local wins)
@@ -313,7 +333,18 @@ func (c *Controller) shouldAutoSync() bool {
 // tree unless git.auto_commit is set; with auto_commit, it commits pending edits
 // first on ticks that happen after the editor closes.
 func (c *Controller) SyncOnce() tea.Cmd {
-	if !c.shouldAutoSync() {
+	return c.syncOnce(true)
+}
+
+// StartupSyncOnce runs the configured one-shot reconcile at board open. Unlike
+// SyncOnce it is not gated by git.auto_sync_interval: startup sync is enabled
+// independently by git.sync_on_startup.
+func (c *Controller) StartupSyncOnce() tea.Cmd {
+	return c.syncOnce(false)
+}
+
+func (c *Controller) syncOnce(requireInterval bool) tea.Cmd {
+	if !c.shouldSync(requireInterval) {
 		return nil
 	}
 	c.syncing = true
@@ -374,27 +405,37 @@ func (c *Controller) handleAutoSyncDone(msg autoSyncDoneMsg) tea.Cmd {
 			return nil
 		}
 	}
-	c.syncing = false
-	c.syncDeadline = time.Time{}
-	c.activeSyncSeq = 0
-	if c.shutdownPending {
-		// A quit was deferred until this sync settled — signal the host.
-		if c.onSyncSettled != nil {
-			return c.onSyncSettled()
-		}
-		return nil
-	}
+	settle := c.settleSync()
 	if msg.Err != nil {
 		c.recordSyncOutcome(msg.Err, 0)
 		c.bus.Publish(events.GitSyncDone{OK: false, Stage: msg.Stage, Err: msg.Err.Error()})
+		if settle != nil {
+			return settle
+		}
 		return c.notifier.Error("auto-sync " + msg.Stage + " failed: " + msg.Err.Error())
 	}
 	c.recordSyncOutcome(nil, len(msg.Sidecars))
 	c.refreshStats()
 	c.refreshPanel()
 	c.bus.Publish(events.GitSyncDone{OK: true, Stage: msg.Stage})
+	if settle != nil {
+		return settle
+	}
 	if n := len(msg.Sidecars); n > 0 {
 		return c.notifier.Success("auto-sync — " + conflictCopyNote(n))
+	}
+	return nil
+}
+
+// settleSync clears the common in-flight state. A pending board shutdown is
+// completed only after the git subprocess has returned, regardless of whether
+// it was a manual or automatic sync.
+func (c *Controller) settleSync() tea.Cmd {
+	c.syncing = false
+	c.syncDeadline = time.Time{}
+	c.activeSyncSeq = 0
+	if c.shutdownPending && c.onSyncSettled != nil {
+		return c.onSyncSettled()
 	}
 	return nil
 }

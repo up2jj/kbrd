@@ -62,7 +62,7 @@ type Controller struct {
 	repoRoot string
 	stats    map[string]kbrdfs.DiffStat
 
-	syncing         bool // auto-sync in progress
+	syncing         bool // manual or automatic sync in progress
 	shutdownPending bool // host asked to quit; signal once the in-flight sync settles
 	syncDeadline    time.Time
 	autoSyncSeq     int64
@@ -163,9 +163,9 @@ func (c *Controller) Syncing() bool {
 }
 func (c *Controller) RepoRoot() string { return c.repoRoot }
 
-// RequestShutdown reports whether an auto-sync is in flight. When it returns
-// true, the host should wait; the controller will invoke OnSyncSettled once the
-// sync finishes. When false, the host may quit immediately.
+// RequestShutdown reports whether a sync is in flight. When it returns true,
+// the host should wait; the controller will invoke OnSyncSettled once the sync
+// finishes. When false, the host may quit immediately.
 func (c *Controller) RequestShutdown() bool {
 	c.expireStaleAutoSync(time.Now())
 	if !c.syncing {

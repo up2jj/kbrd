@@ -331,6 +331,41 @@ func TestShouldAutoSync_Ready(t *testing.T) {
 	}
 }
 
+func TestStartupSyncOnce_RunsWhenRecurringSyncDisabled(t *testing.T) {
+	dir := initSyncRepo(t)
+	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")
+	c := newTestController(dir)
+	if cmd := c.SyncOnce(); cmd != nil {
+		t.Fatal("recurring sync should stay disabled without an interval")
+	}
+	if cmd := c.StartupSyncOnce(); cmd == nil {
+		t.Fatal("startup sync should not be gated by the recurring interval")
+	}
+	if !c.syncing {
+		t.Fatal("startup sync should mark the controller busy")
+	}
+}
+
+func TestManualSyncBlocksOverlapAndSettles(t *testing.T) {
+	c := newTestController(t.TempDir())
+	c.cfg.GitManualSyncMode = "auto"
+	if cmd := c.handleGitSync(); cmd == nil {
+		t.Fatal("expected manual sync command")
+	}
+	if !c.syncing {
+		t.Fatal("manual sync should mark the controller busy")
+	}
+	if cmd := c.handleGitSync(); cmd == nil {
+		t.Fatal("overlapping manual sync should produce a notification")
+	}
+	if cmd := c.handleGitSyncStep(gitSyncStepMsg{Stage: "sync"}); cmd == nil {
+		t.Fatal("successful manual sync should notify")
+	}
+	if c.syncing {
+		t.Fatal("manual sync should clear the busy guard when settled")
+	}
+}
+
 func TestShouldAutoSync_NilEditorActivePreservesReady(t *testing.T) {
 	dir := initSyncRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://example.com/x.git")

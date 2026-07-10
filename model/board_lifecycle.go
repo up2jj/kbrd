@@ -162,7 +162,7 @@ func (l boardLifecycle) HandleWatchStart() (tea.Model, tea.Cmd) {
 	// (no VM access there); apply script order now on the UI goroutine.
 	b.applyColumnTransforms()
 	if b.cfg.GitSyncOnStartup {
-		return b, tea.Batch(b.watchCmd(), b.git.SyncOnce())
+		return b, tea.Batch(b.watchCmd(), b.git.StartupSyncOnce())
 	}
 	return b, b.watchCmd()
 }
