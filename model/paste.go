@@ -208,12 +208,10 @@ type pasteMenuEntry struct {
 }
 
 type PasteMenu struct {
-	active   bool
-	selected int
-	filter   string
-	entries  []pasteMenuEntry
-	matches  []FuzzyMatch
-	palette  Palette
+	active bool
+	fuzzyList
+	entries []pasteMenuEntry
+	palette Palette
 }
 
 func (m *PasteMenu) Active() bool { return m.active }
@@ -221,18 +219,13 @@ func (m *PasteMenu) Active() bool { return m.active }
 func (m *PasteMenu) Open(entries []pasteMenuEntry, defaultIndex int) {
 	m.active = true
 	m.entries = append([]pasteMenuEntry(nil), entries...)
-	m.filter = ""
-	m.selected = min(max(defaultIndex, 0), max(len(entries)-1, 0))
-	m.recompute()
-	m.selected = min(max(defaultIndex, 0), max(len(m.matches)-1, 0))
+	m.fuzzyList.Reset(len(m.entries), defaultIndex, m.haystack)
 }
 
 func (m *PasteMenu) Close() {
 	m.active = false
-	m.selected = 0
-	m.filter = ""
 	m.entries = nil
-	m.matches = nil
+	m.fuzzyList.Clear()
 }
 
 func (m *PasteMenu) haystack(i int) string {
@@ -243,16 +236,6 @@ func (m *PasteMenu) haystack(i int) string {
 	return e.Label
 }
 
-func (m *PasteMenu) recompute() {
-	m.matches = filterFuzzy(len(m.entries), m.filter, m.haystack)
-	if m.selected >= len(m.matches) {
-		m.selected = len(m.matches) - 1
-	}
-	if m.selected < 0 {
-		m.selected = 0
-	}
-}
-
 func (m *PasteMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if key.Matches(msg, Keys.CustomCommandsClose) {
 		m.Close()
@@ -260,32 +243,22 @@ func (m *PasteMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch msg.Code {
 	case tea.KeyUp:
-		if m.selected > 0 {
-			m.selected--
-		}
+		m.fuzzyList.Move(-1)
 	case tea.KeyDown:
-		if m.selected < len(m.matches)-1 {
-			m.selected++
-		}
+		m.fuzzyList.Move(1)
 	case tea.KeyEnter:
-		if len(m.matches) == 0 {
+		index, ok := m.fuzzyList.SelectedIndex()
+		if !ok {
 			m.Close()
 			return nil
 		}
-		entry := m.entries[m.matches[m.selected].Index]
+		entry := m.entries[index]
 		m.Close()
 		return func() tea.Msg { return entry.Msg }
 	case tea.KeyBackspace:
-		if r := []rune(m.filter); len(r) > 0 {
-			m.filter = string(r[:len(r)-1])
-			m.recompute()
-		}
+		m.fuzzyList.Backspace()
 	default:
-		if msg.Text != "" {
-			m.filter += msg.Text
-			m.selected = 0
-			m.recompute()
-		}
+		m.fuzzyList.Append(msg.Text)
 	}
 	return nil
 }

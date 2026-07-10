@@ -14,6 +14,93 @@ type FuzzyMatch struct {
 	MatchedIndexes []int
 }
 
+// fuzzyList owns the common state and behavior of a flat, fuzzy-searchable
+// list. Callers keep their entries and presentation locally, supplying a
+// haystack for each source index whenever their entries change.
+//
+// It deliberately does not handle keys, opening, closing, or selection
+// actions: menus differ at those boundaries, while query editing, matching,
+// and bounded cursor movement must remain consistent.
+type fuzzyList struct {
+	selected int
+	filter   string
+	matches  []FuzzyMatch
+	n        int
+	haystack func(int) string
+}
+
+// Reset clears the query, selects selected, and rebuilds the unfiltered list.
+func (l *fuzzyList) Reset(n, selected int, haystack func(int) string) {
+	l.n = n
+	l.haystack = haystack
+	l.filter = ""
+	l.selected = selected
+	l.recompute()
+}
+
+// Clear drops query and match state when the owning menu closes.
+func (l *fuzzyList) Clear() {
+	l.selected = 0
+	l.filter = ""
+	l.matches = nil
+	l.n = 0
+	l.haystack = nil
+}
+
+// recompute refreshes matches for the current query and keeps the cursor in
+// range. It must be called after the caller replaces its entry slice.
+func (l *fuzzyList) recompute() {
+	if l.haystack == nil || l.n <= 0 {
+		l.matches = nil
+		l.selected = 0
+		return
+	}
+	l.matches = filterFuzzy(l.n, l.filter, l.haystack)
+	l.selected = min(max(l.selected, 0), max(len(l.matches)-1, 0))
+}
+
+// Append adds typed text, resets the cursor to the best result, and refreshes
+// fuzzy matches.
+func (l *fuzzyList) Append(text string) {
+	if text == "" {
+		return
+	}
+	l.filter += text
+	l.selected = 0
+	l.recompute()
+}
+
+// Backspace removes one rune from the query and refreshes matches. It reports
+// whether it consumed a query character, so callers can reserve an empty-query
+// backspace for a menu-specific action.
+func (l *fuzzyList) Backspace() bool {
+	runes := []rune(l.filter)
+	if len(runes) == 0 {
+		return false
+	}
+	l.filter = string(runes[:len(runes)-1])
+	l.recompute()
+	return true
+}
+
+// Move shifts the cursor by delta while keeping it inside the result set.
+func (l *fuzzyList) Move(delta int) {
+	l.selected = min(max(l.selected+delta, 0), max(len(l.matches)-1, 0))
+}
+
+// Select sets the result cursor, clamped to the current result set.
+func (l *fuzzyList) Select(index int) {
+	l.selected = min(max(index, 0), max(len(l.matches)-1, 0))
+}
+
+// SelectedIndex returns the selected source-slice index, if a result exists.
+func (l *fuzzyList) SelectedIndex() (int, bool) {
+	if l.selected < 0 || l.selected >= len(l.matches) {
+		return 0, false
+	}
+	return l.matches[l.selected].Index, true
+}
+
 type stringSource struct {
 	n   int
 	str func(int) string

@@ -152,11 +152,9 @@ func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.M
 }
 
 type CustomCommandMenu struct {
-	active   bool
-	selected int
-	filter   string
+	active bool
+	fuzzyList
 	commands []config.Command
-	matches  []FuzzyMatch
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
 	vctx     map[string]any // rich Lua ctx for virtual-column dispatch; nil otherwise
@@ -193,9 +191,7 @@ func (m *CustomCommandMenu) OpenWithBatch(commands []config.Command, warnings []
 	m.vars = vars
 	m.vctx = vctx
 	m.batch = batch
-	m.selected = 0
-	m.filter = ""
-	m.recompute()
+	m.fuzzyList.Reset(len(m.commands), 0, m.commandHaystack)
 }
 
 // OpenLine opens the menu as the in-editor line-command picker. line is the
@@ -211,13 +207,11 @@ func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []confi
 func (m *CustomCommandMenu) Close() {
 	m.active = false
 	m.commands = nil
-	m.matches = nil
 	m.warnings = nil
 	m.vars = nil
 	m.vctx = nil
 	m.batch = nil
-	m.selected = 0
-	m.filter = ""
+	m.fuzzyList.Clear()
 	m.lineMode = false
 	m.line = ""
 	m.lineRow = 0
@@ -268,16 +262,6 @@ func sortByUsage(cmds []config.Command, mru []string) []config.Command {
 	return out
 }
 
-func (m *CustomCommandMenu) recompute() {
-	m.matches = filterFuzzy(len(m.commands), m.filter, m.commandHaystack)
-	if m.selected >= len(m.matches) {
-		m.selected = len(m.matches) - 1
-	}
-	if m.selected < 0 {
-		m.selected = 0
-	}
-}
-
 func (m *CustomCommandMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	// Esc closes regardless of filter state.
 	if key.Matches(msg, Keys.CustomCommandsClose) {
@@ -286,33 +270,23 @@ func (m *CustomCommandMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch msg.Code {
 	case tea.KeyUp:
-		if m.selected > 0 {
-			m.selected--
-		}
+		m.fuzzyList.Move(-1)
 		return nil
 	case tea.KeyDown:
-		if m.selected < len(m.matches)-1 {
-			m.selected++
-		}
+		m.fuzzyList.Move(1)
 		return nil
 	case tea.KeyEnter:
-		if len(m.matches) == 0 {
+		index, ok := m.fuzzyList.SelectedIndex()
+		if !ok {
 			m.Close()
 			return nil
 		}
-		return m.run(m.commands[m.matches[m.selected].Index])
+		return m.run(m.commands[index])
 	case tea.KeyBackspace:
-		if r := []rune(m.filter); len(r) > 0 {
-			m.filter = string(r[:len(r)-1])
-			m.recompute()
-		}
+		m.fuzzyList.Backspace()
 		return nil
 	default:
-		if msg.Text != "" {
-			m.filter += msg.Text
-			m.selected = 0
-			m.recompute()
-		}
+		m.fuzzyList.Append(msg.Text)
 		return nil
 	}
 }

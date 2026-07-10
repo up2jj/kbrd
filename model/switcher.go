@@ -26,11 +26,9 @@ type removeBoardMsg struct {
 }
 
 type Switcher struct {
-	active     bool
-	entries    []recents.Entry
-	matches    []FuzzyMatch
-	filter     string
-	selected   int
+	active  bool
+	entries []recents.Entry
+	fuzzyList
 	activePath string
 	palette    Palette
 }
@@ -39,12 +37,10 @@ func (s *Switcher) Open(entries []recents.Entry, activePath string) {
 	s.active = true
 	s.entries = sortPinnedFirst(entries)
 	s.activePath = activePath
-	s.filter = ""
-	s.selected = 0
-	s.recompute()
+	s.fuzzyList.Reset(len(s.entries), 0, s.haystack)
 	for i, m := range s.matches {
 		if s.entries[m.Index].Path == activePath {
-			s.selected = i
+			s.fuzzyList.Select(i)
 			break
 		}
 	}
@@ -53,9 +49,7 @@ func (s *Switcher) Open(entries []recents.Entry, activePath string) {
 func (s *Switcher) Close() {
 	s.active = false
 	s.entries = nil
-	s.matches = nil
-	s.filter = ""
-	s.selected = 0
+	s.fuzzyList.Clear()
 	s.activePath = ""
 }
 
@@ -80,67 +74,50 @@ func (s *Switcher) haystack(i int) string {
 	return e.Path
 }
 
-func (s *Switcher) recompute() {
-	s.matches = filterFuzzy(len(s.entries), s.filter, s.haystack)
-	if s.selected >= len(s.matches) {
-		s.selected = len(s.matches) - 1
-	}
-	if s.selected < 0 {
-		s.selected = 0
-	}
-}
-
 func (s *Switcher) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, Keys.SwitcherClose):
 		s.Close()
 		return nil
 	case key.Matches(msg, Keys.SwitcherPrev):
-		if s.selected > 0 {
-			s.selected--
-		}
+		s.fuzzyList.Move(-1)
 		return nil
 	case key.Matches(msg, Keys.SwitcherNext):
-		if s.selected < len(s.matches)-1 {
-			s.selected++
-		}
+		s.fuzzyList.Move(1)
 		return nil
 	case key.Matches(msg, Keys.SwitcherPinToggle):
-		if len(s.matches) == 0 {
+		index, ok := s.fuzzyList.SelectedIndex()
+		if !ok {
 			return nil
 		}
-		e := s.entries[s.matches[s.selected].Index]
+		e := s.entries[index]
 		newPinned := !e.Pinned
 		return func() tea.Msg {
 			return pinBoardMsg{Path: e.Path, Name: e.Name, Pinned: newPinned}
 		}
 	case key.Matches(msg, Keys.SwitcherConfirm):
-		if len(s.matches) == 0 {
+		index, ok := s.fuzzyList.SelectedIndex()
+		if !ok {
 			s.Close()
 			return nil
 		}
-		chosen := s.entries[s.matches[s.selected].Index]
+		chosen := s.entries[index]
 		s.Close()
 		return func() tea.Msg { return switchBoardMsg{Path: chosen.Path} }
 	}
 	switch msg.Code {
 	case tea.KeyBackspace:
-		if r := []rune(s.filter); len(r) > 0 {
-			s.filter = string(r[:len(r)-1])
-			s.recompute()
+		if s.fuzzyList.Backspace() {
 			return nil
 		}
-		if len(s.matches) == 0 {
+		index, ok := s.fuzzyList.SelectedIndex()
+		if !ok {
 			return nil
 		}
-		e := s.entries[s.matches[s.selected].Index]
+		e := s.entries[index]
 		return func() tea.Msg { return removeBoardMsg{Path: e.Path} }
 	default:
-		if msg.Text != "" {
-			s.filter += msg.Text
-			s.selected = 0
-			s.recompute()
-		}
+		s.fuzzyList.Append(msg.Text)
 		return nil
 	}
 }
