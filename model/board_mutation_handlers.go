@@ -163,7 +163,7 @@ func (h boardMutationHandlers) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) 
 	if msg.FileName == "" {
 		return b, b.notifier.Error("filename cannot be empty")
 	}
-	if _, err := b.createItem(col, msg.FileName); err != nil {
+	if _, err := b.createItemContent(col, msg.FileName, msg.Content); err != nil {
 		return b, b.notifier.ErrorCause("failed to create", err)
 	}
 	col.SelectByName(msg.FileName)

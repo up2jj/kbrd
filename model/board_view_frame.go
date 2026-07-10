@@ -218,6 +218,7 @@ func (f boardViewFrame) activeOverlay(w, h, frameH int) string {
 	// still-open editor and must render on top.
 	return firstActiveOverlay(
 		overlayCandidate(b.customCmds.Active, func() string { return b.customCmds.View(b.termWidth, b.termHeight) }),
+		overlayCandidate(b.pasteMenu.Active, func() string { return b.pasteMenu.View(b.termWidth, b.termHeight) }),
 		overlayCandidate(b.scriptUI.Active, b.scriptUI.View),
 		overlayCandidate(func() bool { return b.editor.state != editorNone }, func() string { return f.renderEditor(frameH) }),
 		overlayCandidate(b.peek.Active, func() string { return b.peek.View(w, h) }),

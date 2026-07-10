@@ -1,7 +1,9 @@
 package model
 
 import (
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 
 	"kbrd/board"
@@ -46,6 +48,12 @@ type pasteDoneMsg struct {
 	Verb     string
 }
 
+type pasteNewItemMsg struct {
+	Column   columnRef
+	ColIndex int
+	Content  string
+}
+
 type boardPasteActions struct {
 	board *Board
 }
@@ -54,40 +62,64 @@ func (b *Board) pasteActions() boardPasteActions {
 	return boardPasteActions{board: b}
 }
 
-// openPasteMenu reads the clipboard and opens the paste-mode picker over the
-// selected card. The target is resolved here, on the UI goroutine, into a stable
-// (column name/path + item path) identity carried by each button's request — so
-// nothing downstream depends on the column's current index. An empty/unavailable
-// clipboard, or an item that can't be resolved, is reported without opening.
-func (a boardPasteActions) openMenu(colIdx int, fileName string) tea.Cmd {
+// openMenu reads the clipboard and opens the paste-mode picker. The target is
+// resolved here, on the UI goroutine, into stable identities carried by each
+// request, so nothing downstream depends on the column's current index. An
+// empty/unavailable clipboard is reported without opening.
+func (a boardPasteActions) openMenu(colIdx int, col *Column, item *Item) tea.Cmd {
 	b := a.board
 	text, err := clipboard.ReadAll()
 	if err != nil || text == "" {
 		return b.notifier.Error("clipboard empty or unavailable")
 	}
 	if colIdx < 0 || colIdx >= len(b.columns) {
-		return b.notifier.Error("item not found: " + fileName)
+		return b.notifier.Error("column not found")
 	}
-	col := b.columns[colIdx]
-	itemPath := col.fullPathFor(fileName)
-	if itemPath == "" {
-		return b.notifier.Error("item not found: " + fileName)
+	if col == nil {
+		col = b.columns[colIdx]
 	}
-	req := func(mode pasteMode) pasteRequestMsg {
-		return pasteRequestMsg{ColName: col.Name, ColPath: col.Path, ItemPath: itemPath, FileName: fileName, Mode: mode}
+	if col.Virtual {
+		return b.notifier.ErrorCause("", errVirtualColumn)
 	}
-	b.dialog.Open(DialogOptions{
-		Title: "Paste from clipboard",
-		Body:  "Into " + fileName + ".md",
-		Buttons: []DialogButton{
-			{Label: "At beginning", Hotkey: 'a', Msg: req(pasteAtStart)},
-			{Label: "Append at end", Hotkey: 'p', Msg: req(pasteAtEnd)},
-			{Label: "Journal entry", Hotkey: 'j', Msg: req(pasteJournal)},
-			{Label: "Replace whole file", Kind: ButtonDanger, Hotkey: 'R', Msg: req(pasteReplace)},
+
+	entries := []pasteMenuEntry{
+		{
+			Label: "Paste as new file",
+			Desc:  "Create a .md card in " + col.Name + " from clipboard text",
+			Msg:   pasteNewItemMsg{Column: refForColumn(col), ColIndex: colIdx, Content: text},
 		},
-		DefaultIndex: 1,
-	})
+	}
+
+	defaultIndex := 0
+	if item != nil {
+		fileName := item.Name
+		itemPath := col.fullPathFor(fileName)
+		if itemPath == "" {
+			return b.notifier.Error("item not found: " + fileName)
+		}
+		req := func(mode pasteMode) pasteRequestMsg {
+			return pasteRequestMsg{ColName: col.Name, ColPath: col.Path, ItemPath: itemPath, FileName: fileName, Mode: mode}
+		}
+		into := "Into " + fileName + ".md"
+		entries = append(entries,
+			pasteMenuEntry{Label: "Prepend", Desc: into, Msg: req(pasteAtStart)},
+			pasteMenuEntry{Label: "Append at end", Desc: into, Msg: req(pasteAtEnd)},
+			pasteMenuEntry{Label: "Journal entry", Desc: into, Msg: req(pasteJournal)},
+		)
+		defaultIndex = 2
+	}
+
+	b.pasteMenu.Open(entries, defaultIndex)
 	return nil
+}
+
+func (a boardPasteActions) openNewItem(msg pasteNewItemMsg) (tea.Model, tea.Cmd) {
+	b := a.board
+	col, err := b.resolveDelayedColumnRef(msg.Column)
+	if err != nil {
+		return b, b.notifier.ErrorCause("", err)
+	}
+	return b, b.editor.OpenNewWithContent(msg.ColIndex, col.Name, col.Path, msg.Content)
 }
 
 // pasteToItem performs the clipboard write for a chosen mode on a goroutine,
@@ -166,4 +198,189 @@ func (a boardPasteActions) resolveColumn(msg pasteDoneMsg) *Column {
 		}
 	}
 	return nil
+}
+
+type pasteMenuEntry struct {
+	Label  string
+	Desc   string
+	Msg    tea.Msg
+	Danger bool
+}
+
+type PasteMenu struct {
+	active   bool
+	selected int
+	filter   string
+	entries  []pasteMenuEntry
+	matches  []FuzzyMatch
+	palette  Palette
+}
+
+func (m *PasteMenu) Active() bool { return m.active }
+
+func (m *PasteMenu) Open(entries []pasteMenuEntry, defaultIndex int) {
+	m.active = true
+	m.entries = append([]pasteMenuEntry(nil), entries...)
+	m.filter = ""
+	m.selected = min(max(defaultIndex, 0), max(len(entries)-1, 0))
+	m.recompute()
+	m.selected = min(max(defaultIndex, 0), max(len(m.matches)-1, 0))
+}
+
+func (m *PasteMenu) Close() {
+	m.active = false
+	m.selected = 0
+	m.filter = ""
+	m.entries = nil
+	m.matches = nil
+}
+
+func (m *PasteMenu) haystack(i int) string {
+	e := m.entries[i]
+	if e.Desc != "" {
+		return e.Label + "  " + e.Desc
+	}
+	return e.Label
+}
+
+func (m *PasteMenu) recompute() {
+	m.matches = filterFuzzy(len(m.entries), m.filter, m.haystack)
+	if m.selected >= len(m.matches) {
+		m.selected = len(m.matches) - 1
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+}
+
+func (m *PasteMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
+	if key.Matches(msg, Keys.CustomCommandsClose) {
+		m.Close()
+		return nil
+	}
+	switch msg.Code {
+	case tea.KeyUp:
+		if m.selected > 0 {
+			m.selected--
+		}
+	case tea.KeyDown:
+		if m.selected < len(m.matches)-1 {
+			m.selected++
+		}
+	case tea.KeyEnter:
+		if len(m.matches) == 0 {
+			m.Close()
+			return nil
+		}
+		entry := m.entries[m.matches[m.selected].Index]
+		m.Close()
+		return func() tea.Msg { return entry.Msg }
+	case tea.KeyBackspace:
+		if r := []rune(m.filter); len(r) > 0 {
+			m.filter = string(r[:len(r)-1])
+			m.recompute()
+		}
+	default:
+		if msg.Text != "" {
+			m.filter += msg.Text
+			m.selected = 0
+			m.recompute()
+		}
+	}
+	return nil
+}
+
+func (m *PasteMenu) View(termWidth, termHeight int) string {
+	p := m.palette
+	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
+	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
+	dangerStyle := lipgloss.NewStyle().Foreground(p.Danger)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
+	hiStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
+	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
+	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+
+	filterText := m.filter
+	if filterText == "" {
+		filterText = descStyle.Render("type to filter…")
+	} else {
+		filterText = nameStyle.Render(filterText)
+	}
+	filterLine := keyStyle.Render("> ") + filterText
+
+	var body string
+	switch {
+	case len(m.entries) == 0:
+		body = helpDimStyle.Render("no paste operations available")
+	case len(m.matches) == 0:
+		body = helpDimStyle.Render("no matches")
+	default:
+		rows := make([]string, 0, len(m.matches))
+		for i, match := range m.matches {
+			e := m.entries[match.Index]
+			selected := i == m.selected
+			nameIdx, descIdx := splitPasteMatchIndexes(e, match.MatchedIndexes)
+			nameBase := nameStyle
+			if e.Danger {
+				nameBase = dangerStyle
+			}
+			descBase := descStyle
+			hiName := hiStyle
+			hiDesc := hiStyle
+			if selected {
+				nameBase = selStyle
+				descBase = selStyle
+				hiName = hiSelStyle
+				hiDesc = hiSelStyle
+			}
+			styled := renderHighlighted(e.Label, nameIdx, nameBase, hiName)
+			if e.Desc != "" {
+				sep := "  —  "
+				if selected {
+					styled += selStyle.Render(sep)
+				} else {
+					styled += descStyle.Render(sep)
+				}
+				styled += renderHighlighted(e.Desc, descIdx, descBase, hiDesc)
+			}
+			gutter := " "
+			if selected {
+				gutter = gutterSel
+				styled = selStyle.Render(" ") + styled + selStyle.Render(" ")
+			}
+			rows = append(rows, gutter+" "+styled)
+		}
+		body = lipgloss.JoinVertical(lipgloss.Left, rows...)
+	}
+
+	footer := RenderInlineHints([]Shortcut{
+		{Keys: "type", Label: "filter"},
+		{Keys: "↑/↓", Label: "select"},
+		{Keys: "enter", Label: "paste"},
+		{Keys: "esc", Label: "cancel"},
+	})
+	inner := lipgloss.JoinVertical(lipgloss.Left, filterLine, "", body)
+	minInner := 50
+	if termWidth > 0 && termWidth-12 < minInner {
+		minInner = termWidth - 12
+	}
+	if lipgloss.Width(inner) < minInner {
+		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
+	}
+	return OverlayFrame{Title: "Paste from clipboard", Body: inner, Footer: footer, Palette: p}.Render()
+}
+
+func splitPasteMatchIndexes(e pasteMenuEntry, indexes []int) ([]int, []int) {
+	labelLen := len([]rune(e.Label))
+	var labelIdx, descIdx []int
+	for _, idx := range indexes {
+		switch {
+		case idx < labelLen:
+			labelIdx = append(labelIdx, idx)
+		case idx >= labelLen+2:
+			descIdx = append(descIdx, idx-labelLen-2)
+		}
+	}
+	return labelIdx, descIdx
 }

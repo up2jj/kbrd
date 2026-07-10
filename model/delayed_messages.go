@@ -29,8 +29,8 @@ func newStableEditorJournalMsg(target itemRefStable, colIdx int, fileName, text 
 	return editorJournalMsg{Target: target, ColIndex: colIdx, FileName: fileName, Text: text}
 }
 
-func newStableEditorNewMsg(column columnRef, colIdx int, fileName string) editorNewMsg {
-	return editorNewMsg{Column: column, ColIndex: colIdx, FileName: fileName}
+func newStableEditorNewMsg(column columnRef, colIdx int, fileName, content string) editorNewMsg {
+	return editorNewMsg{Column: column, ColIndex: colIdx, FileName: fileName, Content: content}
 }
 
 func newStableDeleteConfirmMsg(target itemRefStable, colIdx int, fileName string) deleteConfirmMsg {

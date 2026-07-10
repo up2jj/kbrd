@@ -49,6 +49,7 @@ type Editor struct {
 	ColName       string
 	FileName      string
 	ItemPath      string
+	NewContent    string
 	ManagedPath   string
 	initialValue  string
 	undo          []string
@@ -378,9 +379,16 @@ func (e *Editor) OpenNew(colIdx int, colName, colPath string) tea.Cmd {
 	e.ColName = colName
 	e.FileName = ""
 	e.ItemPath = ""
+	e.NewContent = ""
 	e.textinput.SetValue("")
 	e.initialValue = ""
 	return e.textinput.Focus()
+}
+
+func (e *Editor) OpenNewWithContent(colIdx int, colName, colPath, content string) tea.Cmd {
+	cmd := e.OpenNew(colIdx, colName, colPath)
+	e.NewContent = content
+	return cmd
 }
 
 func (e *Editor) OpenRenameItem(colIdx int, colPath, itemPath, fileName string) tea.Cmd {
@@ -703,7 +711,7 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 			e.Close()
 			return nil, nil
 		}
-		msg = newStableEditorNewMsg(e.columnTarget(), e.ColIndex, name)
+		msg = newStableEditorNewMsg(e.columnTarget(), e.ColIndex, name, e.NewContent)
 	case editorRenameItem:
 		name := strings.TrimSpace(e.textinput.Value())
 		if name == "" || name == e.initialValue {
@@ -1205,7 +1213,11 @@ func (e *Editor) view() string {
 		label = "Journal entry for: " + e.FileName
 		hints = textareaHints
 	case editorNew:
-		label = "New item in: " + e.ColName
+		if e.NewContent != "" {
+			label = "Paste as new item in: " + e.ColName
+		} else {
+			label = "New item in: " + e.ColName
+		}
 		hints = []Shortcut{{"enter", "confirm"}, {"esc", "cancel"}}
 	case editorRenameItem:
 		label = "Rename item: " + e.initialValue
@@ -1280,6 +1292,7 @@ type editorNewMsg struct {
 	Column   columnRef
 	ColIndex int
 	FileName string
+	Content  string
 }
 
 type editorDiscardMsg struct{}

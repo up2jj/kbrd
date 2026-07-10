@@ -396,7 +396,7 @@ func TestDelayedMessageConstructorsCarryStableRefs(t *testing.T) {
 	if msg := newStableFrontmatterSubmitMsg(itemRef, 0, item.Name, "status", "new", false); !msg.Target.hasStableIdentity() {
 		t.Fatal("frontmatter constructor dropped item ref")
 	}
-	if msg := newStableEditorNewMsg(colRef, 0, "b"); !msg.Column.hasStableIdentity() {
+	if msg := newStableEditorNewMsg(colRef, 0, "b", ""); !msg.Column.hasStableIdentity() {
 		t.Fatal("editor new constructor dropped column ref")
 	}
 	if msg := newStableTemplateSubmitMsg(colRef, 0, template.Template{Filename: "b"}, nil); !msg.Column.hasStableIdentity() {

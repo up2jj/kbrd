@@ -251,11 +251,11 @@ func itemActionSpecs() []itemActionSpec {
 			ID:          actionPaste,
 			Binding:     Keys.Paste,
 			Label:       "paste",
-			Description: "Paste clipboard content into the selected card.",
+			Description: "Paste clipboard content into a card or as a new file.",
 			Cardinality: actionSingle,
-			NeedsItem:   true,
+			NeedsItem:   false,
 			Run: func(ctx itemActionContext) tea.Cmd {
-				return ctx.Board.itemActions().paste(ctx.ColIdx, ctx.Item)
+				return ctx.Board.itemActions().paste(ctx.ColIdx, ctx.Column, ctx.Item)
 			},
 		},
 		{

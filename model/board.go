@@ -52,6 +52,7 @@ type Board struct {
 	watcher         *kbrdfs.Watcher
 	dialog          Dialog
 	helpMenu        HelpMenu
+	pasteMenu       PasteMenu
 	templateMenu    TemplateMenu
 	configMenuOpen  bool
 	peek            Peek
@@ -222,6 +223,7 @@ func (b *Board) applyPalette() {
 	applyPackageStyles(b.palette)
 	applyInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
+	b.pasteMenu.palette = b.palette
 	b.peek.palette = b.palette
 	b.switcher.palette = b.palette
 	b.search.palette = b.palette
@@ -613,6 +615,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteRequestMsg:
 		return b, b.pasteActions().pasteToItem(msg)
+
+	case pasteNewItemMsg:
+		return b.pasteActions().openNewItem(msg)
 
 	case pasteDoneMsg:
 		return b.pasteActions().handleDone(msg)

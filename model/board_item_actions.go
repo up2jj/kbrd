@@ -48,8 +48,8 @@ func (a boardItemActions) copy(col *Column, item *Item) tea.Cmd {
 	return b.utilityActions().copyToClipboard([]byte(content))
 }
 
-func (a boardItemActions) paste(colIdx int, item *Item) tea.Cmd {
-	return a.board.pasteActions().openMenu(colIdx, item.Name)
+func (a boardItemActions) paste(colIdx int, col *Column, item *Item) tea.Cmd {
+	return a.board.pasteActions().openMenu(colIdx, col, item)
 }
 
 func (a boardItemActions) openExternal(col *Column, item *Item) tea.Cmd {
@@ -146,7 +146,7 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 	case 'c':
 		return a.copy(col, item)
 	case 'V', 'v':
-		return a.paste(colIdx, item)
+		return a.paste(colIdx, col, item)
 	case 'o':
 		return a.openExternal(col, item)
 	case '!':

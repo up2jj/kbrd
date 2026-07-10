@@ -37,6 +37,9 @@ func (r boardInputRouter) HandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if b.customCmds.Active() {
 		return b, b.customCmds.Update(msg)
 	}
+	if b.pasteMenu.Active() {
+		return b, b.pasteMenu.Update(msg)
+	}
 	if b.scriptUI.Active() {
 		return b, b.scriptUI.Update(msg)
 	}
