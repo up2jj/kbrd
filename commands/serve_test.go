@@ -1,10 +1,15 @@
 package commands
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
+
+	fsutil "kbrd/fs"
 )
 
 func TestResolveOpt(t *testing.T) {
@@ -56,5 +61,52 @@ func TestServe_RejectsMCPFlags(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "not supported with serve") {
 			t.Errorf("%v: error = %q, want it to mention 'not supported with serve'", args, err)
 		}
+	}
+}
+
+func TestInitBoardPushesBootConflictCopy(t *testing.T) {
+	requireGit(t)
+	isolateConfig(t)
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+	local := filepath.Join(root, "local")
+	other := filepath.Join(root, "other")
+	gitRun(t, root, "init", "--bare", bare)
+	gitRun(t, root, "clone", bare, local)
+	if err := os.WriteFile(filepath.Join(local, "seed.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fsutil.GitCommitAll(local, "seed", "test", "test@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fsutil.GitPush(local); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, root, "clone", bare, other)
+	if err := os.WriteFile(filepath.Join(other, "seed.md"), []byte("theirs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fsutil.GitCommitAll(other, "their edit", "test", "test@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fsutil.GitPush(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "seed.md"), []byte("ours\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fsutil.GitCommitAll(local, "our edit", "test", "test@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := initBoard(local, "", "server-1", false, func(string) {}); err != nil {
+		t.Fatalf("initBoard: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(local, "seed (conflict server-1).md")); err != nil {
+		t.Fatalf("local conflict copy missing: %v", err)
+	}
+	out, err := exec.Command("git", "-C", bare, "ls-tree", "--name-only", "HEAD").Output()
+	if err != nil || !strings.Contains(string(out), "seed (conflict server-1).md") {
+		t.Fatalf("boot conflict copy was not pushed: out=%q err=%v", out, err)
 	}
 }

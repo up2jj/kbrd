@@ -210,6 +210,14 @@ func initBoard(dir, gitURL, instanceName string, needsClone bool, setStatus func
 			for _, p := range sidecars {
 				fmt.Fprintf(os.Stderr, "boot sync created conflict copy %s\n", p)
 			}
+			// Resolving a conflict creates a local merge commit. Publish it before
+			// serving the board: otherwise the later pull loop sees an up-to-date
+			// merge with no newly-created sidecars and never pushes this result.
+			if len(sidecars) > 0 {
+				if err := fsutil.GitPush(fsutil.GitRepoRoot(dir)); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: boot sync push failed: %v\n", err)
+				}
+			}
 		}
 	}
 
