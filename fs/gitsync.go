@@ -251,6 +251,7 @@ func writeSidecar(repoRoot, path, label string, content []byte) (string, error) 
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
+	label = safeConflictLabel(label)
 
 	build := func(name string) string {
 		if dir == "." || dir == "" {
@@ -259,16 +260,71 @@ func writeSidecar(repoRoot, path, label string, content []byte) (string, error) 
 		return dir + "/" + name
 	}
 	rel := build(fmt.Sprintf("%s (conflict %s)%s", stem, label, ext))
+	target, err := sidecarTarget(repoRoot, rel)
+	if err != nil {
+		return "", err
+	}
 	for i := 2; ; i++ {
-		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel))); os.IsNotExist(err) {
+		_, statErr := os.Stat(target)
+		if os.IsNotExist(statErr) {
 			break
 		}
+		if statErr != nil {
+			return "", fmt.Errorf("stat conflict copy: %w", statErr)
+		}
 		rel = build(fmt.Sprintf("%s (conflict %s %d)%s", stem, label, i, ext))
+		target, err = sidecarTarget(repoRoot, rel)
+		if err != nil {
+			return "", err
+		}
 	}
-	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(rel)), content, 0o644); err != nil {
+	if err := os.WriteFile(target, content, 0o644); err != nil {
 		return "", fmt.Errorf("write conflict copy: %w", err)
 	}
 	return rel, nil
+}
+
+// safeConflictLabel turns the machine-local instance label into one portable
+// filename component. Labels originate in flags, environment variables, or
+// hostnames; they must never introduce path separators or traversal segments.
+func safeConflictLabel(label string) string {
+	var b strings.Builder
+	separator := false
+	for _, r := range strings.TrimSpace(label) {
+		safe := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if safe {
+			b.WriteRune(r)
+			separator = false
+			continue
+		}
+		if !separator {
+			b.WriteByte('-')
+			separator = true
+		}
+	}
+	clean := strings.Trim(b.String(), ".-_")
+	if clean == "" {
+		return "instance"
+	}
+	const maxLen = 80
+	if len(clean) > maxLen {
+		return clean[:maxLen]
+	}
+	return clean
+}
+
+// sidecarTarget lexically verifies a generated repo-relative path before it is
+// passed to the filesystem. This is redundant with safeConflictLabel for
+// current callers, but keeps writeSidecar safe if a future caller changes the
+// source of either component.
+func sidecarTarget(repoRoot, rel string) (string, error) {
+	target := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	inside, err := filepath.Rel(repoRoot, target)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("conflict copy path escapes repository: %q", rel)
+	}
+	return target, nil
 }
 
 // mergeMessage builds a self-explaining merge commit subject (and body listing

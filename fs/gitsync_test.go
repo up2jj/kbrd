@@ -224,6 +224,35 @@ func TestGitMergeResolveSidecar_AbortsOnResolutionFailure(t *testing.T) {
 	}
 }
 
+func TestWriteSidecarSanitizesConflictLabel(t *testing.T) {
+	root := t.TempDir()
+	rel, err := writeSidecar(root, "seed.md", "../../../../tmp/escape", []byte("theirs\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "seed (conflict tmp-escape).md"
+	if rel != want {
+		t.Fatalf("sidecar path = %q, want %q", rel, want)
+	}
+	target, err := sidecarTarget(root, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "theirs\n" {
+		t.Fatalf("sidecar content = %q, err=%v", data, err)
+	}
+}
+
+func TestWriteSidecarReturnsUnexpectedStatError(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "not-a-directory"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeSidecar(root, "not-a-directory/seed.md", "laptop", []byte("theirs\n")); err == nil {
+		t.Fatal("expected sidecar stat failure")
+	}
+}
+
 // TestGitMergeResolveSidecarModifyDelete covers both modify/delete directions:
 // local always wins the primary slot, and a discarded *incoming* edit is kept.
 func TestGitMergeResolveSidecarModifyDelete(t *testing.T) {
