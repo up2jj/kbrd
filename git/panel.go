@@ -52,19 +52,6 @@ func setGitStyles(p theme.Palette) {
 	gitDimStyle = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
 }
 
-// applyInputPalette restyles a bubbles textinput using the palette colors.
-func applyInputPalette(ti *textinput.Model, p theme.Palette) {
-	styles := ti.Styles()
-	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
-	styles.Blurred.Prompt = styles.Focused.Prompt
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(p.FgBase)
-	styles.Blurred.Text = styles.Focused.Text
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	styles.Blurred.Placeholder = styles.Focused.Placeholder
-	styles.Cursor.Color = p.Highlight
-	ti.SetStyles(styles)
-}
-
 type gitPanelFocus int
 
 const (
@@ -135,8 +122,8 @@ type GitPanel struct {
 // so the new colors apply on the next render.
 func (p *GitPanel) SetPalette(pal theme.Palette) {
 	p.palette = pal
-	applyInputPalette(&p.commitIn, pal)
-	applyInputPalette(&p.remoteIn, pal)
+	theme.ApplyTextInputPalette(&p.commitIn, pal)
+	theme.ApplyTextInputPalette(&p.remoteIn, pal)
 }
 
 func (p *GitPanel) Active() bool { return p.active }
@@ -166,7 +153,7 @@ func newPanelInput(prompt string, charLimit int, pal theme.Palette) textinput.Mo
 	ti.Prompt = prompt
 	ti.CharLimit = charLimit
 	ti.SetWidth(60)
-	applyInputPalette(&ti, pal)
+	theme.ApplyTextInputPalette(&ti, pal)
 	return ti
 }
 

@@ -6,9 +6,7 @@ import (
 	"path/filepath"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"kbrd/board"
 	"kbrd/config"
@@ -16,6 +14,7 @@ import (
 	kbrdfs "kbrd/fs"
 	"kbrd/git"
 	"kbrd/script"
+	"kbrd/theme"
 )
 
 var Version = "dev"
@@ -202,26 +201,12 @@ type gitNotifier struct{ n *Notifier }
 func (g gitNotifier) Success(msg string) tea.Cmd { return g.n.Success(msg) }
 func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Error(msg) }
 
-// applyInputPalette restyles a bubbles textinput using the palette colors.
-// Reused by Board, GitPanel, and ScriptUI which all share the same look.
-func applyInputPalette(ti *textinput.Model, p Palette) {
-	styles := ti.Styles()
-	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
-	styles.Blurred.Prompt = styles.Focused.Prompt
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(p.FgBase)
-	styles.Blurred.Text = styles.Focused.Text
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(p.FgDim).Italic(true)
-	styles.Blurred.Placeholder = styles.Focused.Placeholder
-	styles.Cursor.Color = p.Highlight
-	ti.SetStyles(styles)
-}
-
 // applyPalette propagates the effective palette to all sub-models and restyles
 // any pre-built input widgets. Call after b.theme or b.terminalDark changes.
 func (b *Board) applyPalette() {
 	b.palette = PaletteForTheme(b.theme, b.terminalDark)
 	applyPackageStyles(b.palette)
-	applyInputPalette(&b.mnemonic.input, b.palette)
+	theme.ApplyTextInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
 	b.pasteMenu.palette = b.palette
 	b.peek.palette = b.palette

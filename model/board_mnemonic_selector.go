@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+
+	"kbrd/theme"
 )
 
 const mnemonicDebounceDelay = 75 * time.Millisecond
@@ -25,7 +27,7 @@ func newMnemonicSelectorState(p Palette) mnemonicSelectorState {
 	ti.Placeholder = "card mnemonic"
 	ti.CharLimit = 64
 	ti.SetWidth(60)
-	applyInputPalette(&ti, p)
+	theme.ApplyTextInputPalette(&ti, p)
 	return mnemonicSelectorState{input: ti}
 }
 

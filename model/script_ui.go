@@ -5,6 +5,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"kbrd/theme"
 )
 
 // scriptResumeMsg carries the user's response back to the Lua coroutine that
@@ -43,7 +45,7 @@ type ScriptUI struct {
 func (s *ScriptUI) SetPalette(p Palette) {
 	s.palette = p
 	if s.input.Prompt != "" {
-		applyInputPalette(&s.input, p)
+		theme.ApplyTextInputPalette(&s.input, p)
 	}
 }
 
@@ -75,7 +77,7 @@ func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
 	ti.SetWidth(50)
 	ti.SetValue(def)
 	ti.Focus()
-	applyInputPalette(&ti, s.palette)
+	theme.ApplyTextInputPalette(&ti, s.palette)
 
 	s.kind = scriptUIPrompt
 	s.name = name

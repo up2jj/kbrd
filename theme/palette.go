@@ -1,6 +1,7 @@
 // Package theme holds the shared color palette used across the UI. It is a
-// dependency-free leaf package so feature packages (model, git, …) can all
-// reference one Palette type without importing each other.
+// leaf package in kbrd's internal dependency graph, so feature packages
+// (model, git, …) can share presentation primitives without importing each
+// other.
 package theme
 
 import "charm.land/lipgloss/v2"
