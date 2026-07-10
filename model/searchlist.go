@@ -159,3 +159,19 @@ func renderHighlighted(s string, indexes []int, baseStyle, hiStyle lipgloss.Styl
 	}
 	return b.String()
 }
+
+// splitLabelDescMatchIndexes splits rune offsets from a fuzzy haystack built as
+// "label  description" into offsets for each displayed field. A missing
+// description simply has no offsets after the two-rune separator.
+func splitLabelDescMatchIndexes(label string, indexes []int) (labelIdx, descIdx []int) {
+	labelLen := len([]rune(label))
+	for _, idx := range indexes {
+		switch {
+		case idx < labelLen:
+			labelIdx = append(labelIdx, idx)
+		case idx >= labelLen+2:
+			descIdx = append(descIdx, idx-labelLen-2)
+		}
+	}
+	return labelIdx, descIdx
+}

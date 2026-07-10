@@ -293,7 +293,7 @@ func (m *PasteMenu) View(termWidth, termHeight int) string {
 		for i, match := range m.matches {
 			e := m.entries[match.Index]
 			selected := i == m.selected
-			nameIdx, descIdx := splitPasteMatchIndexes(e, match.MatchedIndexes)
+			nameIdx, descIdx := splitLabelDescMatchIndexes(e.Label, match.MatchedIndexes)
 			nameBase := nameStyle
 			if e.Danger {
 				nameBase = dangerStyle
@@ -342,18 +342,4 @@ func (m *PasteMenu) View(termWidth, termHeight int) string {
 		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
 	}
 	return OverlayFrame{Title: "Paste from clipboard", Body: inner, Footer: footer, Palette: p}.Render()
-}
-
-func splitPasteMatchIndexes(e pasteMenuEntry, indexes []int) ([]int, []int) {
-	labelLen := len([]rune(e.Label))
-	var labelIdx, descIdx []int
-	for _, idx := range indexes {
-		switch {
-		case idx < labelLen:
-			labelIdx = append(labelIdx, idx)
-		case idx >= labelLen+2:
-			descIdx = append(descIdx, idx-labelLen-2)
-		}
-	}
-	return labelIdx, descIdx
 }

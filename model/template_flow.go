@@ -779,7 +779,7 @@ func (t *TemplateFlow) renderCreateMenuRow(row createMenuRow, selected bool) str
 	if row.header {
 		return headerStyle.Render("── " + row.title + " ──")
 	}
-	labelIdx, descIdx := splitCreateMatchIndexes(row.choice, row.matchIdx)
+	labelIdx, descIdx := splitLabelDescMatchIndexes(row.choice.Label, row.matchIdx)
 	labelBase, descBase := nameStyle, descStyle
 	hiLabel, hiDesc := hiStyle, hiStyle
 	if selected {
@@ -802,22 +802,6 @@ func (t *TemplateFlow) renderCreateMenuRow(row createMenuRow, selected bool) str
 		styled = selStyle.Render(" ") + styled + selStyle.Render(" ")
 	}
 	return gutter + " " + styled
-}
-
-func splitCreateMatchIndexes(choice createChoice, matchIdx []int) ([]int, []int) {
-	if len(matchIdx) == 0 {
-		return nil, nil
-	}
-	nameLen := len([]rune(choice.Label))
-	var labelIdx, descIdx []int
-	for _, idx := range matchIdx {
-		if idx < nameLen {
-			labelIdx = append(labelIdx, idx)
-		} else if idx >= nameLen+2 {
-			descIdx = append(descIdx, idx-nameLen-2)
-		}
-	}
-	return labelIdx, descIdx
 }
 
 // huhThemeFor maps the app palette onto a huh theme so embedded forms match

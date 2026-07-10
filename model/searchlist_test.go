@@ -35,3 +35,13 @@ func TestFuzzyListQueryAndSelection(t *testing.T) {
 		t.Fatal("empty query backspace should not be consumed")
 	}
 }
+
+func TestSplitLabelDescMatchIndexes(t *testing.T) {
+	label, desc := splitLabelDescMatchIndexes("żółw", []int{0, 3, 6, 8})
+	if got, want := len(label), 2; got != want || label[0] != 0 || label[1] != 3 {
+		t.Fatalf("label indexes = %v, want [0 3]", label)
+	}
+	if got, want := len(desc), 2; got != want || desc[0] != 0 || desc[1] != 2 {
+		t.Fatalf("description indexes = %v, want [0 2]", desc)
+	}
+}

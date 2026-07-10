@@ -392,7 +392,7 @@ func (m *TemplateMenu) renderRow(row templateMenuRow, selected bool) string {
 	if row.disabled {
 		return "  " + disabledStyle.Render(row.entry.Label+"  —  "+row.entry.Desc)
 	}
-	labelIdx, descIdx := splitCreateMatchIndexes(createChoice{Label: row.entry.Label, Desc: row.entry.Desc}, row.matchIdx)
+	labelIdx, descIdx := splitLabelDescMatchIndexes(row.entry.Label, row.matchIdx)
 	labelStyle, detailStyle := nameStyle, descStyle
 	hiLabel, hiDesc := hiStyle, hiStyle
 	gutter := " "

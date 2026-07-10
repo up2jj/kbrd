@@ -360,17 +360,7 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 				source = string(config.SourceShell)
 			}
 			selected := i == m.selected
-			// name + optional description form the fuzzy haystack — indexes are
-			// rune offsets into "Name  Description" (two-space separator).
-			nameLen := len([]rune(c.Name))
-			var nameIdx, descIdx []int
-			for _, idx := range match.MatchedIndexes {
-				if idx < nameLen {
-					nameIdx = append(nameIdx, idx)
-				} else if idx >= nameLen+2 {
-					descIdx = append(descIdx, idx-nameLen-2)
-				}
-			}
+			nameIdx, descIdx := splitLabelDescMatchIndexes(c.Name, match.MatchedIndexes)
 			nameBase := nameStyle
 			descBase := descStyle
 			hiName := hiStyle
