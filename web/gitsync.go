@@ -15,7 +15,7 @@ import (
 // mid-write. A nil *Syncer means "no-sync mode" (not a git repo, or no
 // remote): all methods are no-ops and the UI shows a banner.
 type Syncer struct {
-	mu           sync.Mutex // serializes mutations and background pulls
+	mu           chan struct{} // serializes mutations and background pulls; context-cancelable while waiting
 	root         string
 	push         bool // false when the repo has no remote
 	author       string
@@ -27,6 +27,8 @@ type Syncer struct {
 	lastNote    string     // informational detail on an otherwise-ok sync (e.g. conflict copies)
 }
 
+var webSyncGitTimeout = 2 * time.Minute
+
 // NewSyncer returns a Syncer for the repo containing dir, or nil when dir is
 // not inside a git work tree. Without a remote, commits are still made but
 // push/pull are skipped. instanceName tags any conflict copies this server
@@ -37,6 +39,7 @@ func NewSyncer(dir, authorName, authorEmail, instanceName string) *Syncer {
 		return nil
 	}
 	return &Syncer{
+		mu:           make(chan struct{}, 1),
 		root:         root,
 		push:         fs.GitHasRemote(root),
 		author:       authorName,
@@ -56,30 +59,72 @@ func NewSyncer(dir, authorName, authorEmail, instanceName string) *Syncer {
 // automatic flow; the attended TUI sync uses --ff-only unless configured
 // otherwise (git.manual_sync_mode).
 func (s *Syncer) CommitPush(msg string) error {
+	return s.CommitPushContext(context.Background(), msg)
+}
+
+// CommitPushContext is CommitPush with caller cancellation and a bounded git
+// operation. It remains nil-safe for no-sync mode.
+func (s *Syncer) CommitPushContext(ctx context.Context, msg string) error {
 	if s == nil {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.withLock(ctx, func(ctx context.Context) error {
+		return s.commitPushLocked(ctx, msg)
+	})
+}
 
-	if _, err := fs.GitCommitAll(s.root, msg, s.author, s.email); err != nil {
+// MutateAndCommit runs mutate, commits its result, and reconciles/pushes while
+// holding the same lock as the pull loop. Callers must put their read-check-
+// write operation inside mutate so a pulled revision cannot interleave between
+// an optimistic-concurrency check and its write. It is nil-safe for no-sync
+// mode, where it still runs mutate.
+func (s *Syncer) MutateAndCommit(ctx context.Context, msg string, mutate func() error) error {
+	if s == nil {
+		return mutate()
+	}
+	return s.withLock(ctx, func(ctx context.Context) error {
+		if err := mutate(); err != nil {
+			return err
+		}
+		return s.commitPushLocked(ctx, msg)
+	})
+}
+
+func (s *Syncer) commitPushLocked(ctx context.Context, msg string) error {
+
+	if _, err := fs.GitCommitAllContext(ctx, s.root, msg, s.author, s.email); err != nil {
 		return s.record(err)
 	}
 	if !s.push {
 		return s.record(nil)
 	}
-	if err := fs.GitPush(s.root); err == nil {
+	if err := fs.GitPushContext(ctx, s.root); err == nil {
 		return s.record(nil)
 	}
-	sidecars, err := fs.GitMergeResolveSidecar(s.root, s.conflictLabel(), s.author, s.email)
+	sidecars, err := fs.GitMergeResolveSidecarContext(ctx, s.root, s.conflictLabel(), s.author, s.email)
 	if err != nil {
 		return s.record(err)
 	}
 	s.logSidecars(sidecars)
-	if err := fs.GitPush(s.root); err != nil {
+	if err := fs.GitPushContext(ctx, s.root); err != nil {
 		return s.record(err)
 	}
 	return s.recordSync(sidecars)
+}
+
+// withLock bounds a full git transaction, including contention on the local
+// worktree lock. It lets request cancellation and server shutdown interrupt a
+// wait or an in-flight git subprocess instead of wedging future mutations.
+func (s *Syncer) withLock(parent context.Context, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, webSyncGitTimeout)
+	defer cancel()
+	select {
+	case s.mu <- struct{}{}:
+		defer func() { <-s.mu }()
+		return fn(ctx)
+	case <-ctx.Done():
+		return fmt.Errorf("web git sync: %w", ctx.Err())
+	}
 }
 
 // PullLoop periodically reconciles with the remote while the worktree is clean,
@@ -98,27 +143,33 @@ func (s *Syncer) PullLoop(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.mu.Lock()
-			if fs.GitWorkingTreeClean(s.root) {
-				sidecars, err := fs.GitMergeResolveSidecar(s.root, s.conflictLabel(), s.author, s.email)
-				if err != nil {
-					log.Printf("web: background sync: %v", err)
-					s.record(err)
-				} else if len(sidecars) > 0 {
-					s.logSidecars(sidecars)
-					if perr := fs.GitPush(s.root); perr != nil {
-						log.Printf("web: background push: %v", perr)
-						s.record(perr)
-					} else {
-						s.recordSync(sidecars)
-					}
-				} else {
-					s.record(nil)
-				}
+			if err := s.pullOnce(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("web: background sync: %v", err)
+				s.record(err)
 			}
-			s.mu.Unlock()
 		}
 	}
+}
+
+func (s *Syncer) pullOnce(parent context.Context) error {
+	return s.withLock(parent, func(ctx context.Context) error {
+		if !fs.GitWorkingTreeClean(s.root) {
+			return nil
+		}
+		sidecars, err := fs.GitMergeResolveSidecarContext(ctx, s.root, s.conflictLabel(), s.author, s.email)
+		if err != nil {
+			return err
+		}
+		if len(sidecars) == 0 {
+			s.record(nil)
+			return nil
+		}
+		s.logSidecars(sidecars)
+		if err := fs.GitPushContext(ctx, s.root); err != nil {
+			return err
+		}
+		return s.recordSync(sidecars)
+	})
 }
 
 // conflictLabel tags conflict-copy filenames: the instance name when set, else

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -60,32 +61,38 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 		}))
 	}
 
-	// Stale-edit guard: reject when the file changed since the form loaded
-	// (e.g. a background pull brought a newer version).
-	current, err := s.readConfigFile()
-	if err != nil {
-		http.Error(w, "failed to read config", http.StatusInternalServerError)
-		return
-	}
-	if r.FormValue("hash") != contentHash(current) {
+	current := ""
+	written := false
+	err := s.sync.MutateAndCommit(r.Context(), "web: edit kbrd.toml", func() error {
+		var err error
+		current, err = s.readConfigFile()
+		if err != nil {
+			return err
+		}
+		if r.FormValue("hash") != contentHash(current) {
+			return errStaleMutation
+		}
+		// Validate before writing — a rejected save never reaches disk, so it
+		// can never break the running server.
+		if s.opts.ValidateConfig != nil {
+			if err := s.opts.ValidateConfig([]byte(content)); err != nil {
+				return err
+			}
+		}
+		if err := kbrdfs.WriteFileAtomicDurable(s.opts.ConfigFile, []byte(content), 0o644); err != nil {
+			return err
+		}
+		written = true
+		return nil
+	})
+	switch {
+	case errors.Is(err, errStaleMutation):
 		renderErr("The config changed while you were editing. Your text is preserved above; review the current version before saving again.", contentHash(current))
 		return
-	}
-
-	// Validate before writing — a rejected save never reaches disk, so it
-	// can never break the running server.
-	if s.opts.ValidateConfig != nil {
-		if err := s.opts.ValidateConfig([]byte(content)); err != nil {
-			renderErr(err.Error(), contentHash(current))
-			return
-		}
-	}
-
-	if err := kbrdfs.WriteFileAtomicDurable(s.opts.ConfigFile, []byte(content), 0o644); err != nil {
+	case err != nil && !written:
 		renderErr("Save failed: "+err.Error(), contentHash(current))
 		return
-	}
-	if err := s.sync.CommitPush("web: edit kbrd.toml"); err != nil {
+	case err != nil:
 		renderErr("Saved locally, but git sync failed: "+err.Error(), contentHash(content))
 		return
 	}

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,35 @@ import (
 
 	"kbrd/fs"
 )
+
+func TestSyncerLockRespectsCancellation(t *testing.T) {
+	s := &Syncer{mu: make(chan struct{}, 1)}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- s.withLock(context.Background(), func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := s.withLock(ctx, func(context.Context) error {
+		t.Fatal("cancelled caller acquired the sync lock")
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled lock wait = %v, want context cancellation", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("first lock holder: %v", err)
+	}
+}
 
 // TestSyncerCommitPushReconcilesConflict drives the unattended daemon path: a
 // rejected push triggers the self-healing merge, which sets the incoming edit

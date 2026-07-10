@@ -13,6 +13,8 @@ import (
 	"kbrd/board"
 )
 
+var errStaleMutation = errors.New("stale board mutation")
+
 // syncView feeds the header chip in base.html.
 type syncView struct {
 	Enabled bool
@@ -161,19 +163,27 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		}))
 	}
 
-	created, err := board.CreateItem(colPath, name, content)
+	cleanName, err := board.SanitizeName(name)
+	if err != nil {
+		renderErr("Invalid name: " + err.Error())
+		return
+	}
+	created := ""
+	err = s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: create %s/%s", colName, cleanName), func() error {
+		var err error
+		created, err = board.CreateItem(colPath, cleanName, content)
+		return err
+	})
 	switch {
 	case errors.Is(err, os.ErrExist):
 		renderErr("A card with that name already exists.")
 		return
 	case err != nil:
+		if created != "" {
+			renderErr("Card created, but git sync failed: " + err.Error())
+			return
+		}
 		renderErr("Invalid name: " + err.Error())
-		return
-	}
-
-	createdName := strings.TrimSuffix(filepath.Base(created), ".md")
-	if err := s.sync.CommitPush(fmt.Sprintf("web: create %s/%s", colName, createdName)); err != nil {
-		renderErr("Card created, but git sync failed: " + err.Error())
 		return
 	}
 	redirectBoard(w, r, colName)
@@ -217,24 +227,36 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 		}))
 	}
 
-	// Stale-edit guard: reject when the file changed since the form loaded
-	// (e.g. a background pull brought a newer version) — a clean git rebase
-	// would otherwise silently supersede that change.
-	current, err := board.ReadItem(colPath, name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if r.FormValue("hash") != contentHash(current) {
+	// Keep the optimistic-concurrency check, write, and commit under the
+	// Syncer's lock. A pull or another POST cannot slip in between them.
+	current := ""
+	written := false
+	err := s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: edit %s/%s", colName, name), func() error {
+		var err error
+		current, err = board.ReadItem(colPath, name)
+		if err != nil {
+			return err
+		}
+		if r.FormValue("hash") != contentHash(current) {
+			return errStaleMutation
+		}
+		if err := board.WriteItem(colPath, name, content); err != nil {
+			return err
+		}
+		written = true
+		return nil
+	})
+	switch {
+	case errors.Is(err, errStaleMutation):
 		renderErr("This card changed while you were editing. Your text is preserved above; review the current version before saving again.", contentHash(current))
 		return
-	}
-
-	if err := board.WriteItem(colPath, name, content); err != nil {
+	case errors.Is(err, os.ErrNotExist):
+		http.NotFound(w, r)
+		return
+	case err != nil && !written:
 		renderErr("Save failed: "+err.Error(), contentHash(current))
 		return
-	}
-	if err := s.sync.CommitPush(fmt.Sprintf("web: edit %s/%s", colName, name)); err != nil {
+	case err != nil:
 		renderErr("Saved locally, but git sync failed: "+err.Error(), contentHash(content))
 		return
 	}
@@ -252,12 +274,24 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := board.DeleteItem(colPath, name); err != nil {
+	deleted := false
+	err := s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: delete %s/%s", colName, name), func() error {
+		if err := board.DeleteItem(colPath, name); err != nil {
+			return err
+		}
+		deleted = true
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.sync.CommitPush(fmt.Sprintf("web: delete %s/%s", colName, name)); err != nil {
+	if err != nil && deleted {
 		http.Error(w, "deleted locally, but git sync failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err != nil {
+		http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	redirectBoard(w, r, colName)
