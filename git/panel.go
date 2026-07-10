@@ -6,39 +6,39 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	kbrdfs "kbrd/fs"
 	"kbrd/theme"
 )
 
-// panelKeys are the git panel's in-panel bindings. The panel-open binding ("g")
-// stays in the host's global keymap; these are internal to the panel.
+// panelKeys are deliberately intent-led. Git's commit/sync distinction is
+// still available to people who need it, but the default dirty-tree action is
+// one "save & sync" operation rather than two easily-confused actions.
 var panelKeys = struct {
-	Commit, CommitSync, CommitCancel, Sync, Log, Diff, AddRemote, Close, FocusToggle, FocusLeft, FocusRight key.Binding
+	Save, Pull, History, Changes, Connect, Cancel, Close, FocusToggle, Up, Down key.Binding
 }{
-	Diff:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
-	FocusLeft:    key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "files")),
-	FocusRight:   key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "diff")),
-	Commit:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
-	Sync:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sync (pull+push)")),
-	CommitSync:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "commit + sync")),
-	Log:          key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "log")),
-	AddRemote:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add remote")),
-	Close:        key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
-	CommitCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
-	FocusToggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus pane")),
+	Save:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "save & sync")),
+	Pull:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "pull")),
+	History:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "history")),
+	Changes:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "changes")),
+	Connect:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "connect remote")),
+	Close:       key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	Cancel:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	FocusToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "switch section")),
+	Up:          key.NewBinding(key.WithKeys("up", "k")),
+	Down:        key.NewBinding(key.WithKeys("down", "j")),
 }
 
 type gitPanelFocus int
 
 const (
 	focusFiles gitPanelFocus = iota
-	focusDiff
+	focusInspector
 )
 
 type gitPanelInput int
@@ -57,7 +57,7 @@ const (
 )
 
 type gitPanelCloseMsg struct{ gitMsg }
-type gitSyncRequestMsg struct{ gitMsg }
+type gitPullRequestMsg struct{ gitMsg }
 type gitContinueSyncMsg struct{ gitMsg }
 type gitLogRequestMsg struct{ gitMsg }
 type gitCommitRequestMsg struct {
@@ -67,7 +67,13 @@ type gitCommitRequestMsg struct {
 }
 type gitAddRemoteRequestMsg struct {
 	gitMsg
-	URL string
+	URL      string
+	ThenSync bool
+}
+type gitConnectRemoteSyncRequestMsg struct{ gitMsg }
+type gitConnectRemoteSyncDoneMsg struct {
+	gitMsg
+	Err error
 }
 type gitRefreshMsg struct{ gitMsg }
 type gitDiffForFileMsg struct {
@@ -77,31 +83,62 @@ type gitDiffForFileMsg struct {
 	OrigPath string
 }
 
+// GitPanel is a single-flow changes sheet. The selected-file diff is part of
+// the reading flow, rather than a second focusable pane with its own mode.
 type GitPanel struct {
 	active       bool
-	focus        gitPanelFocus
 	input        gitPanelInput
+	focus        gitPanelFocus
 	rightView    gitPanelRightView
 	repoRoot     string
 	branch       string
 	hasRemote    bool
 	files        []kbrdfs.FileChange
-	table        table.Model
+	cursor       int
 	commitIn     textinput.Model
 	remoteIn     textinput.Model
 	thenSync     bool
 	right        viewport.Model
 	rightTitle   string
 	rightContent string
+	logContent   string
 	diffCache    map[string]string
-	lastCursor   int
 	termW        int
 	termH        int
 	palette      theme.Palette
 }
 
-// SetPalette updates the panel's palette and restyles any pre-built inputs
-// so the new colors apply on the next render.
+// maxInspectorLines keeps the changes sheet stable while selecting files with
+// differently sized diffs. Long content scrolls; short content leaves a small,
+// predictable amount of breathing room instead of resizing the whole dialog.
+const (
+	maxInspectorLines = 12
+	sectionMarginH    = 1
+	logRailMinWidth   = 96
+	logRailWidth      = 30
+)
+
+func sectionFrameWidth(bodyW int) int {
+	return max(bodyW-2*sectionMarginH, 30)
+}
+
+func sectionMargin(content string) string {
+	return lipgloss.NewStyle().Margin(0, sectionMarginH).Render(content)
+}
+
+func (p *GitPanel) showLogRail() bool {
+	bodyW, _ := p.dims()
+	return bodyW >= logRailMinWidth
+}
+
+func (p *GitPanel) mainWidth(bodyW int) int {
+	if p.showLogRail() {
+		return bodyW - logRailWidth - 1
+	}
+	return bodyW
+}
+
+// SetPalette updates the panel's palette and restyles any pre-built inputs.
 func (p *GitPanel) SetPalette(pal theme.Palette) {
 	p.palette = pal
 	theme.ApplyTextInputPalette(&p.commitIn, pal)
@@ -112,22 +149,23 @@ func (p *GitPanel) Active() bool { return p.active }
 
 func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.FileChange, termW, termH int) {
 	p.active = true
-	p.focus = focusFiles
 	p.input = inputNone
+	p.focus = focusFiles
 	p.rightView = rightDiff
 	p.repoRoot = repoRoot
 	p.branch = branch
 	p.hasRemote = hasRemote
 	p.files = files
+	p.cursor = 0
 	p.thenSync = false
 	p.diffCache = map[string]string{}
+	p.logContent = "Loading history…"
 	p.termW = termW
 	p.termH = termH
+	p.commitIn = newPanelInput("  message: ", 200, p.palette)
+	p.remoteIn = newPanelInput("  remote URL: ", 300, p.palette)
+	p.remoteIn.Placeholder = "git@github.com:you/board.git"
 	p.rebuild()
-
-	p.commitIn = newPanelInput("  msg: ", 200, p.palette)
-	p.remoteIn = newPanelInput("  url: ", 300, p.palette)
-	p.remoteIn.Placeholder = "git@github.com:user/repo.git"
 }
 
 func newPanelInput(prompt string, charLimit int, pal theme.Palette) textinput.Model {
@@ -143,104 +181,58 @@ func (p *GitPanel) Refresh(branch string, hasRemote bool, files []kbrdfs.FileCha
 	p.branch = branch
 	p.hasRemote = hasRemote
 	p.files = files
+	p.cursor = min(p.cursor, max(len(files)-1, 0))
 	p.termW = termW
 	p.termH = termH
 	p.diffCache = map[string]string{}
 	p.rebuild()
 }
 
-// dims returns inner content sizes: total inner W/H, left pane W, right pane W.
-func (p *GitPanel) dims() (innerW, innerH, leftW, rightW int) {
-	innerW = p.termW - 20
-	if max := 140; innerW > max {
-		innerW = max
+// dims returns the changes sheet's usable body dimensions.
+func (p *GitPanel) dims() (bodyW, bodyH int) {
+	bodyW = p.termW - 20
+	if bodyW > 112 {
+		bodyW = 112
 	}
-	if innerW < 60 {
-		innerW = 60
+	if bodyW < 52 {
+		bodyW = 52
 	}
-	innerH = p.termH - 10
-	if max := 28; innerH > max {
-		innerH = max
+	bodyH = p.termH - 10
+	if bodyH > 28 {
+		bodyH = 28
 	}
-	if innerH < 10 {
-		innerH = 10
+	if bodyH < 10 {
+		bodyH = 10
 	}
-	leftW = max(min(innerW*3/5, 60), 36)
-	rightW = max(
-		// 3 chars for separator + padding
-		innerW-leftW-3, 20)
 	return
 }
 
-func panelPaneContentWidth(outerW int) int {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		Padding(0, 1)
-	return theme.StyleContentWidth(style, outerW)
+func (p *GitPanel) fileListHeight() int {
+	if len(p.files) == 0 || p.rightView == rightLog {
+		return 0
+	}
+	// Titled top border, rows, and bottom border.
+	return min(len(p.files), 5) + 2
 }
 
 func (p *GitPanel) rebuild() {
-	_, innerH, leftW, rightW := p.dims()
-	bodyH := max(
-		// leave room for title + footer
-		innerH-4, 5)
-
-	// Pane has 2-char border + 2-char inner padding, and the table itself adds
-	// 1-char cell padding on both sides of every column (so 6 chars overhead
-	// for three columns). St=3, +/-=7 → file column = leftW - 4 - 6 - 3 - 7.
-	pathW := max(leftW-20, 10)
-	cols := []table.Column{
-		{Title: "St", Width: 3},
-		{Title: "File", Width: pathW},
-		{Title: "+/-", Width: 7},
-	}
-	rows := make([]table.Row, 0, len(p.files))
-	for _, f := range p.files {
-		stats := ""
-		if f.Added > 0 || f.Deleted > 0 {
-			stats = fmt.Sprintf("+%d -%d", f.Added, f.Deleted)
-		}
-		display := f.Path
-		if f.OrigPath != "" {
-			display = f.OrigPath + " → " + f.Path
-		}
-		rows = append(rows, table.Row{f.Status, display, stats})
-	}
-	// Both panes must render bodyH content lines so their boxes line up. The
-	// right pane is a 1-line title over a (bodyH-1)-line viewport = bodyH lines.
-	// For the table: WithHeight is applied before SetStyles adds the header's
-	// bottom border, so the rendered header ends up 2 lines while WithHeight only
-	// accounted for 1 — hence bodyH-1 here yields a bodyH-line table.View().
-	t := table.New(
-		table.WithColumns(cols),
-		table.WithRows(rows),
-		table.WithFocused(p.focus == focusFiles),
-		table.WithWidth(panelPaneContentWidth(leftW)),
-		table.WithHeight(bodyH-1),
-	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(p.palette.BorderMuted).
-		BorderBottom(true).
-		Bold(true).
-		Foreground(p.palette.FgMuted)
-	s.Selected = s.Selected.
-		Foreground(p.palette.FgOnAccent).
-		Background(p.palette.PrimaryStrong).
-		Bold(true)
-	t.SetStyles(s)
-	p.table = t
-	p.lastCursor = t.Cursor()
-
-	// Reserve one column for the scrollbar inside the pane's content area.
-	vpW := max(panelPaneContentWidth(rightW)-1, 10)
-	vp := viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(bodyH-1)) // -1 to make room for the title row
+	bodyW, bodyH := p.dims()
+	bodyW = p.mainWidth(bodyW)
+	// Status, a gap, inspector title, and the selected-file list share the
+	// available height. Size the sheet to short diffs, then cap long diffs so
+	// the board remains visible behind the overlay.
+	maxH := max(bodyH-5-p.fileListHeight(), 5)
+	// Keep one cell for the scroll position bar so the diff never reflows as it
+	// grows past the viewport height.
+	sectionW := theme.RoundedFrameContentWidth(sectionFrameWidth(bodyW), 1)
+	vpW := max(sectionW-1, 10)
+	vpH := min(maxH, maxInspectorLines)
+	vp := viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(vpH))
 	vp.SetContent(p.rightContent)
-	if p.rightTitle == "" {
-		p.rightTitle = "diff"
-	}
 	p.right = vp
+	if p.rightTitle == "" {
+		p.rightTitle = "Current diff"
+	}
 }
 
 func (p *GitPanel) Close() {
@@ -253,6 +245,7 @@ func (p *GitPanel) Close() {
 	p.hasRemote = false
 	p.diffCache = nil
 	p.rightTitle = ""
+	p.logContent = ""
 }
 
 func (p *GitPanel) SetDiffForFile(path, content string) {
@@ -266,29 +259,28 @@ func (p *GitPanel) SetDiffForFile(path, content string) {
 	if cur, ok := p.CurrentFile(); !ok || cur.Path != path {
 		return
 	}
-	p.rightTitle = "diff: " + path
+	p.rightTitle = "Current diff"
 	p.rightContent = content
-	p.right.SetContent(content)
+	p.rebuild()
 	p.right.GotoTop()
 }
 
 func (p *GitPanel) SetLog(content string) {
+	p.logContent = content
+	if p.showLogRail() {
+		return
+	}
 	p.rightView = rightLog
-	p.rightTitle = "log"
+	p.rightTitle = "History"
 	p.rightContent = content
-	p.right.SetContent(content)
-	p.right.GotoTop()
+	p.rebuild()
 }
 
 func (p *GitPanel) CurrentFile() (kbrdfs.FileChange, bool) {
-	if len(p.files) == 0 {
+	if len(p.files) == 0 || p.cursor < 0 || p.cursor >= len(p.files) {
 		return kbrdfs.FileChange{}, false
 	}
-	idx := p.table.Cursor()
-	if idx < 0 || idx >= len(p.files) {
-		return kbrdfs.FileChange{}, false
-	}
-	return p.files[idx], true
+	return p.files[p.cursor], true
 }
 
 func (p *GitPanel) RightView() gitPanelRightView { return p.rightView }
@@ -296,12 +288,15 @@ func (p *GitPanel) RightView() gitPanelRightView { return p.rightView }
 func (p *GitPanel) DiffRequestForCurrent() tea.Cmd {
 	f, ok := p.CurrentFile()
 	if !ok {
+		p.rightTitle = "No changes"
+		p.rightContent = "No local changes to review."
+		p.rebuild()
 		return nil
 	}
 	if cached, hit := p.diffCache[f.Path]; hit {
-		p.rightTitle = "diff: " + f.Path
+		p.rightTitle = "Current diff"
 		p.rightContent = cached
-		p.right.SetContent(cached)
+		p.rebuild()
 		p.right.GotoTop()
 		return nil
 	}
@@ -316,23 +311,18 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	// Active input takes most keys.
 	if p.input == inputCommit {
 		switch {
-		case key.Matches(km, panelKeys.CommitCancel):
+		case key.Matches(km, panelKeys.Cancel):
 			p.input = inputNone
 			p.commitIn.Blur()
 			p.thenSync = false
 			return nil
 		case km.String() == "enter":
-			msg := p.commitIn.Value()
-			thenSync := p.thenSync
+			message, thenSync := p.commitIn.Value(), p.thenSync
 			p.commitIn.Blur()
-			p.input = inputNone
-			p.thenSync = false
-			return func() tea.Msg {
-				return gitCommitRequestMsg{Message: msg, ThenSync: thenSync}
-			}
+			p.input, p.thenSync = inputNone, false
+			return func() tea.Msg { return gitCommitRequestMsg{Message: message, ThenSync: thenSync} }
 		}
 		var cmd tea.Cmd
 		p.commitIn, cmd = p.commitIn.Update(km)
@@ -341,7 +331,7 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 
 	if p.input == inputRemote {
 		switch {
-		case key.Matches(km, panelKeys.CommitCancel):
+		case key.Matches(km, panelKeys.Cancel):
 			p.input = inputNone
 			p.remoteIn.Blur()
 			return nil
@@ -349,83 +339,67 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 			url := p.remoteIn.Value()
 			p.remoteIn.Blur()
 			p.input = inputNone
-			return func() tea.Msg {
-				return gitAddRemoteRequestMsg{URL: url}
-			}
+			return func() tea.Msg { return gitAddRemoteRequestMsg{URL: url, ThenSync: true} }
 		}
 		var cmd tea.Cmd
 		p.remoteIn, cmd = p.remoteIn.Update(km)
 		return cmd
 	}
 
-	// No input active.
 	if key.Matches(km, panelKeys.Close) {
 		return func() tea.Msg { return gitPanelCloseMsg{} }
 	}
-	if key.Matches(km, panelKeys.FocusToggle) {
+	if key.Matches(km, panelKeys.FocusToggle) && p.rightView == rightDiff && len(p.files) > 0 {
 		p.toggleFocus()
 		return nil
 	}
-	if key.Matches(km, panelKeys.FocusLeft) && p.focus == focusDiff {
-		p.toggleFocus()
-		return nil
-	}
-	if key.Matches(km, panelKeys.FocusRight) && p.focus == focusFiles {
-		p.toggleFocus()
-		return nil
-	}
-	if key.Matches(km, panelKeys.Log) {
+	if key.Matches(km, panelKeys.History) {
+		if p.showLogRail() {
+			return nil
+		}
+		p.focus = focusInspector
 		return func() tea.Msg { return gitLogRequestMsg{} }
 	}
-	if key.Matches(km, panelKeys.Diff) {
-		// `d` shows current file diff (useful when right pane is on log)
+	if key.Matches(km, panelKeys.Changes) {
 		p.rightView = rightDiff
+		p.focus = focusFiles
+		p.rebuild()
 		return p.DiffRequestForCurrent()
 	}
-	if !p.hasRemote && key.Matches(km, panelKeys.AddRemote) {
+	if !p.hasRemote && key.Matches(km, panelKeys.Connect) {
 		p.startRemoteInput()
 		return nil
 	}
-	// Sync (pull+push) gates only on having a remote, so it can pull onto a
-	// clean tree — not just when there are local changes to commit+push.
-	if p.hasRemote && key.Matches(km, panelKeys.Sync) {
-		return func() tea.Msg { return gitSyncRequestMsg{} }
+	if p.hasRemote && key.Matches(km, panelKeys.Pull) {
+		return func() tea.Msg { return gitPullRequestMsg{} }
 	}
-	if len(p.files) > 0 {
+	if len(p.files) > 0 && key.Matches(km, panelKeys.Save) {
+		p.startCommitInput(p.hasRemote)
+		return nil
+	}
+	if p.focus == focusFiles && p.rightView == rightDiff && len(p.files) > 0 {
+		old := p.cursor
 		switch {
-		case key.Matches(km, panelKeys.Commit):
-			p.startCommitInput(false)
-			return nil
-		case key.Matches(km, panelKeys.CommitSync):
-			if !p.hasRemote {
-				return nil
-			}
-			p.startCommitInput(true)
-			return nil
+		case key.Matches(km, panelKeys.Up):
+			p.cursor = max(p.cursor-1, 0)
+		case key.Matches(km, panelKeys.Down):
+			p.cursor = min(p.cursor+1, len(p.files)-1)
+		}
+		if old != p.cursor {
+			return p.DiffRequestForCurrent()
 		}
 	}
-
-	if p.focus == focusDiff {
-		var cmd tea.Cmd
-		p.right, cmd = p.right.Update(km)
-		return cmd
-	}
-
-	// focusFiles: delegate to table, then dispatch diff if selection changed.
 	var cmd tea.Cmd
-	p.table, cmd = p.table.Update(km)
-	if c := p.table.Cursor(); c != p.lastCursor {
-		p.lastCursor = c
-		if p.rightView == rightDiff {
-			if dc := p.DiffRequestForCurrent(); dc != nil {
-				if cmd == nil {
-					return dc
-				}
-				return tea.Batch(cmd, dc)
-			}
-		}
-	}
+	p.right, cmd = p.right.Update(km)
 	return cmd
+}
+
+func (p *GitPanel) toggleFocus() {
+	if p.focus == focusFiles {
+		p.focus = focusInspector
+		return
+	}
+	p.focus = focusFiles
 }
 
 func (p *GitPanel) HandleMouse(msg tea.MouseMsg) tea.Cmd {
@@ -438,19 +412,45 @@ func (p *GitPanel) HandleMouse(msg tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
-func (p *GitPanel) toggleFocus() {
-	if p.focus == focusFiles {
-		p.focus = focusDiff
-		p.table.Blur()
-	} else {
-		p.focus = focusFiles
-		p.table.Focus()
+// renderScrollbar renders a fixed-width track with a position-aware thumb.
+// It is always present: a diff won't suddenly reflow one cell narrower only
+// after it becomes long enough to need scrolling.
+func (p *GitPanel) renderScrollbar(height int) string {
+	if height < 1 {
+		return ""
 	}
+	track := lipgloss.NewStyle().Foreground(p.palette.FgDim).Render("│")
+	total := p.right.TotalLineCount()
+	if total <= height || total == 0 {
+		return strings.Repeat(track+"\n", height-1) + track
+	}
+	thumbH := min(max(height*height/total, 1), height)
+	thumbStart := min(max(int(float64(height-thumbH)*p.right.ScrollPercent()), 0), height-thumbH)
+	thumb := lipgloss.NewStyle().Background(p.palette.Primary).Render(" ")
+	lines := make([]string, height)
+	for i := range lines {
+		if i >= thumbStart && i < thumbStart+thumbH {
+			lines[i] = thumb
+		} else {
+			lines[i] = track
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (p *GitPanel) inspectorTitle() string {
+	title := p.rightTitle
+	if p.focus == focusInspector {
+		title = "› " + title
+	}
+	if p.right.TotalLineCount() <= p.right.Height() {
+		return title
+	}
+	return fmt.Sprintf("%s · %d%%", title, int(p.right.ScrollPercent()*100))
 }
 
 func (p *GitPanel) startCommitInput(thenSync bool) {
-	p.input = inputCommit
-	p.thenSync = thenSync
+	p.input, p.thenSync = inputCommit, thenSync
 	p.commitIn.SetValue(time.Now().Format("2006-01-02 15:04:05"))
 	p.commitIn.CursorEnd()
 	p.commitIn.Focus()
@@ -462,138 +462,179 @@ func (p *GitPanel) startRemoteInput() {
 	p.remoteIn.Focus()
 }
 
-// renderScrollbar returns a height-line vertical bar: a dim track with a bright
-// thumb whose size and position reflect the diff viewport's scroll state. When
-// the content fits entirely, it returns a plain dim track so the pane width
-// stays stable. The thumb is drawn as a background fill rather than a block
-// glyph so it forms one solid bar — block glyphs (█) leave font-dependent gaps
-// between cells.
-func (p *GitPanel) renderScrollbar(height int) string {
-	if height < 1 {
+func (p *GitPanel) renderFiles(width int) string {
+	if len(p.files) == 0 || p.rightView == rightLog {
 		return ""
 	}
-	track := lipgloss.NewStyle().Foreground(p.palette.FgDim).Render("│")
-
-	total := p.right.TotalLineCount()
-	if total <= height || total == 0 {
-		lines := make([]string, height)
-		for i := range lines {
-			lines[i] = track
-		}
-		return strings.Join(lines, "\n")
+	border := p.palette.BorderMuted
+	titleStyle := theme.OverlayTitleStyle(p.palette).Foreground(p.palette.FgMuted)
+	title := "Files to save"
+	if p.focus == focusFiles {
+		border = p.palette.BorderActive
+		titleStyle = theme.OverlayTitleStyle(p.palette)
+		title = "› " + title
 	}
-
-	thumbN := min(max(height*height/total, 1), height)
-	// Round to nearest cell: (x*2+1)/2 with integer math.
-	pos := min(max(int((float64(height-thumbN)*p.right.ScrollPercent())*2+1)/2, 0), height-thumbN)
-
-	thumb := lipgloss.NewStyle().Background(p.palette.Primary).Render(" ")
-	lines := make([]string, height)
-	for i := range lines {
-		if i >= pos && i < pos+thumbN {
-			lines[i] = thumb
-		} else {
-			lines[i] = track
+	frameW := sectionFrameWidth(width)
+	contentW := theme.RoundedFrameContentWidth(frameW, 1)
+	rows := make([]string, 0, min(len(p.files), 5)+1)
+	for i, f := range p.files[:min(len(p.files), 5)] {
+		path := f.Path
+		if f.OrigPath != "" {
+			path = f.OrigPath + " → " + f.Path
 		}
+		stats := ""
+		if f.Added > 0 || f.Deleted > 0 {
+			stats = fmt.Sprintf("+%d −%d", f.Added, f.Deleted)
+		}
+		prefix := "  "
+		style := lipgloss.NewStyle().Foreground(p.palette.FgMuted)
+		if i == p.cursor {
+			prefix = "› "
+			style = lipgloss.NewStyle().Bold(true).Foreground(p.palette.FgBase)
+		}
+		status := changeStatus(f.Status)
+		rowPrefix := prefix + status + "  "
+		pathW := max(contentW-lipgloss.Width(rowPrefix)-lipgloss.Width(stats)-1, 12)
+		line := rowPrefix + ansi.Truncate(path, pathW, "…")
+		if stats != "" {
+			line += strings.Repeat(" ", max(contentW-lipgloss.Width(line)-lipgloss.Width(stats), 1)) + stats
+		}
+		rows = append(rows, style.Render(line))
 	}
-	return strings.Join(lines, "\n")
+	if more := len(p.files) - 5; more > 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(p.palette.FgDim).Render(fmt.Sprintf("  … %d more", more)))
+	}
+	return sectionMargin(theme.RoundedFrame(title, titleStyle, strings.Join(rows, "\n"), border, 0, 1, frameW))
+}
+
+// changeStatus turns Git's two-column porcelain status into the one thing this
+// sheet needs to convey: what will happen to the file. A leading space in a
+// worktree-only modification must not become an invisible status marker.
+func changeStatus(status string) string {
+	switch s := strings.TrimSpace(status); {
+	case s == "":
+		return "?"
+	case s == "??":
+		return "A"
+	case strings.Contains(s, "D"):
+		return "D"
+	case strings.Contains(s, "R"):
+		return "R"
+	default:
+		return "M"
+	}
+}
+
+func (p *GitPanel) stateLine() string {
+	primary := lipgloss.NewStyle().Bold(true).Foreground(p.palette.FgBase)
+	muted := lipgloss.NewStyle().Foreground(p.palette.FgMuted)
+	state := "Working tree clean"
+	if n := len(p.files); n > 0 {
+		unit := "uncommitted files"
+		if n == 1 {
+			unit = "uncommitted file"
+		}
+		state = fmt.Sprintf("%d %s", n, unit)
+	}
+	destination := "Local only"
+	if p.hasRemote {
+		destination = "Connected to origin"
+	}
+	return primary.Render(state) + muted.Render("  ·  "+destination)
+}
+
+func (p *GitPanel) renderLogRail(width, height int) string {
+	contentW := theme.RoundedFrameContentWidth(width, 1)
+	contentH := max(height-2, 4)
+	entries := strings.Split(strings.TrimSpace(p.logContent), "\n")
+	if len(entries) == 0 || entries[0] == "" {
+		entries = []string{"Loading history…"}
+	}
+	rows := make([]string, 0, contentH)
+	for _, entry := range entries[:min(len(entries), min(contentH, 10))] {
+		rows = append(rows, ansi.Truncate(entry, contentW, "…"))
+	}
+	for len(rows) < contentH {
+		rows = append(rows, "")
+	}
+	return theme.RoundedFrame(
+		"Recent commits",
+		theme.OverlayTitleStyle(p.palette).Foreground(p.palette.FgMuted),
+		strings.Join(rows, "\n"),
+		p.palette.BorderMuted,
+		0,
+		1,
+		width,
+	)
 }
 
 func (p *GitPanel) View() string {
-	paneActiveStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(p.palette.BorderActive).
-		Padding(0, 1)
-	paneIdleStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(p.palette.BorderMuted).
-		Padding(0, 1)
-	branchLabel := p.branch
-	if branchLabel == "" {
-		branchLabel = "(no branch)"
+	bodyW, _ := p.dims()
+	mainW := p.mainWidth(bodyW)
+	branch := p.branch
+	if branch == "" {
+		branch = "(no branch)"
 	}
-	dimStyle := lipgloss.NewStyle().Foreground(p.palette.FgDim).Italic(true)
 
-	_, _, leftW, rightW := p.dims()
-
-	// Left pane: file table (or "clean" message).
-	var leftBody string
-	if len(p.files) == 0 {
-		leftBody = dimStyle.Render("working tree clean")
-	} else {
-		leftBody = p.table.View()
+	sections := []string{p.stateLine(), ""}
+	if files := p.renderFiles(mainW); files != "" {
+		sections = append(sections, files, "")
 	}
-	leftStyle := paneIdleStyle
-	if p.focus == focusFiles {
-		leftStyle = paneActiveStyle
+	inspector := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), p.renderScrollbar(p.right.Height()))
+	inspectorBorder := p.palette.BorderMuted
+	inspectorStyle := theme.OverlayTitleStyle(p.palette).Foreground(p.palette.FgMuted)
+	if p.focus == focusInspector {
+		inspectorBorder = p.palette.BorderActive
+		inspectorStyle = theme.OverlayTitleStyle(p.palette)
 	}
-	leftPane := leftStyle.Width(leftW).Render(leftBody)
-
-	// Right pane: viewport with a title row that includes a scroll indicator.
-	scroll := ""
-	if p.right.TotalLineCount() > p.right.Height() {
-		scroll = fmt.Sprintf("%d%%", int(p.right.ScrollPercent()*100))
-	} else if p.right.TotalLineCount() > 0 {
-		scroll = "all"
+	sections = append(sections, sectionMargin(theme.RoundedFrame(p.inspectorTitle(), inspectorStyle, inspector, inspectorBorder, 0, 1, sectionFrameWidth(mainW))))
+	main := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	body := main
+	if p.showLogRail() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, main, " ", p.renderLogRail(logRailWidth, lipgloss.Height(main)))
 	}
-	titleW := max(panelPaneContentWidth(rightW), 10)
-	leftTitle := p.rightTitle
-	if w := titleW - len(scroll) - 1; w > 0 && len(leftTitle) > w {
-		leftTitle = leftTitle[:w-1] + "…"
-	}
-	pad := max(titleW-len(leftTitle)-len(scroll), 1)
-	rightTitle := dimStyle.Render(leftTitle + strings.Repeat(" ", pad) + scroll)
-	bar := p.renderScrollbar(p.right.Height())
-	diffWithBar := lipgloss.JoinHorizontal(lipgloss.Top, p.right.View(), bar)
-	rightBody := lipgloss.JoinVertical(lipgloss.Left, rightTitle, diffWithBar)
-	rightStyle := paneIdleStyle
-	if p.focus == focusDiff {
-		rightStyle = paneActiveStyle
-	}
-	rightPane := rightStyle.Width(rightW).Render(rightBody)
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
 
 	hints := []theme.Hint{}
-	add := func(k, label string) {
-		hints = append(hints, theme.Hint{Keys: k, Label: label})
-	}
-	if p.focus == focusDiff {
-		add("j/k", "scroll")
-		add("ctrl+u/d", "half page")
-		add("g/G", "top/bottom")
-		add("←/tab", "files")
-		add("q/esc", "close")
-	} else {
-		if len(p.files) > 0 {
-			add("c", "commit all")
-		}
+	if len(p.files) > 0 {
 		if p.hasRemote {
-			add("s", "sync")
-			if len(p.files) > 0 {
-				add("S", "commit all+sync")
-			}
+			hints = append(hints, theme.Hint{Keys: "c", Label: "save+sync"})
+		} else {
+			hints = append(hints, theme.Hint{Keys: "c", Label: "save"})
 		}
-		if !p.hasRemote {
-			add("a", "add remote")
-		}
-		add("l", "log")
-		add("d", "diff")
-		add("→/tab", "scroll diff")
-		add("q/esc", "close")
 	}
-	footer := theme.RenderHints(p.palette, hints)
+	if p.hasRemote {
+		hints = append(hints, theme.Hint{Keys: "s", Label: "pull"})
+	} else {
+		hints = append(hints, theme.Hint{Keys: "a", Label: "remote"})
+	}
+	if p.rightView == rightLog {
+		hints = append(hints, theme.Hint{Keys: "d", Label: "changes"})
+	} else if len(p.files) > 0 {
+		if p.focus == focusFiles {
+			hints = append(hints, theme.Hint{Keys: "↑/↓", Label: "file"}, theme.Hint{Keys: "tab", Label: "diff"})
+		} else {
+			hints = append(hints, theme.Hint{Keys: "↑/↓", Label: "scroll"}, theme.Hint{Keys: "tab", Label: "files"})
+		}
+	}
+	if !p.showLogRail() {
+		hints = append(hints, theme.Hint{Keys: "l", Label: "log"})
+	}
+	if bodyW < 80 {
+		// Keep the focus instructions on one line in an 80-column terminal.
+		hints = append(hints, theme.Hint{Keys: "esc", Label: ""})
+	} else {
+		hints = append(hints, theme.Hint{Keys: "q/esc", Label: "close"})
+	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, row, "", footer)
-	panel := theme.OverlayFrame{Title: "git · " + branchLabel, Body: content, Palette: p.palette}.Render()
-
+	panel := theme.OverlayFrame{
+		Title:   "Changes · " + branch,
+		Body:    body,
+		Footer:  theme.RenderHints(p.palette, hints),
+		Width:   theme.RoundedFrameWidthForContent(bodyW, theme.OverlayPadH),
+		Palette: p.palette,
+	}.Render()
 	if p.input != inputNone {
-		return lipgloss.Place(
-			lipgloss.Width(panel), lipgloss.Height(panel),
-			lipgloss.Center, lipgloss.Center,
-			p.inputDialog(),
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		return lipgloss.Place(lipgloss.Width(panel), lipgloss.Height(panel), lipgloss.Center, lipgloss.Center, p.inputDialog(), lipgloss.WithWhitespaceChars(" "))
 	}
 	return panel
 }
@@ -602,18 +643,20 @@ func (p *GitPanel) inputDialog() string {
 	var title, body, hint string
 	switch p.input {
 	case inputCommit:
-		title = "Commit all"
-		confirmLabel := "commit all"
+		title = "Save changes"
+		confirm := "save changes"
+		explanation := "Save a Git commit locally."
 		if p.thenSync {
-			title = "Commit all + sync"
-			confirmLabel = "commit all + sync"
+			title = "Save & sync"
+			confirm = "save & sync"
+			explanation = "Save locally, then sync with origin so this board is available on your other machines."
 		}
-		body = p.commitIn.View()
-		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: confirmLabel}, {Keys: "esc", Label: "cancel"}})
+		body = lipgloss.JoinVertical(lipgloss.Left, p.commitIn.View(), "", lipgloss.NewStyle().Foreground(p.palette.FgMuted).Render(explanation))
+		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: confirm}, {Keys: "esc", Label: "cancel"}})
 	case inputRemote:
-		title = "Add remote"
-		body = p.remoteIn.View()
-		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: "add as origin"}, {Keys: "esc", Label: "cancel"}})
+		title = "Connect a remote"
+		body = lipgloss.JoinVertical(lipgloss.Left, p.remoteIn.View(), "", lipgloss.NewStyle().Foreground(p.palette.FgMuted).Render("Connect this board to a Git remote, then sync it now."))
+		hint = theme.RenderHints(p.palette, []theme.Hint{{Keys: "enter", Label: "connect & sync"}, {Keys: "esc", Label: "cancel"}})
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, body, "", hint)
 	return theme.OverlayFrame{Title: title, Body: content, Palette: p.palette}.Render()

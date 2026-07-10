@@ -68,7 +68,7 @@ func initSyncRepo(t *testing.T) string {
 
 func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
 	var p GitPanel
-	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 120, 30)
+	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 90, 30)
 
 	lines := make([]string, 40)
 	for i := range lines {
@@ -96,9 +96,9 @@ func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
 	}
 }
 
-func TestGitPanelRightPaneScrollbarDoesNotWrap(t *testing.T) {
+func TestGitPanelHistoryDoesNotWrap(t *testing.T) {
 	var p GitPanel
-	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 120, 30)
+	p.Open("", "main", false, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 90, 30)
 
 	lines := make([]string, 40)
 	for i := range lines {
@@ -107,11 +107,11 @@ func TestGitPanelRightPaneScrollbarDoesNotWrap(t *testing.T) {
 	p.SetLog(strings.Join(lines, "\n"))
 
 	view := ansi.Strip(p.View())
-	if !strings.Contains(view, "task.md") {
-		t.Fatalf("panel left pane did not render changed file row\n%s", view)
+	if !strings.Contains(view, "History") {
+		t.Fatalf("panel did not render the history inspector\n%s", view)
 	}
 	gotH := lipgloss.Height(view)
-	const wantH = 24
+	const wantH = 22
 	if gotH != wantH {
 		t.Fatalf("panel height = %d, want %d; right pane likely wrapped\n%s", gotH, wantH, view)
 	}
@@ -126,6 +126,159 @@ func TestGitPanelRightPaneScrollbarDoesNotWrap(t *testing.T) {
 		if w != width {
 			t.Fatalf("panel line width = %d, want %d for line %q\n%s", w, width, line, view)
 		}
+	}
+}
+
+func TestGitPanelRendersScrollbarForLongInspector(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", false, nil, 90, 30)
+	p.SetLog(strings.Repeat("line\n", 40))
+	if p.right.TotalLineCount() <= p.right.Height() {
+		t.Fatal("test setup did not overflow the inspector")
+	}
+	bar := ansi.Strip(p.renderScrollbar(p.right.Height()))
+	if !strings.Contains(bar, " ") || !strings.Contains(bar, "│") {
+		t.Fatalf("scrollbar = %q, want track and thumb", bar)
+	}
+	if got := ansi.Strip(p.View()); !strings.Contains(got, "History · 0%") {
+		t.Fatalf("overflowing inspector should show position\n%s", got)
+	}
+}
+
+func TestWideGitPanelShowsRecentCommitsRail(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", true, []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}, 140, 30)
+	p.SetDiffForFile("task.md", "task.md --- Text\n+added")
+	p.SetLog("1234567 2026-07-10 Ada recent change")
+	if p.RightView() != rightDiff {
+		t.Fatal("wide log rail should not replace the current diff")
+	}
+	view := ansi.Strip(p.View())
+	for _, want := range []string{"Current diff", "Recent commits", "1234567"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("wide panel missing %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "l log") {
+		t.Fatalf("wide panel still exposes the log mode\n%s", view)
+	}
+}
+
+func TestGitPanelTabFocusSwitchesArrowKeysFromFilesToDiff(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "one.md", Status: " M"}, {Path: "two.md", Status: " M"}}
+	var p GitPanel
+	p.Open("", "main", false, files, 120, 30)
+	p.SetDiffForFile("one.md", strings.Repeat("line\n", 40))
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if p.cursor != 1 {
+		t.Fatalf("file cursor = %d, want 1", p.cursor)
+	}
+	p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if p.focus != focusInspector {
+		t.Fatalf("focus = %v, want inspector", p.focus)
+	}
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if p.cursor != 1 {
+		t.Fatalf("diff scroll changed file cursor to %d", p.cursor)
+	}
+	if p.right.YOffset() == 0 {
+		t.Fatal("down arrow did not scroll the focused diff")
+	}
+	view := ansi.Strip(p.View())
+	if !strings.Contains(view, "› Current diff") || strings.Contains(view, "› Files to save") {
+		t.Fatalf("focused diff is not visually distinct\n%s", view)
+	}
+}
+
+func TestGitPanelKeepsHeightStableAcrossDifferentDiffLengths(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "short.md", Status: " M"}, {Path: "long.md", Status: " M"}}
+	var p GitPanel
+	p.Open("", "main", false, files, 120, 30)
+	p.SetDiffForFile("short.md", "short diff")
+	shortH := lipgloss.Height(ansi.Strip(p.View()))
+
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	p.SetDiffForFile("long.md", strings.Repeat("a much longer diff line\n", 40))
+	longH := lipgloss.Height(ansi.Strip(p.View()))
+	if longH != shortH {
+		t.Fatalf("sheet height changed from %d to %d when switching diffs", shortH, longH)
+	}
+}
+
+func TestGitPanelSaveExplainsWhetherItWillSync(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "task.md", Status: " M"}}
+	cases := []struct {
+		name         string
+		hasRemote    bool
+		wantThenSync bool
+		wantText     string
+	}{
+		{name: "local only", wantThenSync: false, wantText: "Save changes"},
+		{name: "connected", hasRemote: true, wantThenSync: true, wantText: "Save & sync"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var p GitPanel
+			p.Open("", "main", tt.hasRemote, files, 120, 30)
+			p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+			if got := ansi.Strip(p.View()); !strings.Contains(got, tt.wantText) {
+				t.Fatalf("dialog missing %q\n%s", tt.wantText, got)
+			}
+			cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			msg, ok := cmd().(gitCommitRequestMsg)
+			if !ok {
+				t.Fatalf("enter message = %T, want gitCommitRequestMsg", cmd())
+			}
+			if msg.ThenSync != tt.wantThenSync {
+				t.Fatalf("ThenSync = %v, want %v", msg.ThenSync, tt.wantThenSync)
+			}
+		})
+	}
+}
+
+func TestGitPanelUsesClearFileAndDiffSections(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", true, []kbrdfs.FileChange{{Path: "task.md", Status: " M", Added: 1, Deleted: 1}}, 120, 30)
+	p.SetDiffForFile("task.md", "task.md --- Text\n+added")
+	view := ansi.Strip(p.View())
+	for _, want := range []string{"1 uncommitted file", "Files to save", "› M  task.md", "Current diff"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("sheet missing %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Change · task.md") {
+		t.Fatalf("sheet repeats the selected path as a second heading\n%s", view)
+	}
+	files := ansi.Strip(p.renderFiles(112))
+	if got := lipgloss.Height(files); got != 3 {
+		t.Fatalf("file selection box height = %d, want 3; row likely wrapped\n%s", got, files)
+	}
+}
+
+func TestGitPanelConnectRemoteRequestsInitialSync(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", false, nil, 120, 30)
+	p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if got := ansi.Strip(p.View()); !strings.Contains(got, "Connect a remote") {
+		t.Fatalf("connect dialog was not shown\n%s", got)
+	}
+	p.remoteIn.SetValue("git@example.com:you/board.git")
+	cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg, ok := cmd().(gitAddRemoteRequestMsg)
+	if !ok {
+		t.Fatalf("enter message = %T, want gitAddRemoteRequestMsg", cmd())
+	}
+	if !msg.ThenSync {
+		t.Fatal("new remote should request its initial sync")
+	}
+}
+
+func TestGitPanelPullRequestsPullOnly(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", true, nil, 120, 30)
+	cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if _, ok := cmd().(gitPullRequestMsg); !ok {
+		t.Fatalf("s message = %T, want gitPullRequestMsg", cmd())
 	}
 }
 
@@ -629,6 +782,39 @@ func TestHandleGitAddRemote_EmptyURL(t *testing.T) {
 	cmd := c.handleGitAddRemote(gitAddRemoteRequestMsg{URL: "   "})
 	if cmd == nil {
 		t.Fatal("expected error notification for empty URL")
+	}
+}
+
+func TestConnectRemoteSyncPushesNewRemote(t *testing.T) {
+	dir := initSyncRepo(t)
+	bare := filepath.Join(t.TempDir(), "board.git")
+	gitRun(t, t.TempDir(), "init", "--bare", bare)
+	if err := kbrdfs.GitAddRemoteOrigin(dir, bare); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestController(dir)
+	cmd := c.handleGitConnectRemoteSync()
+	msg, ok := cmd().(gitConnectRemoteSyncDoneMsg)
+	if !ok {
+		t.Fatalf("sync message = %T, want gitConnectRemoteSyncDoneMsg", cmd())
+	}
+	if msg.Err != nil {
+		t.Fatalf("initial push failed: %v", msg.Err)
+	}
+	if c.handleGitConnectRemoteSyncDone(msg) == nil {
+		t.Fatal("expected success notification")
+	}
+	if c.syncing {
+		t.Fatal("initial sync left controller marked syncing")
+	}
+
+	out, err := exec.Command("git", "--git-dir", bare, "log", "--format=%s", "-1", "main").Output()
+	if err != nil {
+		t.Fatalf("remote has no pushed commit: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "initial" {
+		t.Fatalf("pushed subject = %q, want initial", got)
 	}
 }
 

@@ -373,13 +373,14 @@ override it.
 
 | Keys | Action |
 | --- | --- |
-| `d` | Diff selected file |
-| `c` | Commit |
-| `s` | Sync (pull + push) |
-| `S` | Commit + sync |
-| `l` | View log |
-| `a` | Add remote |
-| `tab` | Toggle pane focus |
+| `c` | Save changes, then sync when a remote is connected |
+| `s` | Pull remote changes without publishing local commits |
+| `l` | View log on narrow terminals (wide terminals show a recent-commits rail) |
+| `a` | Connect a remote (then sync) |
+| `d` | Return from history to changes |
+| `tab` | Switch between the file list and current diff |
+| `↑` / `↓` or `j` / `k` | Select a file or scroll the focused diff |
+| `pgup` / `pgdn` or mouse wheel | Scroll the current diff or history |
 | `q` / `esc` | Close |
 
 ### Config menu (`,`)
@@ -432,7 +433,7 @@ item_double_click = "peek"   # peek | edit
 diff_tool          = "auto"     # auto | difft | diff-so-fancy | git
 auto_sync_interval = ""         # empty / "0" disables; e.g. "30s", "5m", "1h"
 generate_readme    = false      # regenerate README.md from the board before each commit
-manual_sync_mode   = "attended" # attended (ff-only, fail loud) | auto (merge + conflict copy)
+manual_sync_mode   = "attended" # Save & sync: attended (ff-only, fail loud) | auto (merge + conflict copy)
 sync_on_startup    = true       # reconcile with the remote when the board opens (no-op without a remote)
 auto_commit        = false      # TUI: commit pending edits before auto-sync (pauses while editor is open)
 

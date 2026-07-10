@@ -246,8 +246,8 @@ func (c *Controller) Update(m Msg) tea.Cmd {
 		return c.handleGitCommit(msg)
 	case gitPostCommitMsg:
 		return c.handleGitPostCommit(msg)
-	case gitSyncRequestMsg:
-		return c.handleGitSync()
+	case gitPullRequestMsg:
+		return c.handleGitPull()
 	case gitContinueSyncMsg:
 		return c.handleGitSync()
 	case gitSyncStepMsg:
@@ -258,6 +258,10 @@ func (c *Controller) Update(m Msg) tea.Cmd {
 		return c.handleGitRefresh()
 	case gitAddRemoteRequestMsg:
 		return c.handleGitAddRemote(msg)
+	case gitConnectRemoteSyncRequestMsg:
+		return c.handleGitConnectRemoteSync()
+	case gitConnectRemoteSyncDoneMsg:
+		return c.handleGitConnectRemoteSyncDone(msg)
 	case autoSyncTickMsg:
 		return c.handleAutoSyncTick()
 	case autoSyncDoneMsg:

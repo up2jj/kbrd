@@ -55,13 +55,14 @@ func (c *Controller) Open() tea.Cmd {
 	files := kbrdfs.GitChangedFiles(c.repoRoot)
 	c.panel.Open(c.repoRoot, branch, hasRemote, files, c.termW, c.termH)
 	diffCmd := c.panel.DiffRequestForCurrent()
-	if initToast == nil {
-		return diffCmd
+	cmds := []tea.Cmd{func() tea.Msg { return gitLogRequestMsg{} }}
+	if initToast != nil {
+		cmds = append(cmds, initToast)
 	}
-	if diffCmd == nil {
-		return initToast
+	if diffCmd != nil {
+		cmds = append(cmds, diffCmd)
 	}
-	return tea.Batch(initToast, diffCmd)
+	return tea.Batch(cmds...)
 }
 
 func (c *Controller) refreshPanel() {
@@ -197,8 +198,9 @@ func (c *Controller) handleGitLog() tea.Cmd {
 	}
 	lines := make([]string, 0, len(commits))
 	for _, commit := range commits {
-		lines = append(lines, fmt.Sprintf("%s %s %s %s",
-			commit.Short, commit.Time.Format(time.DateOnly), commit.Author, commit.Subject))
+		// A concise hash + subject remains useful in the narrow recent-commits
+		// rail and is still enough context in the narrow-terminal history view.
+		lines = append(lines, fmt.Sprintf("%s %s", commit.Short, commit.Subject))
 	}
 	text := strings.Join(lines, "\n")
 	if text == "" {
@@ -208,7 +210,30 @@ func (c *Controller) handleGitLog() tea.Cmd {
 	return nil
 }
 
-// handleGitSync runs the manual sync, whose policy is set by
+// handleGitPull retrieves remote changes without publishing local commits.
+// It follows the configured conflict policy: attended mode uses ff-only pull,
+// while auto mode uses the same merge-with-sidecar reconciliation as automatic
+// sync, but intentionally stops before pushing.
+func (c *Controller) handleGitPull() tea.Cmd {
+	if c.syncing {
+		return c.notifier.Error("pull already in progress")
+	}
+	c.syncing = true
+	if c.cfg.GitManualSyncMode == "auto" {
+		root := c.repoRoot
+		label := c.conflictLabel()
+		return func() tea.Msg {
+			sidecars, err := kbrdfs.GitMergeResolveSidecar(root, label, "", "")
+			return gitSyncStepMsg{Stage: "pull", Err: err, Sidecars: sidecars}
+		}
+	}
+	cmd := kbrdfs.GitCommand(c.repoRoot, "pull", "--ff-only")
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return gitSyncStepMsg{Stage: "pull", Err: err}
+	})
+}
+
+// handleGitSync completes the explicit Save & sync flow. Its policy is set by
 // git.manual_sync_mode. "attended" (default) does pull→push via ExecProcess so
 // git owns the terminal and can prompt for credentials, and `--ff-only` fails
 // loudly on divergence for the user to resolve. "auto" runs the same
@@ -263,10 +288,14 @@ func (c *Controller) handleGitSyncStep(msg gitSyncStepMsg) tea.Cmd {
 	if settle != nil {
 		return settle
 	}
-	if n := len(msg.Sidecars); n > 0 {
-		return c.notifier.Success("sync ok — " + conflictCopyNote(n))
+	verb := "sync"
+	if msg.Stage == "pull" {
+		verb = "pull"
 	}
-	return c.notifier.Success("sync ok")
+	if n := len(msg.Sidecars); n > 0 {
+		return c.notifier.Success(verb + " ok — " + conflictCopyNote(n))
+	}
+	return c.notifier.Success(verb + " ok")
 }
 
 var autoSyncGitTimeout = 2 * time.Minute
@@ -490,7 +519,39 @@ func (c *Controller) handleGitAddRemote(msg gitAddRemoteRequestMsg) tea.Cmd {
 	}
 	c.refreshRemote()
 	c.refreshPanel()
-	return c.notifier.Success("remote 'origin' added")
+	if !msg.ThenSync {
+		return c.notifier.Success("remote 'origin' added")
+	}
+	return tea.Batch(
+		c.notifier.Success("remote connected; syncing…"),
+		func() tea.Msg { return gitConnectRemoteSyncRequestMsg{} },
+	)
+}
+
+// handleGitConnectRemoteSync pushes a newly connected board once. A fresh
+// remote has no upstream to pull from yet, so routing through the normal
+// pull→push manual sync path would fail before Git can establish tracking.
+func (c *Controller) handleGitConnectRemoteSync() tea.Cmd {
+	if c.syncing {
+		return c.notifier.Error("sync already in progress")
+	}
+	c.syncing = true
+	root := c.repoRoot
+	return func() tea.Msg { return gitConnectRemoteSyncDoneMsg{Err: kbrdfs.GitPush(root)} }
+}
+
+func (c *Controller) handleGitConnectRemoteSyncDone(msg gitConnectRemoteSyncDoneMsg) tea.Cmd {
+	c.settleSync()
+	c.refreshRemote()
+	c.refreshPanel()
+	if msg.Err != nil {
+		c.recordSyncOutcome(msg.Err, 0)
+		c.bus.Publish(events.GitSyncDone{OK: false, Stage: "push", Err: msg.Err.Error()})
+		return c.notifier.Error("remote connected, but sync failed: " + msg.Err.Error())
+	}
+	c.recordSyncOutcome(nil, 0)
+	c.bus.Publish(events.GitSyncDone{OK: true, Stage: "push"})
+	return c.notifier.Success("connected and synced")
 }
 
 func (c *Controller) handleGitRefresh() tea.Cmd {
