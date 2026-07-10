@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"kbrd/board"
-	"kbrd/frontmatter"
 )
 
 const previewLines = 3
@@ -85,28 +84,14 @@ func loadCard(columnPath, name string) Card {
 		c.search = strings.ToLower(c.Title)
 		return c
 	}
-	fmBlock, body, _ := frontmatter.Split(raw)
-	if fm, err := frontmatter.Parse([]byte(fmBlock)); err == nil {
-		c.Icon = fm.Icon
-		c.Accent = fm.Accent
-		c.Tags = fm.Tags
-		c.Pinned = frontmatter.Bool(fm.Data["pinned"])
-	}
-
-	for line := range strings.SplitSeq(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if h, ok := strings.CutPrefix(trimmed, "# "); ok && c.Title == name {
-			c.Title = strings.TrimSpace(h)
-			continue
-		}
-		if len(c.Preview) < previewLines {
-			c.Preview = append(c.Preview, trimmed)
-		}
-	}
-	c.search = strings.ToLower(c.Title + "\n" + strings.Join(c.Tags, "\n") + "\n" + body)
+	p := board.ProjectCardContent(name, raw, board.CardProjectionOptions{PreviewLines: previewLines, TitleFromHeading: true})
+	c.Title = p.Title
+	c.Icon = p.Icon
+	c.Accent = p.Accent
+	c.Tags = p.Tags
+	c.Preview = p.Preview
+	c.Pinned = p.Pinned
+	c.search = strings.ToLower(c.Title + "\n" + strings.Join(c.Tags, "\n") + "\n" + p.Body)
 	return c
 }
 

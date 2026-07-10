@@ -6,10 +6,10 @@ import (
 	"hash/fnv"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
+	"kbrd/board"
 	"kbrd/frontmatter"
 )
 
@@ -59,24 +59,26 @@ func NewItem(fullPath string, opts ItemOptions) (Item, error) {
 	name := strings.TrimSuffix(info.Name(), ".md")
 
 	preview, heading, front, hash, _ := readPreviewAndHeading(fullPath, opts)
-	fm, fmErr := frontmatter.Parse(front) // malformed YAML degrades to no metadata
+	card := board.ProjectCardParts(name, heading, preview, front, board.CardProjectionOptions{
+		PreviewLines: opts.PreviewLines, TitleFromHeading: opts.TitleFromHeading,
+	})
 
 	return Item{
-		BadFM:       fmErr != nil,
-		Name:        name,
-		Title:       resolveTitle(name, heading, opts),
-		Preview:     preview,
+		BadFM:       card.BadFM,
+		Name:        card.Name,
+		Title:       card.Title,
+		Preview:     card.Preview,
 		FullPath:    fullPath,
-		Pinned:      frontmatter.Bool(fm.Data["pinned"]),
+		Pinned:      card.Pinned,
 		Size:        info.Size(),
 		Modified:    info.ModTime(),
 		contentHash: hash,
-		Tags:        fm.Tags,
-		Render:      fm.Render,
-		Meta:        fm.Meta,
-		Icon:        fm.Icon,
-		Accent:      fm.Accent,
-		Data:        fm.Data,
+		Tags:        card.Tags,
+		Render:      card.Render,
+		Meta:        card.Meta,
+		Icon:        card.Icon,
+		Accent:      card.Accent,
+		Data:        card.Data,
 	}, nil
 }
 
@@ -147,35 +149,24 @@ func (i *Item) Refresh(opts ItemOptions) error {
 	i.Modified = info.ModTime()
 
 	if preview, heading, front, hash, err := readPreviewAndHeading(i.FullPath, opts); err == nil {
-		i.Preview = preview
+		card := board.ProjectCardParts(i.Name, heading, preview, front, board.CardProjectionOptions{
+			PreviewLines: opts.PreviewLines, TitleFromHeading: opts.TitleFromHeading,
+		})
+		i.Preview = card.Preview
 		i.contentHash = hash
-		i.Title = resolveTitle(i.Name, heading, opts)
 		// Assign unconditionally so removing the frontmatter clears the fields.
-		fm, fmErr := frontmatter.Parse(front)
-		i.BadFM = fmErr != nil
-		i.Pinned = frontmatter.Bool(fm.Data["pinned"])
-		i.Tags = fm.Tags
-		i.Render = fm.Render
-		i.Meta = fm.Meta
-		i.Icon = fm.Icon
-		i.Accent = fm.Accent
-		i.Data = fm.Data
+		i.Title = card.Title
+		i.BadFM = card.BadFM
+		i.Pinned = card.Pinned
+		i.Tags = card.Tags
+		i.Render = card.Render
+		i.Meta = card.Meta
+		i.Icon = card.Icon
+		i.Accent = card.Accent
+		i.Data = card.Data
 	}
 	return nil
 }
-
-// resolveTitle returns the display title: the heading when heading titles are
-// enabled and one was found, otherwise the filename-derived name.
-func resolveTitle(name, heading string, opts ItemOptions) string {
-	if opts.TitleFromHeading && heading != "" {
-		return heading
-	}
-	return name
-}
-
-// reH1 matches an ATX level-1 heading: a single leading '#' followed by space
-// and the title text. Levels 2+ (## …) and '#' without a space are ignored.
-var reH1 = regexp.MustCompile(`^#[ \t]+(.+?)[ \t]*#*$`)
 
 // readPreviewAndHeading scans only the leading prefix of the file in a single
 // pass, returning the non-empty preview lines (first opts.PreviewLines of
@@ -256,8 +247,8 @@ func readPreviewAndHeading(path string, opts ItemOptions) ([]string, string, []b
 				continue
 			}
 			headingDone = true
-			if m := reH1.FindStringSubmatch(trimmed); m != nil {
-				heading = m[1]
+			if title, ok := board.HeadingTitle(trimmed); ok {
+				heading = title
 				continue // omit the title line from the preview
 			}
 			// First content line is not an H1: no title; it belongs to preview.
