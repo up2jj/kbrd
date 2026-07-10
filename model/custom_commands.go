@@ -153,7 +153,7 @@ func (b *Board) handleCustomCommandFinished(msg customCommandFinishedMsg) (tea.M
 
 type CustomCommandMenu struct {
 	active bool
-	fuzzyList
+	flatPicker
 	commands []config.Command
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
@@ -268,27 +268,16 @@ func (m *CustomCommandMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 		m.Close()
 		return nil
 	}
-	switch msg.Code {
-	case tea.KeyUp:
-		m.fuzzyList.Move(-1)
-		return nil
-	case tea.KeyDown:
-		m.fuzzyList.Move(1)
-		return nil
-	case tea.KeyEnter:
+	switch m.flatPicker.HandleInput(msg) {
+	case flatPickerInputConfirm:
 		index, ok := m.fuzzyList.SelectedIndex()
 		if !ok {
 			m.Close()
 			return nil
 		}
 		return m.run(m.commands[index])
-	case tea.KeyBackspace:
-		m.fuzzyList.Backspace()
-		return nil
-	default:
-		m.fuzzyList.Append(msg.Text)
-		return nil
 	}
+	return nil
 }
 
 func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
@@ -328,7 +317,6 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 		warnSection = lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
 	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
 	descStyle := lipgloss.NewStyle().Foreground(p.FgMuted)
 	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
@@ -336,14 +324,7 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 	hiSelStyle := lipgloss.NewStyle().Bold(true).Foreground(p.Highlight).Background(p.Primary)
 	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 
-	cursor := keyStyle.Render("> ")
-	filterText := m.filter
-	if filterText == "" {
-		filterText = descStyle.Render("type to filter…")
-	} else {
-		filterText = nameStyle.Render(filterText)
-	}
-	filterLine := cursor + filterText
+	filterLine := flatPickerFilterLine(p, m.filter, descStyle, nameStyle)
 
 	var body string
 	switch {
@@ -408,14 +389,6 @@ func (m *CustomCommandMenu) View(termWidth, termHeight int) string {
 		parts = append(parts, warnSection, "")
 	}
 	parts = append(parts, body)
-	inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
-	minInner := 50
-	if termWidth > 0 && termWidth-12 < minInner {
-		minInner = termWidth - 12
-	}
-	if lipgloss.Width(inner) < minInner {
-		inner = lipgloss.NewStyle().Width(minInner).Render(inner)
-	}
+	inner := flatPickerInner(termWidth, parts...)
 	return OverlayFrame{Title: "Custom commands", Body: inner, Footer: footer, Palette: p}.Render()
 }

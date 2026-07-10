@@ -28,7 +28,7 @@ type removeBoardMsg struct {
 type Switcher struct {
 	active  bool
 	entries []recents.Entry
-	fuzzyList
+	flatPicker
 	activePath string
 	palette    Palette
 }
@@ -79,11 +79,8 @@ func (s *Switcher) Update(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, Keys.SwitcherClose):
 		s.Close()
 		return nil
-	case key.Matches(msg, Keys.SwitcherPrev):
-		s.fuzzyList.Move(-1)
-		return nil
-	case key.Matches(msg, Keys.SwitcherNext):
-		s.fuzzyList.Move(1)
+	case key.Matches(msg, Keys.SwitcherPrev), key.Matches(msg, Keys.SwitcherNext):
+		s.flatPicker.HandleInput(msg)
 		return nil
 	case key.Matches(msg, Keys.SwitcherPinToggle):
 		index, ok := s.fuzzyList.SelectedIndex()
@@ -117,7 +114,8 @@ func (s *Switcher) Update(msg tea.KeyPressMsg) tea.Cmd {
 		e := s.entries[index]
 		return func() tea.Msg { return removeBoardMsg{Path: e.Path} }
 	default:
-		s.fuzzyList.Append(msg.Text)
+		// Arrow movement and typing are shared with the other flat pickers.
+		s.flatPicker.HandleInput(msg)
 		return nil
 	}
 }
@@ -136,16 +134,7 @@ func (s *Switcher) View() string {
 	pinSpace := " "
 	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
 	missingStyle := lipgloss.NewStyle().Foreground(p.Danger).Italic(true)
-	keyStyle := lipgloss.NewStyle().Foreground(p.Highlight).Bold(true)
-
-	cursor := keyStyle.Render("> ")
-	filterText := s.filter
-	if filterText == "" {
-		filterText = descStyle.Render("type to filter…")
-	} else {
-		filterText = nameStyle.Render(filterText)
-	}
-	filterLine := cursor + filterText
+	filterLine := flatPickerFilterLine(p, s.filter, descStyle, nameStyle)
 
 	var body string
 	switch {
