@@ -1,4 +1,4 @@
-package mcpsetup
+package setup
 
 import (
 	"fmt"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
-	"kbrd/mcpsetup"
+	mcpsetup "kbrd/mcp/setup"
 
 	"github.com/spf13/cobra"
 )
