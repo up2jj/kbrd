@@ -95,6 +95,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		out = append(out,
 			bindingShortcut(Keys.CustomCommands),
 			short(Keys.MnemonicJump.Help().Key, "jump"),
+			short(Keys.Harpoon.Help().Key, "harpoon"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
 		)
 		return out
@@ -110,6 +111,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			bindingShortcut(Keys.CustomCommands),
 			short(Keys.GitPanel.Help().Key, "git"),
 			short(Keys.MnemonicJump.Help().Key, "jump"),
+			short(Keys.Harpoon.Help().Key, "harpoon"),
 			short(Keys.ToggleHelp.Help().Key, "more"),
 		)
 	}
@@ -120,6 +122,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 		short(Keys.RenameCol.Help().Key, "rename col"),
 		short(Keys.GitPanel.Help().Key, "git"),
 		short(Keys.MnemonicJump.Help().Key, "jump"),
+		short(Keys.Harpoon.Help().Key, "harpoon"),
 		short(Keys.ToggleHelp.Help().Key, "more"),
 	)
 }

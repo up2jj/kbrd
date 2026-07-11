@@ -11,6 +11,7 @@ type KeyMap struct {
 	Quit         key.Binding
 	ToggleHelp   key.Binding
 	MnemonicJump key.Binding
+	Harpoon      key.Binding
 	SwitchBoard  key.Binding
 	Search       key.Binding
 	Refresh      key.Binding
@@ -99,7 +100,8 @@ type KeyMap struct {
 	MnemonicJumpConfirm key.Binding
 
 	// Help overlay
-	HelpClose key.Binding
+	HelpClose    key.Binding
+	HarpoonClose key.Binding
 
 	// Config menu
 	ConfigMenu              key.Binding
@@ -129,6 +131,7 @@ var Keys = KeyMap{
 	Quit:         key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
 	ToggleHelp:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
 	MnemonicJump: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "jump to card mnemonic")),
+	Harpoon:      key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "open harpoon slots")),
 	SwitchBoard:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
 	Search:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
 	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
@@ -217,7 +220,8 @@ var Keys = KeyMap{
 	MnemonicJumpConfirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "jump now")),
 
 	// Help overlay
-	HelpClose: key.NewBinding(key.WithKeys("esc", "q", "?"), key.WithHelp("q/esc", "close")),
+	HelpClose:    key.NewBinding(key.WithKeys("esc", "q", "?"), key.WithHelp("q/esc", "close")),
+	HarpoonClose: key.NewBinding(key.WithKeys("esc", "q", "h"), key.WithHelp("q/esc", "close")),
 
 	// Config menu
 	ConfigMenu:              key.NewBinding(key.WithKeys(","), key.WithHelp(",", "config commands")),
@@ -279,6 +283,7 @@ func menuKey(helpKey string) string {
 func HelpMenuGroups() []HelpGroup {
 	global := []HelpEntry{
 		helpEntry(Keys.Refresh, "Reload every column from disk, picking up external edits."),
+		helpEntry(Keys.Harpoon, "Open five board-scoped quick-jump slots; assign the current file or jump to a saved one."),
 		helpEntry(Keys.SwitchBoard, "Open the board switcher to jump to a recent or pinned board."),
 		helpEntry(Keys.Search, "Full-text search across all known boards."),
 		helpEntry(Keys.GitPanel, "Open the git panel to review changes, commit, and sync."),

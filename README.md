@@ -83,6 +83,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Fully keyboard-driven** — every action has a binding; mouse optional.
 - **Global search** — fuzzy full-text search across all recent boards via `ripgrep` (`f`).
 - **Board switcher** — fuzzy switch, pin favorites, and remove boards (`Ctrl+P`).
+- **Harpoon slots** — keep five board-scoped file jumps at hand (`h`).
 - **Help overlay** — discover every shortcut without leaving the app (`?`).
 
 **Git & sync**
@@ -295,6 +296,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | Keys | Action |
 | --- | --- |
 | `F5` | Refresh |
+| `h` | Open five Harpoon file slots |
 | `Ctrl+P` | Switch board |
 | `f` | Search across boards |
 | `g` | Git panel |
@@ -302,6 +304,14 @@ All bindings below are the defaults from the in-app help (`?`).
 | `,` | Config menu |
 | `?` | Toggle help |
 | `Ctrl+C` | Quit |
+
+### Harpoon slots (`h`)
+
+Harpoon keeps five machine-local slots for the current board, so they survive restarts
+without adding state to the board repository. Open the list with `h`, use `↑` / `↓`
+to choose a slot, then press `a` to assign the currently selected file. Press `1`–`5`
+or `enter` to jump to a slot, and `d` to clear it. Jumping selects the file and opens
+its column when it was collapsed.
 
 ### Inline editor (vim-like)
 

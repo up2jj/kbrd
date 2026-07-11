@@ -45,6 +45,7 @@ type Board struct {
 	editor           *Editor
 	notifier         *Notifier
 	mnemonic         mnemonicSelectorState
+	harpoon          HarpoonMenu
 	theme            string
 	terminalDark     bool
 	palette          Palette
@@ -222,6 +223,7 @@ func (b *Board) applyPalette() {
 	b.templateMenu.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
 	b.helpMenu.SetPalette(b.palette)
+	b.harpoon.SetPalette(b.palette)
 	if b.editor != nil {
 		b.editor.palette = b.palette
 	}
@@ -802,6 +804,11 @@ func (b *Board) handleBoardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if key.Matches(msg, Keys.MnemonicJump) {
 		return b, b.mnemonicSelector().open()
+	}
+	// Harpoon is a global jump surface, so it deliberately takes precedence over
+	// a same-key virtual-column command.
+	if key.Matches(msg, Keys.Harpoon) {
+		return b.harpoonActions().open()
 	}
 	if col.Virtual {
 		if cmd, handled := b.virtualCommands().handleKey(msg, col); handled {

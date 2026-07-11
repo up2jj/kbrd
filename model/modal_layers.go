@@ -21,6 +21,11 @@ func (b *Board) modalLayers() []modalLayer {
 			mouse:  func(msg tea.MouseMsg) tea.Cmd { b.helpMenu.HandleMouse(msg); return nil },
 		},
 		{
+			active: b.harpoon.Active,
+			view:   func(w, h, _ int) string { return b.harpoon.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.harpoonActions().update(msg) },
+		},
+		{
 			active: func() bool { return b.configMenuOpen },
 			view:   func(_, _, _ int) string { return RenderConfigCommandsOverlay(configCommandEntries()) },
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.inputRouter().handleConfigMenu(msg) },
