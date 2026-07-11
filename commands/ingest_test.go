@@ -8,13 +8,29 @@ import (
 	"testing"
 	"time"
 
+	"kbrd/config"
 	"kbrd/recents"
 )
 
 func runIngestCommand(t *testing.T, stdin string, args ...string) (string, error) {
+	return runIngestCommandWithFlags(t, cliFlags{}, stdin, args...)
+}
+
+func runIngestCommandWithFlags(t *testing.T, flags cliFlags, stdin string, args ...string) (string, error) {
 	t.Helper()
-	cmd := newIngestCmd()
+	cmd := newIngestCmd(&flags)
 	cmd.SetArgs(args)
+	cmd.SetIn(strings.NewReader(stdin))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+func runSafeIngestCommand(t *testing.T, stdin string, args ...string) (string, error) {
+	t.Helper()
+	cmd := NewRootCmd()
+	cmd.SetArgs(append([]string{"--safe", "ingest"}, args...))
 	cmd.SetIn(strings.NewReader(stdin))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -138,4 +154,45 @@ func TestIngestUsesBoardCreatedAtFormat(t *testing.T) {
 	if want := "created_at: \"" + time.Now().UTC().Format(time.DateOnly) + "\""; !strings.Contains(string(data), want) {
 		t.Fatalf("content = %q, want %q", data, want)
 	}
+}
+
+func TestIngestRunsItemCreatedHooksAndSafeSkipsThem(t *testing.T) {
+	isolateConfig(t)
+	root := makeIngestBoard(t, "todo")
+	hookOutput := filepath.Join(root, "hook-output")
+	hooks := "hooks:\n" +
+		"  - name: Record created card\n" +
+		"    id: record-created\n" +
+		"    event: item_created\n" +
+		"    command: printf '%s|%s|%s' '{{.filePath}}' '{{.columnName}}' '{{.fileName}}' > '" + hookOutput + "'\n" +
+		"  - name: Fails without aborting\n" +
+		"    id: failing-created\n" +
+		"    event: item_created\n" +
+		"    command: false\n"
+	if err := os.WriteFile(filepath.Join(root, config.FolderHooksFile), []byte(hooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runIngestCommand(t, "", "--board", root, "--name", "Hook card", "--content", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := mustReadFile(t, hookOutput), filepath.Join(root, "todo", "hook-card.md")+"|todo|hook-card"; got != want {
+		t.Fatalf("hook variables = %q, want %q", got, want)
+	}
+
+	if _, err := runSafeIngestCommand(t, "", "--board", root, "--name", "Safe card", "--content", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, hookOutput); !strings.Contains(got, "hook-card") || strings.Contains(got, "safe-card") {
+		t.Fatalf("safe ingestion ran hook: %q", got)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

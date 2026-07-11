@@ -5,6 +5,7 @@ import (
 
 	"kbrd/config"
 	"kbrd/events"
+	"kbrd/hook"
 )
 
 func testCfg() config.Config {
@@ -12,7 +13,7 @@ func testCfg() config.Config {
 }
 
 func newTestRunner(hooks []config.Hook) *hookRunner {
-	return newHookRunner(testCfg(), hooks)
+	return newHookRunner(hook.New(testCfg(), hooks))
 }
 
 func TestHookRunner_QueuesInDefinitionOrder(t *testing.T) {

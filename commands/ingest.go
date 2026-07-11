@@ -11,7 +11,9 @@ import (
 
 	"kbrd/board"
 	"kbrd/config"
+	"kbrd/events"
 	"kbrd/frontmatter"
+	"kbrd/hook"
 
 	"github.com/spf13/cobra"
 )
@@ -25,15 +27,16 @@ type ingestFlags struct {
 }
 
 // newIngestCmd builds `kbrd ingest`, a headless way for scripts to create a
-// card from text without starting the TUI or evaluating board-supplied code.
-func newIngestCmd() *cobra.Command {
+// card from text without starting the TUI. Declarative item_created hooks run
+// after the card is written unless the root --safe flag is set.
+func newIngestCmd(flags *cliFlags) *cobra.Command {
 	var f ingestFlags
 	cmd := &cobra.Command{
 		Use:   "ingest",
 		Short: "Ingest text as a card in a board",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIngest(cmd, f)
+			return runIngest(cmd, f, flags.safe)
 		},
 	}
 	cmd.Flags().StringVar(&f.board, "board", "", "target board name from recents or an existing directory path")
@@ -44,7 +47,7 @@ func newIngestCmd() *cobra.Command {
 	return cmd
 }
 
-func runIngest(cmd *cobra.Command, f ingestFlags) error {
+func runIngest(cmd *cobra.Command, f ingestFlags, safe bool) error {
 	if strings.TrimSpace(f.board) == "" {
 		return fmt.Errorf("--board is required")
 	}
@@ -77,9 +80,41 @@ func runIngest(cmd *cobra.Command, f ingestFlags) error {
 	if err != nil {
 		return fmt.Errorf("create card in %s: %w", filepath.Base(columnPath), err)
 	}
+	if !safe {
+		runIngestHooks(cmd, cfg, filepath.Base(columnPath), name)
+	}
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "ingested %s in [%s] %s\n", filepath.Base(path), ref.Label(), filepath.Base(columnPath))
 	return err
+}
+
+// runIngestHooks runs declarative item_created hooks after a successful write.
+// It matches TUI hook semantics: errors are reported but do not undo a card or
+// stop later hooks.
+func runIngestHooks(cmd *cobra.Command, cfg config.Config, column, name string) {
+	if !cfg.Hooks.Enabled {
+		return
+	}
+	dispatcher, warnings, err := hook.Load(cfg)
+	for _, warning := range warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %s: %s\n", warning.Source, warning.Message)
+	}
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: load hooks: %v\n", err)
+		return
+	}
+	if dispatcher == nil {
+		return
+	}
+
+	for _, result := range dispatcher.Dispatch(cmd.Context(), events.ItemCreated{Item: events.ItemRef{Column: column, Name: name}}) {
+		switch {
+		case result.Err != nil:
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %q: %v\n", result.Name, result.Err)
+		case result.ExitCode != 0:
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %q exited %d\n", result.Name, result.ExitCode)
+		}
+	}
 }
 
 func withIngestCreatedAt(content string, now time.Time, layout string) string {

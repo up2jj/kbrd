@@ -7,7 +7,7 @@
 #
 # Only these "action" events can be hooked from YAML (high-frequency events like
 # item_select / column_change / board_refresh are Lua-only via kbrd.on):
-#   item_created   {{.fileName}} {{.columnName}} (+ paths)
+#   item_created   {{.fileName}} {{.columnName}} (+ paths; also fires after `kbrd ingest`)
 #   item_open      adds {{.kind}}        ("edit"/"append"/"prepend"/"journal"/"external")
 #   item_saved     adds {{.kind}}        ("save"/"append"/"prepend") — fires on an in-app save
 #   item_changed   {{.fileName}} {{.columnName}} — fires when the watcher sees an EXTERNAL edit

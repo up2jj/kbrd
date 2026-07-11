@@ -215,7 +215,8 @@ To ingest a card from a script without opening the TUI, pipe its Markdown to
 value. Its format defaults to RFC 3339 and is configurable through
 `[ingest].created_at_format`. The board can be a known recent-board name or an
 existing path; omit `--column` for the first real column, or use its 1-based
-position.
+position. After creation it also runs matching declarative `item_created`
+hooks; use `--safe` to skip all board-supplied hooks.
 
 ```bash
 git log -1 --format=%B | kbrd ingest --board Work --column 2 --name "Latest commit"

@@ -87,8 +87,8 @@ remote_require     = false    # allow require() of scripts from remote URLs — 
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
 Equivalent to compiling kbrd without scripting.
 
-Launching with **`kbrd --safe`** forces `enabled = false` here, disables declarative hooks,
-and disables template `{{shell}}` exec — overriding config, including a board's folder-local
+Launching with **`kbrd --safe`** forces `enabled = false` here, disables declarative hooks
+(including hooks after `kbrd ingest`), and disables template `{{shell}}` exec — overriding config, including a board's folder-local
 `kbrd.toml`. Use it to open a board you don't fully trust. See [SECURITY.md](./SECURITY.md).
 
 ### Environment variables
@@ -320,11 +320,11 @@ serial-execution ordering demo, and a desktop notification on move.
 How they behave:
 
 - **After-only.** Hooks observe a completed operation; they cannot cancel it.
-- **Synchronous and ordered.** Hooks run one at a time, in the order listed,
-  through a single queue — a hook always finishes before the next starts. A
-  `⚙ hooks` indicator shows in the header while they run. Each hook is bounded
-  by `hooks.timeout_ms` (default 2000); a non-zero exit or timeout is reported
-  and the chain continues.
+- **Synchronous and ordered.** Hooks run one at a time, in the order listed.
+  The TUI uses a single queue and shows a `⚙ hooks` indicator while they run;
+  `kbrd ingest` runs matching `item_created` hooks before reporting success.
+  Each hook is bounded by `hooks.timeout_ms` (default 2000); a non-zero exit or
+  timeout is reported and the chain continues.
 - **Lua-independent.** Hooks work even with `scripting.enabled = false`.
 
 Variables are the same shared set as custom commands (`{{.boardPath}}`,
@@ -337,7 +337,7 @@ low-frequency **action** events can be hooked from YAML:
 
 | Event           | Extra variables                          |
 | --------------- | ---------------------------------------- |
-| `item_created`  | —                                        |
+| `item_created`  | — (also after `kbrd ingest`)             |
 | `item_open`     | `{{.kind}}`                              |
 | `item_saved`    | `{{.kind}}` (`"save"` / `"append"` / `"prepend"` / `"journal"`) |
 | `item_changed`  | — (external edit; see loop note below)   |
