@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kbrd/recents"
 )
@@ -49,8 +50,8 @@ func TestIngestUsesRecentBoardNumericColumnAndSanitizedName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "# Fix it\n"; got != want {
-		t.Fatalf("content = %q, want %q", got, want)
+	if !strings.HasPrefix(string(data), "---\ncreated_at: ") || !strings.HasSuffix(string(data), "---\n\n# Fix it\n") {
+		t.Fatalf("content = %q, want created_at frontmatter followed by card body", data)
 	}
 	if !strings.Contains(out, "ingested fix-oauth-p1.md in [Work] 2. DOING") {
 		t.Fatalf("output = %q", out)
@@ -69,8 +70,8 @@ func TestIngestUsesFilesystemBoardAndFirstColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "body\n"; got != want {
-		t.Fatalf("content = %q, want %q", got, want)
+	if !strings.HasSuffix(string(data), "---\n\nbody\n") {
+		t.Fatalf("content = %q, want created_at frontmatter followed by card body", data)
 	}
 }
 
@@ -90,8 +91,8 @@ func TestIngestReadsFileAndRejectsInvalidInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "from file\n"; got != want {
-		t.Fatalf("content = %q, want %q", got, want)
+	if !strings.HasSuffix(string(data), "---\n\nfrom file\n") {
+		t.Fatalf("content = %q, want created_at frontmatter followed by card body", data)
 	}
 
 	_, err = runIngestCommand(t, "", "--board", root, "--name", "Other", "--content", "x", "--file", input)
@@ -105,5 +106,36 @@ func TestIngestReadsFileAndRejectsInvalidInputs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "2")); !os.IsNotExist(err) {
 		t.Fatalf("missing column was created or stat failed: %v", err)
+	}
+}
+
+func TestWithIngestCreatedAtAddsAndReplacesTimestamp(t *testing.T) {
+	now := time.Date(2026, time.July, 11, 10, 30, 0, 0, time.FixedZone("CEST", 2*60*60))
+
+	if got, want := withIngestCreatedAt("body", now, time.RFC3339), "---\ncreated_at: \"2026-07-11T08:30:00Z\"\n---\n\nbody"; got != want {
+		t.Fatalf("plain content = %q, want %q", got, want)
+	}
+	if got, want := withIngestCreatedAt("---\ntitle: Existing\ncreated_at: old\n---\n\nbody", now, time.DateOnly), "---\ntitle: Existing\ncreated_at: \"2026-07-11\"\n---\n\nbody"; got != want {
+		t.Fatalf("frontmatter content = %q, want %q", got, want)
+	}
+}
+
+func TestIngestUsesBoardCreatedAtFormat(t *testing.T) {
+	isolateConfig(t)
+	root := makeIngestBoard(t, "todo")
+	if err := os.WriteFile(filepath.Join(root, "kbrd.toml"), []byte("[ingest]\ncreated_at_format = \"2006-01-02\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runIngestCommand(t, "", "--board", root, "--name", "Dated", "--content", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "todo", "dated.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "created_at: \"" + time.Now().UTC().Format(time.DateOnly) + "\""; !strings.Contains(string(data), want) {
+		t.Fatalf("content = %q, want %q", data, want)
 	}
 }

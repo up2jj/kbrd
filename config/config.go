@@ -64,6 +64,7 @@ type Config struct {
 	Template  TemplateConfig
 	Serve     ServeConfig
 	Journal   JournalConfig
+	Ingest    IngestConfig
 	Editor    EditorConfig
 
 	// InstanceName is this process's machine-local name, used to route
@@ -123,6 +124,13 @@ type TemplateConfig struct {
 // use the current time and the text is kept verbatim.
 type JournalConfig struct {
 	DetectDate bool
+}
+
+// IngestConfig controls metadata added by the headless `kbrd ingest` command.
+// CreatedAtFormat is a Go time layout; its rendered value is written to the
+// card's created_at frontmatter key as a YAML string.
+type IngestConfig struct {
+	CreatedAtFormat string
 }
 
 // ScriptingConfig controls the embedded Lua scripting subsystem.
@@ -215,6 +223,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 	v.SetDefault("journal.detect_date", true)
+	v.SetDefault("ingest.created_at_format", time.RFC3339)
 	v.SetDefault("editor.vim", true)
 	v.SetDefault("template.exec", false)
 	v.SetDefault("template.command_timeout_ms", 20000)
@@ -306,6 +315,9 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		},
 		Journal: JournalConfig{
 			DetectDate: v.GetBool("journal.detect_date"),
+		},
+		Ingest: IngestConfig{
+			CreatedAtFormat: v.GetString("ingest.created_at_format"),
 		},
 		Editor: EditorConfig{
 			Vim: v.GetBool("editor.vim"),

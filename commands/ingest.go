@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"kbrd/board"
+	"kbrd/config"
+	"kbrd/frontmatter"
 
 	"github.com/spf13/cobra"
 )
@@ -57,6 +60,11 @@ func runIngest(cmd *cobra.Command, f ingestFlags) error {
 	if err != nil {
 		return err
 	}
+	cfg, err := config.Load(ref.Path)
+	if err != nil {
+		return err
+	}
+	content = withIngestCreatedAt(content, time.Now(), cfg.Ingest.CreatedAtFormat)
 	columnPath, err := resolveIngestColumn(ref.Path, f.column)
 	if err != nil {
 		return err
@@ -72,6 +80,10 @@ func runIngest(cmd *cobra.Command, f ingestFlags) error {
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "ingested %s in [%s] %s\n", filepath.Base(path), ref.Label(), filepath.Base(columnPath))
 	return err
+}
+
+func withIngestCreatedAt(content string, now time.Time, layout string) string {
+	return frontmatter.Set(content, "created_at", strconv.Quote(now.UTC().Format(layout)))
 }
 
 func ingestContent(cmd *cobra.Command, f ingestFlags) (string, error) {

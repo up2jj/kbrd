@@ -33,6 +33,25 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.Path != folder {
 		t.Fatalf("path: got %q want %q", cfg.Path, folder)
 	}
+	if cfg.Ingest.CreatedAtFormat != time.RFC3339 {
+		t.Fatalf("ingest.created_at_format: got %q want %q", cfg.Ingest.CreatedAtFormat, time.RFC3339)
+	}
+}
+
+func TestLoad_IngestCreatedAtFormat(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[ingest]
+created_at_format = "2006-01-02"
+`)
+
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Ingest.CreatedAtFormat != time.DateOnly {
+		t.Fatalf("ingest.created_at_format: got %q want %q", cfg.Ingest.CreatedAtFormat, time.DateOnly)
+	}
 }
 
 func TestLoad_GlobalOnly(t *testing.T) {

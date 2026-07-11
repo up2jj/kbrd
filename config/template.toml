@@ -35,6 +35,9 @@
 #                           #   that date instead of now; the date phrase is dropped
 #                           #   from the text. EN + PL. false = always use now.
 
+[ingest]
+# created_at_format = "2006-01-02T15:04:05Z07:00" # Go time layout for the created_at metadata added by `kbrd ingest`
+
 [editor]
 # vim = true                 # modal, vim-like card editor (Normal/Insert/Visual modes,
 #                            #   line numbers, :w/:q, and :lua <expr> evaluation).

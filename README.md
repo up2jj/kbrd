@@ -211,8 +211,11 @@ overlay. To scaffold configuration files:
 ```
 
 To ingest a card from a script without opening the TUI, pipe its Markdown to
-`kbrd ingest`. The board can be a known recent-board name or an existing path;
-omit `--column` for the first real column, or use its 1-based position.
+`kbrd ingest`. Every ingested card receives a UTC `created_at` YAML frontmatter
+value. Its format defaults to RFC 3339 and is configurable through
+`[ingest].created_at_format`. The board can be a known recent-board name or an
+existing path; omit `--column` for the first real column, or use its 1-based
+position.
 
 ```bash
 git log -1 --format=%B | kbrd ingest --board Work --column 2 --name "Latest commit"
@@ -226,7 +229,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd` | Open the current directory as a board (default). |
 | `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
-| `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; `--column` accepts a column name or 1-based position and defaults to the first column. |
+| `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column. |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**
@@ -456,6 +459,9 @@ error_threshold    = 3        # auto-disable a failing hook/timer after N errors
 
 [journal]
 detect_date = true          # parse a leading natural-language date in journal entries
+
+[ingest]
+created_at_format = "2006-01-02T15:04:05Z07:00" # Go time layout; e.g. "2006-01-02" for date-only
 
 [mcp]
 enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
