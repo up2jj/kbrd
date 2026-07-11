@@ -80,10 +80,11 @@ type ReloadableConfig struct {
 // Server holds the running state. Mutations take the Syncer's mutex, reads go
 // straight to disk.
 type Server struct {
-	opts Options
-	tmpl atomic.Pointer[template.Template]
-	auth *auth
-	sync *Syncer
+	opts      Options
+	tmpl      atomic.Pointer[template.Template]
+	auth      *auth
+	sync      *Syncer
+	mutations mutationService
 
 	ready      atomic.Bool
 	initFailed atomic.Bool

@@ -1,10 +1,12 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"kbrd/board"
 	"kbrd/fs"
@@ -42,10 +44,79 @@ func TestTaskCreateItemCommits(t *testing.T) {
 		t.Fatal("create was not committed: working tree is dirty")
 	}
 
+	if err := api.FSWrite("task-note.md", "written by task\n"); err != nil {
+		t.Fatalf("FSWrite: %v", err)
+	}
+	if err := api.FSMkdir("task-output"); err != nil {
+		t.Fatalf("FSMkdir: %v", err)
+	}
+	if err := api.ColumnConfigSet("todo", "last_task", "standup"); err != nil {
+		t.Fatalf("ColumnConfigSet: %v", err)
+	}
+	if err := api.ColumnConfigDelete("todo", "last_task"); err != nil {
+		t.Fatalf("ColumnConfigDelete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "task-output", ".gitkeep")); err != nil {
+		t.Fatalf("mkdir marker not written: %v", err)
+	}
+	if !fs.GitWorkingTreeClean(dir) {
+		t.Fatal("task mutations were not committed: working tree is dirty")
+	}
+
 	// Second create of the same name must fail (no silent overwrite), so a
 	// double-fired task degrades to a harmless error rather than a duplicate.
 	if err := api.CreateItem("todo", "standup-2026-06-08"); !errors.Is(err, os.ErrExist) {
 		t.Fatalf("expected os.ErrExist on duplicate create, got %v", err)
+	}
+}
+
+func TestTaskMutationSharesSyncerLock(t *testing.T) {
+	if !fs.GitAvailable() {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	if _, err := fs.GitCommitAll(dir, "initial board", "Tester", "t@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	syncer := NewSyncer(dir, "Tester", "t@example.com", "test")
+	api := boardTaskAPI{root: dir, ctx: context.Background(), sync: syncer}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	taskDone := make(chan error, 1)
+	go func() {
+		taskDone <- api.mutate("kbrd: slow task", func() error {
+			close(entered)
+			<-release
+			return os.WriteFile(filepath.Join(dir, "task.md"), []byte("task\n"), 0o644)
+		})
+	}()
+	<-entered
+
+	otherStarted := make(chan struct{})
+	otherDone := make(chan error, 1)
+	go func() {
+		otherDone <- syncer.MutateAndCommit(context.Background(), "web: competing write", func() error {
+			close(otherStarted)
+			return nil
+		})
+	}()
+
+	select {
+	case <-otherStarted:
+		t.Fatal("competing mutation entered before task completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-taskDone; err != nil {
+		t.Fatalf("task mutation: %v", err)
+	}
+	if err := <-otherDone; err != nil {
+		t.Fatalf("competing mutation: %v", err)
+	}
+	if !fs.GitWorkingTreeClean(dir) {
+		t.Fatal("serialized mutations left the worktree dirty")
 	}
 }
 

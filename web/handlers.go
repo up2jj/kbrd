@@ -169,7 +169,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created := ""
-	err = s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: create %s/%s", colName, cleanName), func() error {
+	err = s.mutations.run(r.Context(), s.sync, fmt.Sprintf("web: create %s/%s", colName, cleanName), func() error {
 		var err error
 		created, err = board.CreateItem(colPath, cleanName, content)
 		return err
@@ -231,7 +231,7 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 	// Syncer's lock. A pull or another POST cannot slip in between them.
 	current := ""
 	written := false
-	err := s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: edit %s/%s", colName, name), func() error {
+	err := s.mutations.run(r.Context(), s.sync, fmt.Sprintf("web: edit %s/%s", colName, name), func() error {
 		var err error
 		current, err = board.ReadItem(colPath, name)
 		if err != nil {
@@ -275,7 +275,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deleted := false
-	err := s.sync.MutateAndCommit(r.Context(), fmt.Sprintf("web: delete %s/%s", colName, name), func() error {
+	err := s.mutations.run(r.Context(), s.sync, fmt.Sprintf("web: delete %s/%s", colName, name), func() error {
 		if err := board.DeleteItem(colPath, name); err != nil {
 			return err
 		}

@@ -63,7 +63,7 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 
 	current := ""
 	written := false
-	err := s.sync.MutateAndCommit(r.Context(), "web: edit kbrd.toml", func() error {
+	err := s.mutations.run(r.Context(), s.sync, "web: edit kbrd.toml", func() error {
 		var err error
 		current, err = s.readConfigFile()
 		if err != nil {

@@ -31,15 +31,22 @@ const taskExecDisabledNote = "> _template shell exec disabled on the web server_
 // Only one goroutine — the taskScheduler's — ever calls these, mirroring the
 // Lua host's single-threaded contract.
 type boardTaskAPI struct {
-	root      string  // board directory (columns live here)
-	boardName string  // display name, for template VarContext
-	sync      *Syncer // nil in no-sync mode; CommitPush is nil-safe
+	root      string // board directory (columns live here)
+	boardName string // display name, for template VarContext
+	ctx       context.Context
+	sync      *Syncer // nil in no-sync mode; mutationService remains nil-safe
+	mutations mutationService
 }
 
-// commit persists a mutation. A nil Syncer (not a git repo / no remote) makes
-// this a no-op, matching the rest of the web layer's no-sync behavior.
-func (a boardTaskAPI) commit(msg string) error {
-	return a.sync.CommitPush(msg)
+// mutate keeps a task's filesystem change and its git commit under the same
+// lock used by HTTP handlers and the pull loop. A nil Syncer still runs the
+// mutation, matching the rest of the web layer's no-sync behavior.
+func (a boardTaskAPI) mutate(msg string, fn func() error) error {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return a.mutations.run(ctx, a.sync, msg, fn)
 }
 
 // resolvePath joins a board-relative path against the root; absolute paths pass
@@ -56,29 +63,29 @@ func (a boardTaskAPI) Notify(msg, level string) {
 }
 
 func (a boardTaskAPI) MoveItem(item events.ItemRef, toColumn string) error {
-	src, err := boardops.ResolveColumn(a.root, item.Column, false)
-	if err != nil {
+	return a.mutate(fmt.Sprintf("kbrd: move %s/%s → %s", item.Column, item.Name, toColumn), func() error {
+		src, err := boardops.ResolveColumn(a.root, item.Column, false)
+		if err != nil {
+			return err
+		}
+		dst, err := boardops.ResolveColumn(a.root, toColumn, false)
+		if err != nil {
+			return err
+		}
+		_, err = boardops.MoveItem(src, dst, item.Name)
 		return err
-	}
-	dst, err := boardops.ResolveColumn(a.root, toColumn, false)
-	if err != nil {
-		return err
-	}
-	if _, err := boardops.MoveItem(src, dst, item.Name); err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: move %s/%s → %s", item.Column, item.Name, toColumn))
+	})
 }
 
 func (a boardTaskAPI) CreateItem(column, name string) error {
-	col, err := boardops.ResolveColumn(a.root, column, false)
-	if err != nil {
+	return a.mutate(fmt.Sprintf("kbrd: create %s/%s", column, name), func() error {
+		col, err := boardops.ResolveColumn(a.root, column, false)
+		if err != nil {
+			return err
+		}
+		_, err = boardops.CreateItem(col, name, "")
 		return err
-	}
-	if _, err := boardops.CreateItem(col, name, ""); err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: create %s/%s", column, name))
+	})
 }
 
 func (a boardTaskAPI) ListTemplates(column string) ([]events.TemplateInfo, error) {
@@ -90,21 +97,20 @@ func (a boardTaskAPI) ListTemplates(column string) ([]events.TemplateInfo, error
 }
 
 func (a boardTaskAPI) CreateItemFromTemplate(column, tmplName string, values map[string]any) error {
-	col, err := boardops.ResolveColumn(a.root, column, false)
-	if err != nil {
+	return a.mutate(fmt.Sprintf("kbrd: create %s from template %s", column, tmplName), func() error {
+		col, err := boardops.ResolveColumn(a.root, column, false)
+		if err != nil {
+			return err
+		}
+		_, err = boardops.CreateItemFromTemplate(
+			boardops.BoardContext{Root: a.root, Name: a.boardName},
+			col,
+			tmplName,
+			values,
+			inertShellMarkers,
+		)
 		return err
-	}
-	res, err := boardops.CreateItemFromTemplate(
-		boardops.BoardContext{Root: a.root, Name: a.boardName},
-		col,
-		tmplName,
-		values,
-		inertShellMarkers,
-	)
-	if err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: create %s/%s from template %s", column, res.Item.Name, tmplName))
+	})
 }
 
 // inertShellMarkers replaces every {{shell}} marker in a freshly rendered
@@ -118,25 +124,25 @@ func inertShellMarkers(body string) string {
 }
 
 func (a boardTaskAPI) RenameItem(item events.ItemRef, newName string) error {
-	col, err := boardops.ResolveColumn(a.root, item.Column, false)
-	if err != nil {
+	return a.mutate(fmt.Sprintf("kbrd: rename %s/%s → %s", item.Column, item.Name, newName), func() error {
+		col, err := boardops.ResolveColumn(a.root, item.Column, false)
+		if err != nil {
+			return err
+		}
+		_, err = boardops.RenameItem(col, item.Name, newName)
 		return err
-	}
-	if _, err := boardops.RenameItem(col, item.Name, newName); err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: rename %s/%s → %s", item.Column, item.Name, newName))
+	})
 }
 
 func (a boardTaskAPI) DeleteItem(item events.ItemRef) error {
-	col, err := boardops.ResolveColumn(a.root, item.Column, false)
-	if err != nil {
+	return a.mutate(fmt.Sprintf("kbrd: delete %s/%s", item.Column, item.Name), func() error {
+		col, err := boardops.ResolveColumn(a.root, item.Column, false)
+		if err != nil {
+			return err
+		}
+		_, err = boardops.DeleteItem(col, item.Name)
 		return err
-	}
-	if _, err := boardops.DeleteItem(col, item.Name); err != nil {
-		return err
-	}
-	return a.commit(fmt.Sprintf("kbrd: delete %s/%s", item.Column, item.Name))
+	})
 }
 
 func (a boardTaskAPI) FSRead(path string) (string, error) {
@@ -148,10 +154,9 @@ func (a boardTaskAPI) FSRead(path string) (string, error) {
 }
 
 func (a boardTaskAPI) FSWrite(path, body string) error {
-	if err := kbrdfs.WriteFileAtomicDurable(a.resolvePath(path), []byte(body), 0o644); err != nil {
-		return err
-	}
-	return a.commit("kbrd: write " + path)
+	return a.mutate("kbrd: write "+path, func() error {
+		return kbrdfs.WriteFileAtomicDurable(a.resolvePath(path), []byte(body), 0o644)
+	})
 }
 
 func (a boardTaskAPI) FSExists(path string) bool {
@@ -160,7 +165,21 @@ func (a boardTaskAPI) FSExists(path string) bool {
 }
 
 func (a boardTaskAPI) FSMkdir(path string) error {
-	return os.MkdirAll(a.resolvePath(path), 0o755)
+	return a.mutate("kbrd: mkdir "+path, func() error {
+		dir := a.resolvePath(path)
+		if _, err := os.Stat(dir); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		// Git cannot retain an empty directory. Mirroring boardops.CreateColumn,
+		// leave a marker so a task that only creates a directory still survives
+		// the commit and push this mutation performs.
+		return kbrdfs.WriteNewFileNoClobberDurable(filepath.Join(dir, ".gitkeep"), nil, 0o644)
+	})
 }
 
 func (a boardTaskAPI) FSGlob(pattern string) ([]string, error) {
@@ -173,11 +192,10 @@ func (a boardTaskAPI) Refresh() error {
 }
 
 func (a boardTaskAPI) CreateColumn(name string) error {
-	col, err := boardops.CreateColumn(a.root, name)
-	if err != nil {
+	return a.mutate("kbrd: create column "+name, func() error {
+		_, err := boardops.CreateColumn(a.root, name)
 		return err
-	}
-	return a.commit("kbrd: create column " + col.Name)
+	})
 }
 
 // colDir resolves a filesystem column name to its directory for the column
@@ -196,11 +214,13 @@ func (a boardTaskAPI) ColumnConfigGet(column, key string) (any, bool, error) {
 }
 
 func (a boardTaskAPI) ColumnConfigSet(column, key string, value any) error {
-	col, err := a.colRef(column)
-	if err != nil {
-		return err
-	}
-	return boardops.ColumnConfigSet(col, key, value)
+	return a.mutate(fmt.Sprintf("kbrd: set column config %s.%s", column, key), func() error {
+		col, err := a.colRef(column)
+		if err != nil {
+			return err
+		}
+		return boardops.ColumnConfigSet(col, key, value)
+	})
 }
 
 func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]any, error) {
@@ -212,11 +232,13 @@ func (a boardTaskAPI) ColumnConfigAll(column string) (map[string]any, error) {
 }
 
 func (a boardTaskAPI) ColumnConfigDelete(column, key string) error {
-	col, err := a.colRef(column)
-	if err != nil {
-		return err
-	}
-	return boardops.ColumnConfigDelete(col, key)
+	return a.mutate(fmt.Sprintf("kbrd: delete column config %s.%s", column, key), func() error {
+		col, err := a.colRef(column)
+		if err != nil {
+			return err
+		}
+		return boardops.ColumnConfigDelete(col, key)
+	})
 }
 
 // taskScheduler owns a Lua host and drives its timers in a headless server.
@@ -253,7 +275,7 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 	if !sc.Enabled {
 		return nil, nil
 	}
-	api := boardTaskAPI{root: root, boardName: boardName, sync: sync}
+	api := boardTaskAPI{root: root, boardName: boardName, ctx: ctx, sync: sync}
 	host, err := script.New(sc, api, nil, root, instanceName)
 	if err != nil && host != nil {
 		// Partial init failure: some files loaded. Log and keep the host.
