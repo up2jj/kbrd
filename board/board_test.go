@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"kbrd/recents"
 )
 
 // makeBoard builds a board directory with the given columns, each mapping to a
@@ -144,6 +146,35 @@ func TestSanitizeName(t *testing.T) {
 	}
 }
 
+func TestSanitizeGeneratedName(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{" Fix / OAuth: P1! ", "fix-oauth-p1", false},
+		{"Zażółć gęślą.md", "zażółć-gęślą", false},
+		{"already.MD", "already", false},
+		{"!!!", "", true},
+		{"", "", true},
+	}
+	for _, c := range cases {
+		got, err := SanitizeGeneratedName(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("SanitizeGeneratedName(%q) = %q, want error", c.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("SanitizeGeneratedName(%q) error: %v", c.in, err)
+		}
+		if got != c.want {
+			t.Errorf("SanitizeGeneratedName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestCreateItem(t *testing.T) {
 	col := t.TempDir()
 
@@ -213,5 +244,38 @@ func TestResolveFrom(t *testing.T) {
 	// Empty store.
 	if _, err := resolveFrom("anything", nil); !errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("empty store err = %v", err)
+	}
+}
+
+func TestResolveExisting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	recent := makeBoard(t, map[string][]string{"todo": nil})
+	store := recents.Store{Entries: []recents.Entry{{Name: "Work", Path: recent}}}
+	if err := store.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveExisting("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != recent || got.Name != "Work" {
+		t.Fatalf("recent resolution = %+v", got)
+	}
+
+	direct := makeBoard(t, map[string][]string{"todo": nil})
+	got, err = ResolveExisting(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != direct || got.Name != "" {
+		t.Fatalf("filesystem fallback = %+v", got)
+	}
+
+	if _, err := ResolveExisting(filepath.Join(t.TempDir(), "missing")); !errors.Is(err, ErrBoardNotFound) {
+		t.Fatalf("missing board err = %v, want ErrBoardNotFound", err)
 	}
 }

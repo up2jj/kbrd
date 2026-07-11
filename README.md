@@ -210,6 +210,15 @@ overlay. To scaffold configuration files:
 ./kbrd init --global   # write the global config template to ~/.config/kbrd/
 ```
 
+To ingest a card from a script without opening the TUI, pipe its Markdown to
+`kbrd ingest`. The board can be a known recent-board name or an existing path;
+omit `--column` for the first real column, or use its 1-based position.
+
+```bash
+git log -1 --format=%B | kbrd ingest --board Work --column 2 --name "Latest commit"
+kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
+```
+
 **Commands**
 
 | Command | Description |
@@ -217,6 +226,7 @@ overlay. To scaffold configuration files:
 | `kbrd` | Open the current directory as a board (default). |
 | `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
+| `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; `--column` accepts a column name or 1-based position and defaults to the first column. |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**

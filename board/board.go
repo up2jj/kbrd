@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/sahilm/fuzzy"
 
@@ -118,6 +119,47 @@ func Resolve(name string) (Ref, error) {
 		return Ref{}, err
 	}
 	return resolveFrom(name, refs)
+}
+
+// ResolveExisting resolves a board from the recent-board registry first, then
+// falls back to interpreting input as a filesystem path. Unlike Resolve, its
+// successful result always points at an existing directory.
+func ResolveExisting(input string) (Ref, error) {
+	query := strings.TrimSpace(input)
+	ref, recentErr := Resolve(query)
+	if recentErr == nil {
+		abs, err := existingDir(ref.Path)
+		if err == nil {
+			ref.Path = abs
+			return ref, nil
+		}
+		recentErr = fmt.Errorf("recent board %q at %s is unavailable: %w", ref.Label(), ref.Path, err)
+	}
+
+	if query != "" {
+		if abs, err := existingDir(query); err == nil {
+			return Ref{Path: abs}, nil
+		}
+	}
+	if recentErr != nil {
+		return Ref{}, recentErr
+	}
+	return Ref{}, fmt.Errorf("%w: %q is neither a known board nor an existing directory", ErrBoardNotFound, query)
+}
+
+func existingDir(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory")
+	}
+	return abs, nil
 }
 
 func resolveFrom(name string, refs []Ref) (Ref, error) {
@@ -271,6 +313,33 @@ func SanitizeName(name string) (string, error) {
 		return "", fmt.Errorf("%w: %q", ErrBadName, name)
 	}
 	return n, nil
+}
+
+// SanitizeGeneratedName turns arbitrary external text into a stable, safe
+// card filename. It lowercases letters, preserves Unicode letters and digits,
+// and collapses every other run of characters into one dash. An optional .md
+// suffix is removed before normalization.
+func SanitizeGeneratedName(name string) (string, error) {
+	n := strings.TrimSpace(name)
+	if ext := filepath.Ext(n); strings.EqualFold(ext, ".md") {
+		n = strings.TrimSuffix(n, ext)
+	}
+
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(n) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+
+	return SanitizeName(strings.TrimSuffix(b.String(), "-"))
 }
 
 // SanitizeFolder validates a folder name with the same rules as SanitizeName
