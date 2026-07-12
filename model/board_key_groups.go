@@ -80,6 +80,9 @@ func (b *Board) handleColumnDisplayKey(msg tea.KeyPressMsg, col *Column) (tea.Mo
 }
 
 func (b *Board) handleColumnNavigationKey(msg tea.KeyPressMsg, col *Column) (tea.Model, tea.Cmd, bool) {
+	if cmd, handled := b.moveMarkedByArrow(msg, col); handled {
+		return b, cmd, true
+	}
 	switch {
 	case key.Matches(msg, Keys.PrevCol):
 		b.selectedCol--

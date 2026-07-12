@@ -132,3 +132,41 @@ func TestBoardKeyGroups_NewOpensCreateMenu(t *testing.T) {
 		t.Fatalf("editor state = %v, want none until empty-card choice is selected", b.editor.state)
 	}
 }
+
+func TestBoardKeyGroups_MarkedArrowsMoveBatch(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		left   bool
+		source int
+		target int
+	}{
+		{name: "left", left: true, source: 1, target: 0},
+		{name: "right", source: 1, target: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := boardWithNCols(t, 3, 3)
+			writeColItem(t, b.columns[tc.source], "a")
+			writeColItem(t, b.columns[tc.source], "b")
+			b.selectedCol = tc.source
+			b.columns[tc.source].ToggleMark("a")
+			b.columns[tc.source].ToggleMark("b")
+
+			code := tea.KeyRight
+			if tc.left {
+				code = tea.KeyLeft
+			}
+			b.handleKey(tea.KeyPressMsg{Code: code})
+
+			if b.selectedCol != tc.target {
+				t.Fatalf("selectedCol = %d, want %d", b.selectedCol, tc.target)
+			}
+			if columnHasItem(b.columns[tc.source], "a") || columnHasItem(b.columns[tc.source], "b") {
+				t.Fatalf("source still has marked items: %+v", b.columns[tc.source].Items)
+			}
+			if !columnHasItem(b.columns[tc.target], "a") || !columnHasItem(b.columns[tc.target], "b") {
+				t.Fatalf("target missing marked items: %+v", b.columns[tc.target].Items)
+			}
+		})
+	}
+}

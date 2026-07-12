@@ -137,8 +137,8 @@ var Keys = KeyMap{
 	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 
 	// Navigation
-	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column")),
-	NextCol:     key.NewBinding(key.WithKeys("]", "tab", "right"), key.WithHelp("→ / tab / ]", "next column")),
+	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column / move marked left")),
+	NextCol:     key.NewBinding(key.WithKeys("]", "tab", "right"), key.WithHelp("→ / tab / ]", "next column / move marked right")),
 	JumpCol:     key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to column N")),
 	PanLeft:     key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "pan columns left")),
 	PanRight:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "pan columns right")),
@@ -298,8 +298,8 @@ func HelpMenuGroups() []HelpGroup {
 		{
 			Title: "Navigation",
 			Items: []HelpEntry{
-				helpEntry(Keys.NextCol, "Move focus to the next column."),
-				helpEntry(Keys.PrevCol, "Move focus to the previous column."),
+				helpEntry(Keys.NextCol, "Move focus to the next column, or move marked cards right."),
+				helpEntry(Keys.PrevCol, "Move focus to the previous column, or move marked cards left."),
 				helpEntry(Keys.JumpCol, "Jump straight to a column by its mnemonic letter."),
 				helpEntry(Keys.PanLeft, "Scroll the visible column window left."),
 				helpEntry(Keys.PanRight, "Scroll the visible column window right."),

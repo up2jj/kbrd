@@ -255,8 +255,8 @@ All bindings below are the defaults from the in-app help (`?`).
 
 | Keys | Action |
 | --- | --- |
-| `→` / `tab` / `]` | Next column |
-| `←` / `shift+tab` / `[` | Previous column |
+| `→` / `tab` / `]` | Next column; with marked cards, move them right |
+| `←` / `shift+tab` / `[` | Previous column; with marked cards, move them left |
 | `j` / `k` | Move within a column |
 | `H` / `L` | Pan columns left / right |
 | `/` | Filter cards in the current column |
