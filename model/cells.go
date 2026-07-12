@@ -6,16 +6,39 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Cell is one entry in the header cells strip. The id is a programmatic handle
+// Cell is one entry in the header cells strip. The ID is a programmatic handle
 // (not shown — chips render content-only) used to set/update/clear the cell;
 // appearance is entirely caller-decided. Cells are filled either by internal
-// Go code (via SetInternal) or by Lua scripts (kbrd.cell.set).
+// Go code (via setBuiltin) or by Lua scripts (kbrd.cell.set).
 type Cell struct {
 	ID       int
 	Text     string
 	FG, BG   string // "#rrggbb" or "" => terminal default
 	Bold     bool
 	internal bool // built-in cell; survives ClearAll (which is script-facing)
+}
+
+// builtinCellSlot identifies a kbrd-owned header cell. The declaration order
+// is its left-to-right render order; id derives the negative map key that keeps
+// built-ins ahead of script cells and preserves that order when sorted.
+type builtinCellSlot uint8
+
+const (
+	builtinCellReleaseUpdate builtinCellSlot = iota
+	builtinCellScriptActivity
+	builtinCellTemplateExecution
+	builtinCellMCP
+	builtinCellHooks
+	builtinCellSync
+	builtinCellAsync
+	builtinCellScriptStatus
+	builtinCellItemCount
+	builtinCellGitStatus
+	builtinCellSlotCount
+)
+
+func (slot builtinCellSlot) id() int {
+	return int(slot) - int(builtinCellSlotCount)
 }
 
 // CellBar is the registry behind the header strip. It lives on the Board and is
@@ -40,12 +63,18 @@ func (cb *CellBar) Set(c Cell) {
 	cb.cells[c.ID] = &c
 }
 
-// SetInternal adds or replaces a built-in cell. Built-ins survive ClearAll so a
-// script clearing its own cells can't wipe the git/count indicators.
-func (cb *CellBar) SetInternal(c Cell) {
+// setBuiltin adds or replaces a kbrd-owned cell in its declared slot. Built-ins
+// survive ClearAll so a script clearing its own cells can't wipe them.
+func (cb *CellBar) setBuiltin(slot builtinCellSlot, c Cell) {
 	cb.ensure()
+	c.ID = slot.id()
 	c.internal = true
 	cb.cells[c.ID] = &c
+}
+
+// clearBuiltin removes the kbrd-owned cell in slot.
+func (cb *CellBar) clearBuiltin(slot builtinCellSlot) {
+	delete(cb.cells, slot.id())
 }
 
 // Clear removes a cell by id (no-op if absent).
@@ -65,7 +94,7 @@ func (cb *CellBar) ClearAll() {
 // Empty reports whether the strip has nothing to render.
 func (cb *CellBar) Empty() bool { return len(cb.cells) == 0 }
 
-// sortedIDs returns cell ids in ascending order. Built-ins use negative ids, so
+// sortedIDs returns cell IDs in ascending order. Built-ins use negative IDs, so
 // they sort first (leftmost in the right-aligned strip) and survive truncation.
 func (cb *CellBar) sortedIDs() []int {
 	ids := make([]int, 0, len(cb.cells))

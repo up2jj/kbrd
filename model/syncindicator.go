@@ -6,9 +6,6 @@ import (
 	"kbrd/git"
 )
 
-// syncCellID is the header strip slot for the remote-sync indicator.
-const syncCellID = -5
-
 // syncCell maps the git sync status (plus board-level shutdown/editor/dirty
 // context) to the header sync cell. The second result is false when the cell
 // should be hidden (no remote configured). Keeping this mapping here — not in
@@ -19,7 +16,7 @@ const syncCellID = -5
 // commit pending edits itself, a dirty tree isn't waiting on the user.
 func syncCell(ss git.SyncStatus, dirty int, shuttingDown, editorActive, autoCommit bool, p Palette) (Cell, bool) {
 	cell := func(text, fg string) (Cell, bool) {
-		return Cell{ID: syncCellID, Text: text, FG: fg}, true
+		return Cell{Text: text, FG: fg}, true
 	}
 	switch {
 	case shuttingDown:

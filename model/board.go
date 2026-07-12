@@ -29,8 +29,6 @@ type initBoardDeclineMsg struct{}
 type scriptInitStartMsg struct{}
 type scriptInitRunMsg struct{}
 
-const scriptActivityCellID = -9
-
 type Board struct {
 	cfg              config.Config
 	safeMode         bool
@@ -136,15 +134,15 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	cfg.Theme = config.NormalizeTheme(cfg.Theme)
 	palette := PaletteForTheme(cfg.Theme, true)
 	b := &Board{
-		cfg:           cfg,
-		safeMode:      opts.Safe,
-		visibleHeight: 20,
-		notifier:      NewNotifier(cfg.NotifyBackend),
-		mnemonic:      newMnemonicSelectorState(palette),
-		theme:         cfg.Theme,
-		terminalDark:  true,
-		palette:       palette,
-		zellij:        NewZellij(),
+		cfg:            cfg,
+		safeMode:       opts.Safe,
+		visibleHeight:  20,
+		notifier:       NewNotifier(cfg.NotifyBackend),
+		mnemonic:       newMnemonicSelectorState(palette),
+		theme:          cfg.Theme,
+		terminalDark:   true,
+		palette:        palette,
+		zellij:         NewZellij(),
 		releaseChecker: newReleaseChecker(),
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
@@ -297,15 +295,14 @@ func (b *Board) showScriptActivity() {
 	if !b.cfg.Scripting.Enabled {
 		return
 	}
-	b.cells.SetInternal(Cell{
-		ID:   scriptActivityCellID,
+	b.cells.setBuiltin(builtinCellScriptActivity, Cell{
 		Text: "lua loading",
 		FG:   string(b.palette.AccentSoft),
 	})
 }
 
 func (b *Board) clearScriptActivity() {
-	b.cells.Clear(scriptActivityCellID)
+	b.cells.clearBuiltin(builtinCellScriptActivity)
 }
 
 func (b *Board) createDefaultColumns() error {

@@ -34,7 +34,7 @@ func TestScriptInitActivityAndCommandMerge(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("scriptInitStartMsg should schedule scriptInitRunMsg")
 	}
-	assertCellText(t, b, scriptActivityCellID, "lua loading")
+	assertBuiltinCellText(t, b, builtinCellScriptActivity, "lua loading")
 
 	msg := cmd()
 	if _, ok := msg.(scriptInitRunMsg); !ok {
@@ -42,7 +42,7 @@ func TestScriptInitActivityAndCommandMerge(t *testing.T) {
 	}
 	_, _ = b.Update(msg)
 
-	if b.cells.cells[scriptActivityCellID] != nil {
+	if b.cells.cells[builtinCellScriptActivity.id()] != nil {
 		t.Fatal("script activity cell should clear after init")
 	}
 	if b.scripts == nil {
@@ -61,7 +61,7 @@ func TestSwitchBoardShowsScriptActivityBeforeLoad(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("switchBoardMsg should schedule switchBoardLoadMsg")
 	}
-	assertCellText(t, b, scriptActivityCellID, "lua loading")
+	assertBuiltinCellText(t, b, builtinCellScriptActivity, "lua loading")
 
 	msg := cmd()
 	if _, ok := msg.(switchBoardLoadMsg); !ok {

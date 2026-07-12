@@ -124,9 +124,6 @@ func TestSyncCell(t *testing.T) {
 			if !tc.wantShow {
 				return
 			}
-			if cell.ID != syncCellID {
-				t.Errorf("cell ID = %d, want %d", cell.ID, syncCellID)
-			}
 			if cell.Text != tc.wantText {
 				t.Errorf("text = %q, want %q", cell.Text, tc.wantText)
 			}

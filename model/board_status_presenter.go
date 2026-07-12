@@ -69,18 +69,18 @@ func (p boardStatusPresenter) renderHeaderLayout(width int) boardHeaderLayout {
 func (p boardStatusPresenter) updateBuiltinCells() {
 	b := p.b
 	if b.updateVersion != "" {
-		b.cells.SetInternal(Cell{ID: releaseUpdateCellID, Text: "↑ update " + b.updateVersion, FG: string(b.palette.Success)})
+		b.cells.setBuiltin(builtinCellReleaseUpdate, Cell{Text: "↑ update " + b.updateVersion, FG: string(b.palette.Success)})
 	} else {
-		b.cells.Clear(releaseUpdateCellID)
+		b.cells.clearBuiltin(builtinCellReleaseUpdate)
 	}
 
-	// Sync indicator (id -5): transient spinner while reconciling, else the
+	// Sync indicator: transient spinner while reconciling, else the
 	// persistent remote-sync status. The mapping lives in syncCell.
 	editorActive := b.editor != nil && b.editor.state != editorNone
 	if cell, ok := syncCell(b.git.SyncState(), b.git.DirtyCount(), b.shuttingDown, editorActive, b.cfg.GitAutoCommit, b.palette); ok {
-		b.cells.SetInternal(cell)
+		b.cells.setBuiltin(builtinCellSync, cell)
 	} else {
-		b.cells.Clear(syncCellID)
+		b.cells.clearBuiltin(builtinCellSync)
 	}
 
 	if b.asyncInflight > 0 {
@@ -88,9 +88,9 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		if b.asyncInflight > 1 {
 			label = "⟳ " + strconv.Itoa(b.asyncInflight) + " running"
 		}
-		p.setActivityCell(-4, label)
+		p.setActivityCell(builtinCellAsync, label)
 	} else {
-		b.cells.Clear(-4)
+		b.cells.clearBuiltin(builtinCellAsync)
 	}
 
 	if n := b.templateExec.Inflight(); n > 0 {
@@ -98,9 +98,9 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		if n > 1 {
 			label = "✦ " + strconv.Itoa(n) + " generating"
 		}
-		p.setActivityCell(-8, label)
+		p.setActivityCell(builtinCellTemplateExecution, label)
 	} else {
-		b.cells.Clear(-8)
+		b.cells.clearBuiltin(builtinCellTemplateExecution)
 	}
 
 	if b.hooks.busy() {
@@ -108,15 +108,15 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		if n := b.hooks.pending(); n > 1 {
 			label = "⚙ hooks " + strconv.Itoa(n)
 		}
-		p.setActivityCell(-6, label)
+		p.setActivityCell(builtinCellHooks, label)
 	} else {
-		b.cells.Clear(-6)
+		b.cells.clearBuiltin(builtinCellHooks)
 	}
 
 	if b.scriptStatus != "" {
-		b.cells.SetInternal(Cell{ID: -3, Text: b.scriptStatus, FG: string(b.palette.FgMuted)})
+		b.cells.setBuiltin(builtinCellScriptStatus, Cell{Text: b.scriptStatus, FG: string(b.palette.FgMuted)})
 	} else {
-		b.cells.Clear(-3)
+		b.cells.clearBuiltin(builtinCellScriptStatus)
 	}
 
 	// Persistent MCP indicator: filled+green when bound, danger when requested
@@ -125,46 +125,43 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 	// the other built-ins.
 	switch b.mcpStatus {
 	case MCPRunning:
-		b.cells.SetInternal(Cell{ID: -7, Text: "◆ mcp", FG: string(b.palette.Success)})
+		b.cells.setBuiltin(builtinCellMCP, Cell{Text: "◆ mcp", FG: string(b.palette.Success)})
 	case MCPFailed:
-		b.cells.SetInternal(Cell{ID: -7, Text: "✕ mcp", FG: string(b.palette.Danger)})
+		b.cells.setBuiltin(builtinCellMCP, Cell{Text: "✕ mcp", FG: string(b.palette.Danger)})
 	default:
-		b.cells.SetInternal(Cell{ID: -7, Text: "◇ mcp", FG: string(b.palette.FgMuted)})
+		b.cells.setBuiltin(builtinCellMCP, Cell{Text: "◇ mcp", FG: string(b.palette.FgMuted)})
 	}
 
 	total := 0
 	for _, c := range b.columns {
 		total += c.TotalCount()
 	}
-	b.cells.SetInternal(Cell{
-		ID:   -2,
+	b.cells.setBuiltin(builtinCellItemCount, Cell{
 		Text: strconv.Itoa(total) + " items",
 		FG:   string(b.palette.FgMuted),
 	})
 
 	if b.git.RepoRoot() != "" {
 		if dirty := b.git.DirtyCount(); dirty > 0 {
-			b.cells.SetInternal(Cell{
-				ID:   -1,
+			b.cells.setBuiltin(builtinCellGitStatus, Cell{
 				Text: "● " + strconv.Itoa(dirty),
 				FG:   string(b.palette.Warning),
 			})
 		} else {
-			b.cells.SetInternal(Cell{
-				ID:   -1,
+			b.cells.setBuiltin(builtinCellGitStatus, Cell{
 				Text: "✓ clean",
 				FG:   string(b.palette.Success),
 			})
 		}
 	} else {
-		b.cells.Clear(-1)
+		b.cells.clearBuiltin(builtinCellGitStatus)
 	}
 }
 
 // setActivityCell sets a transient activity indicator cell in the accent color.
-func (p boardStatusPresenter) setActivityCell(id int, text string) {
+func (p boardStatusPresenter) setActivityCell(slot builtinCellSlot, text string) {
 	b := p.b
-	b.cells.SetInternal(Cell{ID: id, Text: text, FG: string(b.palette.AccentSoft)})
+	b.cells.setBuiltin(slot, Cell{Text: text, FG: string(b.palette.AccentSoft)})
 }
 
 func (b *Board) statusPresenter() boardStatusPresenter {

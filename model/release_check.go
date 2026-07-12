@@ -16,7 +16,6 @@ const (
 	githubLatestReleaseURL = "https://api.github.com/repos/up2jj/kbrd/releases/latest"
 	releaseCheckTimeout    = 3 * time.Second
 	releaseResponseLimit   = 1 << 20
-	releaseUpdateCellID    = -10
 )
 
 // releaseChecker looks up the latest stable GitHub release. It is deliberately

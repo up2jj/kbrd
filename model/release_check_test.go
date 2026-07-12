@@ -161,8 +161,8 @@ func TestBoardHandleReleaseCheck(t *testing.T) {
 	}
 
 	b.statusPresenter().updateBuiltinCells()
-	assertCellText(t, b, releaseUpdateCellID, "↑ update v1.2.0")
-	if got := b.cells.cells[releaseUpdateCellID].FG; got != string(b.palette.Success) {
+	assertBuiltinCellText(t, b, builtinCellReleaseUpdate, "↑ update v1.2.0")
+	if got := b.cells.cells[builtinCellReleaseUpdate.id()].FG; got != string(b.palette.Success) {
 		t.Fatalf("update FG = %q, want success %q", got, b.palette.Success)
 	}
 

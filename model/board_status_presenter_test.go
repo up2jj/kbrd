@@ -41,13 +41,13 @@ func TestBoardStatusPresenter_BuiltinCountAndActivityCells(t *testing.T) {
 
 	b.statusPresenter().updateBuiltinCells()
 
-	assertCellText(t, b, -2, "3 items")
-	assertCellText(t, b, -4, "⟳ 2 running")
-	assertCellText(t, b, -8, "✦ 3 generating")
-	assertCellText(t, b, -6, "⚙ hooks 3")
-	assertCellText(t, b, -3, "lua busy")
-	assertCellText(t, b, -7, "◆ mcp")
-	if got := b.cells.cells[-4].FG; got != string(b.palette.AccentSoft) {
+	assertBuiltinCellText(t, b, builtinCellItemCount, "3 items")
+	assertBuiltinCellText(t, b, builtinCellAsync, "⟳ 2 running")
+	assertBuiltinCellText(t, b, builtinCellTemplateExecution, "✦ 3 generating")
+	assertBuiltinCellText(t, b, builtinCellHooks, "⚙ hooks 3")
+	assertBuiltinCellText(t, b, builtinCellScriptStatus, "lua busy")
+	assertBuiltinCellText(t, b, builtinCellMCP, "◆ mcp")
+	if got := b.cells.cells[builtinCellAsync.id()].FG; got != string(b.palette.AccentSoft) {
 		t.Fatalf("activity FG = %q, want accent %q", got, b.palette.AccentSoft)
 	}
 }
@@ -68,14 +68,19 @@ func TestBoardStatusPresenter_GitCleanAndDirtyCells(t *testing.T) {
 	b := NewBoard(config.Config{Path: repo, NotifyBackend: "none"})
 	b.git.Detect()
 	b.statusPresenter().updateBuiltinCells()
-	assertCellText(t, b, -1, "✓ clean")
+	assertBuiltinCellText(t, b, builtinCellGitStatus, "✓ clean")
 
 	if err := os.WriteFile(cardPath, []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b.git.RefreshStatsNow()
 	b.statusPresenter().updateBuiltinCells()
-	assertCellText(t, b, -1, "● 1")
+	assertBuiltinCellText(t, b, builtinCellGitStatus, "● 1")
+}
+
+func assertBuiltinCellText(t *testing.T, b *Board, slot builtinCellSlot, want string) {
+	t.Helper()
+	assertCellText(t, b, slot.id(), want)
 }
 
 func assertCellText(t *testing.T, b *Board, id int, want string) {
