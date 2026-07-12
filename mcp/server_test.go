@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,7 +26,11 @@ func TestServeRoundTrip(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	c := serveListener(ln)
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("shutdown: %v", err)
+		}
+	}()
 	addr := ln.Addr().String()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -66,5 +71,21 @@ func TestServeRoundTrip(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(boardPath, "1. todo", "hello.md")); err != nil {
 		t.Fatalf("item not created: %v", err)
+	}
+}
+
+func TestNewHTTPServer_Timeouts(t *testing.T) {
+	srv := newHTTPServer(http.NotFoundHandler())
+	if srv.ReadHeaderTimeout != mcpReadHeaderTimeout {
+		t.Errorf("ReadHeaderTimeout = %v, want %v", srv.ReadHeaderTimeout, mcpReadHeaderTimeout)
+	}
+	if srv.ReadTimeout != mcpReadTimeout {
+		t.Errorf("ReadTimeout = %v, want %v", srv.ReadTimeout, mcpReadTimeout)
+	}
+	if srv.WriteTimeout != mcpWriteTimeout {
+		t.Errorf("WriteTimeout = %v, want %v", srv.WriteTimeout, mcpWriteTimeout)
+	}
+	if srv.IdleTimeout != mcpIdleTimeout {
+		t.Errorf("IdleTimeout = %v, want %v", srv.IdleTimeout, mcpIdleTimeout)
 	}
 }

@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -62,7 +64,29 @@ func newServer() *mcp.Server {
 // closer shuts down the HTTP server it wraps.
 type closer struct{ srv *http.Server }
 
-func (c closer) Close() error { return c.srv.Close() }
+func (c closer) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), mcpShutdownTimeout)
+	defer cancel()
+	return c.srv.Shutdown(ctx)
+}
+
+const (
+	mcpReadHeaderTimeout = 5 * time.Second
+	mcpReadTimeout       = 30 * time.Second
+	mcpWriteTimeout      = 30 * time.Second
+	mcpIdleTimeout       = 120 * time.Second
+	mcpShutdownTimeout   = 5 * time.Second
+)
+
+func newHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: mcpReadHeaderTimeout,
+		ReadTimeout:       mcpReadTimeout,
+		WriteTimeout:      mcpWriteTimeout,
+		IdleTimeout:       mcpIdleTimeout,
+	}
+}
 
 // Serve starts the kbrd MCP server on a Streamable HTTP listener at addr and
 // returns immediately. The returned io.Closer stops the server. A bind error
@@ -82,10 +106,11 @@ func serveListener(ln net.Listener) io.Closer {
 	srv := newServer()
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 
-	httpSrv := &http.Server{Handler: handler}
+	httpSrv := newHTTPServer(handler)
 	go func() {
-		// http.ErrServerClosed is the normal result of Close on shutdown.
-		_ = httpSrv.Serve(ln)
+		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "warning: MCP server stopped: %v\n", err)
+		}
 	}()
 	return closer{srv: httpSrv}
 }
