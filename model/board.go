@@ -71,6 +71,8 @@ type Board struct {
 	cells            CellBar
 	indicators       colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
 	mcpStatus        MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
+	updateVersion    string        // newer stable GitHub release, if the startup check found one
+	releaseChecker   releaseChecker
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -143,6 +145,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		terminalDark:  true,
 		palette:       palette,
 		zellij:        NewZellij(),
+		releaseChecker: newReleaseChecker(),
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
@@ -233,7 +236,11 @@ func (b *Board) applyPalette() {
 }
 
 func (b *Board) Init() tea.Cmd {
-	return tea.Batch(tea.RequestBackgroundColor, func() tea.Msg { return scriptInitStartMsg{} })
+	cmds := []tea.Cmd{tea.RequestBackgroundColor, func() tea.Msg { return scriptInitStartMsg{} }}
+	if cmd := b.releaseChecker.command(Version); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (b *Board) initRuntime() {
@@ -522,6 +529,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
+
+	case releaseCheckMsg:
+		return b, b.handleReleaseCheck(msg)
 
 	case scriptInitStartMsg:
 		b.showScriptActivity()

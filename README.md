@@ -63,6 +63,7 @@ A quick, scannable rundown of everything kbrd does:
 
 - **Plain-files storage** — directories are columns, `.md` files are cards, zero database.
 - **Live reload** — the board updates instantly when files change on disk (`fsnotify`).
+- **Release updates** — on board launch, kbrd checks GitHub's latest stable release in the background and notifies you when a newer version is available.
 
 **Cards**
 

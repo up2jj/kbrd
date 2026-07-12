@@ -68,6 +68,12 @@ func (p boardStatusPresenter) renderHeaderLayout(width int) boardHeaderLayout {
 // indicators (sync, jobs, kbrd.status) flow in to their left as they appear.
 func (p boardStatusPresenter) updateBuiltinCells() {
 	b := p.b
+	if b.updateVersion != "" {
+		b.cells.SetInternal(Cell{ID: releaseUpdateCellID, Text: "↑ update " + b.updateVersion, FG: string(b.palette.Success)})
+	} else {
+		b.cells.Clear(releaseUpdateCellID)
+	}
+
 	// Sync indicator (id -5): transient spinner while reconciling, else the
 	// persistent remote-sync status. The mapping lives in syncCell.
 	editorActive := b.editor != nil && b.editor.state != editorNone
