@@ -283,7 +283,8 @@ func safeDispatch(s Subscriber, ev Event) {
 // FS* paths may be absolute or relative; relative paths are resolved
 // against the board root by the implementation.
 type NotifierAPI interface {
-	// Notify shows a non-blocking toast. level is one of "info", "success", "error".
+	// Notify shows a non-blocking desktop notification. level is one of "info",
+	// "success", "warning", or "error"; unknown levels are treated as "info".
 	Notify(msg, level string)
 }
 

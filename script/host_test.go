@@ -365,6 +365,30 @@ func TestCommandRegistration(t *testing.T) {
 	}
 }
 
+func TestLuaNotifyForwardsAllLevels(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("n", "Notify", function()
+  kbrd.notify("info", "info")
+  kbrd.notify("success", "success")
+  kbrd.notify("warning", "warning")
+  kbrd.notify("error", "error")
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if _, err := h.RunCommand(h.Commands()[0].LuaRef, nil); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := []string{"info:info", "success:success", "warning:warning", "error:error"}
+	if !reflect.DeepEqual(api.notifies, want) {
+		t.Fatalf("notifications = %v, want %v", api.notifies, want)
+	}
+}
+
 func TestVirtualColumnSet(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.column.set("tasks", {

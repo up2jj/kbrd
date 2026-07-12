@@ -426,11 +426,7 @@ func (b *Board) handleScriptResume(msg scriptResumeMsg) (tea.Model, tea.Cmd) {
 
 func (a boardScriptAPI) Notify(msg, level string) {
 	scriptDebugf("Notify level=%s msg=%q", level, msg)
-	sev := notifySuccess
-	if level == "error" {
-		sev = notifyError
-	}
-	a.b.notifier.fire(msg, sev)
+	a.b.notifier.fire(msg, normalizeNotifySeverity(level))
 }
 
 // resolve returns path as-is if absolute, otherwise joined against the

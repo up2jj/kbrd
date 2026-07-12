@@ -447,7 +447,7 @@ title_from_heading = false  # use the first "# " heading as the card title
 theme         = "auto"      # auto follows terminal background; light | dark force a palette
 
 [notify]
-backend = "auto"            # auto | osascript | osc9 | osc777 | none
+backend = "auto"            # auto | osc99 / kitty | osc777 | osc9 | osascript | none
 
 [board]
 name = ""                    # optional label shown in the board switcher

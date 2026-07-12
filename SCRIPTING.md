@@ -402,8 +402,11 @@ table by hand: `kbrd.board.move({column="todo", name="foo"}, "done")`.
 
 ### `kbrd.notify(msg, level)`
 
-Show a toast. `level` is one of `"info"`, `"success"`, `"error"` (defaults
-to `"info"`). Uses your configured `notify.backend` (osascript / OSC9 / OSC777).
+Show a desktop notification. `level` is one of `"info"`, `"success"`,
+`"warning"`, `"error"` (defaults to `"info"`; unknown values also become
+`"info"`). Uses your configured `notify.backend`: Kitty OSC 99 for structured
+title/body notifications, WezTerm OSC 777, OSC 9 for iTerm/Ghostty-compatible
+terminals, or the macOS `osascript` fallback.
 
 ```lua
 kbrd.notify("hello", "success")
