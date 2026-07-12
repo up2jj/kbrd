@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -145,11 +144,11 @@ func (s *Server) watchTemplates(ctx context.Context) {
 	}
 	w, err := fsutil.NewWatcher(nil)
 	if err != nil {
-		log.Printf("web: template hot-reload disabled: %v", err)
+		s.logf("web: template hot-reload disabled: %v", err)
 		return
 	}
 	if err := w.Add(dir); err != nil {
-		log.Printf("web: not watching %s: %v", dir, err)
+		s.logf("web: not watching %s: %v", dir, err)
 		w.Close()
 		return
 	}
@@ -161,11 +160,13 @@ func (s *Server) watchTemplates(ctx context.Context) {
 	onChange := func() {
 		tmpl, err := buildTemplates(s.opts.BoardPath)
 		if err != nil {
-			log.Printf("web: template reload skipped: %v", err)
+			s.logf("web: template reload skipped: %v", err)
 			return
 		}
 		s.tmpl.Store(tmpl)
-		log.Printf("web: templates reloaded")
+		s.logf("web: templates reloaded")
 	}
-	watchLoop(ctx, w, templateReloadDebounce, accept, onChange)
+	watchLoop(ctx, w, templateReloadDebounce, accept, onChange, func(err error) {
+		s.logf("web: watcher: %v", err)
+	})
 }

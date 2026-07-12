@@ -31,7 +31,7 @@ func withLuaServer(t *testing.T, lua string) (http.Handler, *http.Cookie) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	ts, err := startTaskScheduler(ctx, boardDir, "test", "", scriptingCfg(), nil)
+	ts, err := startTaskScheduler(ctx, boardDir, "test", "", scriptingCfg(), nil, nil)
 	if err != nil {
 		t.Fatalf("scheduler: %v", err)
 	}

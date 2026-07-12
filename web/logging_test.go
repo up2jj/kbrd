@@ -11,11 +11,7 @@ import (
 
 func TestAccessLog(t *testing.T) {
 	var buf bytes.Buffer
-	old := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(old)
-
-	s := &Server{}
+	s := &Server{logger: log.New(&buf, "", 0)}
 	h := s.accessLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = w.Write([]byte("hello"))
@@ -40,11 +36,7 @@ func TestAccessLog(t *testing.T) {
 
 func TestAccessLogImplicit200(t *testing.T) {
 	var buf bytes.Buffer
-	old := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(old)
-
-	s := &Server{}
+	s := &Server{logger: log.New(&buf, "", 0)}
 	h := s.accessLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +26,7 @@ type Options struct {
 	AuthorName   string // git commit author
 	AuthorEmail  string
 	PullEvery    time.Duration // background pull interval; 0 disables
+	Logger       *log.Logger   // defaults to stdout without changing log.Default
 
 	// InstanceName is this server's machine-local name, used to route
 	// instance-scoped Lua timers (kbrd.timer.every(.., { instance = "..." })).
@@ -81,6 +81,7 @@ type ReloadableConfig struct {
 // straight to disk.
 type Server struct {
 	opts      Options
+	logger    *log.Logger
 	tmpl      atomic.Pointer[template.Template]
 	auth      *auth
 	sync      *Syncer
@@ -102,6 +103,10 @@ type Server struct {
 	pullEvery  time.Duration
 
 	restartNote atomic.Value // string; last logged "restart required" diff
+}
+
+func (s *Server) logf(format string, args ...any) {
+	logf(s.logger, format, args...)
 }
 
 // currentBoardName returns the header label, preferring a hot-reloaded value.
@@ -146,7 +151,7 @@ func (s *Server) applyConfig(ctx context.Context, rc ReloadableConfig) {
 		note := rc.Addr + "|" + rc.Domain
 		if prev, _ := s.restartNote.Load().(string); prev != note {
 			s.restartNote.Store(note)
-			log.Printf("web: serve.addr/domain changed in config — restart kbrd serve to apply")
+			s.logf("web: serve.addr/domain changed in config — restart kbrd serve to apply")
 		}
 	}
 }
@@ -157,8 +162,6 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Token == "" {
 		return errors.New("web: access token is required")
 	}
-	// The standard logger defaults to stderr; send all web logs to stdout.
-	log.SetOutput(os.Stdout)
 	// Parse the embedded set for the initializing splash; finishInit rebuilds
 	// it with any .kbrd_web_templates overrides once the board exists on disk.
 	tmpl, err := buildTemplates("")
@@ -167,8 +170,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	s := &Server{
-		opts: opts,
-		auth: newAuth(opts.Token, opts.Domain != ""),
+		opts:   opts,
+		logger: defaultLogger(opts.Logger),
+		auth:   newAuth(opts.Token, opts.Domain != ""),
 	}
 	s.tmpl.Store(tmpl)
 	s.initStatus.Store("starting…")
@@ -179,7 +183,7 @@ func Run(ctx context.Context, opts Options) error {
 		go func() {
 			name, err := opts.Init(func(st string) { s.initStatus.Store(st) })
 			if err != nil {
-				log.Printf("web: init failed: %v", err)
+				s.logf("web: init failed: %v", err)
 				s.initStatus.Store(err.Error())
 				s.initFailed.Store(true)
 				return
@@ -193,10 +197,10 @@ func Run(ctx context.Context, opts Options) error {
 
 	handler := s.accessLog(s.middleware(s.routes()))
 	if opts.Domain != "" {
-		return runTLS(ctx, opts, handler)
+		return runTLS(ctx, opts, handler, s.logger)
 	}
 	srv := newHTTPServer(opts.Addr, handler)
-	log.Printf("web: board available at %s", displayURL(opts.Addr))
+	s.logf("web: board available at %s", displayURL(opts.Addr))
 	return serveUntilDone(ctx, srv, func() error { return srv.ListenAndServe() })
 }
 
@@ -223,7 +227,9 @@ func displayURL(addr string) string {
 func (s *Server) finishInit(ctx context.Context) {
 	s.sync = NewSyncer(s.opts.BoardPath, s.opts.AuthorName, s.opts.AuthorEmail, s.opts.InstanceName)
 	if s.sync == nil {
-		log.Printf("web: %s is not a git repository — running without sync", s.opts.BoardPath)
+		s.logf("web: %s is not a git repository — running without sync", s.opts.BoardPath)
+	} else {
+		s.sync.logger = s.logger
 	}
 	s.restartPullLoop(ctx, s.opts.PullEvery)
 
@@ -231,7 +237,7 @@ func (s *Server) finishInit(ctx context.Context) {
 	// rebuild the template set with overrides applied. A bad override keeps the
 	// embedded set already stored at startup. Then hot-reload on save.
 	if tmpl, err := buildTemplates(s.opts.BoardPath); err != nil {
-		log.Printf("web: template overrides not applied: %v", err)
+		s.logf("web: template overrides not applied: %v", err)
 	} else {
 		s.tmpl.Store(tmpl)
 	}
@@ -241,16 +247,16 @@ func (s *Server) finishInit(ctx context.Context) {
 		// Immediate load: in the --git-url flow the board's kbrd.toml only
 		// exists after the clone that just finished.
 		if rc, err := s.opts.LoadConfig(); err != nil {
-			log.Printf("web: load config: %v", err)
+			s.logf("web: load config: %v", err)
 		} else {
 			s.applyConfig(ctx, rc)
 		}
-		cw, err := NewConfigWatcher(s.opts.ConfigWatch, s.opts.LoadConfig, func(rc ReloadableConfig) {
-			log.Printf("web: config reloaded")
+		cw, err := newConfigWatcher(s.opts.ConfigWatch, s.opts.LoadConfig, func(rc ReloadableConfig) {
+			s.logf("web: config reloaded")
 			s.applyConfig(ctx, rc)
-		})
+		}, s.logger)
 		if err != nil {
-			log.Printf("web: config watcher disabled: %v", err)
+			s.logf("web: config watcher disabled: %v", err)
 		} else {
 			go cw.Run(ctx)
 		}
@@ -259,19 +265,19 @@ func (s *Server) finishInit(ctx context.Context) {
 	// Start the repeating-task scheduler once the board exists on disk and the
 	// Syncer is wired (so task mutations commit/push). Off unless --scripting.
 	if s.opts.Scripting.Enabled {
-		switch ts, err := startTaskScheduler(ctx, s.opts.BoardPath, s.currentBoardName(), s.opts.InstanceName, s.opts.Scripting, s.sync); {
+		switch ts, err := startTaskScheduler(ctx, s.opts.BoardPath, s.currentBoardName(), s.opts.InstanceName, s.opts.Scripting, s.sync, s.logger); {
 		case err != nil:
-			log.Printf("web: task scheduler disabled: %v", err)
+			s.logf("web: task scheduler disabled: %v", err)
 		case ts != nil:
 			s.sched.Store(ts)
-			log.Printf("web: task scheduler running (instance %q)", s.opts.InstanceName)
+			s.logf("web: task scheduler running (instance %q)", s.opts.InstanceName)
 		default:
-			log.Printf("web: scripting enabled but no init.lua/.kbrd.lua found")
+			s.logf("web: scripting enabled but no init.lua/.kbrd.lua found")
 		}
 	}
 
 	s.ready.Store(true)
-	log.Printf("web: board ready at %s", s.opts.BoardPath)
+	s.logf("web: board ready at %s", s.opts.BoardPath)
 }
 
 // newHTTPServer applies the hardening defaults shared by all listeners.
@@ -400,6 +406,6 @@ func (s *Server) renderInitializing(w http.ResponseWriter) {
 // render executes a template, logging (not exposing) render errors.
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	if err := s.tmpl.Load().ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("web: render %s: %v", name, err)
+		s.logf("web: render %s: %v", name, err)
 	}
 }

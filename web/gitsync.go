@@ -21,6 +21,7 @@ type Syncer struct {
 	author       string
 	email        string
 	instanceName string // tags conflict-copy filenames; "" falls back to a timestamp
+	logger       *log.Logger
 
 	statusMu    sync.Mutex // guards the last-result fields below
 	lastErrText string     // redacted; "" when the last sync succeeded
@@ -45,6 +46,7 @@ func NewSyncer(dir, authorName, authorEmail, instanceName string) *Syncer {
 		author:       authorName,
 		email:        authorEmail,
 		instanceName: instanceName,
+		logger:       defaultLogger(nil),
 	}
 }
 
@@ -144,7 +146,7 @@ func (s *Syncer) PullLoop(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 			if err := s.pullOnce(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("web: background sync: %v", err)
+				logf(s.logger, "web: background sync: %v", err)
 				s.record(err)
 			}
 		}
@@ -185,7 +187,7 @@ func (s *Syncer) conflictLabel() string {
 // is the operator's record of an automatic resolution.
 func (s *Syncer) logSidecars(sidecars []string) {
 	for _, p := range sidecars {
-		log.Printf("web: sync created conflict copy %s", p)
+		logf(s.logger, "web: sync created conflict copy %s", p)
 	}
 }
 

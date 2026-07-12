@@ -12,7 +12,7 @@ import (
 // runTLS serves handler on :443 with Let's Encrypt certificates for
 // opts.Domain, plus a :80 listener that answers ACME HTTP-01 challenges and
 // redirects everything else to https. Both shut down when ctx is cancelled.
-func runTLS(ctx context.Context, opts Options, handler http.Handler) error {
+func runTLS(ctx context.Context, opts Options, handler http.Handler, logger *log.Logger) error {
 	manager := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(opts.Domain),
@@ -33,7 +33,7 @@ func runTLS(ctx context.Context, opts Options, handler http.Handler) error {
 	})
 	httpSrv := newHTTPServer(":80", manager.HTTPHandler(redirect))
 
-	log.Printf("web: board available at https://%s (TLS on :443, ACME + redirect on :80)", opts.Domain)
+	logf(logger, "web: board available at https://%s (TLS on :443, ACME + redirect on :80)", opts.Domain)
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {

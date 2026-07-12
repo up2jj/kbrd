@@ -36,6 +36,7 @@ type boardTaskAPI struct {
 	ctx       context.Context
 	sync      *Syncer // nil in no-sync mode; mutationService remains nil-safe
 	mutations mutationService
+	logger    *log.Logger
 }
 
 // mutate keeps a task's filesystem change and its git commit under the same
@@ -59,7 +60,7 @@ func (a boardTaskAPI) resolvePath(path string) string {
 }
 
 func (a boardTaskAPI) Notify(msg, level string) {
-	log.Printf("web: task notify [%s] %s", level, msg)
+	logf(a.logger, "web: task notify [%s] %s", level, msg)
 }
 
 func (a boardTaskAPI) MoveItem(item events.ItemRef, toColumn string) error {
@@ -248,9 +249,10 @@ func (a boardTaskAPI) ColumnConfigDelete(column, key string) error {
 // touches the host directly — it posts an httpEval over `eval` and blocks on the
 // reply channel, so request evaluations serialize through run alongside timers.
 type taskScheduler struct {
-	host *script.Host
-	fire chan string   // tokens whose timer elapsed, delivered to run
-	eval chan httpEval // request/response hook evaluations from HTTP middleware
+	host   *script.Host
+	logger *log.Logger
+	fire   chan string   // tokens whose timer elapsed, delivered to run
+	eval   chan httpEval // request/response hook evaluations from HTTP middleware
 }
 
 // httpEval is one request- or response-hook evaluation the web middleware asks
@@ -271,15 +273,15 @@ type httpEvalResult struct {
 // registered timers, runs them until ctx is cancelled. Returns nil (no
 // scheduler) when scripting is disabled or no init files exist. The caller need
 // not stop it explicitly — ctx cancellation tears it down and closes the host.
-func startTaskScheduler(ctx context.Context, root, boardName, instanceName string, sc config.ScriptingConfig, sync *Syncer) (*taskScheduler, error) {
+func startTaskScheduler(ctx context.Context, root, boardName, instanceName string, sc config.ScriptingConfig, sync *Syncer, logger *log.Logger) (*taskScheduler, error) {
 	if !sc.Enabled {
 		return nil, nil
 	}
-	api := boardTaskAPI{root: root, boardName: boardName, ctx: ctx, sync: sync}
+	api := boardTaskAPI{root: root, boardName: boardName, ctx: ctx, sync: sync, logger: logger}
 	host, err := script.New(sc, api, nil, root, instanceName)
 	if err != nil && host != nil {
 		// Partial init failure: some files loaded. Log and keep the host.
-		log.Printf("web: scripting init: %v", err)
+		logf(logger, "web: scripting init: %v", err)
 	} else if err != nil {
 		return nil, err
 	}
@@ -288,8 +290,9 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 		return nil, nil
 	}
 	ts := &taskScheduler{
-		host: host,
-		fire: make(chan string, 16),
+		host:   host,
+		logger: logger,
+		fire:   make(chan string, 16),
 		// Unbuffered: a request blocks here until run is free, which is the
 		// single-threaded-VM serialization contract made explicit.
 		eval: make(chan httpEval),
@@ -359,7 +362,7 @@ func (ts *taskScheduler) run(ctx context.Context) {
 			return
 		case token := <-ts.fire:
 			if err := ts.host.FireTimer(token); err != nil {
-				log.Printf("web: task timer %s: %v", token, err)
+				logf(ts.logger, "web: task timer %s: %v", token, err)
 			}
 			ts.arm(ctx)
 		case ev := <-ts.eval:

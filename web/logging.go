@@ -1,7 +1,6 @@
 package web
 
 import (
-	"log"
 	"net/http"
 	"time"
 )
@@ -42,7 +41,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK // handler returned without writing anything
 		}
-		log.Printf("web: %s %s %d %dB %s %s",
+		s.logf("web: %s %s %d %dB %s %s",
 			r.Method, r.URL.Path, status, rec.bytes,
 			time.Since(start).Round(time.Microsecond), clientIP(r))
 	})
