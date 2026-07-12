@@ -101,25 +101,6 @@ func (a boardItemActions) moveNext(colIdx int, col *Column, item *Item, selectTa
 	return b.notifier.Success("moved " + item.Name + " → " + toName)
 }
 
-func (a boardItemActions) moveFirst(colIdx int, col *Column, item *Item) tea.Cmd {
-	b := a.board
-	if len(b.columns) == 0 {
-		return b.notifier.Error("no folders available")
-	}
-	if colIdx == 0 {
-		return nil
-	}
-	if err := b.moveItem(col, b.columns[0], item.Name); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return b.notifier.Error("file already exists in target: " + item.Name + ".md")
-		}
-		return b.notifier.ErrorCause("failed to move", err)
-	}
-	b.selectedCol = 0
-	b.columns[0].SelectByName(item.Name)
-	return nil
-}
-
 func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 	b := a.board
 	col, item, err := b.resolveDelayedItemRef(ref)
@@ -154,6 +135,11 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 	case 'd':
 		return a.confirmDelete(colIdx, col, item)
 	case 'm':
+		return a.board.moveMenuActions().open(itemActionContext{
+			Board: a.board, ColIdx: colIdx, Column: col, Item: item,
+			Targets: []itemActionTarget{{Ref: refForItem(col, item), Item: *item}}, Source: actionSourceKey,
+		})
+	case 'M':
 		return a.moveNext(colIdx, col, item, false)
 	}
 	return b.notifier.Error("unknown command: " + string(action))

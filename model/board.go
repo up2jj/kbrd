@@ -54,6 +54,7 @@ type Board struct {
 	clipboardRead    clipboardReadState
 	clipboardReadSeq uint64
 	templateMenu     TemplateMenu
+	moveMenu         MoveMenu
 	configMenuOpen   bool
 	peek             Peek
 	peekSeq          int
@@ -222,6 +223,7 @@ func (b *Board) applyPalette() {
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
 	b.templateMenu.SetPalette(b.palette)
+	b.moveMenu.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
 	b.helpMenu.SetPalette(b.palette)
 	b.harpoon.SetPalette(b.palette)

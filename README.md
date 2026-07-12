@@ -76,7 +76,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Journal entries** — append timestamped notes to a card (`b`), with optional natural-date prefixes like `yesterday` or `next monday`.
 - **Copy / paste** — move text between cards, persists across sessions (`c` / `v`).
 - **Pin cards** — float important cards to the top of a column (`!`).
-- **Move cards** — to the next column (`m`) or back to the first (`M`).
+- **Move cards** — choose any destination with fuzzy search (`m`), or move quickly to the next column (`M`).
 - **Rename & delete** — cards (`r` / `d`) and columns (`R`), with confirmation on delete.
 
 **Search & navigation**
@@ -272,7 +272,8 @@ All bindings below are the defaults from the in-app help (`?`).
 | `c` / `v` | Copy / paste |
 | `o` | Open in `$EDITOR` |
 | `!` | Pin / unpin |
-| `m` / `M` | Move to next column / first column |
+| `m` | Choose a destination column and move the selected or marked cards |
+| `M` | Move to the next column |
 | `r` | Rename item |
 | `d` | Delete |
 | `x` | Custom commands menu |

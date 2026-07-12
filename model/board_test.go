@@ -260,7 +260,7 @@ func columnHasItem(col *Column, name string) bool {
 	return false
 }
 
-func TestBoard_MMovesItemToFirstColumn(t *testing.T) {
+func TestBoard_MMovesItemToNextColumn(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 3, 3)
 	writeColItem(t, b.columns[2], "task")
@@ -269,7 +269,7 @@ func TestBoard_MMovesItemToFirstColumn(t *testing.T) {
 	b.handleKey(keyPressText("M"))
 
 	if b.selectedCol != 0 {
-		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
+		t.Errorf("selectedCol = %d, want 0 after wrapping to next", b.selectedCol)
 	}
 	if !columnHasItem(b.columns[0], "task") {
 		t.Errorf("first column missing item 'task'; items=%v", b.columns[0].Items)
@@ -285,7 +285,7 @@ func TestBoard_MMovesItemToFirstColumn(t *testing.T) {
 	}
 }
 
-func TestBoard_MOnFirstColumnIsNoop(t *testing.T) {
+func TestBoard_MOnFirstColumnMovesToSecondColumn(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 3, 3)
 	writeColItem(t, b.columns[0], "task")
@@ -293,14 +293,14 @@ func TestBoard_MOnFirstColumnIsNoop(t *testing.T) {
 
 	b.handleKey(keyPressText("M"))
 
-	if b.selectedCol != 0 {
-		t.Errorf("selectedCol = %d, want 0", b.selectedCol)
+	if b.selectedCol != 1 {
+		t.Errorf("selectedCol = %d, want 1", b.selectedCol)
 	}
-	if !columnHasItem(b.columns[0], "task") {
-		t.Errorf("item missing from first column after no-op M")
+	if !columnHasItem(b.columns[1], "task") {
+		t.Errorf("second column missing item after M")
 	}
-	if _, err := os.Stat(filepath.Join(b.columns[0].Path, "task.md")); err != nil {
-		t.Errorf("file missing at first column: %v", err)
+	if _, err := os.Stat(filepath.Join(b.columns[1].Path, "task.md")); err != nil {
+		t.Errorf("file missing at second column: %v", err)
 	}
 }
 

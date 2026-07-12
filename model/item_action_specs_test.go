@@ -98,7 +98,7 @@ func TestItemActionLayer_BatchMoveMarkedItems(t *testing.T) {
 	b.columns[0].ToggleMark("a")
 	b.columns[0].ToggleMark("b")
 
-	b.handleKey(keyPressText("m"))
+	b.handleKey(keyPressText("M"))
 
 	if columnHasItem(b.columns[0], "a") || columnHasItem(b.columns[0], "b") {
 		t.Fatalf("source still has moved items: %+v", b.columns[0].Items)
@@ -111,6 +111,40 @@ func TestItemActionLayer_BatchMoveMarkedItems(t *testing.T) {
 	}
 	if b.columns[0].MarkedCount() != 0 {
 		t.Fatalf("source marks = %d, want 0", b.columns[0].MarkedCount())
+	}
+}
+
+func TestItemActionLayer_MoveMenuMovesMarkedItemsToChosenDestination(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 3, 3)
+	writeColItem(t, b.columns[0], "a")
+	writeColItem(t, b.columns[0], "b")
+	b.selectedCol = 0
+	b.columns[0].ToggleMark("a")
+	b.columns[0].ToggleMark("b")
+
+	b.handleKey(keyPressText("m"))
+	if !b.moveMenu.Active() {
+		t.Fatal("move key did not open destination picker")
+	}
+	b.handleKey(keyPressText("/"))
+	b.handleKey(keyPressText("c2"))
+	if entry, ok := b.moveMenu.SelectedEntry(); !ok || entry.Label != "c2" {
+		t.Fatalf("filtered destination = %+v ok=%v filter=%q", entry, ok, b.moveMenu.filter)
+	}
+	b.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if b.moveMenu.Active() {
+		t.Fatal("destination picker remained open after confirmation")
+	}
+	if columnHasItem(b.columns[0], "a") || columnHasItem(b.columns[0], "b") {
+		t.Fatalf("source still has moved items: %+v", b.columns[0].Items)
+	}
+	if !columnHasItem(b.columns[2], "a") || !columnHasItem(b.columns[2], "b") {
+		t.Fatalf("chosen target missing moved items: col1=%+v col2=%+v", b.columns[1].Items, b.columns[2].Items)
+	}
+	if b.selectedCol != 2 {
+		t.Fatalf("selectedCol = %d, want 2", b.selectedCol)
 	}
 }
 

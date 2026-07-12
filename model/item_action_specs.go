@@ -17,8 +17,8 @@ const (
 	actionPaste           itemActionID = "paste"
 	actionOpenExternal    itemActionID = "open_external"
 	actionPin             itemActionID = "pin"
+	actionMoveMenu        itemActionID = "move_menu"
 	actionMoveNext        itemActionID = "move_next"
-	actionMoveFirst       itemActionID = "move_first"
 	actionRenameItem      itemActionID = "rename_item"
 	actionDelete          itemActionID = "delete"
 	actionCustomCommands  itemActionID = "custom_commands"
@@ -281,6 +281,17 @@ func itemActionSpecs() []itemActionSpec {
 			},
 		},
 		{
+			ID:          actionMoveMenu,
+			Binding:     Keys.MoveMenu,
+			Label:       "move to…",
+			Description: "Choose a destination column for the selected or marked cards.",
+			Cardinality: actionMultiBatch,
+			NeedsItem:   true,
+			Run: func(ctx itemActionContext) tea.Cmd {
+				return ctx.Board.moveMenuActions().open(ctx)
+			},
+		},
+		{
 			ID:          actionMoveNext,
 			Binding:     Keys.MoveNext,
 			Label:       "move to next column",
@@ -292,20 +303,6 @@ func itemActionSpecs() []itemActionSpec {
 					return ctx.Board.itemActions().moveTargets(ctx.ColIdx, ctx.Column, ctx.Targets, (ctx.ColIdx+1)%len(ctx.Board.columns), true)
 				}
 				return ctx.Board.itemActions().moveNext(ctx.ColIdx, ctx.Column, ctx.Item, true)
-			},
-		},
-		{
-			ID:          actionMoveFirst,
-			Binding:     Keys.MoveFirst,
-			Label:       "move to first column",
-			Description: "Move the selected card to the first column.",
-			Cardinality: actionMultiBatch,
-			NeedsItem:   true,
-			Run: func(ctx itemActionContext) tea.Cmd {
-				if len(ctx.Targets) > 1 || ctx.Column.MarkedCount() > 0 {
-					return ctx.Board.itemActions().moveTargets(ctx.ColIdx, ctx.Column, ctx.Targets, 0, true)
-				}
-				return ctx.Board.itemActions().moveFirst(ctx.ColIdx, ctx.Column, ctx.Item)
 			},
 		},
 		{

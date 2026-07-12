@@ -40,8 +40,8 @@ type KeyMap struct {
 	Paste           key.Binding
 	OpenExternal    key.Binding
 	Pin             key.Binding
+	MoveMenu        key.Binding
 	MoveNext        key.Binding
-	MoveFirst       key.Binding
 	RenameItem      key.Binding
 	Delete          key.Binding
 	CustomCommands  key.Binding
@@ -160,8 +160,8 @@ var Keys = KeyMap{
 	Paste:           key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
 	OpenExternal:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
 	Pin:             key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
-	MoveNext:        key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to next column")),
-	MoveFirst:       key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to first column")),
+	MoveMenu:        key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "choose move destination")),
+	MoveNext:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "move to next column")),
 	RenameItem:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename item")),
 	Delete:          key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 	CustomCommands:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
