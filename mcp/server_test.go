@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,14 +20,15 @@ func TestServeRoundTrip(t *testing.T) {
 	boardPath := makeBoardDir(t, "1. todo")
 	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
 
-	const addr = "127.0.0.1:53771"
-	c, err := Serve(addr)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("serve: %v", err)
+		t.Fatalf("listen: %v", err)
 	}
+	c := serveListener(ln)
 	defer c.Close()
+	addr := ln.Addr().String()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)

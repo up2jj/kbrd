@@ -69,19 +69,25 @@ func (c closer) Close() error { return c.srv.Close() }
 // (e.g. the port is already in use by another kbrd instance) is returned so
 // the caller can warn and continue without an MCP server.
 func Serve(addr string) (io.Closer, error) {
-	srv := newServer()
-	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
-
-	httpSrv := &http.Server{Addr: addr, Handler: handler}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
+	return serveListener(ln), nil
+}
+
+// serveListener starts the MCP server on an already-bound listener. Keeping
+// the bind separate lets tests request an OS-assigned port without a race.
+func serveListener(ln net.Listener) io.Closer {
+	srv := newServer()
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
+
+	httpSrv := &http.Server{Handler: handler}
 	go func() {
 		// http.ErrServerClosed is the normal result of Close on shutdown.
 		_ = httpSrv.Serve(ln)
 	}()
-	return closer{srv: httpSrv}, nil
+	return closer{srv: httpSrv}
 }
 
 // Start brings up the MCP server on addr and returns the closer plus whether
