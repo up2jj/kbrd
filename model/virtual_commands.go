@@ -110,7 +110,7 @@ func (v boardVirtualCommands) dispatch(col *Column, item *Item, ref, name string
 var virtualBlockedBindings = []key.Binding{
 	Keys.Edit, Keys.Append, Keys.Prepend, Keys.Journal, Keys.Copy, Keys.Paste,
 	Keys.OpenExternal, Keys.Pin, Keys.MoveMenu, Keys.MoveNext, Keys.RenameItem,
-	Keys.Delete, Keys.New, Keys.RenameCol, Keys.EditFrontmatter, Keys.ToggleMark,
+	Keys.Delete, Keys.New, Keys.RenameCol, Keys.EditFrontmatter, Keys.ApplyPreset, Keys.ToggleMark,
 }
 
 // isVirtualBlockedKey reports whether a pressed key is virtual-blocked.

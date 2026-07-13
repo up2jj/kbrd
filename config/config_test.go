@@ -54,6 +54,125 @@ created_at_format = "2006-01-02"
 	}
 }
 
+func TestLoad_BoardLocalFrontmatterPresets(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[[frontmatter_presets]]
+id = "start-work"
+name = "Start work"
+columns = ["Doing"]
+unset = ["blocked_by"]
+set.status = "doing"
+set.started_at = "{{now}}"
+set.due_date = "{{today+1d}}"
+set.tags = ["active", "{{column}}"]
+
+[[frontmatter_presets]]
+id = "done"
+name = "Done"
+set.status = "done"
+
+[[frontmatter_presets]]
+id = "review"
+name = "Review"
+columns = [1, "Doing"]
+set.status = "review"
+`)
+
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if len(cfg.FrontmatterPresets) != 3 {
+		t.Fatalf("presets: got %d want 3 (%+v)", len(cfg.FrontmatterPresets), cfg.FrontmatterPresets)
+	}
+	got := cfg.FrontmatterPresets[0]
+	if got.ID != "start-work" || got.Name != "Start work" || len(got.Columns) != 1 || got.Columns[0] != "Doing" {
+		t.Fatalf("first preset: %+v", got)
+	}
+	if got.Set["status"] != "doing" || got.Set["started_at"] != "{{now}}" || got.Set["due_date"] != "{{today+1d}}" {
+		t.Fatalf("first preset set: %#v", got.Set)
+	}
+	if got.Set["tags"] == nil || len(got.Unset) != 1 || got.Unset[0] != "blocked_by" {
+		t.Fatalf("first preset values: %+v", got)
+	}
+	selector := cfg.FrontmatterPresets[2]
+	if len(selector.Columns) != 2 {
+		t.Fatalf("mixed column selectors: %+v", selector.Columns)
+	}
+	if index, ok := presetColumnIndex(selector.Columns[0]); !ok || index != 1 {
+		t.Fatalf("numeric column selector = (%d, %v), want (1, true)", index, ok)
+	}
+	if !selector.AppliesTo("Other", 1) || !selector.AppliesTo("Doing", 4) || selector.AppliesTo("Other", 2) {
+		t.Fatalf("mixed selector matching is incorrect: %+v", selector.Columns)
+	}
+}
+
+func TestLoad_FrontmatterPresetsAreBoardLocal(t *testing.T) {
+	global := t.TempDir()
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(global, GlobalConfigFile), `
+[[frontmatter_presets]]
+id = "global"
+name = "Global"
+set.status = "global"
+`)
+
+	cfg, err := loadFrom(global, folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if len(cfg.FrontmatterPresets) != 0 {
+		t.Fatalf("global presets should not load into a board: %+v", cfg.FrontmatterPresets)
+	}
+}
+
+func TestLoad_InvalidFrontmatterPreset(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[[frontmatter_presets]]
+id = "bad"
+name = "Bad"
+set.status = "{{unknown}}"
+`)
+
+	_, err := loadFrom(t.TempDir(), folder)
+	if err == nil || !strings.Contains(err.Error(), "unknown variable") {
+		t.Fatalf("error = %v, want unknown-variable validation error", err)
+	}
+}
+
+func TestLoad_InvalidFrontmatterPresetDateExpression(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[[frontmatter_presets]]
+id = "bad-date"
+name = "Bad date"
+set.due = "{{today+1x}}"
+`)
+
+	_, err := loadFrom(t.TempDir(), folder)
+	if err == nil || !strings.Contains(err.Error(), "invalid date expression") {
+		t.Fatalf("error = %v, want invalid-date-expression error", err)
+	}
+}
+
+func TestLoad_InvalidNumericFrontmatterColumn(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[[frontmatter_presets]]
+id = "bad"
+name = "Bad"
+columns = [0]
+set.status = "todo"
+`)
+
+	_, err := loadFrom(t.TempDir(), folder)
+	if err == nil || !strings.Contains(err.Error(), "positive 1-based") {
+		t.Fatalf("error = %v, want invalid numeric-column error", err)
+	}
+}
+
 func TestLoad_GlobalOnly(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	globalDir := t.TempDir()

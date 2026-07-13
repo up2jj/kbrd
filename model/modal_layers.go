@@ -84,6 +84,11 @@ func (b *Board) modalLayers() []modalLayer {
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.templateMenuActions().update(msg) },
 		},
 		{
+			active: b.presetMenu.Active,
+			view:   func(w, h, _ int) string { return b.presetMenu.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.frontmatterPresetActions().update(msg) },
+		},
+		{
 			active: b.moveMenu.Active,
 			view:   func(w, h, _ int) string { return b.moveMenu.View(w, h) },
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.moveMenuActions().update(msg) },

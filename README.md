@@ -278,6 +278,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `d` | Delete |
 | `x` | Custom commands menu |
 | `~` | Edit a frontmatter key/value (`ctrl+e` completes a key, `ctrl+d` removes it) |
+| `P` | Apply a board-local frontmatter preset to the selected or marked cards |
 
 **Create & command**
 
@@ -455,6 +456,17 @@ backend = "auto"            # auto | osc99 / kitty | osc777 | osc9 | osascript |
 name = ""                    # optional label shown in the board switcher
 item_double_click = "peek"   # peek | edit
 
+# Repeat this block to declare multiple board-local presets.
+[[frontmatter_presets]]
+id = "start-work"
+name = "Start work"
+description = "Mark the card as actively being worked on"
+columns = [2, "2. IN PROGRESS"] # names or 1-based positions; omit for all columns
+unset = ["blocked_by"]
+set.status = "doing"
+set.started_at = "{{now}}"
+set.started_by = "{{user}}"
+
 [git]
 diff_tool          = "auto"     # auto | difft | diff-so-fancy | git
 auto_sync_interval = ""         # empty / "0" disables; e.g. "30s", "5m", "1h"
@@ -480,6 +492,17 @@ created_at_format = "2006-01-02T15:04:05Z07:00" # Go time layout; e.g. "2006-01-
 enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
 addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 ```
+
+Frontmatter presets belong in the board’s local `kbrd.toml`, so the metadata
+vocabulary travels with the board. Each `[[frontmatter_presets]]` table is one
+preset; repeat the table for additional presets. Use dotted `set.<key>` entries
+to write metadata and `unset` to remove keys. `columns` may contain column
+names, 1-based filesystem-column positions, or both. The `P` menu only offers
+presets allowed for the focused filesystem column. Available dynamic values are
+`{{now}}`, `{{today}}`, `{{board}}`, `{{column}}`, `{{filename}}`, and `{{user}}`;
+they are expanded when the preset is applied. Date values also support one
+offset, such as `{{now+2h}}`, `{{today-3d}}`, or `{{today+1mo}}`. Supported
+units are `m`/`min`, `h`, `d`, `w`, and `mo`; chained offsets are rejected.
 
 ---
 

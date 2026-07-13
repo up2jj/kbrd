@@ -15,6 +15,23 @@
 # name = ""                 # optional label shown in the board switcher
 # item_double_click = "peek" # "peek" opens reader; "edit" opens editor
 
+# Board-local frontmatter presets. Omit `columns` for a board-wide preset.
+# `columns` accepts names or 1-based filesystem-column positions; they can mix.
+# Dynamic values are expanded when a preset is applied:
+# {{now}}, {{today}}, {{board}}, {{column}}, {{filename}}, {{user}}.
+# Date offsets use one signed amount: {{now+2h}}, {{today-3d}}, {{today+1mo}}.
+# Units: m/min, h, d, w, mo. Chained offsets are not supported.
+#
+# [[frontmatter_presets]]
+# id = "start-work"
+# name = "Start work"
+# description = "Mark the card as actively being worked on"
+# columns = [2, "2. IN PROGRESS"]
+# unset = ["blocked_by", "wip_since"]
+# set.status = "doing"
+# set.started_at = "{{now}}"
+# set.started_by = "{{user}}"
+
 [git]
 # diff_tool = "auto"        # auto | difft | diff-so-fancy | git
 # auto_sync_interval = ""   # empty/"0" disables; e.g. "30s", "5m", "1h"

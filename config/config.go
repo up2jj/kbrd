@@ -27,6 +27,10 @@ const (
 type Config struct {
 	Path string
 
+	// FrontmatterPresets are board-local metadata patches loaded from the
+	// folder's kbrd.toml. They intentionally do not come from global config.
+	FrontmatterPresets []FrontmatterPreset
+
 	ColumnWidth      int
 	PreviewLines     int
 	TitleFromHeading bool
@@ -197,6 +201,7 @@ func Load(path string) (Config, error) {
 func loadFrom(globalDir, folderPath string) (Config, error) {
 	v := viper.New()
 	v.SetConfigType("toml")
+	var frontmatterPresets []FrontmatterPreset
 
 	v.SetDefault("display.column_width", 32)
 	v.SetDefault("display.preview_lines", 3)
@@ -255,6 +260,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			if err := v.MergeConfigMap(v2.AllSettings()); err != nil {
 				return Config{}, fmt.Errorf("merge folder config: %w", err)
 			}
+			frontmatterPresets, err = loadFrontmatterPresets(v2, folderFile)
+			if err != nil {
+				return Config{}, err
+			}
 		} else if !os.IsNotExist(err) {
 			return Config{}, fmt.Errorf("open folder config %s: %w", folderFile, err)
 		}
@@ -278,6 +287,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 
 	return Config{
 		Path:                 folderPath,
+		FrontmatterPresets:   frontmatterPresets,
 		ColumnWidth:          v.GetInt("display.column_width"),
 		PreviewLines:         v.GetInt("display.preview_lines"),
 		TitleFromHeading:     v.GetBool("display.title_from_heading"),

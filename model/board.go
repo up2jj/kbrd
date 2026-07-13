@@ -54,6 +54,7 @@ type Board struct {
 	clipboardRead    clipboardReadState
 	clipboardReadSeq uint64
 	templateMenu     TemplateMenu
+	presetMenu       frontmatterPresetMenu
 	moveMenu         MoveMenu
 	configMenuOpen   bool
 	peek             Peek
@@ -223,6 +224,7 @@ func (b *Board) applyPalette() {
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
 	b.templateMenu.SetPalette(b.palette)
+	b.presetMenu.SetPalette(b.palette)
 	b.moveMenu.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
 	b.helpMenu.SetPalette(b.palette)
@@ -743,6 +745,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case frontmatterSubmitMsg:
 		return b.frontmatterActions().handleSubmit(msg)
+
+	case frontmatterPresetApplyMsg:
+		return b.frontmatterPresetActions().handleApply(msg)
 
 	case templateShellDoneMsg:
 		return b, b.templateExec.done(msg)

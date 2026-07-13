@@ -42,9 +42,10 @@ type BoardContext struct {
 // MutationResult describes a successful item mutation. Callers attach their
 // own side effects (events, selection, notifications, commits) using this data.
 type MutationResult struct {
-	Column ColumnRef
-	Item   ItemRef
-	Path   string
+	Column  ColumnRef
+	Item    ItemRef
+	Path    string
+	Changed bool
 }
 
 // ShellPolicy rewrites template shell markers for an adapter.
@@ -131,6 +132,35 @@ func DeleteFrontmatter(col ColumnRef, itemName, key string) (MutationResult, err
 	return rewriteFrontmatter(col, itemName, func(raw string) string {
 		return frontmatter.Delete(raw, key)
 	})
+}
+
+// ApplyFrontmatterPatch applies a formatting-preserving top-level patch to an
+// item. Values must already be encoded as inline YAML scalars or flow
+// collections; callers own any runtime variable expansion.
+func ApplyFrontmatterPatch(col ColumnRef, itemName string, patch frontmatter.Patch) (MutationResult, error) {
+	path, err := board.ItemPath(col.Path, itemName)
+	if err != nil {
+		return MutationResult{}, err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return MutationResult{}, err
+	}
+	updated, err := frontmatter.Apply(string(raw), patch)
+	if err != nil {
+		return MutationResult{}, err
+	}
+	if updated != string(raw) {
+		if err := board.ReplaceFileContent(path, updated); err != nil {
+			return MutationResult{}, err
+		}
+	}
+	return MutationResult{
+		Column:  col,
+		Item:    ItemRef{Column: col, Name: itemName, Path: path},
+		Path:    path,
+		Changed: updated != string(raw),
+	}, nil
 }
 
 // SetPinned sets or removes the "pinned" frontmatter key for itemName.

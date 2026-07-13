@@ -152,6 +152,10 @@ func Set(raw, key, value string) string {
 	for i, l := range lines {
 		if topLevelKey(l) == key {
 			lines[i] = line
+			next := skipNestedValue(lines, i+1)
+			if next > i+1 {
+				lines = append(lines[:i+1], lines[next:]...)
+			}
 			return assemble(lines, body)
 		}
 	}
@@ -169,19 +173,37 @@ func Delete(raw, key string) string {
 	}
 	lines := blockLines(block)
 	kept := make([]string, 0, len(lines))
-	for _, l := range lines {
-		if topLevelKey(l) == key {
+	removed := false
+	for i := 0; i < len(lines); i++ {
+		if topLevelKey(lines[i]) != key {
+			kept = append(kept, lines[i])
 			continue
 		}
-		kept = append(kept, l)
+		removed = true
+		// Remove the key's indented YAML value as well. Without this, deleting
+		// a sequence or nested mapping leaves orphaned lines in the block.
+		i = skipNestedValue(lines, i+1) - 1
 	}
-	if len(kept) == len(lines) {
+	if !removed {
 		return raw // key absent — leave the file untouched
 	}
 	if blockEmpty(kept) {
 		return strings.TrimPrefix(body, "\n") // drop one blank line after the block
 	}
 	return assemble(kept, body)
+}
+
+// skipNestedValue returns the first line after a top-level key's indented
+// value. Blank lines are treated as part of that value; a top-level key or
+// other non-indented content ends the value.
+func skipNestedValue(lines []string, start int) int {
+	for i := start; i < len(lines); i++ {
+		line := lines[i]
+		if topLevelKey(line) != "" || (line != "" && line[0] != ' ' && line[0] != '\t') {
+			return i
+		}
+	}
+	return len(lines)
 }
 
 // blockLines splits a frontmatter block into its content lines. The block

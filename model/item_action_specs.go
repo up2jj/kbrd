@@ -23,6 +23,7 @@ const (
 	actionDelete          itemActionID = "delete"
 	actionCustomCommands  itemActionID = "custom_commands"
 	actionEditFrontmatter itemActionID = "edit_frontmatter"
+	actionApplyPreset     itemActionID = "apply_frontmatter_preset"
 )
 
 type itemActionSource string
@@ -351,6 +352,17 @@ func itemActionSpecs() []itemActionSpec {
 			NeedsItem:   true,
 			Run: func(ctx itemActionContext) tea.Cmd {
 				return ctx.Board.frontmatterActions().openEditor(ctx.ColIdx, ctx.Column, ctx.Item)
+			},
+		},
+		{
+			ID:          actionApplyPreset,
+			Binding:     Keys.ApplyPreset,
+			Label:       "apply frontmatter preset",
+			Description: "Apply a board-local frontmatter preset to the selected or marked cards.",
+			Cardinality: actionMultiBatch,
+			NeedsItem:   true,
+			Run: func(ctx itemActionContext) tea.Cmd {
+				return ctx.Board.frontmatterPresetActions().open(ctx)
 			},
 		},
 	}

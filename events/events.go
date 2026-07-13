@@ -183,7 +183,7 @@ func (ItemOpen) eventTag() {}
 // hooks are loop-free. External edits are reported by ItemChanged instead.
 type ItemSaved struct {
 	Item ItemRef
-	Kind string // "save" | "append" | "prepend" | "journal"
+	Kind string // "save" | "append" | "prepend" | "journal" | "frontmatter_preset"
 }
 
 func (ItemSaved) eventTag() {}

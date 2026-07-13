@@ -46,6 +46,7 @@ type KeyMap struct {
 	Delete          key.Binding
 	CustomCommands  key.Binding
 	EditFrontmatter key.Binding
+	ApplyPreset     key.Binding
 
 	// Create
 	New          key.Binding
@@ -166,6 +167,7 @@ var Keys = KeyMap{
 	Delete:          key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 	CustomCommands:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
 	EditFrontmatter: key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "edit frontmatter")),
+	ApplyPreset:     key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "apply frontmatter preset")),
 
 	// Create
 	New:          key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "create item")),
