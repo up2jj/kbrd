@@ -80,6 +80,27 @@ func GitCommand(repoRoot string, args ...string) *exec.Cmd {
 	return exec.Command("git", full...)
 }
 
+// GitDiffFiles renders a unified diff between two filesystem paths. Git exits
+// with status 1 when the files differ; that expected status is not returned as
+// an error when diff output exists.
+func GitDiffFiles(repoRoot, left, right string) (string, error) {
+	if repoRoot == "" || left == "" || right == "" {
+		return "", fmt.Errorf("diff paths are incomplete")
+	}
+	out, err := GitCommand(repoRoot, "--no-pager", "diff", "--no-index", "--no-color", "--unified=3", "--", left, right).CombinedOutput()
+	text := strings.TrimRight(string(out), "\n")
+	if err != nil {
+		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 && text != "" {
+			return text, nil
+		}
+		return "", gitError([]string{"diff", "--no-index"}, out, err)
+	}
+	if text != "" {
+		return text, nil
+	}
+	return "(no differences)", nil
+}
+
 // gitError formats a redacted "git <verb> failed: <detail>" error, preferring
 // the command's own output over the bare exit status.
 func gitError(args []string, out []byte, err error) error {

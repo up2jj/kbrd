@@ -290,7 +290,7 @@ func Items(columnPath string) ([]string, error) {
 	var items []string
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || Hidden(name) || !strings.HasSuffix(name, ".md") {
+		if e.IsDir() || Hidden(name) || kbrdfs.IsConflictCopy(name) || !strings.HasSuffix(name, ".md") {
 			continue
 		}
 		items = append(items, strings.TrimSuffix(name, ".md"))

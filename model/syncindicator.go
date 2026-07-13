@@ -23,7 +23,7 @@ func syncCell(ss git.SyncStatus, dirty int, shuttingDown, editorActive, autoComm
 		return cell("⟳ finishing sync…", string(p.AccentSoft))
 	case ss.Syncing:
 		return cell("⟳ syncing", string(p.AccentSoft))
-	case !ss.HasRemote:
+	case !ss.HasRemote && ss.Conflicts == 0:
 		return Cell{}, false
 	case ss.Failed:
 		return cell("✕ sync", string(p.Danger))

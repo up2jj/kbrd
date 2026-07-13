@@ -282,6 +282,33 @@ func TestGitPanelPullRequestsPullOnly(t *testing.T) {
 	}
 }
 
+func TestGitPanelReviewRequestsBoardCallback(t *testing.T) {
+	var p GitPanel
+	p.Open("", "main", false, nil, 120, 30)
+	p.SetConflictCount(1)
+
+	cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("review key returned nil command")
+	}
+	if _, ok := cmd().(gitReviewRequestMsg); !ok {
+		t.Fatalf("review message = %T, want gitReviewRequestMsg", cmd())
+	}
+}
+
+func TestControllerRoutesReviewRequest(t *testing.T) {
+	called := false
+	c := Controller{onReview: func() tea.Cmd {
+		called = true
+		return nil
+	}}
+
+	c.Update(gitReviewRequestMsg{})
+	if !called {
+		t.Fatal("review request did not invoke the host callback")
+	}
+}
+
 func TestShouldAutoSync_NoRepoRoot(t *testing.T) {
 	c := newTestController("")
 	c.cfg.GitAutoSyncInterval = time.Minute

@@ -64,6 +64,7 @@ type Board struct {
 	switcher         Switcher
 	search           Search
 	git              git.Controller
+	conflictReview   ConflictReview
 	zellij           Zellij
 	customCmds       CustomCommandMenu
 	commands         []config.Command
@@ -197,6 +198,7 @@ func (b *Board) initGit() {
 		EditorActive: func() bool {
 			return b.editor != nil && b.editor.state != editorNone
 		},
+		OnReview:      b.openConflictReview,
 		OnSyncSettled: func() tea.Cmd { b.quitting = true; return tea.Quit },
 	})
 }
@@ -227,6 +229,7 @@ func (b *Board) applyPalette() {
 	b.presetMenu.SetPalette(b.palette)
 	b.moveMenu.SetPalette(b.palette)
 	b.frontmatterEdit.SetPalette(b.palette)
+	b.conflictReview.SetPalette(b.palette)
 	b.helpMenu.SetPalette(b.palette)
 	b.harpoon.SetPalette(b.palette)
 	if b.editor != nil {
@@ -502,6 +505,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if model, cmd, handled := b.clipboardActions().handle(msg); handled {
 		return model, cmd
 	}
+	if model, cmd, handled := b.handleConflictReviewMessage(msg); handled {
+		return model, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -513,6 +519,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.editor.SetSize(b.termWidth, b.termHeight)
 		b.templateFlow.SetSize(b.termWidth, b.termHeight)
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
+		b.conflictReview.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.BackgroundColorMsg:

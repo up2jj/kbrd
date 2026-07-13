@@ -93,7 +93,8 @@ A quick, scannable rundown of everything kbrd does:
 - **Auto-sync** — reconciles with the remote when the board opens (and optionally
   on an interval), with automatic upstream setup; it resolves divergence on its
   own, setting aside a conflict copy only when two machines edit the same lines
-  (never blocking the sync). A header cell shows the sync state.
+  (never blocking the sync). A header cell shows the sync state; pending conflict
+  copies can be reviewed from the Git panel without showing them as ordinary cards.
 - **README generation** — optionally regenerate `README.md` from the board before commits.
 
 **Extensibility**
@@ -405,10 +406,31 @@ override it.
 | `l` | View log on narrow terminals (wide terminals show a recent-commits rail) |
 | `a` | Connect a remote (then sync) |
 | `d` | Return from history to changes |
+| `r` | Review pending synchronization changes |
 | `tab` | Switch between the file list and current diff |
 | `↑` / `↓` or `j` / `k` | Select a file or scroll the focused diff |
 | `pgup` / `pgdn` or mouse wheel | Scroll the current diff or history |
 | `q` / `esc` | Close |
+
+### Review changes (Git panel `r`)
+
+Sync conflict copies are kept as plain files but hidden from the normal board
+columns until reviewed. Open the Git panel with `g`, then press `r` when pending
+conflict copies are present. The review screen keeps the workflow local and explicit:
+
+| Keys | Action |
+| --- | --- |
+| `d` | View a unified diff |
+| `e` | Edit the incoming version |
+| `k` | Keep the original and discard the incoming copy |
+| `r` | Replace the original with the incoming version |
+| `b` | Keep both, choosing a clean card name |
+| `s` | Skip to the next conflict |
+| `q` / `esc` | Close |
+
+Resolution changes files in the working tree; kbrd does not silently commit
+them. Use the Git panel to commit or sync the result. `git.auto_commit = true`
+can publish the resolution during a later automatic sync.
 
 ### Config menu (`,`)
 

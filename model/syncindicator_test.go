@@ -28,6 +28,12 @@ func TestSyncCell(t *testing.T) {
 			wantShow: false,
 		},
 		{
+			name:     "pending conflict remains visible without remote",
+			ss:       git.SyncStatus{HasRemote: false, Conflicts: 1},
+			wantShow: true,
+			wantText: "⚠ 1 conflict",
+		},
+		{
 			name:         "shutdown wins over everything",
 			ss:           git.SyncStatus{HasRemote: true, Syncing: true},
 			shuttingDown: true,

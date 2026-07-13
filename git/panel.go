@@ -20,12 +20,13 @@ import (
 // still available to people who need it, but the default dirty-tree action is
 // one "save & sync" operation rather than two easily-confused actions.
 var panelKeys = struct {
-	Save, Pull, History, Changes, Connect, Cancel, Close, FocusToggle, Up, Down key.Binding
+	Save, Pull, History, Changes, Review, Connect, Cancel, Close, FocusToggle, Up, Down key.Binding
 }{
 	Save:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "save & sync")),
 	Pull:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "pull")),
 	History:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "history")),
 	Changes:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "changes")),
+	Review:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "review changes")),
 	Connect:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "connect remote")),
 	Close:       key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
 	Cancel:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -57,6 +58,7 @@ const (
 )
 
 type gitPanelCloseMsg struct{ gitMsg }
+type gitReviewRequestMsg struct{ gitMsg }
 type gitPullRequestMsg struct{ gitMsg }
 type gitContinueSyncMsg struct{ gitMsg }
 type gitLogRequestMsg struct{ gitMsg }
@@ -93,6 +95,7 @@ type GitPanel struct {
 	repoRoot     string
 	branch       string
 	hasRemote    bool
+	conflicts    int
 	files        []kbrdfs.FileChange
 	cursor       int
 	commitIn     textinput.Model
@@ -146,6 +149,9 @@ func (p *GitPanel) SetPalette(pal theme.Palette) {
 }
 
 func (p *GitPanel) Active() bool { return p.active }
+
+// SetConflictCount controls whether the panel offers its incoming-change review action.
+func (p *GitPanel) SetConflictCount(count int) { p.conflicts = max(count, 0) }
 
 func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.FileChange, termW, termH int) {
 	p.active = true
@@ -365,6 +371,9 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 		p.focus = focusFiles
 		p.rebuild()
 		return p.DiffRequestForCurrent()
+	}
+	if p.conflicts > 0 && key.Matches(km, panelKeys.Review) {
+		return func() tea.Msg { return gitReviewRequestMsg{} }
 	}
 	if !p.hasRemote && key.Matches(km, panelKeys.Connect) {
 		p.startRemoteInput()
@@ -606,6 +615,9 @@ func (p *GitPanel) View() string {
 		hints = append(hints, theme.Hint{Keys: "s", Label: "pull"})
 	} else {
 		hints = append(hints, theme.Hint{Keys: "a", Label: "remote"})
+	}
+	if p.conflicts > 0 {
+		hints = append(hints, theme.Hint{Keys: "r", Label: "review"})
 	}
 	if p.rightView == rightLog {
 		hints = append(hints, theme.Hint{Keys: "d", Label: "changes"})

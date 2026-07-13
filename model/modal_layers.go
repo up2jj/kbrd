@@ -36,6 +36,11 @@ func (b *Board) modalLayers() []modalLayer {
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.dialog.Update(msg) },
 		},
 		{
+			active: b.conflictReview.Active,
+			view:   func(w, h, _ int) string { return b.conflictReview.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.conflictReview.Update(msg) },
+		},
+		{
 			active: b.customCmds.Active,
 			view:   func(w, h, _ int) string { return b.customCmds.View(w, h) },
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.customCmds.Update(msg) },

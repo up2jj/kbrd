@@ -52,8 +52,10 @@ func (c *Controller) Open() tea.Cmd {
 	branch := kbrdfs.GitCurrentBranch(c.repoRoot)
 	hasRemote := kbrdfs.GitHasRemote(c.repoRoot)
 	c.hasRemote = hasRemote
+	c.pendingConflicts = conflictCountFor(c.repoRoot)
 	files := kbrdfs.GitChangedFiles(c.repoRoot)
 	c.panel.Open(c.repoRoot, branch, hasRemote, files, c.termW, c.termH)
+	c.panel.SetConflictCount(c.pendingConflicts)
 	diffCmd := c.panel.DiffRequestForCurrent()
 	cmds := []tea.Cmd{func() tea.Msg { return gitLogRequestMsg{} }}
 	if initToast != nil {
@@ -71,8 +73,10 @@ func (c *Controller) refreshPanel() {
 	}
 	branch := kbrdfs.GitCurrentBranch(c.repoRoot)
 	hasRemote := kbrdfs.GitHasRemote(c.repoRoot)
+	c.pendingConflicts = conflictCountFor(c.repoRoot)
 	files := kbrdfs.GitChangedFiles(c.repoRoot)
 	c.panel.Refresh(branch, hasRemote, files, c.termW, c.termH)
+	c.panel.SetConflictCount(c.pendingConflicts)
 }
 
 func (c *Controller) handleGitDiffForFile(msg gitDiffForFileMsg) tea.Cmd {

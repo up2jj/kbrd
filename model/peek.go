@@ -631,6 +631,21 @@ func wrapAnsiLine(line string, width int) []string {
 }
 
 func (p *Peek) View(termWidth, termHeight int) string {
+	return p.ViewWithHints(termWidth, termHeight, []Shortcut{
+		{"j/k", "scroll"},
+		{"g/G", "top/bot"},
+		{"enter", "page"},
+		{"e", "edit"},
+		{"a/p", "append/prepend"},
+		{"b", "journal"},
+		{"q/esc", "close"},
+	})
+}
+
+// ViewWithHints renders the peek body with caller-provided footer actions.
+// Domain-specific overlays can reuse the Markdown and scrolling presentation
+// without exposing unrelated card actions in their footer.
+func (p *Peek) ViewWithHints(termWidth, termHeight int, hints []Shortcut) string {
 	if !p.active {
 		return ""
 	}
@@ -676,15 +691,6 @@ func (p *Peek) View(termWidth, termHeight int) string {
 	}
 	bodyBlock = lipgloss.JoinHorizontal(lipgloss.Top, bodyBlock, " ", bar)
 
-	hints := []Shortcut{
-		{"j/k", "scroll"},
-		{"g/G", "top/bot"},
-		{"enter", "page"},
-		{"e", "edit"},
-		{"a/p", "append/prepend"},
-		{"b", "journal"},
-		{"q/esc", "close"},
-	}
 	footerLeft := RenderInlineHints(hints)
 	footerRight := helpDimStyle.Render(fmt.Sprintf("%d/%d", currentPage, totalPages))
 	gap := max(peekInnerWidth(termWidth)-lipgloss.Width(footerLeft)-lipgloss.Width(footerRight), 1)

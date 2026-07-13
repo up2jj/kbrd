@@ -61,6 +61,7 @@ type groupedPickerBody struct {
 	Rows       int
 	TermHeight int
 	TextWidth  int
+	Compact    bool
 	Filtering  bool
 	Filter     string
 	Nav        *groupedMenuNav
@@ -72,6 +73,9 @@ type groupedPickerBody struct {
 // different footers and auxiliary panes without duplicating viewport math.
 func renderGroupedPickerBody(s groupedPickerBody) (body, position string) {
 	maxBody := max(s.TermHeight-12, 6)
+	if s.Compact {
+		maxBody = min(max(s.Rows, 1), maxBody)
+	}
 	resultRows := maxBody
 	if s.Filtering {
 		resultRows = max(maxBody-2, 1)

@@ -37,15 +37,16 @@ type Notifier interface {
 // Deps are the host-provided collaborators. BeforeCommit is an opaque pre-commit
 // hook (the host uses it to regenerate a README from board content — git never
 // learns what it does). EditorActive lets the host pause automatic sync starts
-// while an in-app editor owns a buffer. OnSyncSettled is invoked once an
-// in-flight auto-sync finishes after a shutdown was requested, so the host can
-// finally quit.
+// while an in-app editor owns a buffer. OnReview opens the host's incoming-change
+// workflow from the Git panel. OnSyncSettled is invoked once an in-flight
+// auto-sync finishes after a shutdown was requested, so the host can finally quit.
 type Deps struct {
 	Cfg           config.Config
 	Notifier      Notifier
 	Bus           *events.Bus
 	BeforeCommit  func() error
 	EditorActive  func() bool
+	OnReview      func() tea.Cmd
 	OnSyncSettled func() tea.Cmd
 }
 
@@ -56,6 +57,7 @@ type Controller struct {
 	bus           *events.Bus
 	beforeCommit  func() error
 	editorActive  func() bool
+	onReview      func() tea.Cmd
 	onSyncSettled func() tea.Cmd
 
 	panel    GitPanel
@@ -69,17 +71,18 @@ type Controller struct {
 	activeSyncSeq   int64
 	expiredSyncSeq  int64
 
-	hasRemote         bool      // cached: repo has an "origin" (drives the sync indicator)
-	lastSyncFailed    bool      // the most recent reconcile errored
-	lastSyncConflicts int       // conflict copies from the last reconcile, sticky until a clean sync
-	lastSyncAt        time.Time // when the last reconcile succeeded; zero before the first
+	hasRemote        bool      // cached: repo has an "origin" (drives the sync indicator)
+	lastSyncFailed   bool      // the most recent reconcile errored
+	pendingConflicts int       // conflict copies currently present in the worktree
+	lastSyncAt       time.Time // when the last reconcile succeeded; zero before the first
 
 	termW, termH int
 }
 
-// SyncStatus is the header sync-indicator state. The cell is hidden unless
-// HasRemote; Syncing shows while a background reconcile runs; Failed is sticky
-// until the next success; Conflicts is sticky until the next clean sync.
+// SyncStatus is the header sync-indicator state. The cell is hidden without a
+// remote unless pending conflicts exist; Syncing shows while a background
+// reconcile runs; Failed is sticky until the next success; Conflicts reports
+// the currently-present sidecars.
 type SyncStatus struct {
 	HasRemote bool
 	Syncing   bool
@@ -95,6 +98,7 @@ func New(d Deps) Controller {
 		bus:           d.Bus,
 		beforeCommit:  d.BeforeCommit,
 		editorActive:  d.EditorActive,
+		onReview:      d.OnReview,
 		onSyncSettled: d.OnSyncSettled,
 	}
 }
@@ -128,21 +132,21 @@ func (c *Controller) SyncState() SyncStatus {
 		HasRemote: c.hasRemote,
 		Syncing:   c.syncing,
 		Failed:    c.lastSyncFailed,
-		Conflicts: c.lastSyncConflicts,
+		Conflicts: c.pendingConflicts,
 		LastSync:  c.lastSyncAt,
 	}
 }
 
 // recordSyncOutcome updates the indicator after a reconcile settles: a failure
-// is sticky until the next success; conflict copies are sticky until a clean
-// sync clears them.
+// is sticky until the next success; pending conflict copies are refreshed from
+// the filesystem after this call.
 func (c *Controller) recordSyncOutcome(err error, conflicts int) {
 	if err != nil {
 		c.lastSyncFailed = true
 		return
 	}
 	c.lastSyncFailed = false
-	c.lastSyncConflicts = conflicts
+	c.pendingConflicts = conflicts
 	c.lastSyncAt = time.Now()
 }
 
@@ -203,10 +207,16 @@ func (c *Controller) LineChanges(absPath string) []LineChange {
 // git message. The host fires this after a board reload; git owns the data.
 func (c *Controller) RefreshStats() tea.Cmd {
 	root := c.repoRoot
-	return func() tea.Msg { return gitStatsRefreshedMsg{stats: statsFor(root)} }
+	return func() tea.Msg {
+		return gitStatsRefreshedMsg{stats: statsFor(root), conflicts: conflictCountFor(root)}
+	}
 }
 
-func (c *Controller) refreshStats() { c.stats = statsFor(c.repoRoot) }
+func (c *Controller) refreshStats() {
+	c.stats = statsFor(c.repoRoot)
+	c.pendingConflicts = conflictCountFor(c.repoRoot)
+	c.panel.SetConflictCount(c.pendingConflicts)
+}
 
 // RefreshStatsNow recomputes diff stats synchronously, for host call sites that
 // are themselves synchronous (e.g. a script-triggered board refresh). The reload
@@ -222,6 +232,14 @@ func statsFor(repoRoot string) map[string]kbrdfs.DiffStat {
 	return kbrdfs.GitDiffStats(repoRoot)
 }
 
+func conflictCountFor(repoRoot string) int {
+	conflicts, err := kbrdfs.ListConflicts(repoRoot)
+	if err != nil {
+		return 0
+	}
+	return len(conflicts)
+}
+
 // HandleKey forwards a key to the panel while it is active.
 func (c *Controller) HandleKey(k tea.KeyPressMsg) tea.Cmd { return c.panel.Update(k) }
 
@@ -232,7 +250,8 @@ func (c *Controller) HandleMouse(m tea.MouseMsg) tea.Cmd { return c.panel.Handle
 // controller (see RefreshStats).
 type gitStatsRefreshedMsg struct {
 	gitMsg
-	stats map[string]kbrdfs.DiffStat
+	stats     map[string]kbrdfs.DiffStat
+	conflicts int
 }
 
 // Update dispatches a git message to its handler.
@@ -240,6 +259,11 @@ func (c *Controller) Update(m Msg) tea.Cmd {
 	switch msg := m.(type) {
 	case gitPanelCloseMsg:
 		return c.handleGitPanelClose()
+	case gitReviewRequestMsg:
+		if c.onReview != nil {
+			return c.onReview()
+		}
+		return nil
 	case gitDiffForFileMsg:
 		return c.handleGitDiffForFile(msg)
 	case gitCommitRequestMsg:
@@ -268,6 +292,8 @@ func (c *Controller) Update(m Msg) tea.Cmd {
 		return c.handleAutoSyncDone(msg)
 	case gitStatsRefreshedMsg:
 		c.stats = msg.stats
+		c.pendingConflicts = msg.conflicts
+		c.panel.SetConflictCount(c.pendingConflicts)
 		return nil
 	}
 	return nil
