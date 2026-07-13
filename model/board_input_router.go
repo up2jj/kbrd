@@ -67,6 +67,8 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) 
 		action = actionPrepend
 	case key.Matches(msg, Keys.Journal):
 		action = actionJournal
+	case key.Matches(msg, Keys.Timeline):
+		action = actionTimeline
 	default:
 		return nil, false
 	}

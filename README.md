@@ -71,6 +71,9 @@ A quick, scannable rundown of everything kbrd does:
 - **Card templates** — create pre-structured cards from per-column or board-wide templates through the create menu (`n`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
+- **Card timeline** — semantic Git history for the selected card (`u`): browse
+  edits, metadata changes, moves, renames, snapshots, and diffs without working
+  with commit hashes; old revisions can only be restored as a new copy.
 - **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
 - **Journal entries** — append timestamped notes to a card (`b`), with optional natural-date prefixes like `yesterday` or `next monday`.
@@ -280,6 +283,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `x` | Custom commands menu |
 | `~` | Edit a frontmatter key/value (`ctrl+e` completes a key, `ctrl+d` removes it) |
 | `P` | Apply a board-local frontmatter preset to the selected or marked cards |
+| `u` | Open the selected card's timeline |
 
 **Create & command**
 
@@ -411,6 +415,21 @@ override it.
 | `↑` / `↓` or `j` / `k` | Select a file or scroll the focused diff |
 | `pgup` / `pgdn` or mouse wheel | Scroll the current diff or history |
 | `q` / `esc` | Close |
+
+### Card timeline (`u`)
+
+The timeline follows the selected card across Git renames and column moves. It
+shows card-level events instead of a repository log and never overwrites the
+current card when recovering an old revision.
+
+| Keys | Action |
+| --- | --- |
+| `↑` / `↓` | Select an event |
+| `enter` / `s` | View that revision as a card snapshot |
+| `d` | View its unified diff |
+| `c` | Restore the snapshot as a new, uniquely named card copy |
+| `←` / `→` | Browse older / newer snapshots |
+| `q` / `esc` | Go back or close |
 
 ### Review changes (Git panel `r`)
 

@@ -62,6 +62,11 @@ func (b *Board) modalLayers() []modalLayer {
 			mouse:  func(msg tea.MouseMsg) tea.Cmd { b.editor.HandleMouse(msg); return nil },
 		},
 		{
+			active: b.timeline.Active,
+			view:   func(w, h, _ int) string { return b.timeline.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.timeline.Update(msg) },
+		},
+		{
 			active: b.peek.Active,
 			view:   func(w, h, _ int) string { return b.peek.View(w, h) },
 			key: func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

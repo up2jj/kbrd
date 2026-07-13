@@ -141,6 +141,9 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 		})
 	case 'M':
 		return a.moveNext(colIdx, col, item, false)
+	case 'u':
+		cmd, _ := b.itemActions().Invoke(actionTimeline, actionSourceKey)
+		return cmd
 	}
 	return b.notifier.Error("unknown command: " + string(action))
 }

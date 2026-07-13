@@ -24,6 +24,7 @@ const (
 	actionCustomCommands  itemActionID = "custom_commands"
 	actionEditFrontmatter itemActionID = "edit_frontmatter"
 	actionApplyPreset     itemActionID = "apply_frontmatter_preset"
+	actionTimeline        itemActionID = "timeline"
 )
 
 type itemActionSource string
@@ -341,6 +342,24 @@ func itemActionSpecs() []itemActionSpec {
 			Run: func(ctx itemActionContext) tea.Cmd {
 				_, cmd, _ := ctx.Board.openCustomCommands(ctx)
 				return cmd
+			},
+		},
+		{
+			ID:          actionTimeline,
+			Binding:     Keys.Timeline,
+			Label:       "timeline",
+			Description: "Browse this card's semantic history, diffs, and snapshots.",
+			Cardinality: actionSingle,
+			NeedsItem:   true,
+			Run: func(ctx itemActionContext) tea.Cmd {
+				if ctx.Item.Virtual {
+					return ctx.Board.notifier.Error("virtual cards have no Git history")
+				}
+				root := ctx.Board.git.RepoRoot()
+				if root == "" {
+					return ctx.Board.notifier.Error("no Git repository")
+				}
+				return ctx.Board.timeline.Open(root, ctx.Item.FullPath, ctx.Item.Title)
 			},
 		},
 		{

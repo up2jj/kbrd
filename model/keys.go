@@ -47,6 +47,7 @@ type KeyMap struct {
 	CustomCommands  key.Binding
 	EditFrontmatter key.Binding
 	ApplyPreset     key.Binding
+	Timeline        key.Binding
 
 	// Create
 	New          key.Binding
@@ -168,6 +169,7 @@ var Keys = KeyMap{
 	CustomCommands:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "custom commands")),
 	EditFrontmatter: key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "edit frontmatter")),
 	ApplyPreset:     key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "apply frontmatter preset")),
+	Timeline:        key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "card timeline")),
 
 	// Create
 	New:          key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "create item")),

@@ -105,6 +105,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 			bindingShortcut(Keys.Peek),
 			bindingShortcut(Keys.Edit),
 			bindingShortcut(Keys.Append),
+			bindingShortcut(Keys.Timeline),
 			bindingShortcut(Keys.Delete),
 			short(Keys.MoveMenu.Help().Key, "move"),
 			short(Keys.MoveNext.Help().Key, "next"),

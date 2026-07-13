@@ -58,6 +58,7 @@ type Board struct {
 	moveMenu         MoveMenu
 	configMenuOpen   bool
 	peek             Peek
+	timeline         Timeline
 	peekSeq          int
 	peekItemPath     string
 	zoom             Zoom
@@ -218,6 +219,7 @@ func (b *Board) applyPalette() {
 	b.dialog.palette = b.palette
 	b.pasteMenu.palette = b.palette
 	b.peek.palette = b.palette
+	b.timeline.SetPalette(b.palette)
 	b.switcher.palette = b.palette
 	b.search.palette = b.palette
 	b.git.SetPalette(b.palette)
@@ -508,6 +510,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if model, cmd, handled := b.handleConflictReviewMessage(msg); handled {
 		return model, cmd
 	}
+	if model, cmd, handled := b.handleTimelineMessage(msg); handled {
+		return model, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -520,6 +525,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.templateFlow.SetSize(b.termWidth, b.termHeight)
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
 		b.conflictReview.SetSize(b.termWidth, b.termHeight)
+		b.timeline.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.BackgroundColorMsg:
