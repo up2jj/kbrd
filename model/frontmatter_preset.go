@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/boardops"
 	"kbrd/config"
@@ -173,11 +175,19 @@ func (m *frontmatterPresetMenu) View(termWidth, termHeight int) string {
 	}
 	footer := m.footerHints()
 	textW := m.contentWidth(termWidth)
+	overview := m.overview(textW)
+	bodyHeight := termHeight
+	if overview != "" {
+		bodyHeight -= lipgloss.Height(overview) + 1
+	}
 	body, pos := renderGroupedPickerBody(groupedPickerBody{
-		Palette: m.palette, Rows: len(m.rows), TermHeight: termHeight, TextWidth: textW,
+		Palette: m.palette, Rows: len(m.rows), TermHeight: bodyHeight, TextWidth: textW,
 		Filtering: m.filtering, Filter: m.filter, Nav: &m.groupedMenuNav,
 		RenderRow: func(row int, selected bool) string { return m.renderRow(m.rows[row], selected) },
 	})
+	if overview != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, "", overview)
+	}
 	gap := max(textW-lipgloss.Width(footer)-lipgloss.Width(pos), 1)
 	title := "Frontmatter presets"
 	if m.column.Name != "" {
@@ -188,6 +198,114 @@ func (m *frontmatterPresetMenu) View(termWidth, termHeight int) string {
 		Footer: footer + strings.Repeat(" ", gap) + pos,
 		Width:  overlayWidthForBody(textW), Palette: m.palette,
 	}.Render()
+}
+
+func (m *frontmatterPresetMenu) overview(textW int) string {
+	preset, ok := m.SelectedPreset()
+	if !ok {
+		return ""
+	}
+
+	p := m.palette
+	width := max(textW-helpScrollbarGutter, 1)
+	description := strings.Join(strings.Fields(preset.Description), " ")
+	if description == "" {
+		description = "(no description)"
+	}
+
+	boxContentWidth := max(width-4, 1)
+	descriptionBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(p.FgDim).
+		Padding(0, 1).
+		Width(width).
+		Render(ansi.Truncate(description, boxContentWidth, "…"))
+
+	changes := presetChanges(preset)
+	const maxVisibleChanges = 8
+	visibleChanges := changes
+	if len(visibleChanges) > maxVisibleChanges {
+		visibleChanges = visibleChanges[:maxVisibleChanges]
+	}
+
+	table := presetChangeTable(visibleChanges, width, p)
+	if extra := len(changes) - len(visibleChanges); extra > 0 {
+		table = append(table, lipgloss.NewStyle().Foreground(p.FgDim).Render(
+			ansi.Truncate(fmt.Sprintf("  … %d more change(s)", extra), width, "…"),
+		))
+	}
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(p.Primary).Render(
+		ansi.Truncate("Preset: "+preset.Name, width, "…"),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, title, descriptionBox, strings.Join(table, "\n"))
+}
+
+type frontmatterPresetChange struct {
+	operation string
+	key       string
+	value     string
+}
+
+func presetChanges(preset config.FrontmatterPreset) []frontmatterPresetChange {
+	changes := make([]frontmatterPresetChange, 0, len(preset.Set)+len(preset.Unset))
+	setKeys := make([]string, 0, len(preset.Set))
+	for key := range preset.Set {
+		setKeys = append(setKeys, key)
+	}
+	sort.Strings(setKeys)
+	for _, key := range setKeys {
+		changes = append(changes, frontmatterPresetChange{
+			operation: "set",
+			key:       key,
+			value:     fmt.Sprintf("%v", preset.Set[key]),
+		})
+	}
+
+	unsetKeys := append([]string(nil), preset.Unset...)
+	sort.Strings(unsetKeys)
+	for _, key := range unsetKeys {
+		changes = append(changes, frontmatterPresetChange{operation: "unset", key: key, value: "—"})
+	}
+	return changes
+}
+
+func presetChangeTable(changes []frontmatterPresetChange, width int, p Palette) []string {
+	actionWidth := 6
+	keyWidth := len("key")
+	for _, change := range changes {
+		keyWidth = max(keyWidth, lipgloss.Width(change.key))
+	}
+	keyWidth = min(keyWidth, max(width-actionWidth-8, len("key")))
+	valueWidth := max(width-2-actionWidth-1-keyWidth-1, 1)
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgBase)
+	detailStyle := lipgloss.NewStyle().Foreground(p.FgSubtle)
+	lines := []string{
+		headerStyle.Render(ansi.Truncate(presetTableRow("action", "key", "value", actionWidth, keyWidth, valueWidth), width, "…")),
+	}
+	for _, change := range changes {
+		row := ansi.Truncate(presetTableRow(change.operation, change.key, change.value, actionWidth, keyWidth, valueWidth), width, "…")
+		rowStyle := detailStyle
+		if change.operation == "unset" {
+			rowStyle = lipgloss.NewStyle().Foreground(p.Danger)
+		}
+		lines = append(lines, rowStyle.Render(row))
+	}
+	if len(changes) == 0 {
+		lines = append(lines, detailStyle.Render("  (no frontmatter changes)"))
+	}
+	return lines
+}
+
+func presetTableRow(action, key, value string, actionWidth, keyWidth, valueWidth int) string {
+	return "  " + presetTableCell(action, actionWidth) + " " +
+		presetTableCell(key, keyWidth) + " " + ansi.Truncate(value, valueWidth, "…")
+}
+
+func presetTableCell(value string, width int) string {
+	value = ansi.Truncate(value, width, "…")
+	return value + strings.Repeat(" ", max(width-lipgloss.Width(value), 0))
 }
 
 func (m *frontmatterPresetMenu) footerHints() string {

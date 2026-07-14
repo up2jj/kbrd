@@ -41,6 +41,34 @@ func TestFrontmatterPresetMenuGroupsAndSearches(t *testing.T) {
 	}
 }
 
+func TestFrontmatterPresetMenuOverviewShowsChanges(t *testing.T) {
+	var menu frontmatterPresetMenu
+	menu.SetPalette(DarkPalette())
+	menu.Open(0, columnRef{Name: "Doing", Path: "/board/Doing"}, []config.FrontmatterPreset{
+		{
+			ID:          "start-work",
+			Name:        "Start work",
+			Description: "Mark the card as active",
+			Set:         map[string]any{"started_at": "{{now}}", "status": "doing"},
+			Unset:       []string{"blocked_by"},
+		},
+	}, nil, "")
+
+	view := menu.View(100, 40)
+	for _, want := range []string{
+		"Preset: Start work",
+		"Mark the card as active",
+		"action",
+		"set    started_at",
+		"set    status",
+		"unset  blocked_by",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("overview missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestBuildPresetPatchExpandsDynamicValues(t *testing.T) {
 	preset := config.FrontmatterPreset{
 		Set: map[string]any{
