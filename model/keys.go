@@ -15,6 +15,7 @@ type KeyMap struct {
 	SwitchBoard  key.Binding
 	Search       key.Binding
 	Refresh      key.Binding
+	Clipboard    key.Binding
 
 	// Navigation
 	PrevCol     key.Binding
@@ -137,6 +138,7 @@ var Keys = KeyMap{
 	SwitchBoard:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
 	Search:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
 	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
+	Clipboard:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "clipboard history")),
 
 	// Navigation
 	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column / move marked left")),
@@ -287,6 +289,7 @@ func menuKey(helpKey string) string {
 func HelpMenuGroups() []HelpGroup {
 	global := []HelpEntry{
 		helpEntry(Keys.Refresh, "Reload every column from disk, picking up external edits."),
+		helpEntry(Keys.Clipboard, "Browse the machine-local clipboard ring and paste a saved entry."),
 		helpEntry(Keys.Harpoon, "Open five board-scoped quick-jump slots; assign the current file or jump to a saved one."),
 		helpEntry(Keys.SwitchBoard, "Open the board switcher to jump to a recent or pinned board."),
 		helpEntry(Keys.Search, "Full-text search across all known boards."),

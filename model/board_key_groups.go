@@ -30,6 +30,8 @@ func (b *Board) handleGlobalBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Mode
 		return b, nil, true
 	case key.Matches(msg, Keys.Refresh):
 		return b, b.utilityActions().refresh(), true
+	case key.Matches(msg, Keys.Clipboard):
+		return b, b.clipboardActions().openBrowser(), true
 	}
 	return b, nil, false
 }

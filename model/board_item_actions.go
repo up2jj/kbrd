@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -45,7 +46,15 @@ func (a boardItemActions) copy(col *Column, item *Item) tea.Cmd {
 	if err != nil {
 		return b.notifier.ErrorCause("failed to copy", err)
 	}
-	return b.utilityActions().copyToClipboard([]byte(content))
+	store, err := b.clipboardStore()
+	if err != nil {
+		return b.notifier.ErrorCause("open clipboard history", err)
+	}
+	entry := b.newClipboardEntry(string(content), b.clipboardSource(col, item.Name), map[string]any{
+		"bytes": len(content),
+		"lines": strings.Count(string(content), "\n") + 1,
+	})
+	return b.utilityActions().copyToClipboardWithEntry(content, store, entry)
 }
 
 func (a boardItemActions) paste(colIdx int, col *Column, item *Item) tea.Cmd {

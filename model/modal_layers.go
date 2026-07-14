@@ -46,9 +46,26 @@ func (b *Board) modalLayers() []modalLayer {
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.customCmds.Update(msg) },
 		},
 		{
+			active: b.clipboardMenu.Active,
+			view:   func(w, h, _ int) string { return b.clipboardMenu.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.clipboardActions().updateBrowser(msg) },
+		},
+		{
 			active: b.pasteMenu.Active,
 			view:   func(w, h, _ int) string { return b.pasteMenu.View(w, h) },
-			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.pasteMenu.Update(msg) },
+			key: func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+				cmd := b.pasteMenu.Update(msg)
+				if !b.pasteMenu.Active() {
+					cancelled := b.pasteMenu.TakeCancelled()
+					if cancelled && b.clipboardReturn {
+						b.clipboardReturn = false
+						b.clipboardMenu.Open(b.clipboardRingEntries(), b.clipboardTarget)
+					} else if !cancelled {
+						b.clipboardReturn = false
+					}
+				}
+				return b, cmd
+			},
 		},
 		{
 			active: b.scriptUI.Active,

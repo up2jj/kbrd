@@ -1,11 +1,15 @@
 package model
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 
+	"kbrd/clipboardring"
 	"kbrd/template"
 )
 
@@ -22,6 +26,7 @@ const (
 	clipboardReadPasteMenu
 	clipboardReadEditor
 	clipboardReadTemplate
+	clipboardReadRingImport
 )
 
 type clipboardReadState struct {
@@ -29,6 +34,7 @@ type clipboardReadState struct {
 	kind     clipboardReadKind
 	paste    pasteMenuTarget
 	template templateStartFormMsg
+	ring     pasteMenuTarget
 }
 
 type clipboardFallbackMsg struct{ request uint64 }
@@ -38,12 +44,57 @@ type clipboardSystemReadMsg struct {
 	content string
 }
 
+type editorYankMsg struct {
+	column   columnRef
+	fileName string
+	content  string
+}
+
 type boardClipboardActions struct {
 	board *Board
 }
 
 func (b *Board) clipboardActions() boardClipboardActions {
 	return boardClipboardActions{board: b}
+}
+
+func (b *Board) clipboardStore() (*clipboardring.Store, error) {
+	if b.clipboardRing != nil {
+		return b.clipboardRing, nil
+	}
+	store, err := clipboardring.Open("")
+	if err != nil {
+		return nil, err
+	}
+	b.clipboardRing = store
+	return store, nil
+}
+
+func (b *Board) clipboardRingEntries() []clipboardring.Entry {
+	store, err := b.clipboardStore()
+	if err != nil {
+		return nil
+	}
+	return store.Entries()
+}
+
+func (b *Board) newClipboardEntry(text string, source clipboardring.Source, metadata map[string]any) clipboardring.Entry {
+	return clipboardring.Entry{
+		ID:       fmt.Sprintf("%d", time.Now().UnixNano()),
+		Time:     time.Now(),
+		Kind:     clipboardring.DetectKind(text),
+		Text:     text,
+		Source:   source,
+		Metadata: metadata,
+	}
+}
+
+func (b *Board) clipboardSource(col *Column, card string) clipboardring.Source {
+	boardName := filepath.Base(b.cfg.Path)
+	if b.cfg.BoardName != "" {
+		boardName = b.cfg.BoardName
+	}
+	return clipboardring.Source{Board: boardName, Column: col.Name, Card: card}
 }
 
 func (a boardClipboardActions) request(state clipboardReadState) tea.Cmd {
@@ -65,6 +116,10 @@ func (a boardClipboardActions) readPasteMenu(target pasteMenuTarget) tea.Cmd {
 
 func (a boardClipboardActions) readEditor() tea.Cmd {
 	return a.request(clipboardReadState{kind: clipboardReadEditor})
+}
+
+func (a boardClipboardActions) readRingImport(target pasteMenuTarget) tea.Cmd {
+	return a.request(clipboardReadState{kind: clipboardReadRingImport, ring: target})
 }
 
 func (a boardClipboardActions) cancelTemplateRead() {
@@ -102,11 +157,37 @@ func (a boardClipboardActions) handle(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return model, cmd, true
 	case editorClipboardReadMsg:
 		return b, a.readEditor(), true
+	case editorYankMsg:
+		return b, a.recordEditorYank(msg), true
 	case templateStartFormMsg:
 		return b, a.openTemplate(msg), true
 	default:
 		return b, nil, false
 	}
+}
+
+func (a boardClipboardActions) recordEditorYank(msg editorYankMsg) tea.Cmd {
+	b := a.board
+	if msg.content == "" {
+		return nil
+	}
+	col, err := b.resolveDelayedColumnRef(msg.column)
+	if err != nil {
+		return nil
+	}
+	store, err := b.clipboardStore()
+	if err != nil {
+		return b.notifier.ErrorCause("open clipboard history", err)
+	}
+	entry := b.newClipboardEntry(msg.content, b.clipboardSource(col, msg.fileName), map[string]any{
+		"bytes":       len(msg.content),
+		"lines":       strings.Count(msg.content, "\n") + 1,
+		"editor_yank": true,
+	})
+	if err := store.Add(entry); err != nil {
+		return b.notifier.ErrorCause("save clipboard history", err)
+	}
+	return nil
 }
 
 func (a boardClipboardActions) readSystemClipboard(request uint64) tea.Cmd {
@@ -131,9 +212,34 @@ func (a boardClipboardActions) handleContent(content string) (tea.Model, tea.Cmd
 			return b, nil
 		}
 		return b, b.templateFlow.OpenTemplate(state.template.ColIndex, state.template.Column, state.template.Template, content)
+	case clipboardReadRingImport:
+		return b, a.importRingContent(content, state.ring)
 	default:
 		return b, nil
 	}
+}
+
+func (a boardClipboardActions) importRingContent(content string, target pasteMenuTarget) tea.Cmd {
+	b := a.board
+	if strings.TrimSpace(content) == "" {
+		return b.notifier.Error("system clipboard is empty or unavailable")
+	}
+	store, err := b.clipboardStore()
+	if err != nil {
+		return b.notifier.ErrorCause("open clipboard history", err)
+	}
+	entry := b.newClipboardEntry(content, clipboardring.Source{}, map[string]any{
+		"bytes":            len(content),
+		"lines":            strings.Count(content, "\n") + 1,
+		"system_clipboard": true,
+	})
+	if err := store.Add(entry); err != nil {
+		return b.notifier.ErrorCause("save clipboard history", err)
+	}
+	if b.clipboardMenu.Active() {
+		b.clipboardMenu.Open(store.Entries(), target)
+	}
+	return b.notifier.Success("imported system clipboard")
 }
 
 func templateUsesClipboard(tmpl template.Template) bool {

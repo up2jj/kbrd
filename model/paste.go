@@ -229,7 +229,8 @@ type pasteMenuEntry struct {
 }
 
 type PasteMenu struct {
-	active bool
+	active    bool
+	cancelled bool
 	flatPicker
 	entries []pasteMenuEntry
 	preview string
@@ -240,6 +241,7 @@ func (m *PasteMenu) Active() bool { return m.active }
 
 func (m *PasteMenu) Open(entries []pasteMenuEntry, defaultIndex int) {
 	m.active = true
+	m.cancelled = false
 	m.entries = append([]pasteMenuEntry(nil), entries...)
 	m.fuzzyList.Reset(len(m.entries), defaultIndex, m.haystack)
 }
@@ -249,6 +251,12 @@ func (m *PasteMenu) Close() {
 	m.entries = nil
 	m.preview = ""
 	m.fuzzyList.Clear()
+}
+
+func (m *PasteMenu) TakeCancelled() bool {
+	cancelled := m.cancelled
+	m.cancelled = false
+	return cancelled
 }
 
 func (m *PasteMenu) haystack(i int) string {
@@ -261,6 +269,7 @@ func (m *PasteMenu) haystack(i int) string {
 
 func (m *PasteMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if key.Matches(msg, Keys.CustomCommandsClose) {
+		m.cancelled = true
 		m.Close()
 		return nil
 	}
@@ -268,6 +277,7 @@ func (m *PasteMenu) Update(msg tea.KeyPressMsg) tea.Cmd {
 	case flatPickerInputConfirm:
 		index, ok := m.fuzzyList.SelectedIndex()
 		if !ok {
+			m.cancelled = false
 			m.Close()
 			return nil
 		}
@@ -343,11 +353,7 @@ func (m *PasteMenu) View(termWidth, termHeight int) string {
 	})
 	preview := ""
 	if m.preview != "" {
-		previewWidth := max(termWidth-16, 24)
-		preview = lipgloss.JoinVertical(lipgloss.Left,
-			descStyle.Render("Clipboard preview"),
-			lipgloss.NewStyle().Foreground(p.FgBase).Render(formatClipboardPreview(m.preview, previewWidth)),
-		)
+		preview = clipboardPreviewBlock(p, "Clipboard preview", m.preview, clipboardPreviewWidth(termWidth, footer))
 	}
 	parts := []string{filterLine, "", body}
 	if preview != "" {

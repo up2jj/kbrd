@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"kbrd/board"
+	"kbrd/clipboardring"
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
@@ -51,6 +52,10 @@ type Board struct {
 	dialog           Dialog
 	helpMenu         HelpMenu
 	pasteMenu        PasteMenu
+	clipboardMenu    ClipboardMenu
+	clipboardRing    *clipboardring.Store
+	clipboardReturn  bool
+	clipboardTarget  pasteMenuTarget
 	clipboardRead    clipboardReadState
 	clipboardReadSeq uint64
 	templateMenu     TemplateMenu
@@ -223,6 +228,7 @@ func (b *Board) applyPalette() {
 	theme.ApplyTextInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
 	b.pasteMenu.palette = b.palette
+	b.clipboardMenu.palette = b.palette
 	b.peek.palette = b.palette
 	b.timeline.SetPalette(b.palette)
 	b.switcher.palette = b.palette

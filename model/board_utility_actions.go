@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 
+	"kbrd/clipboardring"
 	"kbrd/events"
 )
 
@@ -25,9 +26,18 @@ func (u boardUtilityActions) refresh() tea.Cmd {
 }
 
 func (u boardUtilityActions) copyToClipboard(content []byte) tea.Cmd {
+	return u.copyToClipboardWithEntry(content, nil, clipboardring.Entry{})
+}
+
+func (u boardUtilityActions) copyToClipboardWithEntry(content []byte, store *clipboardring.Store, entry clipboardring.Entry) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(string(content)); err != nil {
 			return notifyMsg{Message: "clipboard not available", Type: notifyError}
+		}
+		if store != nil {
+			if err := store.Add(entry); err != nil {
+				return notifyMsg{Message: "copied, but clipboard history failed: " + err.Error(), Type: notifyError}
+			}
 		}
 		return notifyMsg{Message: "copied to clipboard", Type: notifySuccess}
 	}

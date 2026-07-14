@@ -878,40 +878,43 @@ func (e *Editor) applyVimEffect(eff vimbuf.Effect, contentChanged bool) (tea.Cmd
 	if eff.Status != "" {
 		e.status = eff.Status
 	}
+	var yankCmd tea.Cmd
 	if eff.Yank != "" {
 		_ = clipboard.WriteAll(eff.Yank) // mirror yanks to the system clipboard
+		msg := editorYankMsg{content: eff.Yank, column: e.columnTarget(), fileName: e.FileName}
+		yankCmd = func() tea.Msg { return msg }
 	}
 	switch {
 	case eff.Help:
 		e.showHelp = true
-		return nil, nil
+		return yankCmd, nil
 	case eff.ForceQuit:
 		e.Close() // swap left in place for next-open recovery
-		return nil, nil
+		return yankCmd, nil
 	case eff.Submit && eff.Quit:
-		return e.vimSave(true), nil
+		return batchCmd(yankCmd, e.vimSave(true)), nil
 	case eff.Submit:
-		return e.vimSave(false), nil
+		return batchCmd(yankCmd, e.vimSave(false)), nil
 	case eff.Quit:
 		if e.IsDirty() {
 			e.status = "unsaved changes — :w to save, :q! to discard"
-			return nil, nil
+			return yankCmd, nil
 		}
 		e.clearSwap()
 		e.Close()
-		return nil, nil
+		return yankCmd, nil
 	case eff.EvalExpr != "":
 		expr := eff.EvalExpr
 		var rng *evalRange
 		if eff.EvalRange != nil {
 			rng = &evalRange{Start: eff.EvalRange.Start, End: eff.EvalRange.End}
 		}
-		return func() tea.Msg { return editorEvalMsg{Expr: expr, Range: rng} }, nil
+		return batchCmd(yankCmd, func() tea.Msg { return editorEvalMsg{Expr: expr, Range: rng} }), nil
 	}
 	if contentChanged {
 		e.flushSwap()
 	}
-	return nil, nil
+	return yankCmd, nil
 }
 
 // vimSave emits the save message for the current state. It does NOT clear the

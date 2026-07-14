@@ -39,6 +39,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Clipboard ring](./CLIPBOARD.md)
 - [Configuration](#configuration)
 - [Zellij integration](#zellij-integration)
 - [Card templates](#card-templates)
@@ -79,7 +80,10 @@ A quick, scannable rundown of everything kbrd does:
 - **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
 - **Append / prepend** — add content to existing cards (`a` / `p`).
 - **Journal entries** — append timestamped notes to a card (`b`), with optional natural-date prefixes like `yesterday` or `next monday`.
-- **Copy / paste** — move text between cards, persists across sessions (`c` / `v`).
+- **Clipboard ring** — copy card content into a machine-local, searchable history
+  of up to 100 typed entries (`c`), browse it with `C`, pin or delete snippets,
+  and paste a selected entry using the existing append/prepend/journal/new-card
+  choices. See [Clipboard ring](./CLIPBOARD.md).
 - **Pin cards** — float important cards to the top of a column (`!`).
 - **Move cards** — choose any destination with fuzzy search (`m`), or move quickly to the next column (`M`).
 - **Rename & delete** — cards (`r` / `d`) and columns (`R`), with confirmation on delete.
@@ -311,6 +315,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `Ctrl+P` | Switch board |
 | `f` | Search across boards |
 | `g` | Git panel |
+| `C` | Browse clipboard history |
 | `z` | Zellij actions menu (only inside a zellij session) |
 | `,` | Config menu |
 | `?` | Toggle help |

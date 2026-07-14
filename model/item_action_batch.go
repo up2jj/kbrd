@@ -33,7 +33,17 @@ func (a boardItemActions) copyTargets(col *Column, targets []itemActionTarget) t
 	if b.Len() == 0 {
 		return a.board.notifier.Error("failed to copy marked items")
 	}
-	cmd := a.board.utilityActions().copyToClipboard([]byte(b.String()))
+	store, err := a.board.clipboardStore()
+	if err != nil {
+		return a.board.notifier.ErrorCause("open clipboard history", err)
+	}
+	text := b.String()
+	entry := a.board.newClipboardEntry(text, a.board.clipboardSource(col, strconv.Itoa(len(targets))+" cards"), map[string]any{
+		"bytes":      len(text),
+		"lines":      strings.Count(text, "\n") + 1,
+		"card_count": len(targets),
+	})
+	cmd := a.board.utilityActions().copyToClipboardWithEntry([]byte(text), store, entry)
 	if failures > 0 {
 		return tea.Batch(cmd, a.board.notifier.Error(strconv.Itoa(failures)+" marked item(s) could not be copied"))
 	}
