@@ -43,6 +43,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Zellij integration](#zellij-integration)
 - [Card templates](#card-templates)
 - [Card frontmatter](#card-frontmatter)
+- [Frontmatter presets](#frontmatter-presets)
 - [Extensibility](#extensibility)
   - [Custom shell commands](#custom-shell-commands)
   - [Lua scripting](#lua-scripting)
@@ -70,6 +71,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Create cards** — in the current column (`n`) or the first column (`N`).
 - **Card templates** — create pre-structured cards from per-column or board-wide templates through the create menu (`n`); see [TEMPLATES.md](./TEMPLATES.md).
 - **Card frontmatter** — YAML metadata on a card sets its accent color, icon, meta line, and filterable `#tags`; custom keys flow into Lua commands as `ctx.data`.
+- **Frontmatter presets** — apply reusable metadata changes to selected or marked cards (`P`) from board-local configuration.
 - **Peek** — rendered Markdown preview in a scrollable viewport (`space`).
 - **Card timeline** — semantic Git history for the selected card (`u`): browse
   edits, metadata changes, moves, renames, snapshots, and diffs without working
@@ -624,17 +626,6 @@ reminder after its card is deleted, set
 `delete_remote_on_card_delete = true`; deletion requires two consecutive syncs
 with the card missing.
 
-Frontmatter presets belong in the board’s local `kbrd.toml`, so the metadata
-vocabulary travels with the board. Each `[[frontmatter_presets]]` table is one
-preset; repeat the table for additional presets. Use dotted `set.<key>` entries
-to write metadata and `unset` to remove keys. `columns` may contain column
-names, 1-based filesystem-column positions, or both. The `P` menu only offers
-presets allowed for the focused filesystem column. Available dynamic values are
-`{{now}}`, `{{today}}`, `{{board}}`, `{{column}}`, `{{filename}}`, and `{{user}}`;
-they are expanded when the preset is applied. Date values also support one
-offset, such as `{{now+2h}}`, `{{today-3d}}`, or `{{today+1mo}}`. Supported
-units are `m`/`min`, `h`, `d`, `w`, and `mo`; chained offsets are rejected.
-
 ---
 
 ## Zellij integration
@@ -747,6 +738,43 @@ value — pre-filled with the card's current value when the key exists, with
 `ctrl+e` completing common scalars like `true`/`false`/`yes`/`no` — or press
 `ctrl+d` to remove the key. A `frontmatter_suggestions` Lua hook can add its own
 keys and default values to the completion list (see [SCRIPTING.md](./SCRIPTING.md)).
+
+---
+
+## Frontmatter presets
+
+Presets are reusable frontmatter patches defined in the board’s local
+`kbrd.toml`, so the metadata vocabulary travels with the board. They are not
+loaded from the global configuration. Select or mark one or more cards, press
+`P`, choose a preset from the fuzzy-searchable menu, and press Enter to apply it.
+
+Each `[[frontmatter_presets]]` table needs a unique `id` and a display `name`.
+Use `description` for searchable help text, `set.<key>` entries to write
+frontmatter, and `unset` to remove keys. Omit `columns` to make a preset
+available in every filesystem column; otherwise list column names, 1-based
+filesystem-column positions, or both.
+
+For example:
+
+```toml
+[[frontmatter_presets]]
+id = "start-work"
+name = "Start work"
+description = "Mark cards as actively being worked on"
+columns = ["In Progress"]
+unset = ["blocked_by"]
+set.status = "doing"
+set.started_at = "{{now}}"
+set.started_by = "{{user}}"
+set.tags = ["active", "{{column}}"]
+```
+
+Preset values can use `{{now}}`, `{{today}}`, `{{board}}`, `{{column}}`,
+`{{filename}}`, and `{{user}}`; these are expanded separately for each card.
+`now` produces an RFC3339 timestamp and `today` produces a date. Both support
+one offset, such as `{{now+2h}}`, `{{today-3d}}`, or `{{today+1mo}}`; supported
+units are `m`/`min`, `h`, `d`, `w`, and `mo`. Values may be scalars or flat
+arrays, and a key cannot be present in both `set` and `unset`.
 
 ---
 
