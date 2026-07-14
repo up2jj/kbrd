@@ -55,6 +55,14 @@
 [ingest]
 # created_at_format = "2006-01-02T15:04:05Z07:00" # Go time layout for the created_at metadata added by `kbrd ingest`
 
+[reminders]
+# enabled = false            # macOS only; sync manually from the CLI or the `?` menu
+# account = ""               # optional exact account name, e.g. "iCloud"
+# list = ""                  # exact Reminders list name; required when enabled
+# inbox_column = "Inbox"     # destination for imported/incomplete reminders
+# done_columns = ["Done"]    # first entry receives completed reminders
+# delete_remote_on_card_delete = false # two-step deletion after a linked card disappears
+
 [editor]
 # vim = true                 # modal, vim-like card editor (Normal/Insert/Visual modes,
 #                            #   line numbers, :w/:q, and :lua <expr> evaluation).

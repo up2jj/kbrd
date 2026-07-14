@@ -237,6 +237,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
 | `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column. |
+| `kbrd reminders sync [--dry-run]` | Synchronize due-bearing cards with the board's configured Apple Reminders list (macOS only). Use `--create-list` to create a missing list and `--import-existing` to adopt unmarked reminders on the first sync. |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**
@@ -529,10 +530,99 @@ detect_date = true          # parse a leading natural-language date in journal e
 [ingest]
 created_at_format = "2006-01-02T15:04:05Z07:00" # Go time layout; e.g. "2006-01-02" for date-only
 
+[reminders]
+enabled        = false       # macOS only; sync manually from the CLI or the `?` menu
+account        = "iCloud"    # optional exact account name
+list           = "kbrd · Work"
+inbox_column   = "Inbox"     # imported and reopened reminders
+done_columns   = ["Done"]    # first entry receives completed reminders
+delete_remote_on_card_delete = false # opt in to two-step remote deletion
+
 [mcp]
 enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
 addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
 ```
+
+### Apple Reminders sync
+
+Apple Reminders sync is available on macOS and does not require a separate helper.
+
+1. In Apple Reminders, create a list named `kbrd`. Make sure the board also
+   contains the columns that will receive incomplete and completed reminders.
+   In this example they are `Inbox` and `Done`.
+
+2. Add the integration to the board's `kbrd.toml`:
+
+   ```toml
+   [reminders]
+   enabled = true
+   list = "kbrd"
+   inbox_column = "Inbox"
+   done_columns = ["Done"]
+   ```
+
+   `list` is the exact Apple Reminders list name. Add `account = "iCloud"` only
+   when you need to select a specific account.
+
+3. Create a card with a `due` frontmatter key, for example
+   `Inbox/Take medicine.md`:
+
+   ```markdown
+   ---
+   due: "tomorrow at 7am"
+   ---
+
+   Take one tablet with breakfast.
+   ```
+
+   The filename becomes the reminder title and the Markdown body becomes its
+   note. Use `due: 2026-07-15` for an all-day reminder or
+   `due: "2026-07-15 07:00"` for a timed reminder.
+
+4. From the board directory, preview the first synchronization:
+
+   ```sh
+   kbrd reminders sync --dry-run
+   ```
+
+5. Apply it:
+
+   ```sh
+   kbrd reminders sync
+   ```
+
+   macOS may ask for permission for kbrd or your terminal to control Reminders.
+   If you did not create the Apple list manually, use
+   `kbrd reminders sync --create-list` instead. That command creates the list and
+   immediately performs the first sync, so it cannot be combined with
+   `--dry-run`.
+
+6. For later synchronizations, use the same CLI command or open the TUI, press
+   `?`, search for **reminders**, and press Enter. Progress is shown while the
+   synchronization runs.
+
+On the first successful sync, kbrd replaces relative dates with fixed values and
+adds `kbrd_reminder_id` automatically. Do not add or edit this key yourself:
+
+```markdown
+---
+due: "2026-07-15T05:00:00Z"
+kbrd_reminder_id: "generated-sync-id"
+---
+
+Take one tablet with breakfast.
+```
+
+The ID links the card to the same reminder on every later sync, even if its title,
+due date, or column changes. It also prevents overdue cards from creating
+duplicates. Moving a linked card into `Done` completes the reminder; completing
+the reminder moves the card to the first configured done column.
+
+To import unmarked reminders during the first sync, add `--import-existing`.
+Remote deletion is intentionally disabled by default. To remove a linked Apple
+reminder after its card is deleted, set
+`delete_remote_on_card_delete = true`; deletion requires two consecutive syncs
+with the card missing.
 
 Frontmatter presets belong in the board’s local `kbrd.toml`, so the metadata
 vocabulary travels with the board. Each `[[frontmatter_presets]]` table is one

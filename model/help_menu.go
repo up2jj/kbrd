@@ -66,7 +66,7 @@ func (m *HelpMenu) recompute() {
 		var cands []HelpEntry
 		for _, g := range m.groups {
 			for _, e := range g.Items {
-				if e.Disabled || (e.RunKey == "" && e.CmdID == "") {
+				if e.Disabled || (e.RunKey == "" && e.CmdID == "" && e.ActionID == "") {
 					continue // only runnable rows are searchable
 				}
 				cands = append(cands, e)
@@ -82,7 +82,7 @@ func (m *HelpMenu) recompute() {
 			m.rows = append(m.rows, helpRow{header: true, title: g.Title})
 			for _, e := range g.Items {
 				m.rows = append(m.rows, helpRow{entry: e, disabled: e.Disabled})
-				if !e.Disabled && (e.RunKey != "" || e.CmdID != "") {
+				if !e.Disabled && (e.RunKey != "" || e.CmdID != "" || e.ActionID != "") {
 					m.nav = append(m.nav, len(m.rows)-1)
 				}
 			}
@@ -287,7 +287,7 @@ func (m *HelpMenu) maxNavCount() int {
 	count := 0
 	for _, g := range m.groups {
 		for _, e := range g.Items {
-			if !e.Disabled && (e.RunKey != "" || e.CmdID != "") {
+			if !e.Disabled && (e.RunKey != "" || e.CmdID != "" || e.ActionID != "") {
 				count++
 			}
 		}

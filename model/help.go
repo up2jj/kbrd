@@ -26,6 +26,8 @@ type HelpEntry struct {
 	// CmdID names a custom command to run on Enter (no single-key binding); the
 	// board dispatches it through the normal custom-command path.
 	CmdID string
+	// ActionID names a built-in action with no dedicated key binding.
+	ActionID string
 }
 
 // HelpGroup is a titled section of the keybindings menu.

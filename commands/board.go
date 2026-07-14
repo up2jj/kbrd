@@ -10,6 +10,7 @@ import (
 	"kbrd/mcp"
 	"kbrd/model"
 	"kbrd/recents"
+	"kbrd/reminders"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -51,7 +52,7 @@ func runBoard(cwd string, flags cliFlags) error {
 		defer mcpCloser.Close()
 	}
 
-	m := model.NewBoardWithOptions(cfg, model.BoardOptions{Safe: flags.safe})
+	m := model.NewBoardWithOptions(cfg, model.BoardOptions{Safe: flags.safe, Reminders: reminders.NewService()})
 	m.SetMCPStatus(mcpStatus)
 
 	p := tea.NewProgram(m)

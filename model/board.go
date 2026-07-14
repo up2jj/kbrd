@@ -75,6 +75,9 @@ type Board struct {
 	mcpStatus        MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
 	updateVersion    string        // newer stable GitHub release, if the startup check found one
 	releaseChecker   releaseChecker
+	remindersSyncer  ReminderSyncer
+	remindersSyncing bool
+	remindersStatus  string
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -128,7 +131,8 @@ func NewBoard(cfg config.Config) *Board {
 }
 
 type BoardOptions struct {
-	Safe bool
+	Safe      bool
+	Reminders ReminderSyncer
 }
 
 func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
@@ -138,16 +142,17 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	cfg.Theme = config.NormalizeTheme(cfg.Theme)
 	palette := PaletteForTheme(cfg.Theme, true)
 	b := &Board{
-		cfg:            cfg,
-		safeMode:       opts.Safe,
-		visibleHeight:  20,
-		notifier:       NewNotifier(cfg.NotifyBackend),
-		mnemonic:       newMnemonicSelectorState(palette),
-		theme:          cfg.Theme,
-		terminalDark:   true,
-		palette:        palette,
-		zellij:         NewZellij(),
-		releaseChecker: newReleaseChecker(),
+		cfg:             cfg,
+		safeMode:        opts.Safe,
+		visibleHeight:   20,
+		notifier:        NewNotifier(cfg.NotifyBackend),
+		mnemonic:        newMnemonicSelectorState(palette),
+		theme:           cfg.Theme,
+		terminalDark:    true,
+		palette:         palette,
+		zellij:          NewZellij(),
+		releaseChecker:  newReleaseChecker(),
+		remindersSyncer: opts.Reminders,
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
@@ -722,6 +727,15 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case customCommandFinishedMsg:
 		return b.handleCustomCommandFinished(msg)
+
+	case remindersSyncFinishedMsg:
+		return b.handleRemindersSyncFinished(msg)
+
+	case remindersSyncProgressMsg:
+		return b.handleRemindersSyncProgress(msg)
+
+	case remindersSyncProgressClosedMsg:
+		return b, nil
 
 	case scriptResumeMsg:
 		return b.handleScriptResume(msg)

@@ -42,6 +42,6 @@ func NewRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: Lua scripting, event hooks, and template shell exec (overrides config)")
 	root.PersistentFlags().StringVar(&flags.instance, "name", "", "instance name for routing instance-scoped Lua timers (env KBRD_INSTANCE, default hostname)")
 
-	root.AddCommand(newInitCmd(), newCloneCmd(&flags), newIngestCmd(&flags), newServeCmd(), newCacheCmd(), newMCPCmd())
+	root.AddCommand(newInitCmd(), newCloneCmd(&flags), newIngestCmd(&flags), newServeCmd(), newCacheCmd(), newMCPCmd(), newRemindersCmd())
 	return root
 }

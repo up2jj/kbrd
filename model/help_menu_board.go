@@ -1,6 +1,8 @@
 package model
 
 import (
+	"runtime"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
@@ -120,6 +122,24 @@ func (h boardHelpActions) groups() []HelpGroup {
 	virtual := col != nil && col.Virtual
 
 	groups := HelpMenuGroups()
+	for i := range groups {
+		if groups[i].Title != "Global" {
+			continue
+		}
+		disabled := !b.cfg.Reminders.Enabled || runtime.GOOS != "darwin" || b.remindersSyncing || b.remindersSyncer == nil
+		desc := "Synchronize due-bearing cards with the configured Apple Reminders list."
+		if !b.cfg.Reminders.Enabled {
+			desc = "Configure [reminders] in kbrd.toml to enable this action."
+		} else if runtime.GOOS != "darwin" {
+			desc = "Apple Reminders synchronization is only available on macOS."
+		} else if b.remindersSyncing {
+			desc = "Apple Reminders synchronization is already running."
+		}
+		groups[i].Items = append(groups[i].Items, HelpEntry{
+			Keys: "↵", Label: "sync Apple Reminders", Desc: desc,
+			ActionID: helpActionRemindersSync, Disabled: disabled,
+		})
+	}
 	for gi := range groups {
 		for ei := range groups[gi].Items {
 			e := &groups[gi].Items[ei]
@@ -194,6 +214,8 @@ func (h boardHelpActions) runSelected() (tea.Model, tea.Cmd) {
 		return b.updateInner(keyPressText(e.RunKey))
 	case e.CmdID != "":
 		return b, h.runCustomCommand(e.CmdID)
+	case e.ActionID == helpActionRemindersSync:
+		return b, b.startRemindersSync()
 	}
 	return b, nil
 }

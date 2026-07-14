@@ -103,6 +103,16 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		b.cells.clearBuiltin(builtinCellTemplateExecution)
 	}
 
+	if b.remindersSyncing {
+		status := b.remindersStatus
+		if status == "" {
+			status = "syncing reminders"
+		}
+		p.setActivityCell(builtinCellReminders, "⟳ "+status)
+	} else {
+		b.cells.clearBuiltin(builtinCellReminders)
+	}
+
 	if b.hooks.busy() {
 		label := "⚙ hooks"
 		if n := b.hooks.pending(); n > 1 {

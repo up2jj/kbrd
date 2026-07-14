@@ -27,6 +27,7 @@ const (
 	builtinCellReleaseUpdate builtinCellSlot = iota
 	builtinCellScriptActivity
 	builtinCellTemplateExecution
+	builtinCellReminders
 	builtinCellMCP
 	builtinCellHooks
 	builtinCellSync

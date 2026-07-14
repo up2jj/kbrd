@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -70,6 +71,7 @@ type Config struct {
 	Journal   JournalConfig
 	Ingest    IngestConfig
 	Editor    EditorConfig
+	Reminders RemindersConfig
 
 	// InstanceName is this process's machine-local name, used to route
 	// instance-scoped Lua timers (and exposed as kbrd.instance.name). It is set
@@ -101,6 +103,18 @@ type ServeConfig struct {
 type HooksConfig struct {
 	Enabled   bool
 	TimeoutMs int
+}
+
+// RemindersConfig controls the opt-in macOS Reminders integration. The list
+// name is board-portable; machine-specific Reminders identifiers are kept in
+// the local sync state instead of kbrd.toml.
+type RemindersConfig struct {
+	Enabled                  bool
+	Account                  string
+	List                     string
+	InboxColumn              string
+	DoneColumns              []string
+	DeleteRemoteOnCardDelete bool
 }
 
 // MCPConfig controls the built-in MCP server, which runs alongside the TUI and
@@ -235,6 +249,12 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("serve.addr", "")
 	v.SetDefault("serve.domain", "")
 	v.SetDefault("serve.pull_interval", "")
+	v.SetDefault("reminders.enabled", false)
+	v.SetDefault("reminders.account", "")
+	v.SetDefault("reminders.list", "")
+	v.SetDefault("reminders.inbox_column", "Inbox")
+	v.SetDefault("reminders.done_columns", []string{"Done"})
+	v.SetDefault("reminders.delete_remote_on_card_delete", false)
 
 	_ = v.BindEnv("notify.backend", "KBRD_NOTIFY")
 
@@ -331,6 +351,14 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		},
 		Editor: EditorConfig{
 			Vim: v.GetBool("editor.vim"),
+		},
+		Reminders: RemindersConfig{
+			Enabled:                  v.GetBool("reminders.enabled"),
+			Account:                  strings.TrimSpace(v.GetString("reminders.account")),
+			List:                     strings.TrimSpace(v.GetString("reminders.list")),
+			InboxColumn:              strings.TrimSpace(v.GetString("reminders.inbox_column")),
+			DoneColumns:              v.GetStringSlice("reminders.done_columns"),
+			DeleteRemoteOnCardDelete: v.GetBool("reminders.delete_remote_on_card_delete"),
 		},
 		Serve: ServeConfig{
 			Addr:         v.GetString("serve.addr"),

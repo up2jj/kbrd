@@ -36,6 +36,42 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.Ingest.CreatedAtFormat != time.RFC3339 {
 		t.Fatalf("ingest.created_at_format: got %q want %q", cfg.Ingest.CreatedAtFormat, time.RFC3339)
 	}
+	if cfg.Reminders.Enabled || cfg.Reminders.List != "" || cfg.Reminders.InboxColumn != "Inbox" {
+		t.Fatalf("unexpected reminders defaults: %+v", cfg.Reminders)
+	}
+	if cfg.Reminders.DeleteRemoteOnCardDelete {
+		t.Fatal("remote deletion must default to disabled")
+	}
+	if got := strings.Join(cfg.Reminders.DoneColumns, ","); got != "Done" {
+		t.Fatalf("reminders done columns: got %q want Done", got)
+	}
+}
+
+func TestLoad_Reminders(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[reminders]
+enabled = true
+account = "iCloud"
+list = "kbrd Work"
+inbox_column = "1. TODO"
+done_columns = ["3. DONE", "Archive"]
+delete_remote_on_card_delete = true
+`)
+
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if !cfg.Reminders.Enabled || cfg.Reminders.Account != "iCloud" || cfg.Reminders.List != "kbrd Work" {
+		t.Fatalf("unexpected reminders config: %+v", cfg.Reminders)
+	}
+	if cfg.Reminders.InboxColumn != "1. TODO" || strings.Join(cfg.Reminders.DoneColumns, ",") != "3. DONE,Archive" {
+		t.Fatalf("unexpected reminders columns: %+v", cfg.Reminders)
+	}
+	if !cfg.Reminders.DeleteRemoteOnCardDelete {
+		t.Fatal("delete_remote_on_card_delete was not loaded")
+	}
 }
 
 func TestLoad_IngestCreatedAtFormat(t *testing.T) {
