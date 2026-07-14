@@ -1,11 +1,13 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
+	"kbrd/boardenv"
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
@@ -91,9 +93,30 @@ func (s boardSession) reopenSwitcher(entries []recents.Entry) {
 // are returned without sending a notification so callers can phrase them.
 func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	b := s.b
+	var environmentChange *boardenv.Change
+	if b.environment != nil && !b.safeMode {
+		change, err := b.environment.Apply(path)
+		if err != nil {
+			return nil, err
+		}
+		environmentChange = change
+	}
+
 	newCfg, err := config.Load(path)
 	if err != nil {
+		if environmentChange != nil {
+			if restoreErr := environmentChange.Restore(); restoreErr != nil {
+				return nil, errors.Join(
+					fmt.Errorf("failed to load board: %w", err),
+					fmt.Errorf("restore previous board environment: %w", restoreErr),
+				)
+			}
+		}
 		return nil, fmt.Errorf("failed to load board: %w", err)
+	}
+	newCfg.InstanceName = b.cfg.InstanceName
+	if b.safeMode {
+		applySafeMode(&newCfg)
 	}
 
 	if b.watcher != nil {

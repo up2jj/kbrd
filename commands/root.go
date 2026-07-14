@@ -13,7 +13,7 @@ import (
 type cliFlags struct {
 	mcp      bool   // start the built-in MCP server
 	mcpAddr  string // address override; does not by itself enable the server
-	safe     bool   // disable all board-supplied code: scripting, hooks, template exec
+	safe     bool   // disable all board-supplied code: direnv, scripting, hooks, template exec
 	instance string // machine-local instance name for routing instance-scoped timers
 }
 
@@ -39,7 +39,7 @@ func NewRootCmd() *cobra.Command {
 	// Persistent so subcommands that open a board (e.g. clone) honor them too.
 	root.PersistentFlags().BoolVar(&flags.mcp, "mcp", false, "start the built-in MCP server")
 	root.PersistentFlags().StringVar(&flags.mcpAddr, "mcp-addr", "", "MCP server listen address (overrides config; default 127.0.0.1:7777)")
-	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: Lua scripting, event hooks, and template shell exec (overrides config)")
+	root.PersistentFlags().BoolVar(&flags.safe, "safe", false, "disable all board-supplied code: direnv, Lua scripting, event hooks, and template shell exec (overrides config)")
 	root.PersistentFlags().StringVar(&flags.instance, "name", "", "instance name for routing instance-scoped Lua timers (env KBRD_INSTANCE, default hostname)")
 
 	root.AddCommand(newInitCmd(), newCloneCmd(&flags), newIngestCmd(&flags), newServeCmd(), newCacheCmd(), newMCPCmd(), newRemindersCmd())

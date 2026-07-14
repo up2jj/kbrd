@@ -11,6 +11,12 @@ board="$here/sample-board"
 rm -rf "$board"
 mkdir -p "$board/Backlog" "$board/In Progress" "$board/Done"
 
+# Harmless board-local environment used to exercise the direnv integration and
+# keep the green `◆ direnv` header cell visible in demos/screenshots.
+cat > "$board/.envrc" <<'EOF'
+export KBRD_DEMO_BOARD="sample-board"
+EOF
+
 cat > "$board/Backlog/Verify terminal contrast.md" <<'EOF'
 ---
 accent: "#e06c75"

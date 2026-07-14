@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"kbrd/boardenv"
 	"kbrd/config"
 	"kbrd/mcp"
 	"kbrd/model"
@@ -26,8 +28,20 @@ func runBoard(cwd string, flags cliFlags) error {
 		return fmt.Errorf("path is not a directory")
 	}
 
+	environment := boardenv.New()
+	var environmentChange *boardenv.Change
+	if !flags.safe {
+		environmentChange, err = environment.Apply(cwd)
+		if err != nil {
+			return err
+		}
+	}
+
 	cfg, err := config.Load(cwd)
 	if err != nil {
+		if restoreErr := environmentChange.Restore(); restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore environment after config failure: %w", restoreErr))
+		}
 		return err
 	}
 	cfg.InstanceName = config.ResolveInstanceName(flags.instance)
@@ -52,7 +66,11 @@ func runBoard(cwd string, flags cliFlags) error {
 		defer mcpCloser.Close()
 	}
 
-	m := model.NewBoardWithOptions(cfg, model.BoardOptions{Safe: flags.safe, Reminders: reminders.NewService()})
+	m := model.NewBoardWithOptions(cfg, model.BoardOptions{
+		Safe:        flags.safe,
+		Reminders:   reminders.NewService(),
+		Environment: environment,
+	})
 	m.SetMCPStatus(mcpStatus)
 
 	p := tea.NewProgram(m)

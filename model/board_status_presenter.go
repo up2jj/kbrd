@@ -142,6 +142,12 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		b.cells.setBuiltin(builtinCellMCP, Cell{Text: "◇ mcp", FG: string(b.palette.FgMuted)})
 	}
 
+	if b.environment != nil && !b.safeMode && b.environment.Active() {
+		b.cells.setBuiltin(builtinCellDirenv, Cell{Text: "◆ direnv", FG: string(b.palette.Success)})
+	} else {
+		b.cells.clearBuiltin(builtinCellDirenv)
+	}
+
 	total := 0
 	for _, c := range b.columns {
 		total += c.TotalCount()

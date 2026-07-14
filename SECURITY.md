@@ -12,7 +12,9 @@ the convenience of folder-local configuration is inseparable from the risk of ru
 configuration you didn't write. **Treat a board folder the way you'd treat a dotfiles
 repo — only open boards you trust.**
 
-There is currently **no per-directory trust gate** — the default is trust-on-open.
+There is currently **no per-directory trust gate for kbrd's own Lua, hooks,
+commands, or templates** — the default is trust-on-open. direnv is the exception:
+it applies an `.envrc` only after you approve it with `direnv allow`.
 
 ## What runs automatically
 
@@ -20,6 +22,7 @@ When a board is opened (at startup, and again on every board switch), kbrd loads
 
 | File | Scope | What it does |
 | --- | --- | --- |
+| `<board>/.envrc` (or an ancestor's) | **Folder-local** | When direnv is installed and the file is approved, exports environment variables and may run arbitrary shell code before the board loads |
 | `~/.config/kbrd/init.lua` | Global (yours) | Lua script, executed at boot |
 | `~/.config/kbrd/commands.yml` | Global (yours) | Shell commands registered in the `x` menu |
 | `<board>/.kbrd.lua` | **Folder-local (travels with the folder)** | Lua script, executed on open |
@@ -30,6 +33,11 @@ When a board is opened (at startup, and again on every board switch), kbrd loads
 
 The global files in `~/.config/kbrd/` are your own. The **folder-local** files are the
 supply-chain surface — they come with the folder and execute on someone else's behalf.
+
+kbrd never runs `direnv allow`. An unapproved or failing `.envrc` prevents the
+board from opening or being switched to, without replacing the current board's
+environment. Switching to an approved board also unloads variables that belonged
+only to the previous board.
 
 ### Blast radius
 
@@ -57,8 +65,8 @@ defaults off.
 
 ## Mitigations
 
-- **`kbrd --safe`** opens a board with **all** board-supplied code disabled — Lua scripting,
-  event hooks, and template `{{shell}}` exec — regardless of config (including a folder-local
+- **`kbrd --safe`** opens a board with **all** board-supplied code disabled — direnv,
+  Lua scripting, event hooks, and template `{{shell}}` exec — regardless of config (including a folder-local
   `kbrd.toml` that tried to enable them). This is the one switch a board cannot ship around;
   use it for any board you didn't author and haven't reviewed.
 - **Disable scripting** for untrusted boards: set `[scripting] enabled = false` in
@@ -66,7 +74,7 @@ defaults off.
   VM is created and `.kbrd.lua` is never read. See [SCRIPTING.md](./SCRIPTING.md).
 - **Keep template exec off** (`[template] exec = false`, the default) unless you trust the
   board and want its `{{shell}}` templates to run.
-- **Review before opening**: inspect `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
+- **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
   `.kbrd_templates/`, and `.mcp.json` in any board you didn't author before opening it.
 - **Delete** folder-local config you don't need or trust.
 

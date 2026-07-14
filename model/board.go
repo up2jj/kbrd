@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"kbrd/board"
+	"kbrd/boardenv"
 	"kbrd/clipboardring"
 	"kbrd/config"
 	"kbrd/events"
@@ -33,6 +34,7 @@ type scriptInitRunMsg struct{}
 type Board struct {
 	cfg              config.Config
 	safeMode         bool
+	environment      *boardenv.Manager
 	columns          []*Column
 	visibleHeight    int
 	termWidth        int
@@ -136,8 +138,9 @@ func NewBoard(cfg config.Config) *Board {
 }
 
 type BoardOptions struct {
-	Safe      bool
-	Reminders ReminderSyncer
+	Safe        bool
+	Reminders   ReminderSyncer
+	Environment *boardenv.Manager
 }
 
 func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
@@ -149,6 +152,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	b := &Board{
 		cfg:             cfg,
 		safeMode:        opts.Safe,
+		environment:     opts.Environment,
 		visibleHeight:   20,
 		notifier:        NewNotifier(cfg.NotifyBackend),
 		mnemonic:        newMnemonicSelectorState(palette),

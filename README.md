@@ -203,6 +203,7 @@ Move the resulting `kbrd` binary somewhere on your `PATH`. See [Development](#de
 - Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for global search.
 - Optional: [`difft`](https://github.com/Wilfred/difftastic) or `diff-so-fancy` — nicer diffs (falls back to `git`).
 - Optional: [`zellij`](https://zellij.dev) — enables the `z` actions menu (editor/shell panes) when kbrd runs inside a zellij session.
+- Optional: [`direnv`](https://direnv.net) — loads an approved board `.envrc` when opening or switching boards.
 
 ---
 
@@ -221,6 +222,14 @@ overlay. To scaffold configuration files:
 ./kbrd init            # write a kbrd.toml template into the current directory
 ./kbrd init --global   # write the global config template to ~/.config/kbrd/
 ```
+
+When `direnv` is installed, kbrd applies the environment for the current board
+before loading its configuration. Switching boards unloads variables from the
+previous board and loads the new board's approved `.envrc`; run
+`direnv allow <board>` explicitly before opening a trusted file. kbrd never
+approves `.envrc` files itself, and `--safe` skips direnv entirely. Changes to an
+`.envrc` take effect the next time the board is opened or switched to. A green
+`◆ direnv` header cell is shown while a direnv environment is active.
 
 To ingest a card from a script without opening the TUI, pipe its Markdown to
 `kbrd ingest`. Every ingested card receives a UTC `created_at` YAML frontmatter
@@ -252,7 +261,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | --- | --- |
 | `--mcp` | Start the built-in MCP server for this run (off by default). |
 | `--mcp-addr <addr>` | Override the MCP listen address (default `127.0.0.1:7777`). |
-| `--safe` | Disable all board-supplied code — Lua scripting, event hooks, and template `{{shell}}` exec — overriding config. Use when opening a board you don't fully trust. |
+| `--safe` | Disable all board-supplied code — direnv, Lua scripting, event hooks, and template `{{shell}}` exec — overriding config. Use when opening a board you don't fully trust. |
 
 ---
 

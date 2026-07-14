@@ -87,13 +87,17 @@ remote_require     = false    # allow require() of scripts from remote URLs — 
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
 Equivalent to compiling kbrd without scripting.
 
-Launching with **`kbrd --safe`** forces `enabled = false` here, disables declarative hooks
+Launching with **`kbrd --safe`** forces `enabled = false` here, skips direnv, disables declarative hooks
 (including hooks after `kbrd ingest`), and disables template `{{shell}}` exec — overriding config, including a board's folder-local
 `kbrd.toml`. Use it to open a board you don't fully trust. See [SECURITY.md](./SECURITY.md).
 
 ### Environment variables
 
 Scripts inherit kbrd's environment, and there are three ways to read it:
+
+When direnv is installed, the TUI loads the current board's approved `.envrc`
+before configuration and scripting start, and updates the environment on board
+switches. `--safe` skips this integration.
 
 - **Lua:** the standard library is available, so `os.getenv("HOME")` works directly
   (including inside `kbrd.async.run` callbacks).

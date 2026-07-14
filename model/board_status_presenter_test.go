@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"kbrd/boardenv"
 	"kbrd/config"
 )
 
@@ -49,6 +50,36 @@ func TestBoardStatusPresenter_BuiltinCountAndActivityCells(t *testing.T) {
 	assertBuiltinCellText(t, b, builtinCellMCP, "◆ mcp")
 	if got := b.cells.cells[builtinCellAsync.id()].FG; got != string(b.palette.AccentSoft) {
 		t.Fatalf("activity FG = %q, want accent %q", got, b.palette.AccentSoft)
+	}
+}
+
+func TestBoardStatusPresenter_DirenvCellTracksActiveEnvironment(t *testing.T) {
+	t.Setenv("DIRENV_DIFF", "active-state")
+	b := NewBoardWithOptions(config.Config{NotifyBackend: "none"}, BoardOptions{
+		Environment: boardenv.New(),
+	})
+
+	b.statusPresenter().updateBuiltinCells()
+	assertBuiltinCellText(t, b, builtinCellDirenv, "◆ direnv")
+	if got := b.cells.cells[builtinCellDirenv.id()].FG; got != string(b.palette.Success) {
+		t.Fatalf("direnv FG = %q, want success %q", got, b.palette.Success)
+	}
+
+	if err := os.Unsetenv("DIRENV_DIFF"); err != nil {
+		t.Fatal(err)
+	}
+	b.statusPresenter().updateBuiltinCells()
+	if cell := b.cells.cells[builtinCellDirenv.id()]; cell != nil {
+		t.Fatalf("direnv cell should clear after unload: %+v", cell)
+	}
+
+	if err := os.Setenv("DIRENV_DIFF", "active-state"); err != nil {
+		t.Fatal(err)
+	}
+	b.safeMode = true
+	b.statusPresenter().updateBuiltinCells()
+	if cell := b.cells.cells[builtinCellDirenv.id()]; cell != nil {
+		t.Fatalf("direnv cell should stay hidden in safe mode: %+v", cell)
 	}
 }
 

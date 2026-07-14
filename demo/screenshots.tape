@@ -1,6 +1,6 @@
 # VHS tape: capture static screenshots of kbrd's key screens.
 # Run from the repo root:  vhs demo/screenshots.tape
-# Requires: vhs, a built kbrd binary (KBRD env or ./kbrd), and demo/seed.sh already run.
+# Requires: vhs, direnv, a built kbrd binary (KBRD env or ./kbrd), and demo/seed.sh already run.
 
 Set Shell "bash"
 Set FontSize 16
@@ -16,6 +16,8 @@ Output demo/.discard.gif
 # boards, then enter the sample board (cwd is the board root) and launch kbrd.
 Hide
 Type "export HOME=$(pwd)/demo/home" Enter
+Type "export XDG_DATA_HOME=$HOME/.local/share" Enter
+Type "direnv allow demo/sample-board" Enter
 Type "cd demo/sample-board && ${KBRD:-../../kbrd}" Enter
 Sleep 2s
 Show

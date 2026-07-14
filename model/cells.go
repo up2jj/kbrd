@@ -29,6 +29,7 @@ const (
 	builtinCellTemplateExecution
 	builtinCellReminders
 	builtinCellMCP
+	builtinCellDirenv
 	builtinCellHooks
 	builtinCellSync
 	builtinCellAsync
