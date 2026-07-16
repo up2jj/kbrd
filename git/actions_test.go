@@ -75,6 +75,7 @@ func TestGitPanelHandleMouseScrollsRightViewport(t *testing.T) {
 		lines[i] = "line " + strconv.Itoa(i)
 	}
 	p.SetLog(strings.Join(lines, "\n"))
+	p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if p.right.YOffset() != 0 {
 		t.Fatalf("initial right viewport offset = %d, want 0", p.right.YOffset())
@@ -129,6 +130,25 @@ func TestGitPanelHistoryDoesNotWrap(t *testing.T) {
 	}
 }
 
+func TestGitPanelSectionHintsDoNotWidenNarrowPanel(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "one.md", Status: " M"}, {Path: "two.md", Status: " M"}}
+	var p GitPanel
+	p.Open("", "main", false, files, 80, 30)
+
+	view := ansi.Strip(p.View())
+	wantWidth := -1
+	for line := range strings.SplitSeq(view, "\n") {
+		width := lipgloss.Width(line)
+		if wantWidth < 0 {
+			wantWidth = width
+			continue
+		}
+		if width != wantWidth {
+			t.Fatalf("panel line width = %d, want %d for line %q\n%s", width, wantWidth, line, view)
+		}
+	}
+}
+
 func TestGitPanelRendersScrollbarForLongInspector(t *testing.T) {
 	var p GitPanel
 	p.Open("", "main", false, nil, 90, 30)
@@ -136,7 +156,7 @@ func TestGitPanelRendersScrollbarForLongInspector(t *testing.T) {
 	if p.right.TotalLineCount() <= p.right.Height() {
 		t.Fatal("test setup did not overflow the inspector")
 	}
-	bar := ansi.Strip(p.renderScrollbar(p.right.Height()))
+	bar := ansi.Strip(p.renderScrollbar(p.right.Height(), p.right.TotalLineCount(), p.right.YOffset()))
 	if !strings.Contains(bar, " ") || !strings.Contains(bar, "│") {
 		t.Fatalf("scrollbar = %q, want track and thumb", bar)
 	}
@@ -187,6 +207,79 @@ func TestGitPanelTabFocusSwitchesArrowKeysFromFilesToDiff(t *testing.T) {
 	view := ansi.Strip(p.View())
 	if !strings.Contains(view, "› Current diff") || strings.Contains(view, "› Files to save") {
 		t.Fatalf("focused diff is not visually distinct\n%s", view)
+	}
+}
+
+func TestGitPanelTabAndShiftTabCycleVisibleSections(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "one.md", Status: " M"}}
+	var p GitPanel
+	p.Open("", "main", false, files, 140, 30)
+
+	for _, want := range []gitPanelFocus{focusInspector, focusLog, focusFiles} {
+		p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		if p.focus != want {
+			t.Fatalf("focus after tab = %v, want %v", p.focus, want)
+		}
+	}
+
+	p.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if p.focus != focusLog {
+		t.Fatalf("focus after shift+tab = %v, want log", p.focus)
+	}
+
+	var clean GitPanel
+	clean.Open("", "main", false, nil, 140, 30)
+	if clean.focus != focusInspector {
+		t.Fatalf("clean panel focus = %v, want inspector", clean.focus)
+	}
+	clean.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if clean.focus != focusLog {
+		t.Fatalf("clean panel focus after tab = %v, want log", clean.focus)
+	}
+}
+
+func TestGitPanelFileListScrollsToKeepSelectionVisible(t *testing.T) {
+	files := make([]kbrdfs.FileChange, 7)
+	for i := range files {
+		files[i] = kbrdfs.FileChange{Path: "file-" + strconv.Itoa(i) + ".md", Status: " M"}
+	}
+	var p GitPanel
+	p.Open("", "main", false, files, 90, 30)
+	for range 6 {
+		p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+
+	if p.cursor != 6 || p.fileOffset != 2 {
+		t.Fatalf("file cursor/offset = %d/%d, want 6/2", p.cursor, p.fileOffset)
+	}
+	view := ansi.Strip(p.View())
+	if strings.Contains(view, "file-0.md") || !strings.Contains(view, "file-6.md") {
+		t.Fatalf("file viewport did not follow selection\n%s", view)
+	}
+	if strings.Contains(view, "more") {
+		t.Fatalf("file viewport still renders the old overflow summary\n%s", view)
+	}
+}
+
+func TestGitPanelScrollableSectionsKeepIndependentOffsets(t *testing.T) {
+	files := []kbrdfs.FileChange{{Path: "one.md", Status: " M"}}
+	var p GitPanel
+	p.Open("", "main", false, files, 140, 30)
+	p.SetDiffForFile("one.md", strings.Repeat("diff line\n", 40))
+	p.SetLog(strings.Repeat("commit line\n", 40))
+
+	p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if p.right.YOffset() != 1 || p.log.YOffset() != 0 {
+		t.Fatalf("offsets after diff scroll = %d/%d, want 1/0", p.right.YOffset(), p.log.YOffset())
+	}
+	p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if p.right.YOffset() != 1 || p.log.YOffset() != 1 {
+		t.Fatalf("offsets after log scroll = %d/%d, want 1/1", p.right.YOffset(), p.log.YOffset())
+	}
+	if got := ansi.Strip(p.View()); !strings.Contains(got, "› Recent commits") {
+		t.Fatalf("focused recent commits section is not visually distinct\n%s", got)
 	}
 }
 
