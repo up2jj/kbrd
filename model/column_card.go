@@ -23,6 +23,7 @@ type renderConfig struct {
 	wrapTitles    bool // word-wrap titles across rows instead of truncating
 	titleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
 	statFor       func(absPath string) (kbrdfs.DiffStat, bool)
+	isHarpooned   func(absPath string) bool
 	palette       Palette
 	isMarked      func(name string) bool
 }
@@ -62,7 +63,7 @@ func itemHeight(item Item, cfg renderConfig) int {
 	if item.Separator {
 		return h
 	}
-	extraTitleRows := len(wrapTitle(composeTitle(item), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles)) - 1
+	extraTitleRows := len(wrapTitle(composeTitle(item, cfg.isHarpooned), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles)) - 1
 	h += extraTitleRows
 	if len(item.Render) > 0 {
 		h++
@@ -142,7 +143,7 @@ func renderCardBody(item Item, selected, marked bool, cfg renderConfig, meta str
 			gutterText = "✓"
 		}
 	}
-	titleRows := wrapTitle(composeTitle(item), restWidth, d.titleMaxLines, d.wrapTitles)
+	titleRows := wrapTitle(composeTitle(item, d.isHarpooned), restWidth, d.titleMaxLines, d.wrapTitles)
 	titleLines := make([]string, len(titleRows))
 	for i, row := range titleRows {
 		gt := ""
@@ -284,15 +285,19 @@ func truncLine(s string, w int) string {
 }
 
 // composeTitle builds the full title string drawn on a card's first line(s):
-// the pin icon, optional frontmatter icon, then the title text. itemHeight and
-// renderItem both call it so the height they compute and draw stay identical.
-func composeTitle(item Item) string {
+// the Harpoon marker, pin icon, optional frontmatter icon, then the title text.
+// itemHeight and renderItem both call it so the height they compute and draw
+// stay identical.
+func composeTitle(item Item, isHarpooned func(string) bool) string {
 	title := item.Title
 	if item.Pinned {
 		title = "📌 " + title
 	}
 	if item.Icon != "" {
 		title = item.Icon + " " + title
+	}
+	if !item.Virtual && isHarpooned != nil && isHarpooned(item.FullPath) {
+		title = "[H] " + title
 	}
 	return title
 }

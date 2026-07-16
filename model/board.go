@@ -165,6 +165,9 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
+	// Harpoon is optional machine-local state. A bad store must not prevent the
+	// board from opening; opening the overlay will surface the load error.
+	_ = b.harpoon.Load(cfg.Path)
 	b.initGit()
 	b.applyPalette()
 	b.editor = newBoardEditor(b.cfg.Editor.Vim, b.palette, b.termWidth, b.termHeight, &b.scripts)

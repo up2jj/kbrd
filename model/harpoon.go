@@ -29,14 +29,25 @@ func (m *HarpoonMenu) Close() { m.active = false }
 
 func (m *HarpoonMenu) SetPalette(p Palette) { m.palette = p }
 
-func (m *HarpoonMenu) Open(boardPath string) error {
+// Load refreshes the slots for boardPath without changing whether the menu is
+// open. Board startup uses it so card indicators are available before the
+// Harpoon overlay has been visited.
+func (m *HarpoonMenu) Load(boardPath string) error {
+	m.boardPath = boardPath
+	m.slots = harpoon.Slots{}
 	store, err := harpoon.Load()
 	if err != nil {
 		return err
 	}
-	m.active = true
-	m.boardPath = boardPath
 	m.slots = store.ForBoard(boardPath)
+	return nil
+}
+
+func (m *HarpoonMenu) Open(boardPath string) error {
+	if err := m.Load(boardPath); err != nil {
+		return err
+	}
+	m.active = true
 	m.selected = firstEmptySlot(m.slots)
 	return nil
 }
@@ -88,6 +99,19 @@ func (m *HarpoonMenu) SetSelected(path string) error {
 }
 
 func (m *HarpoonMenu) SelectedPath() string { return m.slots[m.selected] }
+
+// Contains reports whether path occupies any slot on the current board.
+func (m *HarpoonMenu) Contains(path string) bool {
+	if path == "" {
+		return false
+	}
+	for _, slotPath := range m.slots {
+		if slotPath != "" && samePath(slotPath, path) {
+			return true
+		}
+	}
+	return false
+}
 
 func (m *HarpoonMenu) View(termWidth, _ int) string {
 	if !m.active {

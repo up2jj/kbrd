@@ -94,3 +94,33 @@ func TestHarpoonJumpMissingTargetKeepsMenuOpen(t *testing.T) {
 		t.Fatal("missing target unexpectedly closed harpoon")
 	}
 }
+
+func TestHarpoonCardIndicatorLoadsAtBoardStartup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	first := boardWithNCols(t, 1, 1)
+	writeColItem(t, first.columns[0], "target")
+	target := filepath.Join(first.columns[0].Path, "target.md")
+
+	first.handleKey(keyPressText("h"))
+	first.handleKey(keyPressText("a"))
+
+	reopened := NewBoard(first.cfg)
+	if err := reopened.loadColumns(); err != nil {
+		t.Fatal(err)
+	}
+	setColumnHeights(reopened.columns, 20)
+	view := reopened.columns[0].View(RenderCtx{
+		Active:       true,
+		Width:        reopened.cfg.ColumnWidth,
+		PreviewLines: reopened.cfg.PreviewLines,
+		GutterW:      2,
+		IsHarpooned:  reopened.harpoon.Contains,
+	})
+	if !reopened.harpoon.Contains(target) {
+		t.Fatal("reopened board did not load persisted Harpoon slot")
+	}
+	if !strings.Contains(view, "[H]") {
+		t.Fatalf("reopened board card missing Harpoon marker:\n%s", view)
+	}
+}

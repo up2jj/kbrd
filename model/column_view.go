@@ -103,6 +103,7 @@ type RenderCtx struct {
 	GutterW       int  // mnemonic gutter width
 	MnemonicOf    func(name string) string
 	StatFor       func(absPath string) (kbrdfs.DiffStat, bool)
+	IsHarpooned   func(absPath string) bool
 	Indicator     colIndicator // script-set header label for this column (empty Text = none)
 }
 
@@ -130,6 +131,7 @@ func (c *Column) View(ctx RenderCtx) string {
 		wrapTitles:    ctx.WrapTitles,
 		titleMaxLines: ctx.TitleMaxLines,
 		statFor:       ctx.StatFor,
+		isHarpooned:   ctx.IsHarpooned,
 		palette:       c.palette,
 		isMarked:      c.IsMarked,
 	}

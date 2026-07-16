@@ -837,6 +837,35 @@ func TestItemHeight_VirtualWrappedTitleMatchesDraw(t *testing.T) {
 	}
 }
 
+func TestRenderItem_HarpoonMarker(t *testing.T) {
+	t.Parallel()
+	harpoonedPath := "/board/todo/harpooned.md"
+	cfg := renderConfig{
+		previewLines: 1,
+		gutterW:      2,
+		colWidth:     32,
+		isHarpooned: func(path string) bool {
+			return path == harpoonedPath
+		},
+	}
+
+	marked := renderItem(Item{Name: "harpooned", Title: "Harpooned", FullPath: harpoonedPath}, false, false, cfg)
+	if !strings.Contains(marked, "[H]") {
+		t.Fatalf("harpooned card missing marker:\n%s", marked)
+	}
+	if strings.Contains(marked, "⚓") {
+		t.Fatalf("harpooned card uses an emoji marker:\n%s", marked)
+	}
+	plain := renderItem(Item{Name: "plain", Title: "Plain", FullPath: "/board/todo/plain.md"}, false, false, cfg)
+	if strings.Contains(plain, "[H]") {
+		t.Fatalf("ordinary card unexpectedly marked:\n%s", plain)
+	}
+	virtual := renderItem(Item{Name: "virtual", Title: "Virtual", FullPath: harpoonedPath, Virtual: true}, false, false, cfg)
+	if strings.Contains(virtual, "[H]") {
+		t.Fatalf("virtual card unexpectedly marked:\n%s", virtual)
+	}
+}
+
 func TestColumn_View_RenderLine(t *testing.T) {
 	t.Parallel()
 	col := newTestColumn(t, map[string]string{

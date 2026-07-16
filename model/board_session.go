@@ -126,6 +126,9 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 
 	b.cfg = newCfg
 	b.theme = newCfg.Theme
+	// Refresh board-scoped slots immediately so cards from the new board do not
+	// inherit indicators from the previous one.
+	_ = b.harpoon.Load(newCfg.Path)
 	b.initGit()
 	b.applyPalette()
 	b.selectedCol = 0

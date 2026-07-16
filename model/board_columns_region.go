@@ -24,6 +24,7 @@ type boardColumnsRegionContext struct {
 	palette         Palette
 	mnemonicLookup  func(colIdx int) func(name string) string
 	statFor         func(absPath string) (kbrdfs.DiffStat, bool)
+	isHarpooned     func(absPath string) bool
 	indicatorFor    func(columnName string) colIndicator
 }
 
@@ -46,6 +47,7 @@ func (b *Board) columnsRegionContext() boardColumnsRegionContext {
 		palette:         b.palette,
 		mnemonicLookup:  b.mnemonicLookup,
 		statFor:         b.git.StatFor,
+		isHarpooned:     b.harpoon.Contains,
 		indicatorFor:    b.indicators.get,
 	}
 }
@@ -167,6 +169,7 @@ func (p *boardColumnsRegion) renderColumns(ctx boardColumnsRegionContext, width 
 			GutterW:       gutterW,
 			MnemonicOf:    ctx.mnemonicLookup(s.Col),
 			StatFor:       ctx.statFor,
+			IsHarpooned:   ctx.isHarpooned,
 			Indicator:     ctx.indicatorFor(col.Name),
 		})))
 	}
