@@ -30,6 +30,7 @@ const (
 	builtinCellReminders
 	builtinCellMCP
 	builtinCellDirenv
+	builtinCellLayer
 	builtinCellHooks
 	builtinCellSync
 	builtinCellAsync

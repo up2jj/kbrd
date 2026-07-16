@@ -9,8 +9,52 @@ import (
 	"time"
 
 	"kbrd/board"
+	"kbrd/config"
 	"kbrd/fs"
 )
+
+func TestTaskSchedulerActivatesDefaultLayerAsyncHeadless(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.layer{ id="default", default=true, setup=function()
+  kbrd.column.set("headless", { name="Headless", items={} })
+  kbrd.async.run("printf layer-ok", function(result)
+    kbrd.fs.write("callback.txt", result.out)
+  end)
+end }
+kbrd.layer{ id="other", setup=function() end }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cfg := config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, InstructionLimit: 10_000_000}
+	scheduler, err := startTaskScheduler(ctx, dir, "test", "", cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("start scheduler: %v", err)
+	}
+	if scheduler == nil {
+		t.Fatal("scheduler is nil")
+	}
+
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			t.Fatal("default layer async callback did not run")
+		case <-ticker.C:
+			body, err := os.ReadFile(filepath.Join(dir, "callback.txt"))
+			if err == nil {
+				if string(body) != "layer-ok" {
+					t.Fatalf("callback body = %q", body)
+				}
+				return
+			}
+		}
+	}
+}
 
 // TestTaskCreateItemCommits verifies a task-driven create lands on disk and is
 // committed by the Syncer (working tree clean afterwards), and that a repeat

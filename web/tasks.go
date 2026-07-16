@@ -13,6 +13,7 @@ import (
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
 	"kbrd/script"
+	"kbrd/shellcmd"
 	"kbrd/template"
 )
 
@@ -249,10 +250,20 @@ func (a boardTaskAPI) ColumnConfigDelete(column, key string) error {
 // touches the host directly — it posts an httpEval over `eval` and blocks on the
 // reply channel, so request evaluations serialize through run alongside timers.
 type taskScheduler struct {
-	host   *script.Host
-	logger *log.Logger
-	fire   chan string   // tokens whose timer elapsed, delivered to run
-	eval   chan httpEval // request/response hook evaluations from HTTP middleware
+	host      *script.Host
+	logger    *log.Logger
+	root      string
+	timeoutMs int
+	fire      chan string          // tokens whose timer elapsed, delivered to run
+	asyncDone chan taskAsyncResult // completed kbrd.async.run jobs
+	eval      chan httpEval        // request/response hook evaluations from HTTP middleware
+}
+
+type taskAsyncResult struct {
+	token    string
+	out      string
+	exitCode int
+	err      string
 }
 
 // httpEval is one request- or response-hook evaluation the web middleware asks
@@ -290,9 +301,12 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 		return nil, nil
 	}
 	ts := &taskScheduler{
-		host:   host,
-		logger: logger,
-		fire:   make(chan string, 16),
+		host:      host,
+		logger:    logger,
+		root:      root,
+		timeoutMs: sc.CommandTimeoutMs,
+		fire:      make(chan string, 16),
+		asyncDone: make(chan taskAsyncResult, 16),
 		// Unbuffered: a request blocks here until run is free, which is the
 		// single-threaded-VM serialization contract made explicit.
 		eval: make(chan httpEval),
@@ -356,6 +370,7 @@ func (ts *taskScheduler) EvalResponse(ctx context.Context, data script.HTTPRespo
 func (ts *taskScheduler) run(ctx context.Context) {
 	defer ts.host.Close()
 	ts.arm(ctx) // schedule timers registered during init
+	ts.drainAsync(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -365,6 +380,13 @@ func (ts *taskScheduler) run(ctx context.Context) {
 				logf(ts.logger, "web: task timer %s: %v", token, err)
 			}
 			ts.arm(ctx)
+			ts.drainAsync(ctx)
+		case result := <-ts.asyncDone:
+			if err := ts.host.FireAsync(result.token, result.out, result.exitCode, result.err); err != nil {
+				logf(ts.logger, "web: task async %s: %v", result.token, err)
+			}
+			ts.arm(ctx)
+			ts.drainAsync(ctx)
 		case ev := <-ts.eval:
 			// Runs on the same goroutine as timer fires, so a request hook
 			// never re-enters the VM mid-timer; they simply queue.
@@ -376,7 +398,32 @@ func (ts *taskScheduler) run(ctx context.Context) {
 				res.respVerdict = ts.host.FireHTTPResponse(ev.resp)
 			}
 			ev.reply <- res
+			ts.arm(ctx)
+			ts.drainAsync(ctx)
 		}
+	}
+}
+
+func (ts *taskScheduler) drainAsync(ctx context.Context) {
+	for _, pending := range ts.host.PendingAsync() {
+		job := pending
+		go func() {
+			jobCtx := ctx
+			var cancel context.CancelFunc
+			if ts.timeoutMs > 0 {
+				jobCtx, cancel = context.WithTimeout(ctx, time.Duration(ts.timeoutMs)*time.Millisecond)
+				defer cancel()
+			}
+			result, err := shellcmd.Run(jobCtx, ts.root, job.Shell)
+			errText := ""
+			if err != nil {
+				errText = err.Error()
+			}
+			select {
+			case ts.asyncDone <- taskAsyncResult{token: job.Token, out: result.Output, exitCode: result.ExitCode, err: errText}:
+			case <-ctx.Done():
+			}
+		}()
 	}
 }
 

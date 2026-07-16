@@ -21,6 +21,8 @@ func (b *Board) handleGlobalBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Mode
 		return b, b.mnemonicSelector().open(), true
 	case key.Matches(msg, Keys.SwitchBoard):
 		return b, b.session().openSwitcher(), true
+	case key.Matches(msg, Keys.SwitchLayer):
+		return b, b.openLayerSwitcher(), true
 	case key.Matches(msg, Keys.Search):
 		return b, b.searchActions().openSearch(), true
 	case key.Matches(msg, Keys.GitPanel):

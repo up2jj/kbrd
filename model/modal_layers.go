@@ -101,6 +101,11 @@ func (b *Board) modalLayers() []modalLayer {
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.switcher.Update(msg) },
 		},
 		{
+			active: b.layerSwitcher.Active,
+			view:   func(w, h, _ int) string { return b.layerSwitcher.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.layerSwitcher.Update(msg) },
+		},
+		{
 			active: b.search.Active,
 			view:   func(w, h, _ int) string { return b.search.View(w, h) },
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.search.HandleKey(msg) },

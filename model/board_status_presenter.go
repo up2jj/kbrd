@@ -148,6 +148,22 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		b.cells.clearBuiltin(builtinCellDirenv)
 	}
 
+	if b.scripts != nil && len(b.scripts.Layers()) > 0 {
+		if active, ok := b.scripts.ActiveLayer(); ok {
+			b.cells.setBuiltin(builtinCellLayer, Cell{
+				Text: "◆ layer " + active.Name,
+				FG:   string(b.palette.Success),
+			})
+		} else {
+			b.cells.setBuiltin(builtinCellLayer, Cell{
+				Text: "◇ layer none",
+				FG:   string(b.palette.Warning),
+			})
+		}
+	} else {
+		b.cells.clearBuiltin(builtinCellLayer)
+	}
+
 	total := 0
 	for _, c := range b.columns {
 		total += c.TotalCount()

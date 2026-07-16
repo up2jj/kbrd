@@ -16,6 +16,7 @@ type KeyMap struct {
 	Search       key.Binding
 	Refresh      key.Binding
 	Clipboard    key.Binding
+	SwitchLayer  key.Binding
 
 	// Navigation
 	PrevCol     key.Binding
@@ -86,11 +87,12 @@ type KeyMap struct {
 	PeekBottom   key.Binding
 
 	// Switcher
-	SwitcherClose     key.Binding
-	SwitcherPrev      key.Binding
-	SwitcherNext      key.Binding
-	SwitcherConfirm   key.Binding
-	SwitcherPinToggle key.Binding
+	SwitcherClose      key.Binding
+	SwitcherPrev       key.Binding
+	SwitcherNext       key.Binding
+	SwitcherConfirm    key.Binding
+	SwitcherPinToggle  key.Binding
+	LayerSwitcherClose key.Binding
 
 	// Search
 	SearchClose   key.Binding
@@ -139,6 +141,7 @@ var Keys = KeyMap{
 	Search:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
 	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
 	Clipboard:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "clipboard history")),
+	SwitchLayer:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "switch script layer")),
 
 	// Navigation
 	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column / move marked left")),
@@ -209,11 +212,12 @@ var Keys = KeyMap{
 	PeekBottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 
 	// Switcher
-	SwitcherClose:     key.NewBinding(key.WithKeys("esc", "ctrl+p"), key.WithHelp("esc", "cancel")),
-	SwitcherPrev:      key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "previous")),
-	SwitcherNext:      key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
-	SwitcherConfirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
-	SwitcherPinToggle: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pin/unpin")),
+	SwitcherClose:      key.NewBinding(key.WithKeys("esc", "ctrl+p"), key.WithHelp("esc", "cancel")),
+	SwitcherPrev:       key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "previous")),
+	SwitcherNext:       key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
+	SwitcherConfirm:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
+	SwitcherPinToggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pin/unpin")),
+	LayerSwitcherClose: key.NewBinding(key.WithKeys("esc", "l"), key.WithHelp("esc", "cancel")),
 
 	// Search
 	SearchClose:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

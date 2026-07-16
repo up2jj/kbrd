@@ -64,11 +64,24 @@ type Host struct {
 	commands []luaCommand
 	hooks    map[string][]*hookEntry
 
+	// layers are declared by the folder-local .kbrd.lua. Calls made outside an
+	// active layer remain base resources; activeOwner is set while a layer setup,
+	// command, timer, or async callback is running so newly-created resources
+	// inherit the correct lifecycle.
+	layers        []layerDef
+	layerByID     map[string]int
+	activeLayerID string
+	activeOwner   string
+	loadingFolder bool
+	stage         *layerStage
+
 	// vcolFns holds the run closures for column-scoped (virtual-column) commands,
 	// keyed by their dispatch ref ("vcol:<vid>:<cmdid>"). Kept separate from
 	// `commands` so they never leak into the global command menu; RunVirtualCommand
 	// resolves them. Cleared per-vid when a column is replaced or removed.
-	vcolFns map[string]*lua.LFunction
+	vcolFns    map[string]ownedFn
+	baseVCols  virtualColumns
+	layerVCols virtualColumns
 
 	pending  map[string]*pendingCoro
 	tokenSeq int
@@ -96,7 +109,7 @@ type Host struct {
 
 	// asyncCallbacks holds the Lua callbacks registered via kbrd.async.run;
 	// FireAsync looks them up by token and pops them after invocation.
-	asyncCallbacks   map[string]*lua.LFunction
+	asyncCallbacks   map[string]ownedFn
 	pendingAsyncCmds []AsyncCmd
 
 	// inTimer is set while FireTimer is on the stack — including the
@@ -157,6 +170,7 @@ type timerEntry struct {
 	interval          time.Duration
 	repeat            bool
 	consecutiveErrors int
+	owner             string
 }
 
 // hookEntry wraps a registered hook function with its consecutive-error
@@ -187,6 +201,11 @@ type AsyncCmd struct {
 	Shell string
 }
 
+type ownedFn struct {
+	fn    *lua.LFunction
+	owner string
+}
+
 type luaCommand struct {
 	Name        string
 	ID          string
@@ -194,13 +213,15 @@ type luaCommand struct {
 	Scope       string // "files" (default) | "virtual" | "all"
 	Ref         string
 	fn          *lua.LFunction
+	owner       string
 }
 
 // pendingCoro keeps a suspended coroutine alive until the model resumes it
 // with a UI result.
 type pendingCoro struct {
-	co   *lua.LState
-	name string
+	co    *lua.LState
+	name  string
+	owner string
 }
 
 // New creates a Host, loads global (~/.config/kbrd/init.lua) and folder-local
@@ -234,10 +255,13 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		instanceName:   instanceName,
 		L:              L,
 		hooks:          make(map[string][]*hookEntry),
+		layerByID:      make(map[string]int),
 		pending:        make(map[string]*pendingCoro),
 		timers:         make(map[string]*timerEntry),
-		asyncCallbacks: make(map[string]*lua.LFunction),
-		vcolFns:        make(map[string]*lua.LFunction),
+		asyncCallbacks: make(map[string]ownedFn),
+		vcolFns:        make(map[string]ownedFn),
+		baseVCols:      newVirtualColumns(),
+		layerVCols:     newVirtualColumns(),
 	}
 	h.installAPI()
 
@@ -259,15 +283,42 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 
 	var firstErr error
 	any := false
+	localOK := true
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
 		any = true
-		if err := h.doFile(p); err != nil {
+		h.loadingFolder = filepath.Base(p) == FolderInitFile && folderPath != ""
+		err := h.doFile(p)
+		h.loadingFolder = false
+		if err != nil {
+			if filepath.Base(p) == FolderInitFile {
+				localOK = false
+			}
 			h.logger.Log("error", p, err.Error())
 			if firstErr == nil {
 				firstErr = fmt.Errorf("%s: %w", filepath.Base(p), err)
+			}
+		}
+	}
+	if !localOK {
+		h.layers = nil
+		h.layerByID = make(map[string]int)
+	} else if len(h.layers) > 0 {
+		defaultID, validationErr := h.defaultLayerID()
+		if validationErr != nil {
+			h.layers = nil
+			h.layerByID = make(map[string]int)
+		}
+		activationErr := validationErr
+		if activationErr == nil {
+			activationErr = h.ActivateLayer(defaultID)
+		}
+		if activationErr != nil {
+			h.logger.Log("error", FolderInitFile, activationErr.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", FolderInitFile, activationErr)
 			}
 		}
 	}
@@ -295,6 +346,8 @@ func (h *Host) Close() {
 	// Drop references so any tea.Ticks still in flight find nothing to do
 	// and the GC can reclaim closures/payloads promptly.
 	h.commands = nil
+	h.layers = nil
+	h.layerByID = nil
 	h.hooks = nil
 	h.pending = nil
 	h.timers = nil
@@ -305,6 +358,8 @@ func (h *Host) Close() {
 	h.pendingAsyncCmds = nil
 	h.deferred = nil
 	h.vcolFns = nil
+	h.baseVCols = virtualColumns{}
+	h.layerVCols = virtualColumns{}
 	h.evalEnv = nil
 	h.evalNames = nil
 }
@@ -315,8 +370,9 @@ func (h *Host) Commands() []config.Command {
 	if h == nil {
 		return nil
 	}
-	out := make([]config.Command, 0, len(h.commands))
-	for _, c := range h.commands {
+	effective := h.effectiveCommands()
+	out := make([]config.Command, 0, len(effective))
+	for _, c := range effective {
 		out = append(out, config.Command{
 			Name:        c.Name,
 			ID:          c.ID,
@@ -358,15 +414,15 @@ func (h *Host) RunVirtualCommand(ref string, ctx map[string]any) (*UIRequest, er
 // runByRef resolves a dispatch ref to its run closure — first the global command
 // registry, then the virtual-column registry — and runs it on a fresh coroutine.
 func (h *Host) runByRef(ref string, arg lua.LValue) (*UIRequest, error) {
-	for _, c := range h.commands {
+	for _, c := range h.effectiveCommands() {
 		if c.Ref == ref {
 			co, _ := h.L.NewThread()
-			return h.runDuringCall(co, c.Name, c.fn, []lua.LValue{arg})
+			return h.runDuringCall(co, c.Name, c.fn, []lua.LValue{arg}, c.owner)
 		}
 	}
-	if fn, ok := h.vcolFns[ref]; ok {
+	if owned, ok := h.vcolFns[ref]; ok {
 		co, _ := h.L.NewThread()
-		return h.runDuringCall(co, ref, fn, []lua.LValue{arg})
+		return h.runDuringCall(co, ref, owned.fn, []lua.LValue{arg}, owned.owner)
 	}
 	return nil, fmt.Errorf("unknown lua command %q", ref)
 }
@@ -389,7 +445,7 @@ func (h *Host) ResumeWith(token string, result any) (*UIRequest, error) {
 	}
 	delete(h.pending, token)
 	args := []lua.LValue{toLValue(h.L, result)}
-	return h.runDuringCall(p.co, p.name, nil, args)
+	return h.runDuringCall(p.co, p.name, nil, args, p.owner)
 }
 
 // TakeReturn reads and clears the return value captured from the most recently
@@ -594,13 +650,16 @@ func (h *Host) FireAsync(token, out string, exitCode int, errStr string) error {
 	if h == nil {
 		return nil
 	}
-	fn, ok := h.asyncCallbacks[token]
+	owned, ok := h.asyncCallbacks[token]
 	if !ok {
 		// Cancelled or already fired — silently drop.
 		return nil
 	}
 	delete(h.asyncCallbacks, token)
 
+	prevOwner := h.activeOwner
+	h.activeOwner = owned.owner
+	defer func() { h.activeOwner = prevOwner }()
 	h.running = true
 	defer func() {
 		h.running = false
@@ -610,7 +669,7 @@ func (h *Host) FireAsync(token, out string, exitCode int, errStr string) error {
 			h.OnEvent(ev)
 		}
 	}()
-	err := h.invokeHook(fn, map[string]any{
+	err := h.invokeHook(owned.fn, map[string]any{
 		"out":      out,
 		"exitCode": exitCode,
 		"error":    errStr,
@@ -637,6 +696,9 @@ func (h *Host) FireTimer(token string) error {
 		return nil
 	}
 	// Run as a hook — timers may not use kbrd.ui.* (no coroutine).
+	prevOwner := h.activeOwner
+	h.activeOwner = e.owner
+	defer func() { h.activeOwner = prevOwner }()
 	h.running = true
 	h.inTimer = true
 	defer func() {
@@ -682,11 +744,13 @@ func (h *Host) FireTimer(token string) error {
 // (e.g. via boardScriptAPI.MoveItem → bus.Publish → OnEvent) is enqueued
 // instead of firing hooks immediately. Hooks firing inside a Resume on the
 // same VM would corrupt VM state; deferring them is the safe choice.
-func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, args []lua.LValue) (*UIRequest, error) {
+func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, args []lua.LValue, owner string) (*UIRequest, error) {
 	// Clear any captured return from a previous command so a command that
 	// returns nothing doesn't inherit a stale value (line-command apply path).
 	h.lastReturn = ""
 	h.lastReturnSet = false
+	prevOwner := h.activeOwner
+	h.activeOwner = owner
 	h.running = true
 	req, err := h.driveResume(co, name, fn, args)
 	// If the script yielded (req != nil), it's suspended waiting for UI —
@@ -694,9 +758,11 @@ func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, arg
 	// (e.g. from concurrent git syncs) are also deferred until the script
 	// finishes for real. The ResumeWith path will end with req == nil.
 	if req != nil {
+		h.activeOwner = prevOwner
 		return req, err
 	}
 	h.running = false
+	h.activeOwner = prevOwner
 	pending := h.deferred
 	h.deferred = nil
 	for _, ev := range pending {
@@ -763,7 +829,7 @@ func (h *Host) driveResume(co *lua.LState, name string, fn *lua.LFunction, args 
 	}
 	token := h.allocToken()
 	req.Token = token
-	h.pending[token] = &pendingCoro{co: co, name: name}
+	h.pending[token] = &pendingCoro{co: co, name: name, owner: h.activeOwner}
 	return req, nil
 }
 

@@ -70,6 +70,7 @@ type Board struct {
 	peekItemPath     string
 	zoom             Zoom
 	switcher         Switcher
+	layerSwitcher    LayerSwitcher
 	search           Search
 	git              git.Controller
 	conflictReview   ConflictReview
@@ -239,6 +240,7 @@ func (b *Board) applyPalette() {
 	b.peek.palette = b.palette
 	b.timeline.SetPalette(b.palette)
 	b.switcher.palette = b.palette
+	b.layerSwitcher.palette = b.palette
 	b.search.palette = b.palette
 	b.git.SetPalette(b.palette)
 	b.zellij.SetPalette(b.palette)
@@ -705,6 +707,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case switchBoardMsg:
 		return b.session().handleSwitchBoard(msg)
+
+	case switchLayerMsg:
+		return b.handleSwitchLayer(msg)
 
 	case switchBoardLoadMsg:
 		return b.session().handleSwitchBoardLoad(msg)

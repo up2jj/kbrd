@@ -2,6 +2,7 @@ package script
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -24,6 +25,7 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("notify", L.NewFunction(h.luaNotify))
 	kbrd.RawSetString("status", L.NewFunction(h.luaStatus))
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
+	kbrd.RawSetString("layer", L.NewFunction(h.luaLayer))
 	kbrd.RawSetString("has_command", L.NewFunction(h.luaHasCommand))
 	kbrd.RawSetString("register", L.NewFunction(h.luaRegister))
 	kbrd.RawSetString("on", L.NewFunction(h.luaOn))
@@ -450,8 +452,15 @@ func (h *Host) scheduleTimer(L *lua.LState, repeat bool) int {
 	if dur < minDur {
 		dur = minDur
 	}
-	h.timers[token] = &timerEntry{fn: fn, interval: dur, repeat: repeat}
-	h.pendingTimers = append(h.pendingTimers, TimerSchedule{Token: token, Duration: dur, Repeat: repeat})
+	entry := &timerEntry{fn: fn, interval: dur, repeat: repeat, owner: h.activeOwner}
+	schedule := TimerSchedule{Token: token, Duration: dur, Repeat: repeat}
+	if h.stage != nil {
+		h.stage.timers[token] = entry
+		h.stage.pendingTimers = append(h.stage.pendingTimers, schedule)
+	} else {
+		h.timers[token] = entry
+		h.pendingTimers = append(h.pendingTimers, schedule)
+	}
 	L.Push(lua.LString(token))
 	return 1
 }
@@ -471,8 +480,15 @@ func (h *Host) luaAsyncRun(L *lua.LState) int {
 	cmd := L.CheckString(1)
 	fn := L.CheckFunction(2)
 	token := h.allocToken()
-	h.asyncCallbacks[token] = fn
-	h.pendingAsyncCmds = append(h.pendingAsyncCmds, AsyncCmd{Token: token, Shell: cmd})
+	callback := ownedFn{fn: fn, owner: h.activeOwner}
+	asyncCmd := AsyncCmd{Token: token, Shell: cmd}
+	if h.stage != nil {
+		h.stage.asyncCallbacks[token] = callback
+		h.stage.pendingAsync = append(h.stage.pendingAsync, asyncCmd)
+	} else {
+		h.asyncCallbacks[token] = callback
+		h.pendingAsyncCmds = append(h.pendingAsyncCmds, asyncCmd)
+	}
 	L.Push(lua.LString(token))
 	return 1
 }
@@ -482,6 +498,10 @@ func (h *Host) luaAsyncRun(L *lua.LState) int {
 // kill subprocesses), but its result is discarded when it finishes.
 func (h *Host) luaAsyncCancel(L *lua.LState) int {
 	token := L.CheckString(1)
+	if h.stage != nil {
+		delete(h.stage.asyncCallbacks, token)
+		h.stage.pendingAsync = slices.DeleteFunc(h.stage.pendingAsync, func(cmd AsyncCmd) bool { return cmd.Token == token })
+	}
 	delete(h.asyncCallbacks, token)
 	return 0
 }
@@ -545,7 +565,7 @@ func (h *Host) clearVcolFns(vid string) {
 // create or replace a virtual column. Idempotent; safe from timers/async
 // callbacks. See the events.VirtualColumnSpec types for the field shapes.
 func (h *Host) luaColumnSet(L *lua.LState) int {
-	if h.pres == nil {
+	if h.pres == nil && h.stage == nil && h.activeOwner == "" {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
 	id := L.CheckString(1)
@@ -554,9 +574,6 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		L.RaiseError("kbrd.column.set: id is required")
 		return 0
 	}
-
-	// Replacing a column drops the previous run closures for this id.
-	h.clearVcolFns(id)
 
 	out := events.VirtualColumnSpec{
 		Name:  lua.LVAsString(spec.RawGetString("name")),
@@ -596,6 +613,7 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		})
 	}
 
+	fns := make(map[string]ownedFn)
 	if cmds, ok := spec.RawGetString("commands").(*lua.LTable); ok {
 		cmds.ForEach(func(_, v lua.LValue) {
 			ct, ok := v.(*lua.LTable)
@@ -608,7 +626,7 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 				return
 			}
 			ref := vcolRefPrefix(id) + cid
-			h.vcolFns[ref] = fn
+			fns[ref] = ownedFn{fn: fn, owner: h.activeOwner}
 			// requiresItem defaults to true; LVAsBool can't tell absent from
 			// false, so only override when the key is actually present.
 			requiresItem := true
@@ -626,28 +644,68 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		})
 	}
 
-	h.pres.VirtualColumnSet(id, out)
+	state := virtualColumnState{spec: out, fns: fns}
+	switch {
+	case h.stage != nil:
+		h.stage.vcols.set(id, state)
+	case h.activeOwner != "":
+		h.layerVCols.set(id, state)
+		h.clearVcolFns(id)
+		h.publishVirtualColumn(id, state)
+	default:
+		h.baseVCols.set(id, state)
+		if _, shadowed := h.layerVCols.byID[id]; !shadowed {
+			h.clearVcolFns(id)
+			h.publishVirtualColumn(id, state)
+		}
+	}
 	return 0
 }
 
 // kbrd.column.clear(id) — remove a single virtual column.
 func (h *Host) luaColumnClear(L *lua.LState) int {
-	if h.pres == nil {
+	if h.pres == nil && h.stage == nil && h.activeOwner == "" {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
 	id := L.CheckString(1)
-	h.clearVcolFns(id)
-	h.pres.VirtualColumnClear(id)
+	switch {
+	case h.stage != nil:
+		h.stage.vcols.clear(id)
+	case h.activeOwner != "":
+		h.layerVCols.clear(id)
+		h.clearVcolFns(id)
+		if base, ok := h.baseVCols.byID[id]; ok {
+			h.publishVirtualColumn(id, base)
+		} else if h.pres != nil {
+			h.pres.VirtualColumnClear(id)
+		}
+	default:
+		h.baseVCols.clear(id)
+		if _, shadowed := h.layerVCols.byID[id]; !shadowed {
+			h.clearVcolFns(id)
+			if h.pres != nil {
+				h.pres.VirtualColumnClear(id)
+			}
+		}
+	}
 	return 0
 }
 
 // kbrd.column.clear_all() — remove every script-set virtual column.
 func (h *Host) luaColumnClearAll(L *lua.LState) int {
-	if h.pres == nil {
+	if h.pres == nil && h.stage == nil && h.activeOwner == "" {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
-	h.vcolFns = make(map[string]*lua.LFunction)
-	h.pres.VirtualColumnClearAll()
+	switch {
+	case h.stage != nil:
+		h.stage.vcols.clearAll()
+	case h.activeOwner != "":
+		h.layerVCols.clearAll()
+		h.reconcileVirtualColumns()
+	default:
+		h.baseVCols.clearAll()
+		h.reconcileVirtualColumns()
+	}
 	return 0
 }
 
@@ -750,6 +808,12 @@ func (h *Host) luaUIGuard(L *lua.LState) int {
 // becomes a no-op when FireTimer can't find it in the map.
 func (h *Host) luaTimerCancel(L *lua.LState) int {
 	token := L.CheckString(1)
+	if h.stage != nil {
+		delete(h.stage.timers, token)
+		h.stage.pendingTimers = slices.DeleteFunc(h.stage.pendingTimers, func(schedule TimerSchedule) bool {
+			return schedule.Token == token
+		})
+	}
 	delete(h.timers, token)
 	return 0
 }
@@ -841,6 +905,41 @@ func luaDuration(v lua.LValue) (time.Duration, error) {
 	}
 }
 
+// kbrd.layer{ id=, name=, description=, default=, setup= } declares one
+// folder-local runtime layer. The setup callback is stored now and executed
+// only when the layer becomes active.
+func (h *Host) luaLayer(L *lua.LState) int {
+	if !h.loadingFolder {
+		L.RaiseError("kbrd.layer: declarations are only allowed while loading .kbrd.lua")
+		return 0
+	}
+	t := L.CheckTable(1)
+	id := lua.LVAsString(t.RawGetString("id"))
+	name := lua.LVAsString(t.RawGetString("name"))
+	description := lua.LVAsString(t.RawGetString("description"))
+	setup, _ := t.RawGetString("setup").(*lua.LFunction)
+	if id == "" || setup == nil {
+		L.RaiseError("kbrd.layer: id and setup are required")
+		return 0
+	}
+	if _, exists := h.layerByID[id]; exists {
+		L.RaiseError("kbrd.layer: duplicate id %q", id)
+		return 0
+	}
+	if name == "" {
+		name = id
+	}
+	h.layerByID[id] = len(h.layers)
+	h.layers = append(h.layers, layerDef{
+		LayerInfo: LayerInfo{
+			ID: id, Name: name, Description: description,
+			Default: lua.LVAsBool(t.RawGetString("default")),
+		},
+		setup: setup,
+	})
+	return 0
+}
+
 // kbrd.command(id, name, fn) — short form
 // kbrd.command{ id=, name=, description=, run= } — table form
 func (h *Host) luaCommand(L *lua.LState) int {
@@ -878,19 +977,23 @@ func (h *Host) luaCommand(L *lua.LState) int {
 	scope = normalizeScope(scope)
 
 	ref := fmt.Sprintf("lua:%s", id)
+	target := &h.commands
+	if h.stage != nil {
+		target = &h.stage.commands
+	}
 	// Replace any existing registration with the same id so reloads work.
-	for i, c := range h.commands {
-		if c.ID == id {
-			h.commands[i] = luaCommand{
+	for i, c := range *target {
+		if c.ID == id && c.owner == h.activeOwner {
+			(*target)[i] = luaCommand{
 				Name: name, ID: id, Description: description, Scope: scope,
-				Ref: ref, fn: fn,
+				Ref: ref, fn: fn, owner: h.activeOwner,
 			}
 			return 0
 		}
 	}
-	h.commands = append(h.commands, luaCommand{
+	*target = append(*target, luaCommand{
 		Name: name, ID: id, Description: description, Scope: scope,
-		Ref: ref, fn: fn,
+		Ref: ref, fn: fn, owner: h.activeOwner,
 	})
 	return 0
 }
@@ -959,7 +1062,11 @@ func normalizeScope(s string) string {
 // Useful in init.lua for guarded re-registration or feature-detection.
 func (h *Host) luaHasCommand(L *lua.LState) int {
 	id := L.CheckString(1)
-	for _, c := range h.commands {
+	commands := h.effectiveCommands()
+	if h.stage != nil {
+		commands = append(commands, h.stage.commands...)
+	}
+	for _, c := range commands {
 		if c.ID == id {
 			L.Push(lua.LTrue)
 			return 1

@@ -13,13 +13,14 @@ shell commands keep working unchanged.
 ## Contents
 
 - [Quick start](#quick-start)
+- [Runtime layers](#runtime-layers)
 - [Configuration](#configuration) · [Environment variables](#environment-variables)
 - [Two ways to plug in](#two-ways-to-plug-in) — [menu commands](#1-menu-commands--kbrdcommand), [event hooks](#2-event-hooks--kbrdon)
 - [Remote scripts (`require` from a URL)](#remote-scripts-require-from-a-url)
 - [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
 - [The `ctx` table](#the-ctx-table)
 - [API reference](#api-reference)
-  - Core — [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
+  - Core — [layer](#kbrdlayer--runtime-layer), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
   - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
@@ -66,6 +67,85 @@ end)
 
 Open kbrd, press `x` on any item, and `[A] Archive (lua)` will appear in the
 menu alongside your shell commands.
+
+## Runtime layers
+
+Folder-local `.kbrd.lua` files can declare exclusive runtime layers. A layer is
+a named setup callback that creates a related set of commands, timers, async
+jobs, and virtual columns. Exactly one declared layer must set `default = true`;
+it activates when the board opens. Press `l` in the TUI to search and switch.
+The header shows `◆ layer <name>` for the active layer, or `◇ layer none` when
+the declarations are valid but no layer setup has activated successfully.
+
+```lua
+-- Persistent base resources stay loaded in every layer.
+kbrd.command("refresh-all", "Refresh everything", function()
+  kbrd.board.refresh()
+end)
+
+kbrd.layer{
+  id = "work",
+  name = "Work",
+  description = "Work queues and automation",
+  default = true,
+  setup = function()
+    kbrd.command("focus", "Focus work", function()
+      kbrd.status("work layer")
+    end)
+    kbrd.timer.every("15m", function()
+      kbrd.status("work timer refreshed")
+    end)
+    kbrd.async.run("printf 'Review release notes'", function(result)
+      kbrd.column.set("work-items", {
+        name = "Work items",
+        items = { { id = "review", title = result.out } },
+      })
+    end)
+  end,
+}
+
+kbrd.layer{
+  id = "personal",
+  name = "Personal",
+  description = "Personal tasks",
+  setup = function()
+    kbrd.command("focus", "Focus personal", function()
+      kbrd.status("personal layer")
+    end)
+    kbrd.column.set("personal", { name = "Personal", items = {} })
+  end,
+}
+```
+
+Switching reruns the target `setup` and unloads the previous layer's managed
+resources. Commands or virtual columns with the same id temporarily shadow a
+base resource; the base version returns when the layer is left. Timer ticks and
+async results that arrive after their layer was unloaded are ignored. An
+already-running async shell process is not forcibly killed.
+
+Layer selection is session-only. Lua globals, required modules, and closure
+upvalues remain alive while the board is open; only the four managed resource
+types are unloaded. Hooks, `kbrd.register` functions, cells, indicators, and
+other side effects keep their normal global lifetime, even if called by a layer
+setup. A failing setup leaves the previously active layer selected, although
+unmanaged side effects that ran before the error cannot be rolled back.
+
+`kbrd.layer` may only be declared while the folder-local `.kbrd.lua` is loading
+(modules required by that file are included). Global `init.lua` can still
+declare persistent base resources, but it cannot declare layers. Under
+`kbrd serve --scripting`, the default layer activates so timers and async jobs
+run; virtual-column updates are accepted but have no headless presentation.
+
+### `kbrd.layer{...}` — runtime layer
+
+Fields:
+
+- `id` — required unique identifier.
+- `name` — switcher label; defaults to `id`.
+- `description` — optional searchable detail.
+- `default` — exactly one layer must set this to `true`.
+- `setup` — required callback run on activation under the normal command timeout
+  and instruction limit.
 
 ---
 

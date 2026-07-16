@@ -122,6 +122,14 @@ func (h boardHelpActions) groups() []HelpGroup {
 	virtual := col != nil && col.Virtual
 
 	groups := HelpMenuGroups()
+	if b.scripts != nil && len(b.scripts.Layers()) > 0 {
+		for i := range groups {
+			if groups[i].Title == "Global" {
+				groups[i].Items = append(groups[i].Items, helpEntry(Keys.SwitchLayer, "Switch the active .kbrd.lua runtime layer."))
+				break
+			}
+		}
+	}
 	for i := range groups {
 		if groups[i].Title != "Global" {
 			continue
