@@ -36,6 +36,8 @@ type Board struct {
 	safeMode         bool
 	environment      *boardenv.Manager
 	columns          []*Column
+	filesystemCols   []*Column // authoritative set; columns is the visible projection plus virtual columns
+	hiddenColumns    map[string]struct{}
 	visibleHeight    int
 	termWidth        int
 	termHeight       int
@@ -257,7 +259,10 @@ func (b *Board) applyPalette() {
 	if b.editor != nil {
 		b.editor.palette = b.palette
 	}
-	for _, c := range b.columns {
+	for _, c := range b.allFilesystemColumns() {
+		c.palette = b.palette
+	}
+	for _, c := range b.virtualCols {
 		c.palette = b.palette
 	}
 }
@@ -395,11 +400,7 @@ func (b *Board) loadColumns() error {
 	if b.visibleHeight > 0 {
 		setColumnHeights(columns, b.visibleHeight)
 	}
-	b.columns = columns
-	b.appendVirtualColumns()
-	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
-		b.selectedCol = len(b.columns) - 1
-	}
+	b.setFilesystemColumns(columns)
 	return nil
 }
 
@@ -408,13 +409,7 @@ func (b *Board) loadColumns() error {
 // Virtual columns are script state, not filesystem state, so they persist across
 // reloads.
 func (b *Board) appendVirtualColumns() {
-	for _, vc := range b.virtualCols {
-		if b.visibleHeight > 0 {
-			vc.SetHeight(b.visibleHeight)
-		}
-		vc.palette = b.palette
-		b.columns = append(b.columns, vc)
-	}
+	b.rebuildVisibleColumns()
 }
 
 // virtualColumn returns the registered virtual column with the given id, or nil.
@@ -491,7 +486,7 @@ func (b *Board) clampSelectedCol() {
 // files.
 func (b *Board) itemsByPath() itemCache {
 	cache := make(itemCache)
-	for _, col := range b.columns {
+	for _, col := range b.allFilesystemColumns() {
 		for _, it := range col.Items {
 			cache[it.FullPath] = it
 		}
@@ -723,6 +718,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchMsg:
 		// Search owns its async lifecycle (debounce + ripgrep); route opaquely,
 		// the same way git.Msg is handled below.
+		if results, ok := msg.(searchResultsMsg); ok {
+			msg = b.filterHiddenSearchResults(results)
+		}
 		return b, b.search.Update(msg)
 
 	case searchSelectMsg:

@@ -18,7 +18,7 @@ package model
 // applyColumnTransforms runs the column_items hook over every filesystem
 // column. Used after bulk (re)loads.
 func (b *Board) applyColumnTransforms() {
-	for _, col := range b.columns {
+	for _, col := range b.allFilesystemColumns() {
 		b.applyColumnTransform(col)
 	}
 }

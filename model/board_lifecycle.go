@@ -33,7 +33,7 @@ func (l boardLifecycle) singleDirtyColumn(dirty map[string]struct{}) string {
 		}
 		dir := filepath.Dir(p)
 		found := ""
-		for _, col := range b.columns {
+		for _, col := range b.allFilesystemColumns() {
 			if samePath(col.Path, dir) {
 				found = col.Path
 				break
@@ -78,7 +78,7 @@ func (l boardLifecycle) shouldReloadConfig(dirty map[string]struct{}) bool {
 func (l boardLifecycle) selectionByPath() map[string]string {
 	b := l.board
 	sel := make(map[string]string, len(b.columns))
-	for _, col := range b.columns {
+	for _, col := range b.allFilesystemColumns() {
 		if col.HasSelectedItem() {
 			sel[col.Path] = col.SelectedItem().Name
 		}
@@ -101,11 +101,7 @@ func (l boardLifecycle) applyReloadedColumns(columns []*Column) {
 			col.SelectByName(name)
 		}
 	}
-	b.columns = columns
-	b.appendVirtualColumns()
-	if len(b.columns) > 0 && b.selectedCol >= len(b.columns) {
-		b.selectedCol = len(b.columns) - 1
-	}
+	b.setFilesystemColumns(columns)
 }
 
 func (l boardLifecycle) applyReloadedConfig(cfg config.Config) {
@@ -212,8 +208,9 @@ func (l boardLifecycle) HandleColumnReloaded(msg columnReloadedMsg) (tea.Model, 
 	if msg.Seq != b.watchSeq {
 		return b, nil
 	}
+	b.materializeFilesystemColumns()
 	idx := -1
-	for i, col := range b.columns {
+	for i, col := range b.allFilesystemColumns() {
 		if samePath(col.Path, msg.path) {
 			idx = i
 			break
@@ -222,7 +219,7 @@ func (l boardLifecycle) HandleColumnReloaded(msg columnReloadedMsg) (tea.Model, 
 	if idx < 0 {
 		return b, b.reloadCmd(b.watchSeq)
 	}
-	prevName := l.selectedItemName(b.columns[idx])
+	prevName := l.selectedItemName(b.filesystemCols[idx])
 	if b.visibleHeight > 0 {
 		msg.col.SetHeight(b.visibleHeight)
 	}
@@ -230,7 +227,8 @@ func (l boardLifecycle) HandleColumnReloaded(msg columnReloadedMsg) (tea.Model, 
 	if prevName != "" {
 		msg.col.SelectByName(prevName)
 	}
-	b.columns[idx] = msg.col
+	b.filesystemCols[idx] = msg.col
+	b.rebuildVisibleColumns()
 	b.applyColumnTransform(msg.col)
 	b.publishItemChanges()
 	b.bus.Publish(events.BoardRefresh{Reason: "watcher"})

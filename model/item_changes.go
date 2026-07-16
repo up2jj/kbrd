@@ -20,7 +20,7 @@ type changeTracker struct {
 }
 
 // snapshot records the pre-reload content hash of every changed path, read from
-// the currently displayed columns. A path not found among the filesystem items
+// the authoritative filesystem columns. A path not found among the filesystem items
 // maps to 0 — a sentinel a real FNV-64a hash never produces, so it reads as
 // "newly present" when compared after the reload. Virtual items have no file
 // backing and are skipped.
@@ -76,7 +76,7 @@ func (c *changeTracker) changed(cols []*Column) []events.ItemRef {
 // changed during the just-applied watcher reload. Called from the reload-apply
 // handlers in board.go after the new columns are in place.
 func (b *Board) publishItemChanges() {
-	for _, ref := range b.changes.changed(b.columns) {
+	for _, ref := range b.changes.changed(b.allFilesystemColumns()) {
 		b.bus.Publish(events.ItemChanged{Item: ref})
 	}
 }

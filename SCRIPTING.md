@@ -27,7 +27,7 @@ shell commands keep working unchanged.
   - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
-  - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, indicator
+  - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, hide/show, indicator
   - [`kbrd.column.store.*`](#kbrdcolumnstore--per-column-keyvalue-storage) — get, set, all, delete
   - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, get_frontmatter, set_frontmatter, delete_frontmatter, exists, mkdir, glob
 - [Error handling](#error-handling) · [Auto-disable](#auto-disable-on-consecutive-errors)
@@ -1274,6 +1274,55 @@ again. The cursor is preserved by `id`.
 ### `kbrd.column.clear(id)` / `kbrd.column.clear_all()`
 
 Remove one virtual column, or all of them.
+
+### `kbrd.column.hide(name)` / `show(name)` / `show_all()`
+
+Hide and restore **filesystem** columns by their exact, case-sensitive names.
+Visibility is session-scoped: it survives manual and watcher refreshes, but is
+reset on restart or when switching boards. Top-level calls work during script
+startup, before the board's columns have been rendered:
+
+```lua
+local ok, err = kbrd.column.hide("Archive")
+if not ok then kbrd.notify(err, "warning") end
+
+kbrd.column.show("Archive") -- restore it in its original position
+kbrd.column.show_all()      -- restore every hidden filesystem column
+```
+
+Hidden columns are removed from the TUI, navigation, menus, and search, but
+remain loaded and watched. Explicit named operations can still use them, so a
+script may move a completed card into a hidden archive. Virtual columns use
+`kbrd.column.set` / `clear` instead and are rejected by these functions.
+
+`hide` and `show` return `true` on success, including repeated calls that make
+no change, or `nil, err` for an unknown/virtual name. Hiding the final visible
+filesystem column is allowed when a virtual column keeps the board operable;
+otherwise it is rejected. `show_all` returns `true`.
+
+Use the existing column store when a command-driven preference should survive
+an app restart:
+
+```lua
+local archive = "Archive"
+local hidden = kbrd.column.store.get(archive, "hidden") == true
+if hidden then kbrd.column.hide(archive) end
+
+kbrd.command{
+  id = "archive-visibility", name = "Toggle archive column", scope = "all",
+  run = function()
+    local ok, err
+    if hidden then
+      ok, err = kbrd.column.show(archive)
+    else
+      ok, err = kbrd.column.hide(archive)
+    end
+    if not ok then return kbrd.notify(err, "error") end
+    hidden = not hidden
+    kbrd.column.store.set(archive, "hidden", hidden)
+  end,
+}
+```
 
 ### `kbrd.column.indicator(name, opts)` — header label
 

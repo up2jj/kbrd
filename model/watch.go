@@ -97,7 +97,7 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 	reloadConfig := b.watchReloadConfig
 	b.watchDirty = nil
 	b.watchReloadConfig = false
-	b.changes.snapshot(dirty, b.columns)
+	b.changes.snapshot(dirty, b.allFilesystemColumns())
 	if colPath := b.lifecycle().singleDirtyColumn(dirty); colPath != "" {
 		return b.reloadColumnCmd(seq, colPath)
 	}

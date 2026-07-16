@@ -90,6 +90,9 @@ func (h *Host) installAPI() {
 	column.RawSetString("clear", L.NewFunction(h.luaColumnClear))
 	column.RawSetString("clear_all", L.NewFunction(h.luaColumnClearAll))
 	column.RawSetString("indicator", L.NewFunction(h.luaColumnIndicator))
+	column.RawSetString("hide", L.NewFunction(h.luaColumnHide))
+	column.RawSetString("show", L.NewFunction(h.luaColumnShow))
+	column.RawSetString("show_all", L.NewFunction(h.luaColumnShowAll))
 	kbrd.RawSetString("column", column)
 
 	store := L.NewTable()
@@ -738,6 +741,40 @@ func (h *Host) luaColumnIndicator(L *lua.LState) int {
 		h.pres.ColumnIndicatorSet(name, o)
 	}
 	return 0
+}
+
+// kbrd.column.hide(name) / show(name) control the session-scoped visibility
+// of filesystem columns. Both return true on success or nil, err on failure.
+func (h *Host) luaColumnHide(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	if err := h.pres.ColumnHide(L.CheckString(1)); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+func (h *Host) luaColumnShow(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	if err := h.pres.ColumnShow(L.CheckString(1)); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.column.show_all() clears every session-scoped filesystem-column hide.
+func (h *Host) luaColumnShowAll(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	h.pres.ColumnShowAll()
+	L.Push(lua.LTrue)
+	return 1
 }
 
 // kbrd.column.store.get(column, key) → value | nil   (nil, err on failure)

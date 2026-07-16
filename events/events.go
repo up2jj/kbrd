@@ -358,6 +358,12 @@ type PresentationAPI interface {
 	ColumnIndicatorSet(column string, opts ColumnIndicatorOpts)
 	ColumnIndicatorClear(column string)
 	ColumnIndicatorClearAll()
+
+	// Filesystem-column visibility is session-scoped and survives board
+	// refreshes. Virtual columns are managed separately through Set/Clear.
+	ColumnHide(column string) error
+	ColumnShow(column string) error
+	ColumnShowAll()
 }
 
 type ColumnConfigAPI interface {

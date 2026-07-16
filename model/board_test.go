@@ -359,7 +359,9 @@ func TestBoardLifecycle_ColumnReloadPreservesSelectionAfterReorder(t *testing.T)
 	b.columns[0].SelectByName("beta")
 	target := b.columns[0]
 
-	b.columns = []*Column{b.columns[1], b.columns[2], b.columns[0]}
+	reordered := []*Column{b.columns[1], b.columns[2], b.columns[0]}
+	b.filesystemCols = reordered
+	b.columns = reordered
 	fresh := buildColumn(target.Path, target.Name, b.cfg, b.palette, b.itemsByPath())
 	b.lifecycle().HandleColumnReloaded(columnReloadedMsg{Seq: b.watchSeq, path: target.Path, col: fresh})
 

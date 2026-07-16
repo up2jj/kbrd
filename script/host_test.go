@@ -20,31 +20,35 @@ import (
 // spinning up a real Board. FS ops are routed to a real tempdir so they
 // exercise the same os/filepath plumbing the production implementation does.
 type fakeAPI struct {
-	mu         sync.Mutex
-	root       string
-	notifies   []string
-	moves      []move
-	moveErr    error
-	creates    []string
-	tmplInfos  []events.TemplateInfo
-	tmplCalls  []tmplCreate
-	tmplErr    error
-	renames    []string
-	deletes    []string
-	focuses    []string
-	selects    []string
-	navErr     error // forced error for FocusColumn/SelectItem
-	refreshes  int
-	columns    []string
-	cellSets   []cellSet
-	cellClear  []int
-	cellWipes  int
-	vcolSets   []vcolSet
-	vcolClears []string
-	vcolWipes  int
-	colCfg     map[string]map[string]any             // column → key → value
-	colCfgErr  error                                 // forced error for ColumnConfig*
-	indicators map[string]events.ColumnIndicatorOpts // column → indicator
+	mu           sync.Mutex
+	root         string
+	notifies     []string
+	moves        []move
+	moveErr      error
+	creates      []string
+	tmplInfos    []events.TemplateInfo
+	tmplCalls    []tmplCreate
+	tmplErr      error
+	renames      []string
+	deletes      []string
+	focuses      []string
+	selects      []string
+	navErr       error // forced error for FocusColumn/SelectItem
+	refreshes    int
+	columns      []string
+	cellSets     []cellSet
+	cellClear    []int
+	cellWipes    int
+	vcolSets     []vcolSet
+	vcolClears   []string
+	vcolWipes    int
+	colCfg       map[string]map[string]any             // column → key → value
+	colCfgErr    error                                 // forced error for ColumnConfig*
+	indicators   map[string]events.ColumnIndicatorOpts // column → indicator
+	hiddenCols   []string
+	shownCols    []string
+	showAll      int
+	columnVisErr error
 }
 
 type cellSet struct {
@@ -287,6 +291,26 @@ func (f *fakeAPI) ColumnIndicatorClearAll() {
 	f.indicators = nil
 }
 
+func (f *fakeAPI) ColumnHide(column string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hiddenCols = append(f.hiddenCols, column)
+	return f.columnVisErr
+}
+
+func (f *fakeAPI) ColumnShow(column string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.shownCols = append(f.shownCols, column)
+	return f.columnVisErr
+}
+
+func (f *fakeAPI) ColumnShowAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.showAll++
+}
+
 // contains reports whether any element of notifies exactly equals want — the
 // fakeAPI stores notifies as "level:msg", but kbrd.notify with no level
 // defaults to "success", so callers pass the bare message and we match on the
@@ -466,6 +490,9 @@ kbrd.command("select", "Select", function() expect_nav(function() return kbrd.bo
 kbrd.command("cell", "Cell", function() expect_pres(function() return kbrd.cell.set(1, { text = "x" }) end) end)
 kbrd.command("vcol", "Virtual", function() expect_pres(function() return kbrd.column.set("v", { name = "V" }) end) end)
 kbrd.command("indicator", "Indicator", function() expect_pres(function() return kbrd.column.indicator("Todo", "x") end) end)
+kbrd.command("hide", "Hide", function() expect_pres(function() return kbrd.column.hide("Todo") end) end)
+kbrd.command("show", "Show", function() expect_pres(function() return kbrd.column.show("Todo") end) end)
+kbrd.command("show-all", "Show all", function() expect_pres(function() return kbrd.column.show_all() end) end)
 `)
 	api := &fakeAPI{}
 	h, err := NewWithCapabilities(defaultCfg(), api, nil, nil, nil, dir, "")
@@ -481,6 +508,49 @@ kbrd.command("indicator", "Indicator", function() expect_pres(function() return 
 	}
 	if len(api.focuses) != 0 || len(api.selects) != 0 || len(api.cellSets) != 0 || len(api.vcolSets) != 0 || len(api.indicators) != 0 {
 		t.Fatalf("unsupported headless API mutated fake: %+v", api)
+	}
+}
+
+func TestColumnVisibility(t *testing.T) {
+	dir := writeInit(t, `
+local ok1, err1 = kbrd.column.hide("Archive")
+local ok2, err2 = kbrd.column.show("Archive")
+local ok3, err3 = kbrd.column.show_all()
+kbrd.notify(table.concat({tostring(ok1), tostring(err1), tostring(ok2), tostring(err2), tostring(ok3), tostring(err3)}, ":"))`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if !reflect.DeepEqual(api.hiddenCols, []string{"Archive"}) {
+		t.Errorf("hidden columns = %v", api.hiddenCols)
+	}
+	if !reflect.DeepEqual(api.shownCols, []string{"Archive"}) {
+		t.Errorf("shown columns = %v", api.shownCols)
+	}
+	if api.showAll != 1 {
+		t.Errorf("show_all calls = %d, want 1", api.showAll)
+	}
+	if !contains(api.notifies, "true:nil:true:nil:true:nil") {
+		t.Errorf("success return values missing: %v", api.notifies)
+	}
+}
+
+func TestColumnVisibilityError(t *testing.T) {
+	dir := writeInit(t, `
+local ok, err = kbrd.column.hide("Missing")
+kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
+	api := &fakeAPI{columnVisErr: errors.New("missing column")}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if !contains(api.notifies, "ok=nil,err=missing column") {
+		t.Errorf("visibility error not surfaced as (nil, err): %v", api.notifies)
 	}
 }
 

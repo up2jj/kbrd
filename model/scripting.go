@@ -521,7 +521,12 @@ func (b *Board) emitSelectionChanges(prevCol, prevItem string) {
 
 // column finds a loaded column by name, or nil.
 func (a boardScriptAPI) column(name string) *Column {
-	for _, c := range a.b.columns {
+	for _, c := range a.b.allFilesystemColumns() {
+		if c.Name == name {
+			return c
+		}
+	}
+	for _, c := range a.b.virtualCols {
 		if c.Name == name {
 			return c
 		}
@@ -776,3 +781,9 @@ func (a boardScriptAPI) ColumnIndicatorSet(column string, o events.ColumnIndicat
 func (a boardScriptAPI) ColumnIndicatorClear(column string) { a.b.indicators.clear(column) }
 
 func (a boardScriptAPI) ColumnIndicatorClearAll() { a.b.indicators.clearAll() }
+
+func (a boardScriptAPI) ColumnHide(column string) error { return a.b.hideColumn(column) }
+
+func (a boardScriptAPI) ColumnShow(column string) error { return a.b.showColumn(column) }
+
+func (a boardScriptAPI) ColumnShowAll() { a.b.showAllColumns() }
