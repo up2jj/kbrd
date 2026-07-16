@@ -1,9 +1,12 @@
 package model
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kbrd/harpoon"
 )
 
 func TestHarpoonViewListsFiveSlots(t *testing.T) {
@@ -92,5 +95,205 @@ func TestHarpoonJumpMissingTargetKeepsMenuOpen(t *testing.T) {
 	}
 	if !b.harpoon.Active() {
 		t.Fatal("missing target unexpectedly closed harpoon")
+	}
+}
+
+func TestHarpoonWatcherUpdatesMovedPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b := boardWithNCols(t, 2, 2)
+	writeColItem(t, b.columns[0], "tracked")
+	oldPath := b.columns[0].Items[0].FullPath
+	newPath := filepath.Join(b.columns[1].Path, filepath.Base(oldPath))
+
+	if err := b.harpoon.Open(b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.harpoon.SetSelected(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+
+	b.updateInner(watchEventMsg{Path: oldPath})
+	b.updateInner(watchEventMsg{Path: newPath})
+	reload := b.debouncedReload(b.watchSeq)
+	if reload == nil {
+		t.Fatal("move did not schedule a reload")
+	}
+	b.updateInner(reload())
+
+	store, err := harpoon.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ForBoard(b.cfg.Path)[0]; !samePath(got, newPath) {
+		t.Fatalf("persisted slot = %q, want %q", got, newPath)
+	}
+	if got := b.harpoon.SelectedPath(); !samePath(got, newPath) {
+		t.Fatalf("open menu slot = %q, want %q", got, newPath)
+	}
+}
+
+func TestHarpoonWatcherLeavesAmbiguousMoveStale(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b := boardWithNCols(t, 2, 2)
+	writeColItem(t, b.columns[0], "tracked")
+	oldPath := b.columns[0].Items[0].FullPath
+	body, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := b.harpoon.Open(b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.harpoon.SetSelected(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(b.columns[0].Path, "first-copy.md")
+	second := filepath.Join(b.columns[1].Path, "second-copy.md")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, path := range []string{oldPath, first, second} {
+		b.updateInner(watchEventMsg{Path: path})
+	}
+	reload := b.debouncedReload(b.watchSeq)
+	if reload == nil {
+		t.Fatal("changes did not schedule a reload")
+	}
+	b.updateInner(reload())
+
+	store, err := harpoon.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ForBoard(b.cfg.Path)[0]; !samePath(got, oldPath) {
+		t.Fatalf("ambiguous slot = %q, want stale path %q", got, oldPath)
+	}
+}
+
+func TestHarpoonWatcherUpdatesPathAfterModelMove(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b := boardWithNCols(t, 2, 2)
+	writeColItem(t, b.columns[0], "tracked")
+	oldPath := b.columns[0].Items[0].FullPath
+	newPath := filepath.Join(b.columns[1].Path, filepath.Base(oldPath))
+
+	if err := b.harpoon.Open(b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.harpoon.SetSelected(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.moveItem(b.columns[0], b.columns[1], "tracked"); err != nil {
+		t.Fatal(err)
+	}
+
+	// moveItem has already reloaded both columns before fsnotify is handled.
+	for _, path := range []string{oldPath, newPath} {
+		b.updateInner(watchEventMsg{Path: path})
+	}
+	reload := b.debouncedReload(b.watchSeq)
+	if reload == nil {
+		t.Fatal("move did not schedule a reload")
+	}
+	b.updateInner(reload())
+
+	store, err := harpoon.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ForBoard(b.cfg.Path)[0]; !samePath(got, newPath) {
+		t.Fatalf("persisted slot = %q, want %q", got, newPath)
+	}
+}
+
+func TestHarpoonWatcherKeepsIdentityAcrossSplitMoveEvents(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b := boardWithNCols(t, 2, 2)
+	writeColItem(t, b.columns[0], "tracked")
+	oldPath := b.columns[0].Items[0].FullPath
+	newPath := filepath.Join(b.columns[1].Path, filepath.Base(oldPath))
+
+	if err := b.harpoon.Open(b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.harpoon.SetSelected(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// The source event reloads first, before the destination event arrives.
+	b.updateInner(watchEventMsg{Path: oldPath})
+	firstReload := b.debouncedReload(b.watchSeq)
+	if firstReload == nil {
+		t.Fatal("source event did not schedule a reload")
+	}
+	b.updateInner(firstReload())
+	store, err := harpoon.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ForBoard(b.cfg.Path)[0]; !samePath(got, oldPath) {
+		t.Fatalf("source-only reload changed slot to %q", got)
+	}
+
+	b.updateInner(watchEventMsg{Path: newPath})
+	secondReload := b.debouncedReload(b.watchSeq)
+	if secondReload == nil {
+		t.Fatal("destination event did not schedule a reload")
+	}
+	b.updateInner(secondReload())
+	store, err = harpoon.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ForBoard(b.cfg.Path)[0]; !samePath(got, newPath) {
+		t.Fatalf("persisted slot = %q, want %q", got, newPath)
+	}
+}
+
+func TestHarpoonOpenReconcilesMoveWhileClosed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b := boardWithNCols(t, 2, 2)
+	writeColItem(t, b.columns[0], "tracked")
+	oldPath := b.columns[0].Items[0].FullPath
+	newPath := filepath.Join(b.columns[1].Path, filepath.Base(oldPath))
+
+	if err := b.harpoon.Open(b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.harpoon.SetSelected(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	b.harpoon.Close()
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, col := range b.columns {
+		if err := col.LoadItems(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	b.harpoonActions().open()
+	b.harpoon.Select(0)
+	if got := b.harpoon.SelectedPath(); !samePath(got, newPath) {
+		t.Fatalf("reopened slot = %q, want %q", got, newPath)
 	}
 }

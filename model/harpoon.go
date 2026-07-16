@@ -89,6 +89,12 @@ func (m *HarpoonMenu) SetSelected(path string) error {
 
 func (m *HarpoonMenu) SelectedPath() string { return m.slots[m.selected] }
 
+func (m *HarpoonMenu) syncSlots(boardPath string, slots harpoon.Slots) {
+	if samePath(m.boardPath, boardPath) {
+		m.slots = slots
+	}
+}
+
 func (m *HarpoonMenu) View(termWidth, _ int) string {
 	if !m.active {
 		return ""
@@ -141,10 +147,11 @@ func (b *Board) harpoonActions() boardHarpoonActions { return boardHarpoonAction
 
 func (a boardHarpoonActions) open() (tea.Model, tea.Cmd) {
 	b := a.board
+	cmd := b.reconcileHarpoonMoves()
 	if err := b.harpoon.Open(b.cfg.Path); err != nil {
 		return b, b.notifier.ErrorCause("failed to load harpoon slots", err)
 	}
-	return b, nil
+	return b, cmd
 }
 
 func (a boardHarpoonActions) update(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

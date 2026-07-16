@@ -204,7 +204,7 @@ func (l boardLifecycle) HandleBoardReloaded(msg boardReloadedMsg) (tea.Model, te
 	b.applyColumnTransforms()
 	b.publishItemChanges()
 	b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-	return b, b.git.RefreshStats()
+	return b, tea.Batch(b.reconcileHarpoonMoves(), b.git.RefreshStats())
 }
 
 func (l boardLifecycle) HandleColumnReloaded(msg columnReloadedMsg) (tea.Model, tea.Cmd) {
@@ -234,7 +234,7 @@ func (l boardLifecycle) HandleColumnReloaded(msg columnReloadedMsg) (tea.Model, 
 	b.applyColumnTransform(msg.col)
 	b.publishItemChanges()
 	b.bus.Publish(events.BoardRefresh{Reason: "watcher"})
-	return b, b.git.RefreshStats()
+	return b, tea.Batch(b.reconcileHarpoonMoves(), b.git.RefreshStats())
 }
 
 func (l boardLifecycle) selectedItemName(col *Column) string {
