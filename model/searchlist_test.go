@@ -12,9 +12,14 @@ func TestFuzzyListQueryAndSelection(t *testing.T) {
 		t.Fatalf("initial selection = (%d, %t), want (2, true)", index, ok)
 	}
 
-	list.Move(10)
+	list.Move(1)
+	if index, _ := list.SelectedIndex(); index != 0 {
+		t.Fatalf("selection after moving down from last = %d, want 0", index)
+	}
+
+	list.Move(-1)
 	if index, _ := list.SelectedIndex(); index != 2 {
-		t.Fatalf("selection after move = %d, want 2", index)
+		t.Fatalf("selection after moving up from first = %d, want 2", index)
 	}
 
 	list.Append("br")

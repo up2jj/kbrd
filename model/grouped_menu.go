@@ -38,9 +38,9 @@ func (n *groupedMenuNav) UpdateKey(key string) bool {
 	}
 	switch key {
 	case "down", "j", "ctrl+n", "tab":
-		n.selected = min(n.selected+1, len(n.nav)-1)
+		n.selected = (n.selected + 1) % len(n.nav)
 	case "up", "k", "ctrl+p", "shift+tab":
-		n.selected = max(n.selected-1, 0)
+		n.selected = (n.selected + len(n.nav) - 1) % len(n.nav)
 	case "g", "home":
 		n.selected = 0
 	case "G", "end":

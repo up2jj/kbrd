@@ -153,19 +153,19 @@ func TestCustomCommandMenu_ArrowNavigation(t *testing.T) {
 	if m.selected != 2 {
 		t.Errorf("after second down: got %d want 2", m.selected)
 	}
-	// past end clamps
+	// Past the end cycles to the first item.
 	m.Update(keySpecial(tea.KeyDown))
-	if m.selected != 2 {
-		t.Errorf("past end: got %d want clamped to 2", m.selected)
+	if m.selected != 0 {
+		t.Errorf("past end: got %d want 0", m.selected)
 	}
 	m.Update(keySpecial(tea.KeyUp))
-	if m.selected != 1 {
-		t.Errorf("after up: got %d want 1", m.selected)
+	if m.selected != 2 {
+		t.Errorf("past start: got %d want 2", m.selected)
 	}
 	m.Update(keySpecial(tea.KeyUp))
 	m.Update(keySpecial(tea.KeyUp))
 	if m.selected != 0 {
-		t.Errorf("past start: got %d want clamped to 0", m.selected)
+		t.Errorf("after two up: got %d want 0", m.selected)
 	}
 }
 

@@ -12,6 +12,12 @@ func TestGroupedMenuNavNavigationAndViewport(t *testing.T) {
 	if row, ok := nav.SelectedRow(); !ok || row != 7 {
 		t.Fatalf("selected row = (%d, %t), want (7, true)", row, ok)
 	}
+	if !nav.UpdateKey("down") || nav.selected != 0 {
+		t.Fatalf("down from last selected %d, want 0", nav.selected)
+	}
+	if !nav.UpdateKey("up") || nav.selected != 2 {
+		t.Fatalf("up from first selected %d, want 2", nav.selected)
+	}
 
 	nav.EnsureSelectedVisible(3)
 	if nav.scroll != 5 {

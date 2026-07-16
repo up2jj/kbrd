@@ -20,7 +20,7 @@ type FuzzyMatch struct {
 //
 // It deliberately does not handle keys, opening, closing, or selection
 // actions: menus differ at those boundaries, while query editing, matching,
-// and bounded cursor movement must remain consistent.
+// and cycling cursor movement must remain consistent.
 type fuzzyList struct {
 	selected int
 	filter   string
@@ -83,9 +83,16 @@ func (l *fuzzyList) Backspace() bool {
 	return true
 }
 
-// Move shifts the cursor by delta while keeping it inside the result set.
+// Move shifts the cursor by delta, wrapping around the result set.
 func (l *fuzzyList) Move(delta int) {
-	l.selected = min(max(l.selected+delta, 0), max(len(l.matches)-1, 0))
+	if len(l.matches) == 0 {
+		l.selected = 0
+		return
+	}
+	l.selected = (l.selected + delta) % len(l.matches)
+	if l.selected < 0 {
+		l.selected += len(l.matches)
+	}
 }
 
 // Select sets the result cursor, clamped to the current result set.
