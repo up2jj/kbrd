@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,9 +59,95 @@ func GitPush(repoRoot string) error {
 	return GitPushContext(context.Background(), repoRoot)
 }
 
-// GitPushContext is GitPush with a caller-owned deadline/cancellation.
+const gitPushMaxAttempts = 3
+
+var gitPushRetryDelays = [...]time.Duration{500 * time.Millisecond, time.Second}
+
+type gitPushAttemptsError struct {
+	attempts int
+	err      error
+}
+
+func (e *gitPushAttemptsError) Error() string {
+	var gitErr *gitCommandError
+	if errors.As(e.err, &gitErr) {
+		return fmt.Sprintf("git push failed after %d attempts: %s", e.attempts, gitErr.detail)
+	}
+	return fmt.Sprintf("git push failed after %d attempts: %v", e.attempts, e.err)
+}
+
+func (e *gitPushAttemptsError) Unwrap() error { return e.err }
+
+// GitPushContext is GitPush with a caller-owned deadline/cancellation. It
+// retries transient transport failures twice, while repository, auth,
+// non-fast-forward, and cancellation failures return immediately.
 func GitPushContext(ctx context.Context, repoRoot string) error {
-	return gitRunContext(ctx, repoRoot, "push")
+	for attempt := 1; attempt <= gitPushMaxAttempts; attempt++ {
+		err := gitRunContext(ctx, repoRoot, "push")
+		if err == nil {
+			return nil
+		}
+		if !isTransientPushError(err) {
+			return err
+		}
+		if attempt == gitPushMaxAttempts {
+			return &gitPushAttemptsError{attempts: attempt, err: err}
+		}
+		if err := waitForGitPushRetry(ctx, gitPushRetryDelays[attempt-1]); err != nil {
+			return &gitCommandError{verb: "push", detail: err.Error(), cause: err}
+		}
+	}
+	return nil
+}
+
+func waitForGitPushRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func isTransientPushError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || IsNonFastForwardPush(err) {
+		return false
+	}
+	var gitErr *gitCommandError
+	if !errors.As(err, &gitErr) || gitErr.verb != "push" {
+		return false
+	}
+	detail := strings.ToLower(gitErr.detail)
+	for _, marker := range []string{
+		"connection reset",
+		"connection refused",
+		"connection timed out",
+		"operation timed out",
+		"tls handshake timeout",
+		"temporary failure",
+		"temporarily unavailable",
+		"could not resolve host",
+		"could not resolve hostname",
+		"name or service not known",
+		"network is unreachable",
+		"remote end hung up unexpectedly",
+		"remote host closed the connection",
+		"connection closed by remote host",
+		"early eof",
+		"rpc failed",
+		"returned error: 429",
+		"returned error: 500",
+		"returned error: 502",
+		"returned error: 503",
+		"returned error: 504",
+	} {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // GitAheadOfUpstreamContext reports whether HEAD has commits that its upstream

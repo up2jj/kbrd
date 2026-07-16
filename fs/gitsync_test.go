@@ -3,12 +3,62 @@ package fs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func installFakePushGit(t *testing.T, failure string, succeedOn int) string {
+	t.Helper()
+	fakeDir := t.TempDir()
+	countFile := filepath.Join(t.TempDir(), "push-count")
+	script := `#!/bin/sh
+count=0
+if [ -f "$PUSH_COUNT_FILE" ]; then
+	count=$(sed -n '1p' "$PUSH_COUNT_FILE")
+fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$PUSH_COUNT_FILE"
+if [ "$PUSH_SUCCEED_ON" -gt 0 ] && [ "$count" -ge "$PUSH_SUCCEED_ON" ]; then
+	exit 0
+fi
+printf '%s\n' "$PUSH_FAILURE" >&2
+exit 128
+`
+	if err := os.WriteFile(filepath.Join(fakeDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PUSH_COUNT_FILE", countFile)
+	t.Setenv("PUSH_FAILURE", failure)
+	t.Setenv("PUSH_SUCCEED_ON", strconv.Itoa(succeedOn))
+	return countFile
+}
+
+func pushAttemptCount(t *testing.T, path string) int {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func setPushRetryDelays(t *testing.T, first, second time.Duration) {
+	t.Helper()
+	old := gitPushRetryDelays
+	gitPushRetryDelays = [...]time.Duration{first, second}
+	t.Cleanup(func() { gitPushRetryDelays = old })
+}
 
 // initRepoPair creates a bare "remote" plus a clone with one initial commit
 // pushed, and returns (bareDir, cloneDir).
@@ -71,6 +121,80 @@ func TestGitCommitAllAndPush(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(out)); got != "web: create card" {
 		t.Fatalf("remote HEAD commit %q", got)
+	}
+}
+
+func TestGitPushRetriesTransientFailure(t *testing.T) {
+	setPushRetryDelays(t, time.Millisecond, time.Millisecond)
+	countFile := installFakePushGit(t, "fatal: unable to access remote: Connection reset by peer", 2)
+
+	if err := GitPushContext(t.Context(), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if got := pushAttemptCount(t, countFile); got != 2 {
+		t.Fatalf("push attempts = %d, want 2", got)
+	}
+}
+
+func TestGitPushReportsExhaustedTransientFailure(t *testing.T) {
+	setPushRetryDelays(t, time.Millisecond, time.Millisecond)
+	countFile := installFakePushGit(t, "fatal: unable to access 'https://user:secret@example.com/board': Connection reset by peer", 0)
+
+	err := GitPushContext(t.Context(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected push failure")
+	}
+	if got := pushAttemptCount(t, countFile); got != 3 {
+		t.Fatalf("push attempts = %d, want 3", got)
+	}
+	if text := err.Error(); !strings.Contains(text, "after 3 attempts") || strings.Contains(text, "secret") || !strings.Contains(text, "https://***@example.com") {
+		t.Fatalf("unexpected exhausted error: %q", text)
+	}
+}
+
+func TestGitPushDoesNotRetryPermanentFailures(t *testing.T) {
+	tests := []struct {
+		name           string
+		failure        string
+		nonFastForward bool
+	}{
+		{name: "authentication", failure: "fatal: Authentication failed for remote"},
+		{name: "non-fast-forward", failure: "! [rejected] main -> main (fetch first)", nonFastForward: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setPushRetryDelays(t, time.Millisecond, time.Millisecond)
+			countFile := installFakePushGit(t, tt.failure, 0)
+			err := GitPushContext(t.Context(), t.TempDir())
+			if err == nil {
+				t.Fatal("expected push failure")
+			}
+			if got := pushAttemptCount(t, countFile); got != 1 {
+				t.Fatalf("push attempts = %d, want 1", got)
+			}
+			if got := IsNonFastForwardPush(err); got != tt.nonFastForward {
+				t.Fatalf("IsNonFastForwardPush = %v, want %v", got, tt.nonFastForward)
+			}
+		})
+	}
+}
+
+func TestGitPushCancellationInterruptsBackoff(t *testing.T) {
+	setPushRetryDelays(t, time.Second, time.Second)
+	countFile := installFakePushGit(t, "fatal: unable to access remote: Connection reset by peer", 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	err := GitPushContext(ctx, t.TempDir())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("push error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 750*time.Millisecond {
+		t.Fatalf("cancellation took %s; retry backoff was not interrupted", elapsed)
+	}
+	if got := pushAttemptCount(t, countFile); got != 1 {
+		t.Fatalf("push attempts = %d, want 1", got)
 	}
 }
 

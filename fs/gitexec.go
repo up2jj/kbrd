@@ -8,10 +8,25 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 )
+
+// gitCommandError keeps command failures machine-readable inside this package
+// while presenting only credential-redacted detail to callers.
+type gitCommandError struct {
+	verb   string
+	detail string
+	cause  error
+}
+
+func (e *gitCommandError) Error() string {
+	return fmt.Sprintf("git %s failed: %s", e.verb, e.detail)
+}
+
+func (e *gitCommandError) Unwrap() error { return e.cause }
 
 // gitOutput runs a read-only git query in repoRoot and returns its stdout.
 // Bakes in the GitAvailable guard and --no-optional-locks; on failure the
@@ -54,7 +69,11 @@ func gitCombinedOutputContext(ctx context.Context, repoRoot string, args ...stri
 	out, err := exec.CommandContext(ctx, "git", full...).CombinedOutput()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return string(out), fmt.Errorf("git %s failed: %s", gitVerb(args), ctxErr)
+			return string(out), &gitCommandError{
+				verb:   gitVerb(args),
+				detail: ctxErr.Error(),
+				cause:  ctxErr,
+			}
 		}
 		return string(out), gitError(args, out, err)
 	}
@@ -108,7 +127,24 @@ func gitError(args []string, out []byte, err error) error {
 	if detail == "" {
 		detail = err.Error()
 	}
-	return fmt.Errorf("git %s failed: %s", gitVerb(args), RedactCredentials(detail))
+	return &gitCommandError{
+		verb:   gitVerb(args),
+		detail: RedactCredentials(detail),
+		cause:  err,
+	}
+}
+
+// IsNonFastForwardPush reports whether err is a push rejection caused by the
+// remote branch moving ahead. Callers can use it to decide whether a fetch and
+// merge is appropriate without parsing the rendered, redacted error.
+func IsNonFastForwardPush(err error) bool {
+	var gitErr *gitCommandError
+	if !errors.As(err, &gitErr) || gitErr.verb != "push" {
+		return false
+	}
+	detail := strings.ToLower(gitErr.detail)
+	return strings.Contains(detail, "non-fast-forward") ||
+		strings.Contains(detail, "(fetch first)")
 }
 
 // gitVerb returns the subcommand name from args, skipping any leading

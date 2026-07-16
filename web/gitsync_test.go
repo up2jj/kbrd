@@ -111,3 +111,70 @@ func TestSyncerCommitPushReconcilesConflict(t *testing.T) {
 		t.Fatalf("sidecar not pushed to remote; remote tree:\n%s", out)
 	}
 }
+
+func TestSyncerCommitPushDoesNotReconcilePermanentPushFailure(t *testing.T) {
+	if !fs.GitAvailable() {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", root, "remote", "add", "origin", "https://example.com/board.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	s := NewSyncer(root, "kbrd-web", "kbrd@localhost", "server-1")
+	if s == nil {
+		t.Fatal("NewSyncer returned nil for a git repo")
+	}
+
+	fakeDir := t.TempDir()
+	pushMarker := filepath.Join(t.TempDir(), "push-called")
+	reconcileMarker := filepath.Join(t.TempDir(), "fetch-called")
+	script := `#!/bin/sh
+if [ "$1" = "--no-optional-locks" ]; then
+	shift
+fi
+if [ "$1" = "-C" ]; then
+	shift 2
+fi
+case "$1" in
+	add|status)
+		exit 0
+		;;
+	push)
+		touch "$PUSH_MARKER"
+		echo "fatal: Authentication failed for remote" >&2
+		exit 128
+		;;
+	fetch)
+		touch "$RECONCILE_MARKER"
+		exit 1
+		;;
+	*)
+		exit 0
+		;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(fakeDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PUSH_MARKER", pushMarker)
+	t.Setenv("RECONCILE_MARKER", reconcileMarker)
+
+	err := s.CommitPush("noop")
+	if err == nil || !strings.Contains(err.Error(), "Authentication failed") {
+		t.Fatalf("CommitPush error = %v, want authentication failure", err)
+	}
+	if _, err := os.Stat(pushMarker); err != nil {
+		t.Fatalf("push was not attempted: %v", err)
+	}
+	if _, err := os.Stat(reconcileMarker); !os.IsNotExist(err) {
+		t.Fatalf("permanent push failure triggered reconciliation: %v", err)
+	}
+	ok, detail := s.Status()
+	if ok || !strings.Contains(detail, "Authentication failed") {
+		t.Fatalf("Status = (%v, %q), want recorded authentication failure", ok, detail)
+	}
+}

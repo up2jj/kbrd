@@ -102,6 +102,8 @@ func (s *Syncer) commitPushLocked(ctx context.Context, msg string) error {
 	}
 	if err := fs.GitPushContext(ctx, s.root); err == nil {
 		return s.record(nil)
+	} else if !fs.IsNonFastForwardPush(err) {
+		return s.record(err)
 	}
 	sidecars, err := fs.GitMergeResolveSidecarContext(ctx, s.root, s.conflictLabel(), s.author, s.email)
 	if err != nil {
