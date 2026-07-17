@@ -74,6 +74,12 @@ func (p boardStatusPresenter) updateBuiltinCells() {
 		b.cells.clearBuiltin(builtinCellReleaseUpdate)
 	}
 
+	if b.scriptInitError != "" || b.scriptLayerError != "" {
+		b.cells.setBuiltin(builtinCellScriptError, Cell{Text: "✕ lua", FG: string(b.palette.Danger), Bold: true})
+	} else {
+		b.cells.clearBuiltin(builtinCellScriptError)
+	}
+
 	// Sync indicator: transient spinner while reconciling, else the
 	// persistent remote-sync status. The mapping lives in syncCell.
 	editorActive := b.editor != nil && b.editor.state != editorNone

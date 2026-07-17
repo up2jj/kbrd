@@ -22,6 +22,8 @@ import (
 // subscribes it to the event bus. Idempotent: a second call closes the
 // previous host first, which is what board-switching needs.
 func (b *Board) initScripting() {
+	b.scriptInitError = ""
+	b.scriptLayerError = ""
 	if b.scripts != nil {
 		b.scripts.Close()
 		b.scripts = nil
@@ -35,6 +37,7 @@ func (b *Board) initScripting() {
 	host, err := script.New(b.cfg.Scripting, boardScriptAPI{b: b}, logger, b.cfg.Path, b.cfg.InstanceName)
 	if err != nil && host == nil {
 		// Hard failure during init — surface but keep running.
+		b.scriptInitError = err.Error()
 		b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{
 			Source:  "init.lua",
 			Message: err.Error(),
@@ -46,6 +49,7 @@ func (b *Board) initScripting() {
 	}
 	if err != nil {
 		// Partial failure — some files loaded, others errored.
+		b.scriptInitError = err.Error()
 		b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{
 			Source:  "init.lua",
 			Message: err.Error(),

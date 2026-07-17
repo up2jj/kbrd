@@ -217,7 +217,7 @@ var Keys = KeyMap{
 	SwitcherNext:       key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next")),
 	SwitcherConfirm:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch")),
 	SwitcherPinToggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pin/unpin")),
-	LayerSwitcherClose: key.NewBinding(key.WithKeys("esc", "l"), key.WithHelp("esc", "cancel")),
+	LayerSwitcherClose: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 
 	// Search
 	SearchClose:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

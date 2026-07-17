@@ -38,6 +38,7 @@ func TestBoardStatusPresenter_BuiltinCountAndActivityCells(t *testing.T) {
 		queue:   []pendingHook{{name: "a"}, {name: "b"}},
 	}
 	b.scriptStatus = "lua busy"
+	b.scriptInitError = "broken init"
 	b.mcpStatus = MCPRunning
 
 	b.statusPresenter().updateBuiltinCells()
@@ -47,7 +48,11 @@ func TestBoardStatusPresenter_BuiltinCountAndActivityCells(t *testing.T) {
 	assertBuiltinCellText(t, b, builtinCellTemplateExecution, "✦ 3 generating")
 	assertBuiltinCellText(t, b, builtinCellHooks, "⚙ hooks 3")
 	assertBuiltinCellText(t, b, builtinCellScriptStatus, "lua busy")
+	assertBuiltinCellText(t, b, builtinCellScriptError, "✕ lua")
 	assertBuiltinCellText(t, b, builtinCellMCP, "◆ mcp")
+	if got := b.cells.cells[builtinCellScriptError.id()].FG; got != string(b.palette.Danger) {
+		t.Fatalf("script error FG = %q, want danger %q", got, b.palette.Danger)
+	}
 	if got := b.cells.cells[builtinCellAsync.id()].FG; got != string(b.palette.AccentSoft) {
 		t.Fatalf("activity FG = %q, want accent %q", got, b.palette.AccentSoft)
 	}

@@ -99,8 +99,10 @@ type Board struct {
 	lineApplyPending bool
 	lineApplyRow     int
 
-	scriptStatus    string // transient kbrd.status message shown in the status bar
-	scriptStatusSeq int    // bumped per kbrd.status; guards stale expiry ticks
+	scriptInitError  string // persistent init/default-layer failure shown in the header
+	scriptLayerError string // latest interactive layer-switch failure; cleared by a successful switch
+	scriptStatus     string // transient kbrd.status message shown in the status bar
+	scriptStatusSeq  int    // bumped per kbrd.status; guards stale expiry ticks
 
 	bus      events.Bus
 	scripts  *script.Host

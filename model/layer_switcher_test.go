@@ -38,6 +38,26 @@ func TestLayerSwitcherWidthStableAcrossUnevenRows(t *testing.T) {
 	}
 }
 
+func TestLayerSwitcherAllowsOpenKeyInFilter(t *testing.T) {
+	s := LayerSwitcher{palette: DarkPalette()}
+	s.Open([]script.LayerInfo{
+		{ID: "work", Name: "Work", Default: true},
+		{ID: "personal", Name: "Personal"},
+	}, "work")
+
+	for _, r := range "personal" {
+		s.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	if !s.Active() {
+		t.Fatal("typing l closed the layer switcher")
+	}
+	index, ok := s.SelectedIndex()
+	if !ok || s.layers[index].ID != "personal" {
+		t.Fatalf("selected layer = %q, want personal", s.layers[index].ID)
+	}
+}
+
 func TestLayerSwitcherChangesCommandsAndVirtualColumns(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {
@@ -112,8 +132,118 @@ kbrd.layer{ id="other", setup=function() end }`), 0o644); err != nil {
 	b := newLayerTestBoard(t, dir)
 	b.statusPresenter().updateBuiltinCells()
 	assertBuiltinCellText(t, b, builtinCellLayer, "◇ layer none")
+	assertBuiltinCellText(t, b, builtinCellScriptError, "✕ lua")
+	if !strings.Contains(b.scriptInitError, "cannot activate") {
+		t.Fatalf("script init error = %q", b.scriptInitError)
+	}
 	if got := b.cells.cells[builtinCellLayer.id()].FG; got != string(b.palette.Warning) {
 		t.Fatalf("inactive layer color = %q", got)
+	}
+}
+
+func TestLayerSwitchFailureReopensPickerWithPersistentFeedback(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.layer{ id="ok", name="Working", default=true, setup=function() end }
+kbrd.layer{ id="broken", name="Broken", setup=function() error("boom") end }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := newLayerTestBoard(t, dir)
+
+	_, cmd := b.handleSwitchLayer(switchLayerMsg{ID: "broken"})
+	if cmd == nil {
+		t.Fatal("failed switch did not notify")
+	}
+	if !b.layerSwitcher.Active() {
+		t.Fatal("failed switch did not reopen the layer picker")
+	}
+	if view := b.layerSwitcher.View(100, 30); !strings.Contains(view, "boom") {
+		t.Fatalf("layer picker missing setup error:\n%s", view)
+	}
+	if active, ok := b.scripts.ActiveLayer(); !ok || active.ID != "ok" {
+		t.Fatalf("active layer after failure = %+v, %v", active, ok)
+	}
+	if !strings.Contains(b.scriptLayerError, "boom") {
+		t.Fatalf("persistent layer error = %q", b.scriptLayerError)
+	}
+	b.statusPresenter().updateBuiltinCells()
+	assertBuiltinCellText(t, b, builtinCellScriptError, "✕ lua")
+	if len(b.commandWarnings) == 0 || b.commandWarnings[len(b.commandWarnings)-1].Source != layerWarningSource {
+		t.Fatalf("layer warning missing from command details: %+v", b.commandWarnings)
+	}
+
+	_, _ = b.handleSwitchLayer(switchLayerMsg{ID: "ok"})
+	if b.scriptLayerError != "" {
+		t.Fatalf("layer error survived successful switch: %q", b.scriptLayerError)
+	}
+	b.statusPresenter().updateBuiltinCells()
+	if cell := b.cells.cells[builtinCellScriptError.id()]; cell != nil {
+		t.Fatalf("script error cell survived successful switch: %+v", cell)
+	}
+}
+
+func TestLayerSwitcherReturnsFromAsyncVirtualOnlyLayer(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"1. To do", "2. In progress", "archive"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+local function scan(id, ready)
+  kbrd.async.run("scan", function()
+    kbrd.column.set(id, { name=id, items={} })
+    if ready then ready() end
+  end)
+end
+
+kbrd.layer{ id="default", name="Default", default=true, setup=function()
+  scan("tasks")
+  kbrd.column.show_all()
+end }
+kbrd.layer{ id="focus", name="Task focus", setup=function()
+  local hidden = false
+  scan("tasks-todo", function()
+    if hidden then return end
+    hidden = true
+    assert(kbrd.column.hide("1. To do"))
+    assert(kbrd.column.hide("2. In progress"))
+    assert(kbrd.column.hide("archive"))
+  end)
+  scan("tasks-doing")
+end }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := newLayerTestBoard(t, dir)
+
+	_, _ = b.handleSwitchLayer(switchLayerMsg{ID: "focus"})
+	pending := b.scripts.PendingAsync()
+	if len(pending) != 2 {
+		t.Fatalf("focus async scans = %d, want 2", len(pending))
+	}
+	for _, cmd := range pending {
+		if err := b.scripts.FireAsync(cmd.Token, "", 1, ""); err != nil {
+			t.Fatalf("finish focus scan: %v", err)
+		}
+	}
+	if len(b.hiddenColumns) != 3 || len(b.columns) != 2 {
+		t.Fatalf("focused columns = visible %d, hidden %v", len(b.columns), b.hiddenColumns)
+	}
+	b.selectedCol = 0
+
+	_, cmd := b.handleSwitchLayer(switchLayerMsg{ID: "default"})
+	if cmd == nil {
+		t.Fatal("return to default did not report success")
+	}
+	active, ok := b.scripts.ActiveLayer()
+	if !ok || active.ID != "default" {
+		t.Fatalf("active layer = %+v, %v", active, ok)
+	}
+	if len(b.hiddenColumns) != 0 || len(b.columns) != 3 {
+		t.Fatalf("default columns = visible %d, hidden %v", len(b.columns), b.hiddenColumns)
 	}
 }
 

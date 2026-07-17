@@ -129,6 +129,10 @@ types are unloaded. Hooks, `kbrd.register` functions, cells, indicators, and
 other side effects keep their normal global lifetime, even if called by a layer
 setup. A failing setup leaves the previously active layer selected, although
 unmanaged side effects that ran before the error cannot be rolled back.
+The layer picker reopens with the setup error so the failure cannot look like a
+successful switch. Script-load, default-layer, and interactive switch failures
+also keep a red `✕ lua` indicator in the header; open the custom-command menu
+with `x` to inspect the full warning after dismissing the picker.
 
 `kbrd.layer` may only be declared while the folder-local `.kbrd.lua` is loading
 (modules required by that file are included). Global `init.lua` can still

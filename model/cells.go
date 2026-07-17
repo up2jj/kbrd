@@ -26,6 +26,7 @@ type builtinCellSlot uint8
 const (
 	builtinCellReleaseUpdate builtinCellSlot = iota
 	builtinCellScriptActivity
+	builtinCellScriptError
 	builtinCellTemplateExecution
 	builtinCellReminders
 	builtinCellMCP

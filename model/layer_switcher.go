@@ -1,12 +1,15 @@
 package model
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"kbrd/config"
 	"kbrd/script"
 )
 
@@ -16,6 +19,7 @@ type LayerSwitcher struct {
 	active  bool
 	layers  []script.LayerInfo
 	current string
+	err     string
 	palette Palette
 	flatPicker
 }
@@ -24,6 +28,7 @@ func (s *LayerSwitcher) Open(layers []script.LayerInfo, current string) {
 	s.active = len(layers) > 0
 	s.layers = append(s.layers[:0], layers...)
 	s.current = current
+	s.err = ""
 	s.fuzzyList.Reset(len(s.layers), 0, s.haystack)
 	for i, match := range s.matches {
 		if s.layers[match.Index].ID == current {
@@ -37,10 +42,17 @@ func (s *LayerSwitcher) Close() {
 	s.active = false
 	s.layers = nil
 	s.current = ""
+	s.err = ""
 	s.fuzzyList.Clear()
 }
 
 func (s *LayerSwitcher) Active() bool { return s.active }
+
+func (s *LayerSwitcher) ShowError(err error) {
+	if err != nil {
+		s.err = err.Error()
+	}
+}
 
 func (s *LayerSwitcher) haystack(i int) string {
 	layer := s.layers[i]
@@ -115,7 +127,20 @@ func (s *LayerSwitcher) View(termWidth, _ int) string {
 	}
 	list = lipgloss.NewStyle().Height(max(len(s.layers), 1)).Render(list)
 	filter := flatPickerFilterLine(p, s.filter, descStyle, nameStyle)
-	body := flatPickerInner(termWidth, filter, "", list)
+	errorLine := ""
+	if s.err != "" {
+		message := strings.SplitN(s.err, "\n", 2)[0]
+		if termWidth > 0 {
+			message = ansi.TruncateLeft(message, max(termWidth-14, 1), "…")
+		}
+		errorLine = lipgloss.NewStyle().Foreground(p.Danger).Bold(true).Render("✕ " + message)
+	}
+	bodyParts := []string{filter}
+	if errorLine != "" {
+		bodyParts = append(bodyParts, errorLine)
+	}
+	bodyParts = append(bodyParts, "", list)
+	body := flatPickerInner(termWidth, bodyParts...)
 	footer := RenderInlineHints([]Shortcut{
 		{Keys: "type", Label: "filter"},
 		{Keys: "↑/↓", Label: "select"},
@@ -126,13 +151,13 @@ func (s *LayerSwitcher) View(termWidth, _ int) string {
 		Title:   "Switch layer",
 		Body:    body,
 		Footer:  footer,
-		Width:   overlayWidthForBody(s.contentWidth(termWidth, footer)),
+		Width:   overlayWidthForBody(s.contentWidth(termWidth, footer, errorLine)),
 		Palette: p,
 	}.Render()
 }
 
-func (s *LayerSwitcher) contentWidth(termWidth int, footer string) int {
-	textW := max(50, lipgloss.Width(footer))
+func (s *LayerSwitcher) contentWidth(termWidth int, footer, errorLine string) int {
+	textW := max(50, lipgloss.Width(footer), lipgloss.Width(errorLine))
 	for _, layer := range s.layers {
 		row := "·   " + layer.Name
 		if layer.Description != "" {
@@ -185,8 +210,15 @@ func (b *Board) handleSwitchLayer(msg switchLayerMsg) (tea.Model, tea.Cmd) {
 		selectedVID = b.columns[b.selectedCol].VID
 	}
 	if err := b.scripts.ActivateLayer(msg.ID); err != nil {
+		b.scriptLayerError = err.Error()
+		b.setLayerWarning(err)
+		active, _ := b.scripts.ActiveLayer()
+		b.layerSwitcher.Open(b.scripts.Layers(), active.ID)
+		b.layerSwitcher.ShowError(err)
 		return b, b.notifier.ErrorCause("failed to switch layer", err)
 	}
+	b.scriptLayerError = ""
+	b.clearLayerWarning()
 	b.loadCommands()
 	if selectedVID != "" && b.virtualColumn(selectedVID) == nil {
 		b.zoom.Off()
@@ -194,4 +226,20 @@ func (b *Board) handleSwitchLayer(msg switchLayerMsg) (tea.Model, tea.Cmd) {
 	}
 	active, _ := b.scripts.ActiveLayer()
 	return b, b.notifier.Success("switched to layer " + active.Name)
+}
+
+const layerWarningSource = ".kbrd.lua layer"
+
+func (b *Board) setLayerWarning(err error) {
+	b.clearLayerWarning()
+	b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{
+		Source:  layerWarningSource,
+		Message: err.Error(),
+	})
+}
+
+func (b *Board) clearLayerWarning() {
+	b.commandWarnings = slices.DeleteFunc(b.commandWarnings, func(w config.CommandLoadWarning) bool {
+		return w.Source == layerWarningSource
+	})
 }
