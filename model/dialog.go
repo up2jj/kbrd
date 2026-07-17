@@ -28,6 +28,7 @@ type DialogOptions struct {
 	Body         string
 	Buttons      []DialogButton
 	DefaultIndex int
+	CancelMsg    tea.Msg
 }
 
 type Dialog struct {
@@ -37,6 +38,7 @@ type Dialog struct {
 	buttons   []DialogButton
 	mnemonics []int // rune index into Label for each button, -1 if none
 	selected  int
+	cancelMsg tea.Msg
 	palette   Palette
 }
 
@@ -51,6 +53,7 @@ func (d *Dialog) Open(opts DialogOptions) {
 		idx = len(opts.Buttons) - 1
 	}
 	d.selected = idx
+	d.cancelMsg = opts.CancelMsg
 }
 
 // computeDialogMnemonics assigns one mnemonic letter per button, picking the
@@ -118,6 +121,7 @@ func (d *Dialog) OpenConfirmDestructive(title, body, actionLabel string, onConfi
 
 func (d *Dialog) Close() {
 	d.active = false
+	d.cancelMsg = nil
 }
 
 func (d *Dialog) Update(msg tea.KeyPressMsg) tea.Cmd {
@@ -137,7 +141,11 @@ func (d *Dialog) Update(msg tea.KeyPressMsg) tea.Cmd {
 			return func() tea.Msg { return chosen.Msg }
 		}
 	case key.Matches(msg, Keys.DialogCancel):
+		cancelMsg := d.cancelMsg
 		d.Close()
+		if cancelMsg != nil {
+			return func() tea.Msg { return cancelMsg }
+		}
 	default:
 		if len(msg.Text) == 1 {
 			raw := []rune(msg.Text)[0]

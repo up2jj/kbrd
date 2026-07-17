@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -25,17 +26,6 @@ const (
 	GlobalInitFile = "init.lua"
 	FolderInitFile = ".kbrd.lua"
 )
-
-// UIRequest is what a command's coroutine yields when it calls kbrd.ui.pick /
-// prompt / confirm. The host hands this to the model; the model opens the
-// matching UI and resumes via Host.ResumeWith(Token, result).
-type UIRequest struct {
-	Token   string
-	Kind    string // "pick" | "prompt" | "confirm"
-	Title   string
-	Choices []string
-	Default string
-}
 
 // Host owns the Lua VM and the registry of Lua-registered commands and hooks.
 //
@@ -85,10 +75,12 @@ type Host struct {
 	layerVCols virtualColumns
 
 	pending  map[string]*pendingCoro
+	hostID   uint64
 	tokenSeq int
 
-	running  bool
-	deferred []events.Event
+	running   bool
+	uiAllowed bool
+	deferred  []events.Event
 
 	// emitDepth tracks how deeply fireHook is nested via the deferred-event
 	// drain. A custom event (kbrd.emit) whose hook emits again recurses through
@@ -253,7 +245,10 @@ type pendingCoro struct {
 	co    *lua.LState
 	name  string
 	owner string
+	kind  UIKind
 }
+
+var hostSequence atomic.Uint64
 
 // New creates a Host, loads global (~/.config/kbrd/init.lua) and folder-local
 // (./.kbrd.lua) init files if present, and registers the kbrd global.
@@ -288,6 +283,7 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		hooks:          make(map[string][]*hookEntry),
 		layerByID:      make(map[string]int),
 		pending:        make(map[string]*pendingCoro),
+		hostID:         hostSequence.Add(1),
 		timers:         make(map[string]*timerEntry),
 		asyncCallbacks: make(map[string]ownedFn),
 		vcolFns:        make(map[string]ownedFn),
@@ -371,6 +367,7 @@ func (h *Host) Close() {
 	if h == nil {
 		return
 	}
+	h.CancelPending()
 	if h.L != nil {
 		h.L.Close()
 		h.L = nil
@@ -449,6 +446,9 @@ func (h *Host) RunVirtualCommand(ref string, ctx map[string]any) (*UIRequest, er
 // runByRef resolves a dispatch ref to its run closure — first the global command
 // registry, then the virtual-column registry — and runs it on a fresh coroutine.
 func (h *Host) runByRef(ref string, arg lua.LValue) (*UIRequest, error) {
+	if len(h.pending) > 0 {
+		return nil, errors.New("another scripted UI request is already active")
+	}
 	for _, c := range h.effectiveCommands() {
 		if c.Ref == ref {
 			co, _ := h.L.NewThread()
@@ -462,8 +462,7 @@ func (h *Host) runByRef(ref string, arg lua.LValue) (*UIRequest, error) {
 	return nil, fmt.Errorf("unknown lua command %q", ref)
 }
 
-// ResumeWith continues a suspended coroutine with `result` as the value
-// returned from kbrd.ui.pick / prompt / confirm inside Lua. Token must be
+// ResumeWith continues a suspended coroutine with result. Token must be
 // one returned by a previous RunCommand or ResumeWith.
 //
 // Result types:
@@ -476,10 +475,14 @@ func (h *Host) ResumeWith(token string, result any) (*UIRequest, error) {
 	}
 	p, ok := h.pending[token]
 	if !ok {
-		return nil, fmt.Errorf("unknown token %q", token)
+		return nil, fmt.Errorf("%w %q", ErrUnknownUIToken, token)
 	}
 	delete(h.pending, token)
-	args := []lua.LValue{toLValue(h.L, result)}
+	typed, ok := result.(UIResult)
+	if !ok {
+		typed = legacyUIResult(result)
+	}
+	args := []lua.LValue{uiResultValue(h.L, typed)}
 	return h.runDuringCall(p.co, p.name, nil, args, p.owner)
 }
 
@@ -610,6 +613,12 @@ func (h *Host) CancelPending() {
 		return
 	}
 	h.pending = make(map[string]*pendingCoro)
+	h.running = false
+	h.uiAllowed = false
+	h.activeOwner = ""
+	h.deferred = nil
+	h.lastReturn = ""
+	h.lastReturnSet = false
 }
 
 // PendingTimers drains the queue of timer schedules accumulated since the
@@ -785,7 +794,9 @@ func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, arg
 	h.lastReturn = ""
 	h.lastReturnSet = false
 	prevOwner := h.activeOwner
+	prevUIAllowed := h.uiAllowed
 	h.activeOwner = owner
+	h.uiAllowed = true
 	h.running = true
 	req, err := h.driveResume(co, name, fn, args)
 	// If the script yielded (req != nil), it's suspended waiting for UI —
@@ -794,10 +805,12 @@ func (h *Host) runDuringCall(co *lua.LState, name string, fn *lua.LFunction, arg
 	// finishes for real. The ResumeWith path will end with req == nil.
 	if req != nil {
 		h.activeOwner = prevOwner
+		h.uiAllowed = prevUIAllowed
 		return req, err
 	}
 	h.running = false
 	h.activeOwner = prevOwner
+	h.uiAllowed = prevUIAllowed
 	pending := h.deferred
 	h.deferred = nil
 	for _, ev := range pending {
@@ -856,47 +869,31 @@ func (h *Host) driveResume(co *lua.LState, name string, fn *lua.LFunction, args 
 		return nil, nil
 	}
 	// ResumeYield
-	req := parseUIRequest(rets)
-	if req == nil {
+	req, isUI, decodeErr := decodeUIRequest(rets)
+	if decodeErr != nil {
+		return nil, fmt.Errorf("invalid UI request in %s: %w", name, decodeErr)
+	}
+	if !isUI {
 		// Bare yield with no recognized request — treat as a clean finish
 		// rather than hanging indefinitely.
 		return nil, nil
 	}
 	token := h.allocToken()
 	req.Token = token
-	h.pending[token] = &pendingCoro{co: co, name: name, owner: h.activeOwner}
+	h.pending[token] = &pendingCoro{co: co, name: name, owner: h.activeOwner, kind: req.Kind}
 	return req, nil
+}
+
+func legacyUIResult(value any) UIResult {
+	if value == nil {
+		return UIResult{Action: "cancel", Cancelled: true}
+	}
+	return UIResult{Action: "submit", Submitted: true, Value: value}
 }
 
 func (h *Host) allocToken() string {
 	h.tokenSeq++
-	return "co-" + strconv.Itoa(h.tokenSeq)
-}
-
-// parseUIRequest decodes the table yielded by kbrd.ui.* wrappers.
-func parseUIRequest(vals []lua.LValue) *UIRequest {
-	if len(vals) == 0 {
-		return nil
-	}
-	t, ok := vals[0].(*lua.LTable)
-	if !ok {
-		return nil
-	}
-	if !lua.LVAsBool(t.RawGetString("_uiReq")) {
-		return nil
-	}
-	req := &UIRequest{
-		Kind:    lua.LVAsString(t.RawGetString("kind")),
-		Title:   lua.LVAsString(t.RawGetString("title")),
-		Default: lua.LVAsString(t.RawGetString("default")),
-	}
-	if choices, ok := t.RawGetString("choices").(*lua.LTable); ok {
-		n := choices.Len()
-		for i := 1; i <= n; i++ {
-			req.Choices = append(req.Choices, lua.LVAsString(choices.RawGetInt(i)))
-		}
-	}
-	return req
+	return "co-" + strconv.FormatUint(h.hostID, 10) + "-" + strconv.Itoa(h.tokenSeq)
 }
 
 // maxEmitDepth caps how deeply custom events may chain (a kbrd.emit whose hook

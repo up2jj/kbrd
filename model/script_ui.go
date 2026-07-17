@@ -6,7 +6,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"kbrd/script"
 	"kbrd/theme"
+	"kbrd/tui"
 )
 
 // scriptResumeMsg carries the user's response back to the Lua coroutine that
@@ -18,18 +20,17 @@ type scriptResumeMsg struct {
 	Result any
 }
 
-// scriptUIKind matches script.UIRequest.Kind.
 type scriptUIKind int
 
 const (
 	scriptUINone scriptUIKind = iota
 	scriptUIPick
 	scriptUIPrompt
+	scriptUIConfirm
 )
 
-// ScriptUI holds the state for a single in-flight kbrd.ui.pick / prompt call.
-// kbrd.ui.confirm is delegated to the existing Dialog primitive, so it doesn't
-// appear here.
+// ScriptUI coordinates one in-flight scripted request. Confirm rendering is
+// temporarily delegated to Dialog until the shared control lands in phase 2.
 type ScriptUI struct {
 	kind     scriptUIKind
 	name     string
@@ -38,6 +39,7 @@ type ScriptUI struct {
 	choices  []string
 	selected int
 	input    textinput.Model
+	size     tui.Size
 	palette  Palette
 }
 
@@ -86,12 +88,27 @@ func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
 	s.input = ti
 }
 
+func (s *ScriptUI) OpenConfirm(name, token, title string) {
+	s.kind = scriptUIConfirm
+	s.name = name
+	s.token = token
+	s.title = title
+}
+
+func (s *ScriptUI) MatchesToken(token string) bool {
+	return s.Active() && s.token == token
+}
+
+func (s *ScriptUI) SetSize(width, height int) { s.size.Set(width, height) }
+
 // Update routes a key event and, when the user resolves the UI, returns a
 // tea.Cmd that emits a scriptResumeMsg with the appropriate result.
-func (s *ScriptUI) Update(msg tea.KeyPressMsg) tea.Cmd {
+func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
 	switch s.kind {
 	case scriptUIPick:
-		return s.updatePicker(msg)
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+			return s.updatePicker(keyMsg)
+		}
 	case scriptUIPrompt:
 		return s.updatePrompt(msg)
 	}
@@ -103,7 +120,9 @@ func (s *ScriptUI) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, Keys.SwitcherClose):
 		name, token := s.name, s.token
 		s.Close()
-		return func() tea.Msg { return scriptResumeMsg{Name: name, Token: token, Result: nil} }
+		return func() tea.Msg {
+			return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
+		}
 	case key.Matches(msg, Keys.SwitcherPrev):
 		if s.selected > 0 {
 			s.selected--
@@ -116,27 +135,37 @@ func (s *ScriptUI) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
 		if len(s.choices) == 0 {
 			name, token := s.name, s.token
 			s.Close()
-			return func() tea.Msg { return scriptResumeMsg{Name: name, Token: token, Result: nil} }
+			return func() tea.Msg {
+				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
+			}
 		}
 		chosen := s.choices[s.selected]
 		name, token := s.name, s.token
 		s.Close()
-		return func() tea.Msg { return scriptResumeMsg{Name: name, Token: token, Result: chosen} }
+		return func() tea.Msg {
+			return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Submitted: true, Action: "submit", Value: chosen}}
+		}
 	}
 	return nil
 }
 
-func (s *ScriptUI) updatePrompt(msg tea.KeyPressMsg) tea.Cmd {
-	switch {
-	case key.Matches(msg, Keys.SwitcherClose):
-		name, token := s.name, s.token
-		s.Close()
-		return func() tea.Msg { return scriptResumeMsg{Name: name, Token: token, Result: nil} }
-	case key.Matches(msg, Keys.SwitcherConfirm):
-		val := s.input.Value()
-		name, token := s.name, s.token
-		s.Close()
-		return func() tea.Msg { return scriptResumeMsg{Name: name, Token: token, Result: val} }
+func (s *ScriptUI) updatePrompt(msg tea.Msg) tea.Cmd {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case key.Matches(keyMsg, Keys.SwitcherClose):
+			name, token := s.name, s.token
+			s.Close()
+			return func() tea.Msg {
+				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
+			}
+		case key.Matches(keyMsg, Keys.SwitcherConfirm):
+			val := s.input.Value()
+			name, token := s.name, s.token
+			s.Close()
+			return func() tea.Msg {
+				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Submitted: true, Action: "submit", Value: val}}
+			}
+		}
 	}
 	ti, cmd := s.input.Update(msg)
 	s.input = ti
@@ -164,6 +193,8 @@ func (s *ScriptUI) View() string {
 	case scriptUIPrompt:
 		body = s.input.View()
 		footer = RenderInlineHints([]Shortcut{{"enter", "confirm"}, {"esc", "cancel"}})
+	case scriptUIConfirm:
+		return ""
 	}
 
 	return OverlayFrame{Title: title, Body: body, Footer: footer, Palette: s.palette}.Render()

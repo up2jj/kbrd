@@ -93,6 +93,7 @@ func (s boardSession) reopenSwitcher(entries []recents.Entry) {
 // are returned without sending a notification so callers can phrase them.
 func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	b := s.b
+	b.cancelScriptUI()
 	var environmentChange *boardenv.Change
 	if b.environment != nil && !b.safeMode {
 		change, err := b.environment.Apply(path)

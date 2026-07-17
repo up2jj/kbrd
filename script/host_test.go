@@ -1187,7 +1187,7 @@ end)`)
 	if req == nil {
 		t.Fatal("expected UI request, got nil")
 	}
-	if req.Kind != "pick" || req.Title != "Priority" || len(req.Choices) != 3 {
+	if req.Kind != UIKindPick || req.Spec.Title != "Priority" || len(req.Spec.Choices) != 3 {
 		t.Fatalf("unexpected req: %+v", req)
 	}
 
@@ -1387,7 +1387,7 @@ end)`)
 	if err != nil || req == nil {
 		t.Fatalf("expected req, got req=%v err=%v", req, err)
 	}
-	if req.Kind != "prompt" || req.Default != "default" {
+	if req.Kind != UIKindPrompt || req.Spec.Default != "default" {
 		t.Fatalf("unexpected req: %+v", req)
 	}
 	if _, err := h.ResumeWith(req.Token, "hello"); err != nil {

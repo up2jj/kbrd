@@ -123,23 +123,12 @@ func (h *Host) installAPI() {
 		// Should never happen — bootstrap is a constant string.
 		panic("kbrd.ui bootstrap: " + err.Error())
 	}
+	if err := L.DoString(runtimeBootstrap); err != nil {
+		panic("kbrd runtime bootstrap: " + err.Error())
+	}
 }
 
-const uiBootstrap = `
-kbrd.ui = {}
-function kbrd.ui.pick(title, choices)
-  kbrd._uiGuard("pick")
-  return coroutine.yield({_uiReq = true, kind = "pick", title = title or "", choices = choices or {}})
-end
-function kbrd.ui.prompt(title, default)
-  kbrd._uiGuard("prompt")
-  return coroutine.yield({_uiReq = true, kind = "prompt", title = title or "", default = default or ""})
-end
-function kbrd.ui.confirm(title)
-  kbrd._uiGuard("confirm")
-  return coroutine.yield({_uiReq = true, kind = "confirm", title = title or ""})
-end
-
+const runtimeBootstrap = `
 -- Defang os.exit globally — scripts have no legitimate need to kill the kbrd
 -- process, and an accidental call would tear down the TUI mid-render.
 os.exit = function() error("os.exit is disabled in kbrd scripts") end
@@ -875,6 +864,10 @@ func (h *Host) luaStoreDelete(L *lua.LState) int {
 func (h *Host) luaUIGuard(L *lua.LState) int {
 	if h.inTimer {
 		L.RaiseError("%s", "kbrd.ui."+L.OptString(1, "*")+": cannot be used from a timer callback")
+		return 0
+	}
+	if !h.uiAllowed {
+		L.RaiseError("%s", "kbrd.ui."+L.OptString(1, "*")+": can only be used from a command coroutine")
 		return 0
 	}
 	return 0

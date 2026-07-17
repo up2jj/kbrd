@@ -205,6 +205,7 @@ func (b *Board) handleSwitchLayer(msg switchLayerMsg) (tea.Model, tea.Cmd) {
 	if b.scripts == nil {
 		return b, nil
 	}
+	b.cancelScriptUI()
 	selectedVID := ""
 	if b.selectedCol >= 0 && b.selectedCol < len(b.columns) && b.columns[b.selectedCol].Virtual {
 		selectedVID = b.columns[b.selectedCol].VID

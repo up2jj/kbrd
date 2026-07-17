@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ func (b *Board) initScripting() error {
 	b.scriptInitError = ""
 	b.scriptLayerError = ""
 	if b.scripts != nil {
+		b.cancelScriptUI()
 		b.scripts.Close()
 		b.scripts = nil
 	}
@@ -422,32 +424,34 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 // Confirms reuse the existing Dialog primitive; pick and prompt use ScriptUI.
 func (b *Board) openScriptUI(name string, req *script.UIRequest) tea.Cmd {
 	switch req.Kind {
-	case "pick":
-		b.scriptUI.OpenPicker(name, req.Token, req.Title, req.Choices)
+	case script.UIKindPick:
+		b.scriptUI.OpenPicker(name, req.Token, req.Spec.Title, req.Spec.Choices)
 		return nil
-	case "prompt":
-		b.scriptUI.OpenPrompt(name, req.Token, req.Title, req.Default)
+	case script.UIKindPrompt:
+		b.scriptUI.OpenPrompt(name, req.Token, req.Spec.Title, req.Spec.Default)
 		return nil
-	case "confirm":
-		title := req.Title
+	case script.UIKindConfirm:
+		title := req.Spec.Title
 		if title == "" {
 			title = "Confirm?"
 		}
+		b.scriptUI.OpenConfirm(name, req.Token, title)
 		b.dialog.Open(DialogOptions{
 			Title: title,
 			Buttons: []DialogButton{
 				{Label: "Yes", Kind: ButtonPrimary,
-					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: true}},
+					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Submitted: true, Action: "submit", Value: true}}},
 				{Label: "No",
-					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: false}},
+					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Submitted: true, Action: "submit", Value: false}}},
 			},
 			DefaultIndex: 0,
+			CancelMsg:    scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Cancelled: true, Action: "cancel"}},
 		})
 		return nil
 	}
-	// Unknown UI kind — best-effort: resume with nil so the script doesn't hang.
+	b.scripts.CancelPending()
 	return func() tea.Msg {
-		return scriptResumeMsg{Name: name, Token: req.Token, Result: nil}
+		return customCommandFinishedMsg{Name: name, Err: fmt.Errorf("unsupported script UI kind %q", req.Kind)}
 	}
 }
 
@@ -455,8 +459,40 @@ func (b *Board) openScriptUI(name string, req *script.UIRequest) tea.Cmd {
 // If it yields again (chained UI calls), open the next UI; if it finishes,
 // emit a customCommandFinished.
 func (b *Board) handleScriptResume(msg scriptResumeMsg) (tea.Model, tea.Cmd) {
+	if b.scripts == nil {
+		return b, nil
+	}
+	if b.scriptUI.MatchesToken(msg.Token) {
+		b.scriptUI.Close()
+	}
 	req, err := b.scripts.ResumeWith(msg.Token, msg.Result)
+	if errors.Is(err, script.ErrUnknownUIToken) {
+		return b, nil
+	}
 	return b, b.handleScriptResult(msg.Name, req, err)
+}
+
+// cancelScriptUI terminates an in-flight scripted modal without resuming its
+// coroutine. This is used when the surrounding board/runtime is going away.
+func (b *Board) cancelScriptUI() {
+	if b.scripts != nil {
+		b.scripts.CancelPending()
+	}
+	if b.scriptUI.kind == scriptUIConfirm && b.dialog.active && b.dialogHasScriptToken(b.scriptUI.token) {
+		b.dialog.Close()
+	}
+	b.scriptUI.Close()
+	b.lineApplyPending = false
+}
+
+func (b *Board) dialogHasScriptToken(token string) bool {
+	for _, button := range b.dialog.buttons {
+		if msg, ok := button.Msg.(scriptResumeMsg); ok && msg.Token == token {
+			return true
+		}
+	}
+	msg, ok := b.dialog.cancelMsg.(scriptResumeMsg)
+	return ok && msg.Token == token
 }
 
 func (a boardScriptAPI) Notify(msg, level string) {

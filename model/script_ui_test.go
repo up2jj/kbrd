@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
+	"kbrd/script"
 )
 
 // makeBoard builds a Board rooted at a tempdir, with one column and one item
@@ -126,8 +127,9 @@ end)`)
 	if !ok {
 		t.Fatalf("expected scriptResumeMsg, got %T %+v", msg, msg)
 	}
-	if rm.Result != "a" {
-		t.Fatalf("expected result 'a', got %v", rm.Result)
+	result, ok := rm.Result.(script.UIResult)
+	if !ok || result.Value != "a" || !result.Submitted {
+		t.Fatalf("expected submitted result 'a', got %#v", rm.Result)
 	}
 	// Drive resume through Update.
 	_, c2 := b.Update(rm)
@@ -179,8 +181,9 @@ end)`)
 	if !ok {
 		t.Fatalf("expected scriptResumeMsg, got %T", msg)
 	}
-	if rm.Result != nil {
-		t.Fatalf("expected nil result on cancel, got %v", rm.Result)
+	result, ok := rm.Result.(script.UIResult)
+	if !ok || !result.Cancelled {
+		t.Fatalf("expected cancellation result, got %#v", rm.Result)
 	}
 }
 
@@ -269,5 +272,128 @@ func TestScriptUIRendersView(t *testing.T) {
 	}
 	if !strings.Contains(view, "a") || !strings.Contains(view, "b") {
 		t.Fatalf("view should contain choices; got: %s", view)
+	}
+}
+
+func TestScriptUIConfirmEscapeCancelsCoroutine(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.command("c", "Confirm", function()
+  local ok = kbrd.ui.confirm("Continue?")
+  kbrd.fs.write("ANSWER", tostring(ok))
+end)`)
+	_, cmd := b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if cmd != nil {
+		if msg := cmd(); msg != nil {
+			t.Fatalf("opening confirm produced %T", msg)
+		}
+	}
+	if !b.dialog.active || b.scriptUI.kind != scriptUIConfirm {
+		t.Fatalf("confirm not active: dialog=%v script=%v", b.dialog.active, b.scriptUI.kind)
+	}
+	_, cancelCmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cancelCmd == nil {
+		t.Fatal("escape did not produce a cancellation command")
+	}
+	runMsg(t, b, cancelCmd())
+	if b.scriptUI.Active() || b.dialog.active {
+		t.Fatal("confirm remained active after cancellation")
+	}
+	body, err := os.ReadFile(filepath.Join(b.cfg.Path, "ANSWER"))
+	if err != nil || string(body) != "false" {
+		t.Fatalf("cancelled confirm answer = %q, err=%v", body, err)
+	}
+}
+
+func TestScriptUIRoutesNonKeyMessages(t *testing.T) {
+	b, _ := makeBoard(t, `kbrd.command("p", "Prompt", function() kbrd.ui.prompt("Name", "initial") end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if !b.scriptUI.Active() {
+		t.Fatal("prompt not active")
+	}
+	type internalWidgetMsg struct{}
+	b.Update(internalWidgetMsg{})
+	if !b.scriptUI.Active() || b.scriptUI.input.Value() != "initial" {
+		t.Fatal("non-key message was not safely routed to the active scripted UI")
+	}
+}
+
+func TestScriptUIStaleResumeCannotReachReloadedHost(t *testing.T) {
+	b, _ := makeBoard(t, `kbrd.command("p", "Prompt", function() kbrd.ui.prompt("Name", "") end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	staleToken := b.scriptUI.token
+	if err := b.initRuntime(); err != nil {
+		t.Fatalf("reload runtime: %v", err)
+	}
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	freshToken := b.scriptUI.token
+	if staleToken == freshToken {
+		t.Fatalf("host reload reused UI token %q", staleToken)
+	}
+	b.Update(scriptResumeMsg{
+		Name:   "Prompt",
+		Token:  staleToken,
+		Result: script.UIResult{Submitted: true, Action: "submit", Value: "stale"},
+	})
+	if !b.scriptUI.Active() || b.scriptUI.token != freshToken {
+		t.Fatal("stale response closed or resumed the newer scripted UI")
+	}
+}
+
+func TestScriptUIBoardSwitchDiscardsPendingCoroutine(t *testing.T) {
+	b, oldBoard := makeBoard(t, `
+kbrd.command("p", "Prompt", function()
+  kbrd.ui.prompt("Name", "")
+  kbrd.fs.write("OLD_MUTATION", "resumed")
+end)`)
+	t.Cleanup(b.Close)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if !b.scriptUI.Active() {
+		t.Fatal("prompt not active before board switch")
+	}
+	staleToken := b.scriptUI.token
+
+	newBoard := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(newBoard, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newBoard, config.FolderConfigFile), []byte(`
+[notify]
+backend = "none"
+[scripting]
+enabled = true
+command_timeout_ms = 2000
+hook_timeout_ms = 500
+instruction_limit = 10000000
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newBoard, ".kbrd.lua"), []byte(`
+kbrd.command("n", "New board command", function() end)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := b.session().loadBoard(newBoard); err != nil {
+		t.Fatalf("switch board: %v", err)
+	}
+	if b.scriptUI.Active() || b.dialog.active {
+		t.Fatal("scripted modal remained active after board switch")
+	}
+	if b.scripts == nil {
+		t.Fatal("new board script host was not initialized")
+	}
+
+	_, cmd := b.Update(scriptResumeMsg{
+		Name:   "Prompt",
+		Token:  staleToken,
+		Result: script.UIResult{Submitted: true, Action: "submit", Value: "stale"},
+	})
+	if cmd != nil {
+		t.Fatal("stale response produced a command after board switch")
+	}
+	for _, root := range []string{oldBoard, newBoard} {
+		if _, err := os.Stat(filepath.Join(root, "OLD_MUTATION")); !os.IsNotExist(err) {
+			t.Fatalf("cancelled old-board coroutine mutated %s: %v", root, err)
+		}
 	}
 }

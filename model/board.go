@@ -527,6 +527,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.frontmatterEdit.SetSize(b.termWidth, b.termHeight)
 		b.conflictReview.SetSize(b.termWidth, b.termHeight)
 		b.timeline.SetSize(b.termWidth, b.termHeight)
+		b.scriptUI.SetSize(b.termWidth, b.termHeight)
 		return b, nil
 
 	case tea.BackgroundColorMsg:
@@ -785,6 +786,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.templateExec.done(msg)
 
 	default:
+		if b.scriptUI.Active() {
+			return b, b.scriptUI.Update(msg)
+		}
 		// An active huh form drives itself with internal messages (cursor
 		// blink, group transitions); route them to it ahead of the column
 		// list so they don't leak into the list filter.
@@ -806,6 +810,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Close releases resources owned by the Board. Safe to call once after the
 // Bubble Tea program returns. Idempotent.
 func (b *Board) Close() {
+	b.cancelScriptUI()
 	if b.watcher != nil {
 		_ = b.watcher.Close()
 		b.watcher = nil
@@ -831,6 +836,7 @@ func (b *Board) beginShutdown() (tea.Model, tea.Cmd) {
 // finishShutdown defers the actual exit until an in-flight git sync completes,
 // so a push isn't interrupted. A second Ctrl+C while waiting force-quits.
 func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
+	b.cancelScriptUI()
 	if b.git.RequestShutdown() {
 		b.shuttingDown = true
 		return b, nil
