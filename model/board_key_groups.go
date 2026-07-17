@@ -27,8 +27,8 @@ func (b *Board) handleGlobalBoardKey(msg tea.KeyPressMsg, col *Column) (tea.Mode
 		return b, b.searchActions().openSearch(), true
 	case key.Matches(msg, Keys.GitPanel):
 		return b, b.git.Open(), true
-	case b.zellij.Enabled && key.Matches(msg, Keys.ZellijMenu):
-		b.zellij.OpenFor(b.cfg.Path, col)
+	case b.terminal.Enabled() && key.Matches(msg, Keys.TerminalMenu):
+		b.terminal.OpenFor(b.cfg.Path, col)
 		return b, nil, true
 	case key.Matches(msg, Keys.Refresh):
 		return b, b.utilityActions().refresh(), true

@@ -149,9 +149,9 @@ func (b *Board) modalLayers() []modalLayer {
 			mouse:  func(msg tea.MouseMsg) tea.Cmd { return b.git.HandleMouse(msg) },
 		},
 		{
-			active: b.zellij.Active,
-			view:   func(_, _, _ int) string { return b.zellij.View() },
-			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.zellij.Update(msg) },
+			active: b.terminal.Active,
+			view:   func(_, _, _ int) string { return b.terminal.View() },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.terminal.Update(msg) },
 		},
 		{
 			active: func() bool { return b.mnemonic.active },

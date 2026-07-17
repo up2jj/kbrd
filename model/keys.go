@@ -123,12 +123,12 @@ type KeyMap struct {
 	// Git panel (open binding only; in-panel bindings live in the git package)
 	GitPanel key.Binding
 
-	// Zellij actions menu (only active when running inside zellij)
-	ZellijMenu     key.Binding // opens the menu
-	ZellijFloating key.Binding // f — floating editor pane
-	ZellijTiled    key.Binding // e — tiled editor pane
-	ZellijShell    key.Binding // s — shell in board dir
-	ZellijClose    key.Binding
+	// Terminal actions menu (active when running inside a supported multiplexer)
+	TerminalMenu      key.Binding // opens the menu
+	TerminalPreferred key.Binding // f — backend-preferred editor placement
+	TerminalTiled     key.Binding // e — tiled editor pane
+	TerminalShell     key.Binding // s — shell in board dir
+	TerminalClose     key.Binding
 }
 
 var Keys = KeyMap{
@@ -248,13 +248,13 @@ var Keys = KeyMap{
 	// Git panel (open binding only; in-panel bindings live in the git package)
 	GitPanel: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "git panel")),
 
-	// Zellij actions (mnemonics f/e/s only matter while the menu is open, which
+	// Terminal actions (mnemonics f/e/s only matter while the menu is open, which
 	// is routed before the global bindings, so they don't clash with Search/Edit)
-	ZellijMenu:     key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "zellij actions")),
-	ZellijFloating: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "floating editor pane")),
-	ZellijTiled:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "new tiled pane")),
-	ZellijShell:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shell in board dir")),
-	ZellijClose:    key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
+	TerminalMenu:      key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "terminal actions")),
+	TerminalPreferred: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "open editor pane")),
+	TerminalTiled:     key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "new tiled pane")),
+	TerminalShell:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shell in board dir")),
+	TerminalClose:     key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("q/esc", "close")),
 }
 
 func bindingShortcut(b key.Binding) Shortcut {
@@ -302,8 +302,8 @@ func HelpMenuGroups() []HelpGroup {
 		helpEntry(Keys.ToggleHelp, "Show this keybindings menu."),
 		helpEntry(Keys.Quit, "Quit kbrd."),
 	}
-	if inZellij() {
-		global = append(global, helpEntry(Keys.ZellijMenu, "Open the selected card in a zellij pane or shell."))
+	if multiplexerAvailable() {
+		global = append(global, helpEntry(Keys.TerminalMenu, "Open the selected card in a multiplexer pane or shell."))
 	}
 	return []HelpGroup{
 		{

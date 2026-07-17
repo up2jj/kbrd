@@ -77,7 +77,7 @@ type Board struct {
 	search           Search
 	git              git.Controller
 	conflictReview   ConflictReview
-	zellij           Zellij
+	terminal         Terminal
 	customCmds       CustomCommandMenu
 	commands         []config.Command
 	commandWarnings  []config.CommandLoadWarning
@@ -167,7 +167,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		theme:           cfg.Theme,
 		terminalDark:    true,
 		palette:         palette,
-		zellij:          NewZellij(),
+		terminal:        NewTerminal(),
 		releaseChecker:  newReleaseChecker(),
 		remindersSyncer: opts.Reminders,
 	}
@@ -250,7 +250,7 @@ func (b *Board) applyPalette() {
 	b.layerSwitcher.palette = b.palette
 	b.search.palette = b.palette
 	b.git.SetPalette(b.palette)
-	b.zellij.SetPalette(b.palette)
+	b.terminal.SetPalette(b.palette)
 	b.customCmds.palette = b.palette
 	b.scriptUI.SetPalette(b.palette)
 	b.templateFlow.SetPalette(b.palette)
@@ -301,7 +301,7 @@ func (b *Board) startupCmd() tea.Cmd {
 		return watchStartMsg{}
 	}
 	cmds := []tea.Cmd{startup}
-	if c := b.zellij.StartCmd(b.cfg.BoardName, b.cfg.Path); c != nil {
+	if c := b.terminal.StartCmd(b.cfg.BoardName, b.cfg.Path); c != nil {
 		cmds = append(cmds, c)
 	}
 	if len(b.commandWarnings) > 0 {
@@ -764,8 +764,8 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is no shutdown bookkeeping here.
 		return b, b.git.Update(msg)
 
-	case zellijDoneMsg:
-		return b, b.zellij.Done(msg, b.notifier)
+	case terminalDoneMsg:
+		return b, b.terminal.Done(msg, b.notifier)
 
 	case templateSubmitMsg:
 		return b.mutationHandlers().handleTemplateSubmit(msg)
