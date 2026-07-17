@@ -336,6 +336,14 @@ type RefreshAPI interface {
 	Refresh() error
 }
 
+// ColumnKind selects one of the two board column sources for bulk visibility.
+type ColumnKind string
+
+const (
+	ColumnKindReal    ColumnKind = "real"
+	ColumnKindVirtual ColumnKind = "virtual"
+)
+
 type PresentationAPI interface {
 	// CellSet adds or replaces a header cell identified by id. CellClear removes
 	// one; CellClearAll removes every script-set cell (built-ins are kept).
@@ -359,11 +367,12 @@ type PresentationAPI interface {
 	ColumnIndicatorClear(column string)
 	ColumnIndicatorClearAll()
 
-	// Filesystem-column visibility is session-scoped and survives board
-	// refreshes. Virtual columns are managed separately through Set/Clear.
+	// Column visibility is session-scoped and survives board refreshes. Named
+	// operations target filesystem columns; bulk operations target a kind.
 	ColumnHide(column string) error
 	ColumnShow(column string) error
-	ColumnShowAll()
+	ColumnHideAll(kind ColumnKind) error
+	ColumnShowAll(kind ColumnKind) error
 }
 
 type ColumnConfigAPI interface {

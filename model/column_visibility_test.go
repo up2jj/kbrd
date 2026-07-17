@@ -100,6 +100,98 @@ func TestColumnVisibilityValidationAndShowAll(t *testing.T) {
 	}
 }
 
+func TestColumnVisibilityBulkRealAndFutureRealColumn(t *testing.T) {
+	b := newVisibilityBoard(t, "Todo", "Done")
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{Name: "Tasks"})
+	b.selectedCol = 0
+
+	if err := b.hideAllColumns(events.ColumnKindReal); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Tasks"}) {
+		t.Fatalf("bulk-hidden real columns = %v", got)
+	}
+	if b.selectedCol != 0 {
+		t.Fatalf("selection after bulk hide = %d, want 0", b.selectedCol)
+	}
+	if err := b.showColumn("Done"); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Done", "Tasks"}) {
+		t.Fatalf("individual restore after bulk hide = %v", got)
+	}
+
+	if err := os.Mkdir(filepath.Join(b.cfg.Path, "Later"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := buildColumns(b.cfg, b.palette, b.itemsByPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.lifecycle().applyReloadedColumns(fresh)
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Done", "Later", "Tasks"}) {
+		t.Fatalf("new real column should remain visible: %v", got)
+	}
+	if err := b.showAllColumnsByKind(events.ColumnKindReal); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Done", "Later", "Todo", "Tasks"}) {
+		t.Fatalf("bulk real restore = %v", got)
+	}
+}
+
+func TestColumnVisibilityBulkVirtualKeepsDefinitionsAndFutureColumnsHidden(t *testing.T) {
+	b := newVisibilityBoard(t, "Todo")
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{Name: "Tasks"})
+
+	if err := b.hideAllColumns(events.ColumnKindVirtual); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Todo"}) {
+		t.Fatalf("bulk-hidden virtual columns = %v", got)
+	}
+	b.setVirtualColumn("later", events.VirtualColumnSpec{Name: "Later"})
+	if len(b.virtualCols) != 2 {
+		t.Fatalf("virtual definitions = %d, want 2", len(b.virtualCols))
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Todo"}) {
+		t.Fatalf("future virtual column became visible: %v", got)
+	}
+	if err := b.loadColumns(); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Todo"}) {
+		t.Fatalf("refresh restored hidden virtual columns: %v", got)
+	}
+	if err := b.showAllColumnsByKind(events.ColumnKindVirtual); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"Todo", "Tasks", "Later"}) {
+		t.Fatalf("bulk virtual restore = %v", got)
+	}
+}
+
+func TestColumnVisibilityBulkHideRejectsEmptyBoardAtomically(t *testing.T) {
+	b := newVisibilityBoard(t, "Todo", "Done")
+	if err := b.hideAllColumns(events.ColumnKindReal); err == nil {
+		t.Fatal("hide all real columns succeeded without a visible virtual column")
+	}
+	if len(b.hiddenColumns) != 0 || len(b.columns) != 2 {
+		t.Fatalf("failed real hide mutated state: hidden=%v visible=%v", b.hiddenColumns, visibleColumnNames(b))
+	}
+
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{Name: "Tasks"})
+	if err := b.hideAllColumns(events.ColumnKindReal); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.hideAllColumns(events.ColumnKindVirtual); err == nil {
+		t.Fatal("hide all virtual columns succeeded without a visible real column")
+	}
+	if b.virtualHidden || !reflect.DeepEqual(visibleColumnNames(b), []string{"Tasks"}) {
+		t.Fatalf("failed virtual hide mutated state: hidden=%v visible=%v", b.virtualHidden, visibleColumnNames(b))
+	}
+}
+
 func TestColumnVisibilityTopLevelIntentSurvivesReloads(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"Todo", "Archive"} {
@@ -246,11 +338,18 @@ func TestColumnVisibilityResetsWhenSwitchingBoards(t *testing.T) {
 	if err := b.hideColumn("Archive"); err != nil {
 		t.Fatal(err)
 	}
+	b.setVirtualColumn("tasks", events.VirtualColumnSpec{Name: "Tasks"})
+	if err := b.hideAllColumns(events.ColumnKindVirtual); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.session().loadBoard(second); err != nil {
 		t.Fatal(err)
 	}
 	if b.columnHidden("Archive") {
 		t.Fatal("hidden state leaked into the next board")
+	}
+	if b.virtualHidden {
+		t.Fatal("virtual visibility state leaked into the next board")
 	}
 	if got, want := visibleColumnNames(b), []string{"Archive", "Todo"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("switched board columns = %v, want %v", got, want)

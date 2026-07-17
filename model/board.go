@@ -38,6 +38,7 @@ type Board struct {
 	columns          []*Column
 	filesystemCols   []*Column // authoritative set; columns is the visible projection plus virtual columns
 	hiddenColumns    map[string]struct{}
+	virtualHidden    bool
 	visibleHeight    int
 	termWidth        int
 	termHeight       int
@@ -424,9 +425,7 @@ func (b *Board) virtualColumn(vid string) *Column {
 	return nil
 }
 
-// setVirtualColumn creates or updates a virtual column from a script push. A new
-// column is appended to both the registry and the live b.columns tail; an
-// existing one is updated in place (it is already attached).
+// setVirtualColumn creates or updates a virtual column from a script push.
 func (b *Board) setVirtualColumn(id string, spec events.VirtualColumnSpec) {
 	if col := b.virtualColumn(id); col != nil {
 		col.ApplyVirtualSpec(spec)
@@ -438,28 +437,20 @@ func (b *Board) setVirtualColumn(id string, spec events.VirtualColumnSpec) {
 	}
 	col.ApplyVirtualSpec(spec)
 	b.virtualCols = append(b.virtualCols, col)
-	b.columns = append(b.columns, col)
+	b.rebuildVisibleColumns()
 }
 
-// clearVirtualColumn removes a single virtual column by id from both the
-// registry and the live column slice.
+// clearVirtualColumn removes a single virtual column by id and rebuilds the
+// live visibility projection.
 func (b *Board) clearVirtualColumn(id string) {
 	b.virtualCols = dropColumnByVID(b.virtualCols, id)
-	b.columns = dropColumnByVID(b.columns, id)
-	b.clampSelectedCol()
+	b.rebuildVisibleColumns()
 }
 
-// clearAllVirtualColumns removes every virtual column from both slices.
+// clearAllVirtualColumns removes every virtual-column definition.
 func (b *Board) clearAllVirtualColumns() {
 	b.virtualCols = nil
-	kept := b.columns[:0]
-	for _, c := range b.columns {
-		if !c.Virtual {
-			kept = append(kept, c)
-		}
-	}
-	b.columns = kept
-	b.clampSelectedCol()
+	b.rebuildVisibleColumns()
 }
 
 // dropColumnByVID returns cols without the virtual column whose VID matches id.

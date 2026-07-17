@@ -134,6 +134,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	b.selectedCol = 0
 	b.filesystemCols = nil
 	b.hiddenColumns = nil
+	b.virtualHidden = false
 	// Virtual columns belong to the previous board's (now-closed) script host;
 	// drop them so they don't leak onto the new board before its board_load runs.
 	b.virtualCols = nil

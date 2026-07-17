@@ -790,4 +790,10 @@ func (a boardScriptAPI) ColumnHide(column string) error { return a.b.hideColumn(
 
 func (a boardScriptAPI) ColumnShow(column string) error { return a.b.showColumn(column) }
 
-func (a boardScriptAPI) ColumnShowAll() { a.b.showAllColumns() }
+func (a boardScriptAPI) ColumnHideAll(kind events.ColumnKind) error {
+	return a.b.hideAllColumns(kind)
+}
+
+func (a boardScriptAPI) ColumnShowAll(kind events.ColumnKind) error {
+	return a.b.showAllColumnsByKind(kind)
+}

@@ -92,6 +92,7 @@ func (h *Host) installAPI() {
 	column.RawSetString("indicator", L.NewFunction(h.luaColumnIndicator))
 	column.RawSetString("hide", L.NewFunction(h.luaColumnHide))
 	column.RawSetString("show", L.NewFunction(h.luaColumnShow))
+	column.RawSetString("hide_all", L.NewFunction(h.luaColumnHideAll))
 	column.RawSetString("show_all", L.NewFunction(h.luaColumnShowAll))
 	kbrd.RawSetString("column", column)
 
@@ -767,12 +768,46 @@ func (h *Host) luaColumnShow(L *lua.LState) int {
 	return 1
 }
 
-// kbrd.column.show_all() clears every session-scoped filesystem-column hide.
+func luaColumnKind(L *lua.LState, index int, fallback events.ColumnKind) (events.ColumnKind, error) {
+	raw := L.OptString(index, string(fallback))
+	switch kind := events.ColumnKind(raw); kind {
+	case events.ColumnKindReal, events.ColumnKindVirtual:
+		return kind, nil
+	default:
+		return "", fmt.Errorf("column type must be %q or %q, got %q", events.ColumnKindReal, events.ColumnKindVirtual, raw)
+	}
+}
+
+// kbrd.column.hide_all(type) hides every column of the requested type without
+// destroying virtual definitions.
+func (h *Host) luaColumnHideAll(L *lua.LState) int {
+	if h.pres == nil {
+		return errResult(L, fmt.Errorf("presentation is not available in this host"))
+	}
+	kind, err := luaColumnKind(L, 1, "")
+	if err != nil {
+		return errResult(L, err)
+	}
+	if err := h.pres.ColumnHideAll(kind); err != nil {
+		return errResult(L, err)
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// kbrd.column.show_all(type?) restores every column of the requested type. The
+// no-argument legacy form defaults to real filesystem columns.
 func (h *Host) luaColumnShowAll(L *lua.LState) int {
 	if h.pres == nil {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
-	h.pres.ColumnShowAll()
+	kind, err := luaColumnKind(L, 1, events.ColumnKindReal)
+	if err != nil {
+		return errResult(L, err)
+	}
+	if err := h.pres.ColumnShowAll(kind); err != nil {
+		return errResult(L, err)
+	}
 	L.Push(lua.LTrue)
 	return 1
 }

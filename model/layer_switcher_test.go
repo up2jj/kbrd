@@ -3,6 +3,7 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"kbrd/config"
+	"kbrd/events"
 	"kbrd/script"
 )
 
@@ -244,6 +246,43 @@ end }`), 0o644); err != nil {
 	}
 	if len(b.hiddenColumns) != 0 || len(b.columns) != 3 {
 		t.Fatalf("default columns = visible %d, hidden %v", len(b.columns), b.hiddenColumns)
+	}
+}
+
+func TestLayerSwitcherKeepsVirtualColumnsHiddenAcrossReconciliation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.layer{ id="default", name="Default", default=true, setup=function()
+  kbrd.column.set("all", { name="All tasks" })
+end }
+kbrd.layer{ id="focus", name="Focus", setup=function()
+  kbrd.column.set("focused", { name="Focused tasks" })
+end }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := newLayerTestBoard(t, dir)
+
+	if err := b.hideAllColumns(events.ColumnKindVirtual); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"todo"}) {
+		t.Fatalf("hidden default layer columns = %v", got)
+	}
+	_, _ = b.handleSwitchLayer(switchLayerMsg{ID: "focus"})
+	if len(b.virtualCols) != 1 || b.virtualCols[0].VID != "focused" {
+		t.Fatalf("focus virtual registry = %+v", b.virtualCols)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"todo"}) {
+		t.Fatalf("layer reconciliation revealed virtual column: %v", got)
+	}
+	if err := b.showAllColumnsByKind(events.ColumnKindVirtual); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleColumnNames(b); !reflect.DeepEqual(got, []string{"todo", "Focused tasks"}) {
+		t.Fatalf("restored focus virtual column = %v", got)
 	}
 }
 

@@ -47,6 +47,8 @@ type fakeAPI struct {
 	indicators   map[string]events.ColumnIndicatorOpts // column → indicator
 	hiddenCols   []string
 	shownCols    []string
+	hiddenKinds  []events.ColumnKind
+	shownKinds   []events.ColumnKind
 	showAll      int
 	columnVisErr error
 }
@@ -305,10 +307,19 @@ func (f *fakeAPI) ColumnShow(column string) error {
 	return f.columnVisErr
 }
 
-func (f *fakeAPI) ColumnShowAll() {
+func (f *fakeAPI) ColumnHideAll(kind events.ColumnKind) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.hiddenKinds = append(f.hiddenKinds, kind)
+	return f.columnVisErr
+}
+
+func (f *fakeAPI) ColumnShowAll(kind events.ColumnKind) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.shownKinds = append(f.shownKinds, kind)
 	f.showAll++
+	return f.columnVisErr
 }
 
 // contains reports whether any element of notifies exactly equals want — the
@@ -492,6 +503,7 @@ kbrd.command("vcol", "Virtual", function() expect_pres(function() return kbrd.co
 kbrd.command("indicator", "Indicator", function() expect_pres(function() return kbrd.column.indicator("Todo", "x") end) end)
 kbrd.command("hide", "Hide", function() expect_pres(function() return kbrd.column.hide("Todo") end) end)
 kbrd.command("show", "Show", function() expect_pres(function() return kbrd.column.show("Todo") end) end)
+kbrd.command("hide-all", "Hide all", function() expect_pres(function() return kbrd.column.hide_all("real") end) end)
 kbrd.command("show-all", "Show all", function() expect_pres(function() return kbrd.column.show_all() end) end)
 `)
 	api := &fakeAPI{}
@@ -515,8 +527,11 @@ func TestColumnVisibility(t *testing.T) {
 	dir := writeInit(t, `
 local ok1, err1 = kbrd.column.hide("Archive")
 local ok2, err2 = kbrd.column.show("Archive")
-local ok3, err3 = kbrd.column.show_all()
-kbrd.notify(table.concat({tostring(ok1), tostring(err1), tostring(ok2), tostring(err2), tostring(ok3), tostring(err3)}, ":"))`)
+local ok3, err3 = kbrd.column.hide_all("real")
+local ok4, err4 = kbrd.column.show_all()
+local ok5, err5 = kbrd.column.hide_all("virtual")
+local ok6, err6 = kbrd.column.show_all("virtual")
+kbrd.notify(table.concat({tostring(ok1), tostring(err1), tostring(ok2), tostring(err2), tostring(ok3), tostring(err3), tostring(ok4), tostring(err4), tostring(ok5), tostring(err5), tostring(ok6), tostring(err6)}, ":"))`)
 	api := &fakeAPI{}
 	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
@@ -530,18 +545,22 @@ kbrd.notify(table.concat({tostring(ok1), tostring(err1), tostring(ok2), tostring
 	if !reflect.DeepEqual(api.shownCols, []string{"Archive"}) {
 		t.Errorf("shown columns = %v", api.shownCols)
 	}
-	if api.showAll != 1 {
-		t.Errorf("show_all calls = %d, want 1", api.showAll)
+	if !reflect.DeepEqual(api.hiddenKinds, []events.ColumnKind{events.ColumnKindReal, events.ColumnKindVirtual}) {
+		t.Errorf("hidden kinds = %v", api.hiddenKinds)
 	}
-	if !contains(api.notifies, "true:nil:true:nil:true:nil") {
+	if !reflect.DeepEqual(api.shownKinds, []events.ColumnKind{events.ColumnKindReal, events.ColumnKindVirtual}) {
+		t.Errorf("shown kinds = %v", api.shownKinds)
+	}
+	if !contains(api.notifies, "true:nil:true:nil:true:nil:true:nil:true:nil:true:nil") {
 		t.Errorf("success return values missing: %v", api.notifies)
 	}
 }
 
 func TestColumnVisibilityError(t *testing.T) {
 	dir := writeInit(t, `
-local ok, err = kbrd.column.hide("Missing")
-kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
+local ok1, err1 = kbrd.column.hide("Missing")
+local ok2, err2 = kbrd.column.hide_all("real")
+kbrd.notify("one="..tostring(ok1)..":"..tostring(err1)..",all="..tostring(ok2)..":"..tostring(err2))`)
 	api := &fakeAPI{columnVisErr: errors.New("missing column")}
 	h, err := New(defaultCfg(), api, nil, dir, "")
 	if err != nil {
@@ -549,8 +568,28 @@ kbrd.notify("ok="..tostring(ok)..",err="..tostring(err))`)
 	}
 	defer h.Close()
 
-	if !contains(api.notifies, "ok=nil,err=missing column") {
+	if !contains(api.notifies, "one=nil:missing column,all=nil:missing column") {
 		t.Errorf("visibility error not surfaced as (nil, err): %v", api.notifies)
+	}
+}
+
+func TestColumnVisibilityInvalidType(t *testing.T) {
+	dir := writeInit(t, `
+local ok1, err1 = kbrd.column.hide_all("filesystem")
+local ok2, err2 = kbrd.column.show_all("Virtual")
+kbrd.notify(tostring(ok1)..":"..tostring(err1)..":"..tostring(ok2)..":"..tostring(err2))`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	if len(api.hiddenKinds) != 0 || len(api.shownKinds) != 0 {
+		t.Fatalf("invalid kinds reached presentation API: hide=%v show=%v", api.hiddenKinds, api.shownKinds)
+	}
+	if len(api.notifies) != 1 || !strings.Contains(api.notifies[0], `must be "real" or "virtual"`) {
+		t.Errorf("invalid type errors missing: %v", api.notifies)
 	}
 }
 

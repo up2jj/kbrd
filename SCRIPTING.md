@@ -27,7 +27,7 @@ shell commands keep working unchanged.
   - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
-  - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, hide/show, indicator
+  - [`kbrd.column.*`](#kbrdcolumnsetid-spec--virtual-columns) — set (virtual columns), clear, hide/show, hide_all/show_all, indicator
   - [`kbrd.column.store.*`](#kbrdcolumnstore--per-column-keyvalue-storage) — get, set, all, delete
   - [`kbrd.fs.*`](#kbrdfsreadpath) — read, write, get_frontmatter, set_frontmatter, delete_frontmatter, exists, mkdir, glob
 - [Error handling](#error-handling) · [Auto-disable](#auto-disable-on-consecutive-errors)
@@ -1279,7 +1279,7 @@ again. The cursor is preserved by `id`.
 
 Remove one virtual column, or all of them.
 
-### `kbrd.column.hide(name)` / `show(name)` / `show_all()`
+### `kbrd.column.hide(name)` / `show(name)` / `hide_all(type)` / `show_all(type)`
 
 Hide and restore **filesystem** columns by their exact, case-sensitive names.
 Visibility is session-scoped: it survives manual and watcher refreshes, but is
@@ -1290,19 +1290,38 @@ startup, before the board's columns have been rendered:
 local ok, err = kbrd.column.hide("Archive")
 if not ok then kbrd.notify(err, "warning") end
 
-kbrd.column.show("Archive") -- restore it in its original position
-kbrd.column.show_all()      -- restore every hidden filesystem column
+kbrd.column.show("Archive")   -- restore it in its original position
+kbrd.column.hide_all("real") -- hide every current filesystem column
+kbrd.column.show_all("real") -- restore every filesystem column
+kbrd.column.show_all()       -- legacy shorthand for show_all("real")
 ```
 
 Hidden columns are removed from the TUI, navigation, menus, and search, but
 remain loaded and watched. Explicit named operations can still use them, so a
-script may move a completed card into a hidden archive. Virtual columns use
-`kbrd.column.set` / `clear` instead and are rejected by these functions.
+script may move a completed card into a hidden archive. Named `hide` and `show`
+reject virtual columns.
 
 `hide` and `show` return `true` on success, including repeated calls that make
 no change, or `nil, err` for an unknown/virtual name. Hiding the final visible
 filesystem column is allowed when a virtual column keeps the board operable;
-otherwise it is rejected. `show_all` returns `true`.
+otherwise it is rejected.
+
+The bulk functions accept exactly `"real"` or `"virtual"` and return `true`
+on success (including idempotent calls), or `nil, err`. They are atomic when
+hiding would leave the board with no visible columns:
+
+```lua
+kbrd.column.hide_all("virtual")
+-- Existing and subsequently created virtual columns stay hidden this session.
+kbrd.column.show_all("virtual")
+```
+
+Bulk-hiding real columns records their current names, so an individually named
+`show` can restore one; a new filesystem column created later is visible.
+Bulk-hiding virtual columns is a session mode that also covers later script
+pushes and layer reconciliation. `show_all("virtual")` reveals the definitions
+that still exist. It does not recreate definitions removed by
+`kbrd.column.clear` / `clear_all`, which remain destructive operations.
 
 Use the existing column store when a command-driven preference should survive
 an app restart:

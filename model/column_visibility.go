@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"kbrd/board"
+	"kbrd/events"
 )
 
 // allFilesystemColumns returns the authoritative filesystem-backed columns.
@@ -54,12 +55,14 @@ func (b *Board) rebuildVisibleColumns() {
 		col.palette = b.palette
 		visible = append(visible, col)
 	}
-	for _, col := range b.virtualCols {
-		if b.visibleHeight > 0 {
-			col.SetHeight(b.visibleHeight)
+	if !b.virtualHidden {
+		for _, col := range b.virtualCols {
+			if b.visibleHeight > 0 {
+				col.SetHeight(b.visibleHeight)
+			}
+			col.palette = b.palette
+			visible = append(visible, col)
 		}
-		col.palette = b.palette
-		visible = append(visible, col)
 	}
 	b.columns = visible
 
@@ -144,7 +147,7 @@ func (b *Board) hideColumn(name string) error {
 	if _, hidden := b.hiddenColumns[name]; hidden {
 		return nil
 	}
-	if b.visibleFilesystemCount() <= 1 && len(b.virtualCols) == 0 {
+	if b.visibleFilesystemCount() <= 1 && b.visibleVirtualCount() == 0 {
 		return fmt.Errorf("cannot hide the final visible column")
 	}
 	if b.hiddenColumns == nil {
@@ -165,8 +168,69 @@ func (b *Board) showColumn(name string) error {
 }
 
 func (b *Board) showAllColumns() {
-	b.hiddenColumns = nil
+	_ = b.showAllColumnsByKind(events.ColumnKindReal)
+}
+
+func (b *Board) visibleVirtualCount() int {
+	if b.virtualHidden {
+		return 0
+	}
+	return len(b.virtualCols)
+}
+
+func (b *Board) filesystemColumnNames() []string {
+	if b.filesystemCols != nil {
+		names := make([]string, len(b.filesystemCols))
+		for i, col := range b.filesystemCols {
+			names[i] = col.Name
+		}
+		return names
+	}
+	names, _ := board.Columns(b.cfg.Path)
+	return names
+}
+
+func (b *Board) hideAllColumns(kind events.ColumnKind) error {
+	switch kind {
+	case events.ColumnKindReal:
+		if b.visibleFilesystemCount() == 0 {
+			return nil
+		}
+		if b.visibleVirtualCount() == 0 {
+			return fmt.Errorf("cannot hide all real columns: no visible virtual column remains")
+		}
+		if b.hiddenColumns == nil {
+			b.hiddenColumns = make(map[string]struct{})
+		}
+		for _, name := range b.filesystemColumnNames() {
+			b.hiddenColumns[name] = struct{}{}
+		}
+	case events.ColumnKindVirtual:
+		if b.virtualHidden {
+			return nil
+		}
+		if b.visibleFilesystemCount() == 0 && len(b.virtualCols) > 0 {
+			return fmt.Errorf("cannot hide all virtual columns: no visible real column remains")
+		}
+		b.virtualHidden = true
+	default:
+		return fmt.Errorf("unknown column kind %q", kind)
+	}
 	b.rebuildVisibleColumns()
+	return nil
+}
+
+func (b *Board) showAllColumnsByKind(kind events.ColumnKind) error {
+	switch kind {
+	case events.ColumnKindReal:
+		b.hiddenColumns = nil
+	case events.ColumnKindVirtual:
+		b.virtualHidden = false
+	default:
+		return fmt.Errorf("unknown column kind %q", kind)
+	}
+	b.rebuildVisibleColumns()
+	return nil
 }
 
 func (b *Board) columnHidden(name string) bool {
