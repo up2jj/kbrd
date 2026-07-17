@@ -6,44 +6,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func TestTextareaActionReturnsUTF8CursorAndSelectionOffsets(t *testing.T) {
+func TestTextareaActionReturnsEditedValue(t *testing.T) {
 	var textarea Textarea
 	textarea.SetSize(80, 24)
 	textarea.Open(TextareaOptions{
-		Initial: "aą\n猫x", Wrap: true, LineNumbers: true,
-		Actions: []Action{{ID: "promote", Label: "Promote", Key: "ctrl+enter", RequiresSelection: true}},
+		Initial: "hello", LineNumbers: true,
+		Actions: []Action{{ID: "save", Label: "Save", Key: "ctrl+s"}},
 	})
-	for _, msg := range []tea.KeyPressMsg{
-		{Code: '[', Mod: tea.ModCtrl}, // leave insert mode without cancelling
-		{Code: 'l'},
-		{Code: 'v'},
-		{Code: 'j'},
-	} {
-		textarea.Update(msg)
-	}
-	textarea.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	textarea.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	textarea.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 
 	result, ok := textarea.TakeResult()
-	if !ok || !result.Submitted || result.Action != "promote" {
+	if !ok || !result.Submitted || result.Cancelled || result.Action != "save" || result.Value != "hello!" {
 		t.Fatalf("result = (%+v, %v)", result, ok)
-	}
-	if result.Value != "aą\n猫x" || result.Cursor != (TextareaCursor{Line: 2, Column: 2, Offset: 7}) {
-		t.Fatalf("value/cursor = %q / %+v", result.Value, result.Cursor)
-	}
-	if result.Selection == nil || *result.Selection != (TextareaSelection{StartOffset: 1, EndOffset: 8, Text: "ą\n猫x"}) {
-		t.Fatalf("selection = %+v", result.Selection)
 	}
 }
 
-func TestTextareaRequiresSelectionAndEscapeCancels(t *testing.T) {
+func TestTextareaEscapeCancels(t *testing.T) {
 	var textarea Textarea
 	textarea.SetSize(80, 24)
-	textarea.Open(TextareaOptions{Initial: "text", Wrap: true, Actions: []Action{{ID: "promote", Label: "Promote", Key: "ctrl+enter", RequiresSelection: true}}})
-	textarea.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
-	if _, ok := textarea.TakeResult(); ok {
-		t.Fatal("action without selection completed")
-	}
+	textarea.Open(TextareaOptions{Initial: "text", Actions: []Action{{ID: "save", Label: "Save", Key: "ctrl+s"}}})
 	textarea.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+
 	result, ok := textarea.TakeResult()
 	if !ok || !result.Cancelled || result.Submitted {
 		t.Fatalf("cancel result = (%+v, %v)", result, ok)

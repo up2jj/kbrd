@@ -84,18 +84,16 @@ kbrd/
 │   ├── modal_layers.go
 │   └── ...
 │
-├── theme/                    # palette and common overlay frame
-└── vimbuf/                   # text buffer and selection semantics
+└── theme/                    # palette and common overlay frame
 ```
 
 Dependency direction:
 
 ```text
-theme ───────┐
-vimbuf ──────┼──> tui ───────┐
-             │                │
-events ──> script ────────────┼──> model
-config ─> script ─────────────┘
+theme ──────────> tui ───────┐
+                             │
+events ──> script ───────────┼──> model
+config ─> script ────────────┘
 ```
 
 ### `script/`: protocol and runtime
@@ -273,15 +271,14 @@ type UIResult struct {
 	Value     any
 	Values    map[string]any
 	IDs       []string
-	Selection *TextSelection
 	Reason    string
 }
 ```
 
-Add concrete types for items, fields, actions, validation, cursor positions,
-and text selections. Decode and validate requests immediately after a coroutine
-yields. A malformed request must produce an actionable Lua error rather than be
-treated as successful command completion.
+Add concrete types for items, fields, actions, and validation. Decode and
+validate requests immediately after a coroutine yields. A malformed request
+must produce an actionable Lua error rather than be treated as successful
+command completion.
 
 ## Lifecycle and safety
 
@@ -418,7 +415,7 @@ local result = kbrd.ui.form({
 })
 ```
 
-### Phase 4: Textarea, selection, and viewer
+### Phase 4: Textarea and viewer
 
 This phase enables the scratchpad promotion workflow.
 
@@ -427,34 +424,19 @@ This phase enables the scratchpad promotion workflow.
 The initial release supports:
 
 - Editable multiline content.
-- Wrapping and optional line numbers.
-- Cursor line, column, and UTF-8 byte offset.
-- Script-declared actions such as Save and Promote.
-- Reserved Escape cancellation.
+- Optional line numbers.
+- Script-declared actions such as Save and Apply.
+- Escape cancellation.
 - Consistent resize and scrolling behavior.
 
-Expose a public, read-only selection method from `vimbuf` that returns
-normalized positions and selected text. A textarea action result may then be:
+The textarea uses the standard Bubbles multiline input. An action result is:
 
 ```lua
 {
-  action = "promote",
+  action = "save",
   value = "...",
-  cursor = {
-    line = 12,
-    column = 4,
-    offset = 142,
-  },
-  selection = {
-    start_offset = 142,
-    end_offset = 238,
-    text = "...",
-  },
 }
 ```
-
-Offsets are UTF-8 byte offsets because Lua strings and Go file operations are
-byte-oriented. Line and column numbers are one-based for script ergonomics.
 
 #### Viewer
 
@@ -507,12 +489,6 @@ local result = kbrd.ui.textarea({
       key = "ctrl+s",
       primary = true,
     },
-    {
-      id = "promote",
-      label = "Promote",
-      key = "ctrl+enter",
-      requires_selection = true,
-    },
   },
 })
 ```
@@ -543,7 +519,7 @@ be a separate follow-up rather than hidden inside the UI package.
 - Resize behavior.
 - Escape and action shortcuts.
 - Form completion.
-- Cursor and selection offsets, including multibyte UTF-8 text.
+- Multiline input and action results, including multibyte UTF-8 text.
 
 ### `model` integration tests
 
@@ -594,7 +570,7 @@ A widget is ready for scripts only when:
 2. `tui/` package plus input, select, and confirm migration.
 3. Actions, notifications, and multi-select.
 4. Forms.
-5. Textarea actions and selection.
+5. Textarea actions.
 6. Viewer.
 7. Machine-local storage and a reference scratchpad script.
 8. Progress/task execution as a separate design and implementation effort.

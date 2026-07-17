@@ -85,26 +85,13 @@ type UIField struct {
 }
 
 type UIAction struct {
-	ID                string
-	Label             string
-	Key               string
-	Primary           bool
-	Destructive       bool
-	Disabled          bool
-	DisabledReason    string
-	RequiresSelection bool
-}
-
-type CursorPosition struct {
-	Line   int
-	Column int
-	Offset int
-}
-
-type TextSelection struct {
-	StartOffset int
-	EndOffset   int
-	Text        string
+	ID             string
+	Label          string
+	Key            string
+	Primary        bool
+	Destructive    bool
+	Disabled       bool
+	DisabledReason string
 }
 
 // UIResult is the common result envelope passed back into a suspended script.
@@ -115,8 +102,6 @@ type UIResult struct {
 	Value     any
 	Values    map[string]any
 	IDs       []string
-	Cursor    *CursorPosition
-	Selection *TextSelection
 	Reason    string
 }
 

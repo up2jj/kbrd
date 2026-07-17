@@ -60,9 +60,6 @@ func decodeTextareaSpec(t *lua.LTable, spec *UISpec) error {
 		return err
 	}
 	spec.Initial = initial
-	if spec.Wrap, err = uiBool(t, "wrap", true); err != nil {
-		return err
-	}
 	if spec.LineNumbers, err = uiBool(t, "line_numbers", false); err != nil {
 		return err
 	}
@@ -77,7 +74,7 @@ func decodeTextareaSpec(t *lua.LTable, spec *UISpec) error {
 			return fmt.Errorf("kbrd.ui textarea action %q requires a shortcut key", action.ID)
 		}
 		if !isTextareaActionKey(action.Key) {
-			return fmt.Errorf("kbrd.ui textarea action %q shortcut must use ctrl+ or alt+ and cannot be ctrl+[", action.ID)
+			return fmt.Errorf("kbrd.ui textarea action %q shortcut must use ctrl+ or alt+", action.ID)
 		}
 	}
 	return nil
@@ -109,9 +106,6 @@ func decodeViewerSpec(t *lua.LTable, spec *UISpec) error {
 		return err
 	}
 	for _, action := range spec.Actions {
-		if action.RequiresSelection {
-			return fmt.Errorf("kbrd.ui viewer action %q cannot require a selection", action.ID)
-		}
 		if action.Key == "" {
 			return fmt.Errorf("kbrd.ui viewer action %q requires a shortcut key", action.ID)
 		}
@@ -392,11 +386,7 @@ func uiActions(t *lua.LTable, key string) ([]UIAction, error) {
 		if err != nil {
 			return UIAction{}, err
 		}
-		requiresSelection, err := uiBool(row, "requires_selection", false)
-		if err != nil {
-			return UIAction{}, err
-		}
-		return UIAction{ID: id, Label: label, Key: shortcut, Primary: primary, Destructive: destructive, Disabled: disabled, DisabledReason: disabledReason, RequiresSelection: requiresSelection}, nil
+		return UIAction{ID: id, Label: label, Key: shortcut, Primary: primary, Destructive: destructive, Disabled: disabled, DisabledReason: disabledReason}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -645,7 +635,7 @@ func isReservedActionKey(value string) bool {
 
 func isTextareaActionKey(value string) bool {
 	key := strings.ToLower(strings.TrimSpace(value))
-	return key != "ctrl+[" && (strings.HasPrefix(key, "ctrl+") || strings.HasPrefix(key, "alt+"))
+	return strings.HasPrefix(key, "ctrl+") || strings.HasPrefix(key, "alt+")
 }
 
 func isViewerNavigationKey(value string) bool {
@@ -672,18 +662,6 @@ func uiResultValue(L *lua.LState, result UIResult) lua.LValue {
 	}
 	if result.IDs != nil {
 		t.RawSetString("ids", toLValue(L, result.IDs))
-	}
-	if result.Cursor != nil {
-		t.RawSetString("cursor", toLValue(L, map[string]any{
-			"line": result.Cursor.Line, "column": result.Cursor.Column, "offset": result.Cursor.Offset,
-		}))
-	}
-	if result.Selection != nil {
-		t.RawSetString("selection", toLValue(L, map[string]any{
-			"start_offset": result.Selection.StartOffset,
-			"end_offset":   result.Selection.EndOffset,
-			"text":         result.Selection.Text,
-		}))
 	}
 	if result.Reason != "" {
 		t.RawSetString("reason", lua.LString(result.Reason))

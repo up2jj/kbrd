@@ -1041,8 +1041,6 @@ Blocking widgets return a common result table:
   value = "...",     -- input text, selected item id, or confirm boolean
   ids = {...},        -- selected IDs from multiselect
   values = {...},     -- values keyed by field ID from form
-  cursor = {line=1, column=1, offset=0}, -- textarea action cursor
-  selection = {start_offset=0, end_offset=4, text="..."}, -- when selected
 }
 ```
 
@@ -1094,18 +1092,13 @@ if not result.cancelled then kbrd.board.move(ctx, result.value) end
 #### `kbrd.ui.textarea(options)`
 
 Open an editable multiline buffer. Options are `title`, `initial`,
-`wrap` (default `true`), `line_numbers` (default `false`), and `actions`.
+`line_numbers` (default `false`), and `actions`.
 Every action needs a unique `id`, `label`, and shortcut `key`; it may also set
-`primary`, `destructive`, `disabled`, `disabled_reason`, and
-`requires_selection`. At least one action is required. Shortcuts must use
-`ctrl+` or `alt+`; `ctrl+[` remains reserved for returning to normal mode.
+`primary`, `destructive`, `disabled`, and `disabled_reason`. At least one
+action is required. Shortcuts must use `ctrl+` or `alt+`.
 
-The editor starts in insert mode and uses kbrd's Vim buffer. Escape is reserved
-for cancelling the entire widget, so use `ctrl+[` to return to normal mode and
-`v` or `V` to select text. An action returns the full edited text in `value`,
-its ID in `action`, and a one-based `cursor` (`line`, rune-based `column`, and
-UTF-8 byte `offset`). When a visual selection is active, `selection` contains
-normalized, end-exclusive UTF-8 byte offsets and the selected text.
+The widget uses standard textarea editing. Escape cancels it. An action returns
+the full edited text in `value` and its ID in `action`.
 
 ```lua
 local result = kbrd.ui.textarea({
@@ -1114,13 +1107,10 @@ local result = kbrd.ui.textarea({
   line_numbers = true,
   actions = {
     {id="save", label="Save", key="ctrl+s", primary=true},
-    {id="promote", label="Promote", key="ctrl+enter", requires_selection=true},
   },
 })
 if result.cancelled then return end
-if result.action == "promote" then
-  kbrd.notify("Selected " .. result.selection.text)
-end
+if result.action == "save" then kbrd.notify("Saved scratchpad") end
 ```
 
 #### `kbrd.ui.viewer(options)`
@@ -1134,8 +1124,7 @@ Page Up/Page Down, `g`/`G`, or the mouse wheel to scroll. When wrapping is
 disabled, use `h`/`l` or Left/Right to pan horizontally.
 
 Viewer actions use the shared action schema, require shortcut keys, and return
-their ID in `action`. They cannot require a text selection or use the viewer's
-navigation keys.
+their ID in `action`. They cannot use the viewer's navigation keys.
 
 ```lua
 local result = kbrd.ui.viewer({

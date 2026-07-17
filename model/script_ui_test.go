@@ -187,22 +187,20 @@ end)`)
 	}
 }
 
-func TestScriptUITextareaProducesStructuredSelectionResult(t *testing.T) {
+func TestScriptUITextareaReturnsEditedValue(t *testing.T) {
 	b, _ := makeBoard(t, `
 kbrd.command("s", "Scratchpad", function()
-  local result = kbrd.ui.textarea({initial="aą\n猫x", actions={
-    {id="promote", label="Promote", key="ctrl+enter", requires_selection=true},
-  }})
-  if result.selection then kbrd.notify(result.action .. ":" .. result.selection.text) end
+	local result = kbrd.ui.textarea({initial="hello", actions={
+		{id="save", label="Save", key="ctrl+s"},
+	}})
+	kbrd.notify(result.action .. ":" .. result.value)
 end)`)
 	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
 	if b.scriptUI.kind != scriptUITextarea {
 		t.Fatalf("kind = %v", b.scriptUI.kind)
 	}
-	for _, msg := range []tea.KeyPressMsg{{Code: '[', Mod: tea.ModCtrl}, {Code: 'l'}, {Code: 'v'}, {Code: 'j'}} {
-		b.Update(msg)
-	}
-	_, cmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	b.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	_, cmd := b.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("textarea action did not produce resume command")
 	}
@@ -211,7 +209,7 @@ end)`)
 		t.Fatal("textarea result was not scriptResumeMsg")
 	}
 	result := resume.Result.(script.UIResult)
-	if result.Action != "promote" || result.Cursor == nil || result.Cursor.Offset != 7 || result.Selection == nil || result.Selection.Text != "ą\n猫x" {
+	if result.Action != "save" || result.Value != "hello!" {
 		t.Fatalf("result = %+v", result)
 	}
 	runMsg(t, b, resume)

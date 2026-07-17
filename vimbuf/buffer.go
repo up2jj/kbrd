@@ -96,12 +96,9 @@ type Buffer struct {
 	awaitSurround   bool // visual S pressed, awaiting the wrap char
 
 	// viewport
-	top         int
-	left        int
-	height      int
-	width       int
-	wrap        bool
-	lineNumbers bool
+	top    int
+	height int
+	width  int
 
 	visualCacheRev   int64
 	visualCacheTextW int
@@ -148,28 +145,10 @@ func New(text string) *Buffer {
 	b := &Buffer{
 		mode:        ModeNormal,
 		indentWidth: 2,
-		wrap:        true,
-		lineNumbers: true,
 	}
 	b.SetText(text)
 	b.cursor = Pos{0, 0}
 	return b
-}
-
-// SetWrap controls whether long logical lines occupy multiple visual rows.
-// When disabled, the viewport follows the cursor horizontally.
-func (b *Buffer) SetWrap(enabled bool) {
-	b.wrap = enabled
-	b.left = 0
-	b.visualCacheRev = -1
-	b.scrollToCursor()
-}
-
-// SetLineNumbers controls the read-only line-number gutter.
-func (b *Buffer) SetLineNumbers(enabled bool) {
-	b.lineNumbers = enabled
-	b.visualCacheRev = -1
-	b.scrollToCursor()
 }
 
 // SetSize records the viewport dimensions (content area, gutter excluded).
@@ -239,31 +218,6 @@ func (b *Buffer) Width() int { return b.width }
 
 // Cursor reports the current cursor position.
 func (b *Buffer) Cursor() Pos { return b.cursor }
-
-// Selection is a normalized, read-only snapshot of the active visual
-// selection. Start is inclusive, End is exclusive, and Text contains exactly
-// the selected UTF-8 text. Linewise selections include intervening newlines
-// but not a synthetic newline after the final buffer line.
-type Selection struct {
-	Start Pos
-	End   Pos
-	Text  string
-}
-
-// Selection reports the current characterwise or linewise visual selection.
-func (b *Buffer) Selection() (Selection, bool) {
-	if b.mode != ModeVisual && b.mode != ModeVisualLine {
-		return Selection{}, false
-	}
-	start, finish := orderPos(b.anchor, b.cursor)
-	if b.mode == ModeVisualLine {
-		start.Col = 0
-		finish.Col = len(b.lineAt(finish.Row))
-		return Selection{Start: start, End: finish, Text: b.copyRange(start, finish)}, true
-	}
-	finish.Col++
-	return Selection{Start: start, End: finish, Text: b.copyRange(start, finish)}, true
-}
 
 // LineCount reports the number of lines in the buffer.
 func (b *Buffer) LineCount() int { return len(b.lines) }
@@ -519,9 +473,6 @@ func (b *Buffer) clampCursorInsert() {
 
 // gutterWidth is the line-number gutter width (digits + a trailing space).
 func (b *Buffer) gutterWidth() int {
-	if !b.lineNumbers {
-		return 0
-	}
 	return max(len(strconv.Itoa(len(b.lines)))+1, 3)
 }
 
@@ -537,9 +488,6 @@ func (b *Buffer) textWidth() int {
 
 // lineRows is how many visual rows a logical line occupies when soft-wrapped.
 func (b *Buffer) lineRows(row int) int {
-	if !b.wrap {
-		return 1
-	}
 	b.ensureVisualMetrics()
 	if row < 0 || row >= len(b.visualRows) {
 		return 1
@@ -558,11 +506,7 @@ func (b *Buffer) ensureVisualMetrics() {
 	rows := make([]int, len(b.lines))
 	prefix := make([]int, len(b.lines)+1)
 	for i, line := range b.lines {
-		if b.wrap {
-			rows[i] = visualRowsForLen(len(line), tw)
-		} else {
-			rows[i] = 1
-		}
+		rows[i] = visualRowsForLen(len(line), tw)
 		prefix[i+1] = prefix[i] + rows[i]
 	}
 	b.visualRows = rows
@@ -591,16 +535,6 @@ func (b *Buffer) visualOffset(row int) int {
 }
 
 func (b *Buffer) scrollToCursor() {
-	if !b.wrap {
-		tw := b.textWidth()
-		if b.cursor.Col < b.left {
-			b.left = b.cursor.Col
-		}
-		if b.cursor.Col >= b.left+tw {
-			b.left = b.cursor.Col - tw + 1
-		}
-		b.left = max(b.left, 0)
-	}
 	if b.height <= 0 {
 		return
 	}
@@ -615,11 +549,7 @@ func (b *Buffer) scrollToCursor() {
 		for r := b.top; r < b.cursor.Row; r++ {
 			used += b.lineRows(r)
 		}
-		if b.wrap {
-			used += b.cursor.Col/tw + 1 // rows up to and including the cursor's segment
-		} else {
-			used++
-		}
+		used += b.cursor.Col/tw + 1 // rows up to and including the cursor's segment
 		if used <= b.height {
 			break
 		}

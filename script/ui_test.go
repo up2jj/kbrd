@@ -353,8 +353,8 @@ end)`)
 func TestPhaseFourWidgetsDecodeTypedSpecs(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("textarea", "Textarea", function()
-  kbrd.ui.textarea({title="Scratchpad", initial="hello", wrap=false,
-    line_numbers=true, actions={{id="promote",label="Promote",key="ctrl+enter",requires_selection=true}}})
+  kbrd.ui.textarea({title="Scratchpad", initial="hello",
+    line_numbers=true, actions={{id="save",label="Save",key="ctrl+s"}}})
 end)
 kbrd.command("viewer", "Viewer", function()
   kbrd.ui.viewer({title="Patch", content="+line", format="diff", line_numbers=true,
@@ -367,7 +367,7 @@ end)`)
 	defer h.Close()
 
 	textarea, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
-	if err != nil || textarea.Kind != UIKindTextarea || textarea.Spec.Wrap || !textarea.Spec.LineNumbers || !textarea.Spec.Actions[0].RequiresSelection {
+	if err != nil || textarea.Kind != UIKindTextarea || !textarea.Spec.LineNumbers || textarea.Spec.Actions[0].ID != "save" {
 		t.Fatalf("textarea = (%+v, %v)", textarea, err)
 	}
 	h.CancelPending()
@@ -386,9 +386,7 @@ func TestPhaseFourWidgetValidationErrors(t *testing.T) {
 		{"textarea action", `kbrd.command("x","x",function() kbrd.ui.textarea({actions={}}) end)`, "requires at least one action"},
 		{"textarea shortcut", `kbrd.command("x","x",function() kbrd.ui.textarea({actions={{id="save",label="Save"}}}) end)`, "requires a shortcut key"},
 		{"textarea text key", `kbrd.command("x","x",function() kbrd.ui.textarea({actions={{id="save",label="Save",key="x"}}}) end)`, "must use ctrl+ or alt+"},
-		{"textarea normal mode key", `kbrd.command("x","x",function() kbrd.ui.textarea({actions={{id="save",label="Save",key="ctrl+["}}}) end)`, "cannot be ctrl+["},
 		{"viewer format", `kbrd.command("x","x",function() kbrd.ui.viewer({format="html"}) end)`, "format \"html\" is unsupported"},
-		{"viewer selection", `kbrd.command("x","x",function() kbrd.ui.viewer({actions={{id="x",label="X",key="ctrl+x",requires_selection=true}}}) end)`, "cannot require a selection"},
 		{"viewer navigation key", `kbrd.command("x","x",function() kbrd.ui.viewer({actions={{id="top",label="Top",key="g"}}}) end)`, "reserved for navigation"},
 	}
 	for _, tt := range tests {

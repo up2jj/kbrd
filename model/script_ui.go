@@ -137,7 +137,7 @@ func (s *ScriptUI) Open(name string, req *script.UIRequest) tea.Cmd {
 		s.textarea.SetSize(s.size.Width, s.size.Height)
 		s.textarea.Open(tui.TextareaOptions{
 			Title: req.Spec.Title, Initial: stringValue(req.Spec.Initial),
-			Wrap: req.Spec.Wrap, LineNumbers: req.Spec.LineNumbers, Actions: actionItems(req.Spec.Actions),
+			LineNumbers: req.Spec.LineNumbers, Actions: actionItems(req.Spec.Actions),
 		})
 	case script.UIKindViewer:
 		s.kind = scriptUIViewer
@@ -209,11 +209,6 @@ func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
 			uiResult := script.UIResult{Action: result.Action, Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.Value}
 			if result.Cancelled {
 				uiResult.Action = "cancel"
-			} else {
-				uiResult.Cursor = &script.CursorPosition{Line: result.Cursor.Line, Column: result.Cursor.Column, Offset: result.Cursor.Offset}
-				if result.Selection != nil {
-					uiResult.Selection = &script.TextSelection{StartOffset: result.Selection.StartOffset, EndOffset: result.Selection.EndOffset, Text: result.Selection.Text}
-				}
 			}
 			return s.resume(uiResult)
 		}
@@ -297,7 +292,6 @@ func actionItems(actions []script.UIAction) []tui.Action {
 		out[index] = tui.Action{
 			ID: action.ID, Label: action.Label, Key: action.Key, Primary: action.Primary,
 			Destructive: action.Destructive, Disabled: action.Disabled, DisabledReason: action.DisabledReason,
-			RequiresSelection: action.RequiresSelection,
 		}
 	}
 	return out
