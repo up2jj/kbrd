@@ -237,18 +237,3 @@ func (b *Board) columnHidden(name string) bool {
 	_, hidden := b.hiddenColumns[name]
 	return hidden
 }
-
-func (b *Board) filterHiddenSearchResults(msg searchResultsMsg) searchResultsMsg {
-	if len(b.hiddenColumns) == 0 {
-		return msg
-	}
-	kept := msg.Results[:0]
-	for _, result := range msg.Results {
-		if samePath(result.BoardPath, b.cfg.Path) && b.columnHidden(result.Column) {
-			continue
-		}
-		kept = append(kept, result)
-	}
-	msg.Results = kept
-	return msg
-}

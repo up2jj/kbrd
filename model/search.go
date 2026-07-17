@@ -1,33 +1,33 @@
 package model
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"kbrd/board"
 	"kbrd/recents"
+	searchbackend "kbrd/search"
 )
 
 // maxSearchResults bounds how many match rows we keep/render so a broad query
 // against many boards can't flood the dialog or the terminal.
-const maxSearchResults = 200
+const (
+	maxSearchResults = 200
+	searchTimeout    = 10 * time.Second
+)
 
 // searchSelectMsg is emitted when the user picks a result: the board is
 // activated (switching if needed) and the file is auto-selected.
 type searchSelectMsg struct {
-	BoardPath string
-	FilePath  string
+	BoardPath   string
+	FilePath    string
+	VirtualVID  string
+	VirtualItem string
 }
 
 // searchMsg marks search-internal async messages so the host can route them
@@ -42,15 +42,15 @@ type searchMsgBase struct{}
 
 func (searchMsgBase) isSearchMsg() {}
 
-// searchDebounceMsg fires after the typing debounce. Search runs ripgrep only
-// if Seq still matches the dialog's current generation.
+// searchDebounceMsg fires after the typing debounce. Search runs its adapters
+// only if Seq still matches the dialog's current generation.
 type searchDebounceMsg struct {
 	searchMsgBase
 	Seq int
 }
 
-// searchResultsMsg carries ripgrep output back to the dialog. Stale results
-// (Seq behind the dialog) are discarded.
+// searchResultsMsg carries merged adapter output back to the dialog. Stale
+// results (Seq behind the dialog) are discarded.
 type searchResultsMsg struct {
 	searchMsgBase
 	Seq     int
@@ -59,15 +59,17 @@ type searchResultsMsg struct {
 }
 
 type searchResult struct {
-	BoardPath string // board root the match belongs to
-	BoardName string // recents Name, for labeling
-	FilePath  string // absolute path of the .md file
-	Column    string // immediate parent dir name (column)
-	Item      string // file basename without .md
-	Line      int
-	Text      string // matched line, trimmed
-	matchCol  int    // rune offset of match start within Text
-	matchLen  int    // rune length of match within Text
+	BoardPath   string // board root the match belongs to
+	BoardName   string // recents Name, for labeling
+	FilePath    string // absolute path of the .md file
+	Column      string // immediate parent dir name (column)
+	Item        string // file basename without .md
+	Line        int
+	Text        string // matched line, trimmed
+	matchCol    int    // rune offset of match start within Text
+	matchLen    int    // rune length of match within Text
+	virtualVID  string
+	virtualItem string
 }
 
 // matchLine is one matching line within a file.
@@ -81,12 +83,14 @@ type matchLine struct {
 // fileGroup collects every match within a single file. It is the unit the user
 // selects and opens.
 type fileGroup struct {
-	BoardPath string
-	BoardName string
-	FilePath  string
-	Column    string
-	Item      string
-	Matches   []matchLine
+	BoardPath   string
+	BoardName   string
+	FilePath    string
+	Column      string
+	Item        string
+	Matches     []matchLine
+	VirtualVID  string
+	VirtualItem string
 }
 
 type Search struct {
@@ -98,10 +102,12 @@ type Search struct {
 	running  bool
 	err      string
 	roots    []recents.Entry // board roots to search (recents + current)
+	virtuals []searchbackend.VirtualItem
+	sources  []searchbackend.Source
 	palette  Palette
 }
 
-func (s *Search) Open(roots []recents.Entry, palette Palette) {
+func (s *Search) Open(roots []recents.Entry, virtuals []searchbackend.VirtualItem, palette Palette) {
 	s.active = true
 	s.filter = ""
 	s.groups = nil
@@ -109,6 +115,15 @@ func (s *Search) Open(roots []recents.Entry, palette Palette) {
 	s.running = false
 	s.err = ""
 	s.roots = roots
+	s.virtuals = virtuals
+	searchRoots := make([]searchbackend.Root, len(roots))
+	for i, root := range roots {
+		searchRoots[i] = searchbackend.Root{Path: root.Path, Name: root.Name}
+	}
+	s.sources = []searchbackend.Source{
+		searchbackend.NewVirtualSource(virtuals),
+		searchbackend.NewFilesystemSource(searchRoots, virtuals),
+	}
 	s.palette = palette
 }
 
@@ -120,17 +135,19 @@ func (s *Search) Close() {
 	s.running = false
 	s.err = ""
 	s.roots = nil
+	s.virtuals = nil
+	s.sources = nil
 }
 
 func (s *Search) Active() bool { return s.active }
 
-// debouncedRun returns the ripgrep command for a debounce tick, or nil if the
+// debouncedRun returns the adapter command for a debounce tick, or nil if the
 // tick is stale (the query changed since it was scheduled).
 func (s *Search) debouncedRun(seq int) tea.Cmd {
 	if !s.active || seq != s.seq {
 		return nil
 	}
-	return runRipgrep(seq, s.filter, s.roots)
+	return runSearch(seq, s.filter, s.sources)
 }
 
 // buildSearchRoots returns the boards to search: the active board first, then
@@ -183,14 +200,14 @@ func samePath(a, b string) bool {
 	return err1 == nil && err2 == nil && aa == bb
 }
 
-// setResults applies async ripgrep output if it belongs to the current query.
+// setResults applies async adapter output if it belongs to the current query.
 func (s *Search) setResults(msg searchResultsMsg) {
 	if msg.Seq != s.seq {
 		return // stale
 	}
 	s.running = false
 	s.err = msg.Err
-	s.groups = groupByFile(msg.Results)
+	s.groups = groupSearchResults(msg.Results, s.virtuals)
 	if s.selected >= len(s.groups) {
 		s.selected = len(s.groups) - 1
 	}
@@ -199,32 +216,104 @@ func (s *Search) setResults(msg searchResultsMsg) {
 	}
 }
 
-// groupByFile collapses per-line results into one group per file, preserving
-// the order files first appear in the ripgrep output.
+// groupByFile is the filesystem-only compatibility wrapper used by focused
+// grouping tests. Production search also supplies active virtual items.
 func groupByFile(results []searchResult) []fileGroup {
+	return groupSearchResults(results, nil)
+}
+
+// groupSearchResults merges filesystem and virtual-source hits. Path-backed
+// hits share one canonical-path identity; fileless virtual items use their
+// board/column/item identity and therefore never collide merely by title.
+func groupSearchResults(results []searchResult, virtuals []searchbackend.VirtualItem) []fileGroup {
 	groups := make([]fileGroup, 0, len(results))
 	index := map[string]int{}
 	for _, r := range results {
-		gi, ok := index[r.FilePath]
+		key := searchResultKey(r)
+		gi, ok := index[key]
 		if !ok {
 			gi = len(groups)
-			index[r.FilePath] = gi
+			index[key] = gi
 			groups = append(groups, fileGroup{
-				BoardPath: r.BoardPath,
-				BoardName: r.BoardName,
-				FilePath:  r.FilePath,
-				Column:    r.Column,
-				Item:      r.Item,
+				BoardPath:   r.BoardPath,
+				BoardName:   r.BoardName,
+				FilePath:    r.FilePath,
+				Column:      r.Column,
+				Item:        r.Item,
+				VirtualVID:  r.virtualVID,
+				VirtualItem: r.virtualItem,
 			})
 		}
-		groups[gi].Matches = append(groups[gi].Matches, matchLine{
+		match := matchLine{
 			Line:     r.Line,
 			Text:     r.Text,
 			matchCol: r.matchCol,
 			matchLen: r.matchLen,
-		})
+		}
+		if !containsSearchMatch(groups[gi].Matches, match) {
+			groups[gi].Matches = append(groups[gi].Matches, match)
+		}
+	}
+	decorateSearchGroups(groups, virtuals)
+	if len(groups) > maxSearchResults {
+		groups = groups[:maxSearchResults]
 	}
 	return groups
+}
+
+func searchResultKey(r searchResult) string {
+	if r.FilePath != "" {
+		return "file:" + canonicalSearchPath(r.FilePath)
+	}
+	return "virtual:" + canonicalSearchPath(r.BoardPath) + "\x00" + r.virtualVID + "\x00" + r.virtualItem
+}
+
+func canonicalSearchPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(path)
+}
+
+func containsSearchMatch(matches []matchLine, candidate matchLine) bool {
+	for _, match := range matches {
+		if match.Line == candidate.Line && match.Text == candidate.Text &&
+			match.matchCol == candidate.matchCol && match.matchLen == candidate.matchLen {
+			return true
+		}
+	}
+	return false
+}
+
+// decorateSearchGroups makes a path-backed result look and activate like its
+// active-layer representation even when only the underlying file body matched.
+func decorateSearchGroups(groups []fileGroup, virtuals []searchbackend.VirtualItem) {
+	byPath := make(map[string]searchbackend.VirtualItem, len(virtuals))
+	for _, item := range virtuals {
+		if item.FilePath == "" {
+			continue
+		}
+		key := canonicalSearchPath(item.FilePath)
+		if _, exists := byPath[key]; !exists {
+			byPath[key] = item
+		}
+	}
+	for i := range groups {
+		if groups[i].FilePath == "" {
+			continue
+		}
+		item, ok := byPath[canonicalSearchPath(groups[i].FilePath)]
+		if !ok {
+			continue
+		}
+		groups[i].Column = item.Column
+		groups[i].Item = item.Title
+		if groups[i].Item == "" {
+			groups[i].Item = item.ID
+		}
+		groups[i].VirtualVID = item.VID
+		groups[i].VirtualItem = item.ID
+	}
 }
 
 // Update routes a search-internal async message to its handler. Keystrokes go
@@ -261,7 +350,12 @@ func (s *Search) HandleKey(msg tea.KeyPressMsg) tea.Cmd {
 		g := s.groups[s.selected]
 		s.Close()
 		return func() tea.Msg {
-			return searchSelectMsg{BoardPath: g.BoardPath, FilePath: g.FilePath}
+			return searchSelectMsg{
+				BoardPath:   g.BoardPath,
+				FilePath:    g.FilePath,
+				VirtualVID:  g.VirtualVID,
+				VirtualItem: g.VirtualItem,
+			}
 		}
 	}
 
@@ -282,7 +376,7 @@ func (s *Search) HandleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 }
 
-// queryChanged bumps the generation and schedules a debounced ripgrep run. An
+// queryChanged bumps the generation and schedules a debounced adapter run. An
 // empty query clears results without running anything.
 func (s *Search) queryChanged() tea.Cmd {
 	s.seq++
@@ -298,155 +392,6 @@ func (s *Search) queryChanged() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
 		return searchDebounceMsg{Seq: seq}
 	})
-}
-
-// runRipgrep executes ripgrep across all roots for query and returns the parsed
-// results as a searchResultsMsg tagged with seq.
-func runRipgrep(seq int, query string, roots []recents.Entry) tea.Cmd {
-	return func() tea.Msg {
-		if strings.TrimSpace(query) == "" {
-			return searchResultsMsg{Seq: seq}
-		}
-		paths := columnPaths(roots)
-		if len(paths) == 0 {
-			return searchResultsMsg{Seq: seq}
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		// --max-depth 1 + the column dirs as roots restricts matches to items
-		// living directly inside a board's columns (board/column/file.md).
-		args := []string{"--json", "--fixed-strings", "--ignore-case", "-g", "*.md", "--max-depth", "1", "-m", "20", "--", query}
-		args = append(args, paths...)
-		out, err := exec.CommandContext(ctx, "rg", args...).Output()
-		if err != nil {
-			// rg exits 1 when there are no matches — that is not an error.
-			var ee *exec.ExitError
-			if errors.As(err, &ee) && ee.ExitCode() == 1 {
-				return searchResultsMsg{Seq: seq}
-			}
-			if errors.Is(err, exec.ErrNotFound) {
-				return searchResultsMsg{Seq: seq, Err: "ripgrep (rg) not installed"}
-			}
-			return searchResultsMsg{Seq: seq, Err: "search failed: " + err.Error()}
-		}
-		return searchResultsMsg{Seq: seq, Results: parseRipgrep(out, roots)}
-	}
-}
-
-// columnPaths returns the immediate subdirectories (columns) of every board
-// root, applying the same skip rules as the board loader: hidden (.) and
-// private (_) directories are excluded. Search is scoped to these so only
-// column-level items (board/column/*.md) can match.
-func columnPaths(roots []recents.Entry) []string {
-	var dirs []string
-	for _, e := range roots {
-		cols, err := board.Columns(e.Path)
-		if err != nil {
-			continue
-		}
-		for _, name := range cols {
-			dirs = append(dirs, filepath.Join(e.Path, name))
-		}
-	}
-	return dirs
-}
-
-// rgEvent mirrors the subset of ripgrep --json "match" events we consume.
-type rgEvent struct {
-	Type string `json:"type"`
-	Data struct {
-		Path struct {
-			Text string `json:"text"`
-		} `json:"path"`
-		Lines struct {
-			Text string `json:"text"`
-		} `json:"lines"`
-		LineNumber int `json:"line_number"`
-		Submatches []struct {
-			Start int `json:"start"`
-			End   int `json:"end"`
-		} `json:"submatches"`
-	} `json:"data"`
-}
-
-func parseRipgrep(out []byte, roots []recents.Entry) []searchResult {
-	results := make([]searchResult, 0, 32)
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if line == "" {
-			continue
-		}
-		var ev rgEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			continue
-		}
-		if ev.Type != "match" {
-			continue
-		}
-		fp := ev.Data.Path.Text
-		text, col, length := matchSpan(ev.Data.Lines.Text, ev.Data.Submatches)
-		board, name := boardForPath(fp, roots)
-		results = append(results, searchResult{
-			BoardPath: board,
-			BoardName: name,
-			FilePath:  fp,
-			Column:    filepath.Base(filepath.Dir(fp)),
-			Item:      strings.TrimSuffix(filepath.Base(fp), ".md"),
-			Line:      ev.Data.LineNumber,
-			Text:      text,
-			matchCol:  col,
-			matchLen:  length,
-		})
-		if len(results) >= maxSearchResults {
-			break
-		}
-	}
-	return results
-}
-
-// matchSpan trims the raw matched line and translates the first submatch's byte
-// offsets into rune offsets within the trimmed text (for highlighting).
-func matchSpan(raw string, submatches []struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
-}) (text string, runeCol, runeLen int) {
-	raw = strings.TrimRight(raw, "\r\n")
-	trimmedLeft := len(raw) - len(strings.TrimLeft(raw, " \t"))
-	text = strings.TrimSpace(raw)
-	if len(submatches) == 0 {
-		return text, 0, 0
-	}
-	bs := submatches[0].Start - trimmedLeft
-	be := submatches[0].End - trimmedLeft
-	if bs < 0 {
-		bs = 0
-	}
-	if be > len(text) {
-		be = len(text)
-	}
-	if be < bs {
-		be = bs
-	}
-	runeCol = utf8.RuneCountInString(text[:bs])
-	runeLen = utf8.RuneCountInString(text[bs:be])
-	return text, runeCol, runeLen
-}
-
-// boardForPath returns the root whose path is the longest prefix of fp.
-func boardForPath(fp string, roots []recents.Entry) (path, name string) {
-	best := -1
-	for _, e := range roots {
-		root := e.Path
-		if strings.HasPrefix(fp, root+string(filepath.Separator)) || fp == root {
-			if len(root) > best {
-				best = len(root)
-				path = root
-				name = e.Name
-			}
-		}
-	}
-	return path, name
 }
 
 // searchBoxWidth picks a stable dialog width from the terminal width so the box
@@ -553,7 +498,10 @@ func (s *Search) renderResults(textWidth int) string {
 		rows = append(rows, clip(gutter+" "+header))
 
 		for _, m := range g.Matches {
-			lineNo := lineStyle.Render(strconv.Itoa(m.Line) + ": ")
+			lineNo := ""
+			if m.Line > 0 {
+				lineNo = lineStyle.Render(strconv.Itoa(m.Line) + ": ")
+			}
 			text := renderHighlighted(m.Text, matchIndexes(m.matchCol, m.matchLen), textStyle, hiStyle)
 			rows = append(rows, clip("     "+lineNo+text))
 		}

@@ -259,22 +259,6 @@ func TestHiddenColumnRemainsScriptMutationTarget(t *testing.T) {
 	}
 }
 
-func TestHiddenColumnsExcludedFromCurrentBoardSearch(t *testing.T) {
-	b := newVisibilityBoard(t, "Todo", "Archive")
-	if err := b.hideColumn("Archive"); err != nil {
-		t.Fatal(err)
-	}
-	msg := searchResultsMsg{Results: []searchResult{
-		{BoardPath: b.cfg.Path, Column: "Todo"},
-		{BoardPath: b.cfg.Path, Column: "Archive"},
-		{BoardPath: filepath.Join(b.cfg.Path, "other"), Column: "Archive"},
-	}}
-	got := b.filterHiddenSearchResults(msg).Results
-	if len(got) != 2 || got[0].Column != "Todo" || samePath(got[1].BoardPath, b.cfg.Path) {
-		t.Fatalf("filtered results = %+v", got)
-	}
-}
-
 func TestHiddenColumnStillReceivesItemTransform(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"Todo", "Archive"} {

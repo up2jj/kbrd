@@ -708,15 +708,12 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.session().handleRemoveBoard(msg)
 
 	case searchMsg:
-		// Search owns its async lifecycle (debounce + ripgrep); route opaquely,
+		// Search owns its async lifecycle (debounce + adapters); route opaquely,
 		// the same way git.Msg is handled below.
-		if results, ok := msg.(searchResultsMsg); ok {
-			msg = b.filterHiddenSearchResults(results)
-		}
 		return b, b.search.Update(msg)
 
 	case searchSelectMsg:
-		return b.searchActions().activateFile(msg.BoardPath, msg.FilePath)
+		return b.searchActions().activateResult(msg)
 
 	case runCustomCommandMsg:
 		return b.handleRunCustomCommand(msg)

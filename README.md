@@ -91,7 +91,7 @@ A quick, scannable rundown of everything kbrd does:
 **Search & navigation**
 
 - **Fully keyboard-driven** — every action has a binding; mouse optional.
-- **Global search** — fuzzy full-text search across all recent boards via `ripgrep` (`f`).
+- **Global search** — full-text search across all recent boards via `ripgrep`, merged with the active layer's virtual items (`f`).
 - **Board switcher** — fuzzy switch, pin favorites, and remove boards (`Ctrl+P`).
 - **Harpoon slots** — keep five board-scoped file jumps at hand (`h`).
 - **Help overlay** — discover every shortcut without leaving the app (`?`).
@@ -200,7 +200,7 @@ Move the resulting `kbrd` binary somewhere on your `PATH`. See [Development](#de
 
 **Runtime dependencies**
 - `git` — for the git panel and sync features.
-- Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for global search.
+- Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for filesystem content in global search; active-layer virtual metadata remains searchable without it.
 - Optional: [`difft`](https://github.com/Wilfred/difftastic) or `diff-so-fancy` — nicer diffs (falls back to `git`).
 - Optional: [`zellij`](https://zellij.dev) — enables the `z` actions menu (editor/shell panes) when kbrd runs inside a zellij session.
 - Optional: [`direnv`](https://direnv.net) — loads an approved board `.envrc` when opening or switching boards.
@@ -412,6 +412,12 @@ override it.
 | `esc` / `ctrl+p` | Cancel |
 
 ### Global search (`f`)
+
+Search merges filesystem content from all recent boards with titles, previews,
+and metadata from the active board's virtual columns. Results backed by the
+same file are shown once. Column visibility does not limit global search;
+opening a hidden hit selects its virtual representation when possible or
+reveals its filesystem column.
 
 | Keys | Action |
 | --- | --- |
@@ -999,7 +1005,8 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 - `kbrd.ui.*` dialogs cannot be called from hooks or timers (no coroutine context), and
   new commands/hooks/timers cannot be registered from inside a timer callback or hook.
 - The MCP server cannot run Lua-registered commands — only shell custom commands.
-- Global search requires `ripgrep` to be installed.
+- Filesystem content in global search requires `ripgrep`; active-layer virtual
+  titles, previews, and metadata do not.
 
 ---
 

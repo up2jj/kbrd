@@ -1315,10 +1315,12 @@ kbrd.column.show_all("real") -- restore every filesystem column
 kbrd.column.show_all()       -- legacy shorthand for show_all("real")
 ```
 
-Hidden columns are removed from the TUI, navigation, menus, and search, but
-remain loaded and watched. Explicit named operations can still use them, so a
-script may move a completed card into a hidden archive. Named `hide` and `show`
-reject virtual columns.
+Hidden columns are removed from the TUI, navigation, and menus, but remain
+loaded, watched, and discoverable through global search. Opening a search hit
+prefers an active virtual item backed by the same path; otherwise kbrd reveals
+the hidden filesystem column. Explicit named operations can still use hidden
+columns, so a script may move a completed card into a hidden archive. Named
+`hide` and `show` reject virtual columns.
 
 `hide` and `show` return `true` on success, including repeated calls that make
 no change, or `nil, err` for an unknown/virtual name. Hiding the final visible

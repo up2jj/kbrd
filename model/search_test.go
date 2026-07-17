@@ -4,11 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"testing"
 
 	"kbrd/config"
+	"kbrd/events"
 	"kbrd/recents"
+	searchbackend "kbrd/search"
 )
 
 func TestBuildSearchRoots(t *testing.T) {
@@ -200,62 +201,97 @@ func TestGroupByFile(t *testing.T) {
 	}
 }
 
-func TestColumnPaths(t *testing.T) {
+func TestGroupSearchResultsMergesFilesystemAndVirtualPath(t *testing.T) {
 	t.Parallel()
 
-	board := t.TempDir()
-	for _, d := range []string{"1. todo", "2. done", ".hidden", "_private"} {
-		if err := os.Mkdir(filepath.Join(board, d), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	path := "/board/Todo/task.md"
+	results := []searchResult{
+		{BoardPath: "/board", FilePath: path, Column: "Todo", Item: "task", Line: 3, Text: "body phrase"},
+		{BoardPath: "/board", FilePath: path, Column: "Focus", Item: "Task title", Text: "Task title", virtualVID: "focus", virtualItem: "task-1"},
+		{BoardPath: "/board", FilePath: path, Column: "Todo", Item: "task", Line: 3, Text: "body phrase"},
 	}
-	writeFile(t, board, "root.md", "x") // a file, not a dir — must be ignored
+	virtuals := []searchbackend.VirtualItem{{
+		BoardPath: "/board", Column: "Focus", VID: "focus", ID: "task-1", Title: "Task title", FilePath: path,
+	}}
 
-	got := columnPaths([]recents.Entry{{Path: board}})
-	sort.Strings(got)
-	want := []string{filepath.Join(board, "1. todo"), filepath.Join(board, "2. done")}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("columnPaths = %v, want %v (hidden/private dirs and files excluded)", got, want)
+	groups := groupSearchResults(results, virtuals)
+	if len(groups) != 1 {
+		t.Fatalf("groups = %+v, want one path-deduplicated result", groups)
+	}
+	group := groups[0]
+	if group.Column != "Focus" || group.Item != "Task title" || group.VirtualVID != "focus" || group.VirtualItem != "task-1" {
+		t.Fatalf("merged group identity = %+v", group)
+	}
+	if len(group.Matches) != 2 {
+		t.Fatalf("merged matches = %+v, want duplicate body match removed", group.Matches)
 	}
 }
 
-func TestParseRipgrep(t *testing.T) {
-	t.Parallel()
+func TestSearchActionsActivateFilePrefersVisibleVirtualItem(t *testing.T) {
+	boardDir := makeSearchBoard(t, map[string][]string{"Todo": {"target"}})
+	b := NewBoard(config.Config{Path: boardDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(boardDir, "Todo", "target.md")
+	b.setVirtualColumn("focus", events.VirtualColumnSpec{
+		Name:  "Focus",
+		Items: []events.VirtualItem{{ID: "virtual-target", Title: "Target", Path: path}},
+	})
+	if err := b.hideAllColumns(events.ColumnKindReal); err != nil {
+		t.Fatal(err)
+	}
 
-	roots := []recents.Entry{{Path: "/board", Name: "Board"}}
-	// One match line as ripgrep --json emits it. "phrase" starts at byte 5.
-	out := []byte(`{"type":"begin","data":{"path":{"text":"/board/todo/task.md"}}}
-{"type":"match","data":{"path":{"text":"/board/todo/task.md"},"lines":{"text":"find phrase here\n"},"line_number":3,"submatches":[{"start":5,"end":11}]}}
-{"type":"end","data":{}}`)
-
-	got := parseRipgrep(out, roots)
-	if len(got) != 1 {
-		t.Fatalf("len = %d, want 1 (only match events kept)", len(got))
+	_, cmd := b.searchActions().activateFile(boardDir, path)
+	if cmd != nil {
+		t.Fatalf("activate virtual result command = %T, want nil", cmd)
 	}
-	r := got[0]
-	if r.BoardPath != "/board" || r.BoardName != "Board" {
-		t.Errorf("board = %q/%q, want /board/Board", r.BoardPath, r.BoardName)
+	if !b.columns[b.selectedCol].Virtual || b.columns[b.selectedCol].VID != "focus" {
+		t.Fatalf("selected column = %+v, want virtual focus", b.columns[b.selectedCol])
 	}
-	if r.Column != "todo" || r.Item != "task" {
-		t.Errorf("column/item = %q/%q, want todo/task", r.Column, r.Item)
-	}
-	if r.Line != 3 || r.Text != "find phrase here" {
-		t.Errorf("line/text = %d/%q, want 3/\"find phrase here\"", r.Line, r.Text)
-	}
-	if r.matchCol != 5 || r.matchLen != 6 {
-		t.Errorf("match span = (%d, %d), want (5, 6)", r.matchCol, r.matchLen)
+	if got := b.columns[b.selectedCol].SelectedItem().Name; got != "virtual-target" {
+		t.Fatalf("selected item = %q, want virtual-target", got)
 	}
 }
 
-func TestBoardForPath(t *testing.T) {
-	t.Parallel()
-
-	roots := []recents.Entry{
-		{Path: "/a", Name: "A"},
-		{Path: "/a/sub", Name: "Sub"}, // longer prefix must win
+func TestSearchActionsActivateFileRevealsHiddenFilesystemColumn(t *testing.T) {
+	boardDir := makeSearchBoard(t, map[string][]string{"Todo": {"first"}, "Archive": {"target"}})
+	b := NewBoard(config.Config{Path: boardDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatal(err)
 	}
-	path, name := boardForPath("/a/sub/col/file.md", roots)
-	if path != "/a/sub" || name != "Sub" {
-		t.Errorf("boardForPath = %q/%q, want /a/sub/Sub (longest prefix)", path, name)
+	if err := b.hideColumn("Archive"); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(boardDir, "Archive", "target.md")
+	_, _ = b.searchActions().activateFile(boardDir, path)
+	if b.columns[b.selectedCol].Name != "Archive" || b.columns[b.selectedCol].SelectedItem().Name != "target" {
+		t.Fatalf("selection = %q/%q, want revealed Archive/target", b.columns[b.selectedCol].Name, b.columns[b.selectedCol].SelectedItem().Name)
+	}
+	if b.columnHidden("Archive") {
+		t.Fatal("search activation left Archive hidden")
+	}
+}
+
+func TestSearchActionsActivateFilelessVirtualResult(t *testing.T) {
+	boardDir := makeSearchBoard(t, map[string][]string{"Todo": {"first"}})
+	b := NewBoard(config.Config{Path: boardDir, ColumnWidth: 32, PreviewLines: 3, NotifyBackend: "none"})
+	if err := b.loadColumns(); err != nil {
+		t.Fatal(err)
+	}
+	b.setVirtualColumn("focus", events.VirtualColumnSpec{
+		Name:  "Focus",
+		Items: []events.VirtualItem{{ID: "virtual-target", Title: "Target without a file"}},
+	})
+
+	_, cmd := b.searchActions().activateResult(searchSelectMsg{
+		BoardPath: b.cfg.Path, VirtualVID: "focus", VirtualItem: "virtual-target",
+	})
+	if cmd != nil {
+		t.Fatalf("activate fileless result command = %T, want nil", cmd)
+	}
+	if !b.columns[b.selectedCol].Virtual || b.columns[b.selectedCol].SelectedItem().Name != "virtual-target" {
+		t.Fatalf("fileless selection = %+v", b.columns[b.selectedCol].SelectedItem())
 	}
 }
