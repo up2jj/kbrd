@@ -145,6 +145,7 @@ kbrd.layer{ id="same", setup=function() end }`)
 	t.Run("global init rejected", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 		configHome, err := os.UserConfigDir()
 		if err != nil {
 			t.Fatal(err)

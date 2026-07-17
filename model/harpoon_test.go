@@ -172,10 +172,6 @@ func TestHarpoonWatcherLeavesAmbiguousMoveStale(t *testing.T) {
 	b := boardWithNCols(t, 2, 2)
 	writeColItem(t, b.columns[0], "tracked")
 	oldPath := b.columns[0].Items[0].FullPath
-	body, err := os.ReadFile(oldPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	if err := b.harpoon.Open(b.cfg.Path); err != nil {
 		t.Fatal(err)
@@ -183,15 +179,15 @@ func TestHarpoonWatcherLeavesAmbiguousMoveStale(t *testing.T) {
 	if err := b.harpoon.SetSelected(oldPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(oldPath); err != nil {
-		t.Fatal(err)
-	}
 	first := filepath.Join(b.columns[0].Path, "first-copy.md")
 	second := filepath.Join(b.columns[1].Path, "second-copy.md")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, body, 0o644); err != nil {
+		if err := os.Link(oldPath, path); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.Remove(oldPath); err != nil {
+		t.Fatal(err)
 	}
 
 	for _, path := range []string{oldPath, first, second} {
