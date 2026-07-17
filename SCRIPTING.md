@@ -23,7 +23,7 @@ shell commands keep working unchanged.
   - Core — [layer](#kbrdlayer--runtime-layer), [debug / inspect](#kbrddebug--kbrdinspectvalue), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
-  - [`kbrd.ui.*`](#scripted-ui) — input, select, multiselect, form, confirm, actions, notify, plus legacy pick/prompt
+  - [`kbrd.ui.*`](#scripted-ui) — input, textarea, viewer, select, multiselect, form, confirm, actions, notify, plus legacy pick/prompt
   - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
@@ -1041,6 +1041,8 @@ Blocking widgets return a common result table:
   value = "...",     -- input text, selected item id, or confirm boolean
   ids = {...},        -- selected IDs from multiselect
   values = {...},     -- values keyed by field ID from form
+  cursor = {line=1, column=1, offset=0}, -- textarea action cursor
+  selection = {start_offset=0, end_offset=4, text="..."}, -- when selected
 }
 ```
 
@@ -1087,6 +1089,66 @@ local result = kbrd.ui.select({
   },
 })
 if not result.cancelled then kbrd.board.move(ctx, result.value) end
+```
+
+#### `kbrd.ui.textarea(options)`
+
+Open an editable multiline buffer. Options are `title`, `initial`,
+`wrap` (default `true`), `line_numbers` (default `false`), and `actions`.
+Every action needs a unique `id`, `label`, and shortcut `key`; it may also set
+`primary`, `destructive`, `disabled`, `disabled_reason`, and
+`requires_selection`. At least one action is required. Shortcuts must use
+`ctrl+` or `alt+`; `ctrl+[` remains reserved for returning to normal mode.
+
+The editor starts in insert mode and uses kbrd's Vim buffer. Escape is reserved
+for cancelling the entire widget, so use `ctrl+[` to return to normal mode and
+`v` or `V` to select text. An action returns the full edited text in `value`,
+its ID in `action`, and a one-based `cursor` (`line`, rune-based `column`, and
+UTF-8 byte `offset`). When a visual selection is active, `selection` contains
+normalized, end-exclusive UTF-8 byte offsets and the selected text.
+
+```lua
+local result = kbrd.ui.textarea({
+  title = "Scratchpad",
+  initial = "Ideas go here\n",
+  line_numbers = true,
+  actions = {
+    {id="save", label="Save", key="ctrl+s", primary=true},
+    {id="promote", label="Promote", key="ctrl+enter", requires_selection=true},
+  },
+})
+if result.cancelled then return end
+if result.action == "promote" then
+  kbrd.notify("Selected " .. result.selection.text)
+end
+```
+
+#### `kbrd.ui.viewer(options)`
+
+Open a read-only scrollable document. Options are `title`, `content`, `format`,
+`wrap` (default `true`), `line_numbers` (default `false`), and optional
+`actions`. Supported formats are `plain` (default), `markdown`, `diff`, `json`,
+`yaml`, and `log`. JSON is pretty-printed when valid; the other formats receive
+format-aware terminal styling without changing their content. Use `j`/`k`,
+Page Up/Page Down, `g`/`G`, or the mouse wheel to scroll. When wrapping is
+disabled, use `h`/`l` or Left/Right to pan horizontally.
+
+Viewer actions use the shared action schema, require shortcut keys, and return
+their ID in `action`. They cannot require a text selection or use the viewer's
+navigation keys.
+
+```lua
+local result = kbrd.ui.viewer({
+  title = "Generated patch",
+  content = patch,
+  format = "diff",
+  line_numbers = true,
+  actions = {
+    {id="apply", label="Apply", key="ctrl+a", primary=true},
+    {id="back", label="Back", key="ctrl+b"},
+  },
+})
+if result.action == "apply" then kbrd.notify("Patch approved") end
 ```
 
 #### `kbrd.ui.confirm(options)`
@@ -1265,8 +1327,8 @@ script resumes with the answer. While the UI is open:
   resumes once per call.
 
 Only command coroutines may open blocking UI. Hooks (`kbrd.on`), timers, and
-async callbacks cannot call `input`, `select`, `multiselect`, `confirm`,
-`form`, `actions`, `pick`, or `prompt`; those contexts have nowhere to yield
+async callbacks cannot call `input`, `textarea`, `viewer`, `select`,
+`multiselect`, `confirm`, `form`, `actions`, `pick`, or `prompt`; those contexts have nowhere to yield
 and receive an actionable Lua error. `kbrd.ui.notify` remains safe because it
 is non-blocking. Switching
 boards, reloading scripts, entering safe mode, or shutting down cancels an open

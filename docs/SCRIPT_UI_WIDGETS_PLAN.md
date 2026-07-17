@@ -500,7 +500,6 @@ script-level workflow rather than a native board feature:
 local result = kbrd.ui.textarea({
   title = "Scratchpad",
   initial = text,
-  language = "markdown",
   actions = {
     {
       id = "save",

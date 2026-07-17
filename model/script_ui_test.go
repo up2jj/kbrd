@@ -187,6 +187,80 @@ end)`)
 	}
 }
 
+func TestScriptUITextareaProducesStructuredSelectionResult(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.command("s", "Scratchpad", function()
+  local result = kbrd.ui.textarea({initial="aą\n猫x", actions={
+    {id="promote", label="Promote", key="ctrl+enter", requires_selection=true},
+  }})
+  if result.selection then kbrd.notify(result.action .. ":" .. result.selection.text) end
+end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if b.scriptUI.kind != scriptUITextarea {
+		t.Fatalf("kind = %v", b.scriptUI.kind)
+	}
+	for _, msg := range []tea.KeyPressMsg{{Code: '[', Mod: tea.ModCtrl}, {Code: 'l'}, {Code: 'v'}, {Code: 'j'}} {
+		b.Update(msg)
+	}
+	_, cmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("textarea action did not produce resume command")
+	}
+	resume, ok := cmd().(scriptResumeMsg)
+	if !ok {
+		t.Fatal("textarea result was not scriptResumeMsg")
+	}
+	result := resume.Result.(script.UIResult)
+	if result.Action != "promote" || result.Cursor == nil || result.Cursor.Offset != 7 || result.Selection == nil || result.Selection.Text != "ą\n猫x" {
+		t.Fatalf("result = %+v", result)
+	}
+	runMsg(t, b, resume)
+	if b.scriptUI.Active() {
+		t.Fatal("textarea remained active after resume")
+	}
+}
+
+func TestScriptUIViewerActionResumesCommand(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.command("v", "View", function()
+  local result = kbrd.ui.viewer({content="+change", format="diff", actions={
+    {id="apply", label="Apply", key="ctrl+a"},
+  }})
+  kbrd.notify(result.action)
+end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if b.scriptUI.kind != scriptUIViewer {
+		t.Fatalf("kind = %v", b.scriptUI.kind)
+	}
+	_, cmd := b.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("viewer action did not produce resume command")
+	}
+	resume := cmd().(scriptResumeMsg)
+	result := resume.Result.(script.UIResult)
+	if result.Action != "apply" || !result.Submitted {
+		t.Fatalf("result = %+v", result)
+	}
+	runMsg(t, b, resume)
+}
+
+func TestScriptUIViewerReceivesMouseWheelFromModalRouter(t *testing.T) {
+	content := strings.Repeat("line\n", 40)
+	b, _ := makeBoard(t, `
+kbrd.command("v", "View", function()
+  kbrd.ui.viewer({content=[[`+content+`]]})
+end)`)
+	b.Update(tea.WindowSizeMsg{Width: 80, Height: 16})
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if b.scriptUI.kind != scriptUIViewer {
+		t.Fatalf("kind = %v", b.scriptUI.kind)
+	}
+	b.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if b.scriptUI.viewer.Offset() != 3 {
+		t.Fatalf("viewer offset = %d", b.scriptUI.viewer.Offset())
+	}
+}
+
 func TestScriptUIMultiSelectSubmit(t *testing.T) {
 	b, _ := makeBoard(t, `
 kbrd.command("m", "Multi", function()

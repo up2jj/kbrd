@@ -31,6 +31,8 @@ func decodeUIRequest(vals []lua.LValue) (*UIRequest, bool, error) {
 	switch req.Kind {
 	case UIKindInput:
 		err = decodeInputSpec(t, &req.Spec)
+	case UIKindTextarea:
+		err = decodeTextareaSpec(t, &req.Spec)
 	case UIKindSelect:
 		err = decodeSelectSpec(t, &req.Spec)
 	case UIKindMultiSelect:
@@ -41,6 +43,8 @@ func decodeUIRequest(vals []lua.LValue) (*UIRequest, bool, error) {
 		err = decodeActionsSpec(t, &req.Spec)
 	case UIKindForm:
 		err = decodeFormSpec(t, &req.Spec)
+	case UIKindViewer:
+		err = decodeViewerSpec(t, &req.Spec)
 	default:
 		err = req.validate()
 	}
@@ -48,6 +52,74 @@ func decodeUIRequest(vals []lua.LValue) (*UIRequest, bool, error) {
 		return nil, true, err
 	}
 	return req, true, nil
+}
+
+func decodeTextareaSpec(t *lua.LTable, spec *UISpec) error {
+	initial, err := uiString(t, "initial", false)
+	if err != nil {
+		return err
+	}
+	spec.Initial = initial
+	if spec.Wrap, err = uiBool(t, "wrap", true); err != nil {
+		return err
+	}
+	if spec.LineNumbers, err = uiBool(t, "line_numbers", false); err != nil {
+		return err
+	}
+	if spec.Actions, err = uiActions(t, "actions"); err != nil {
+		return err
+	}
+	if len(spec.Actions) == 0 {
+		return fmt.Errorf("kbrd.ui textarea requires at least one action")
+	}
+	for _, action := range spec.Actions {
+		if action.Key == "" {
+			return fmt.Errorf("kbrd.ui textarea action %q requires a shortcut key", action.ID)
+		}
+		if !isTextareaActionKey(action.Key) {
+			return fmt.Errorf("kbrd.ui textarea action %q shortcut must use ctrl+ or alt+ and cannot be ctrl+[", action.ID)
+		}
+	}
+	return nil
+}
+
+func decodeViewerSpec(t *lua.LTable, spec *UISpec) error {
+	var err error
+	if spec.Content, err = uiString(t, "content", false); err != nil {
+		return err
+	}
+	if spec.Format, err = uiString(t, "format", false); err != nil {
+		return err
+	}
+	if spec.Format == "" {
+		spec.Format = "plain"
+	}
+	switch spec.Format {
+	case "plain", "markdown", "diff", "json", "yaml", "log":
+	default:
+		return fmt.Errorf("kbrd.ui viewer format %q is unsupported", spec.Format)
+	}
+	if spec.Wrap, err = uiBool(t, "wrap", true); err != nil {
+		return err
+	}
+	if spec.LineNumbers, err = uiBool(t, "line_numbers", false); err != nil {
+		return err
+	}
+	if spec.Actions, err = uiActions(t, "actions"); err != nil {
+		return err
+	}
+	for _, action := range spec.Actions {
+		if action.RequiresSelection {
+			return fmt.Errorf("kbrd.ui viewer action %q cannot require a selection", action.ID)
+		}
+		if action.Key == "" {
+			return fmt.Errorf("kbrd.ui viewer action %q requires a shortcut key", action.ID)
+		}
+		if isViewerNavigationKey(action.Key) {
+			return fmt.Errorf("kbrd.ui viewer action %q key %q is reserved for navigation", action.ID, action.Key)
+		}
+	}
+	return nil
 }
 
 func decodeMultiSelectSpec(t *lua.LTable, spec *UISpec) error {
@@ -320,7 +392,11 @@ func uiActions(t *lua.LTable, key string) ([]UIAction, error) {
 		if err != nil {
 			return UIAction{}, err
 		}
-		return UIAction{ID: id, Label: label, Key: shortcut, Primary: primary, Destructive: destructive, Disabled: disabled, DisabledReason: disabledReason}, nil
+		requiresSelection, err := uiBool(row, "requires_selection", false)
+		if err != nil {
+			return UIAction{}, err
+		}
+		return UIAction{ID: id, Label: label, Key: shortcut, Primary: primary, Destructive: destructive, Disabled: disabled, DisabledReason: disabledReason, RequiresSelection: requiresSelection}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -561,6 +637,20 @@ func findItem(items []UIItem, id string) (UIItem, bool) {
 func isReservedActionKey(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "esc", "escape", "enter", "return", "up", "down", "left", "right", "j", "k", "q", "ctrl+c", "ctrl+p":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTextareaActionKey(value string) bool {
+	key := strings.ToLower(strings.TrimSpace(value))
+	return key != "ctrl+[" && (strings.HasPrefix(key, "ctrl+") || strings.HasPrefix(key, "alt+"))
+}
+
+func isViewerNavigationKey(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "g", "h", "l", "home", "end", "pgup", "pgdown", "space":
 		return true
 	default:
 		return false

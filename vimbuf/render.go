@@ -49,6 +49,11 @@ func (b *Buffer) View(p theme.Palette) string {
 			rows = append(rows, vrow{r, 0, 0, true})
 			continue
 		}
+		if !b.wrap {
+			start := min(b.left, n)
+			rows = append(rows, vrow{r, start, min(start+textW, n), true})
+			continue
+		}
 		for s := 0; s < n && len(rows) < height; s += textW {
 			rows = append(rows, vrow{r, s, min(s+textW, n), s == 0})
 		}
@@ -69,14 +74,14 @@ func (b *Buffer) View(p theme.Palette) string {
 		body := ""
 		if i < len(rows) {
 			v := rows[i]
-			if v.first {
+			if v.first && b.lineNumbers {
 				num := strconv.Itoa(v.row + 1)
 				gs := gutterStyle
 				if v.row == b.cursor.Row {
 					gs = curGutterStyle
 				}
 				gut = gs.Render(strings.Repeat(" ", max(gutterW-1-len(num), 0)) + num + " ")
-			} else {
+			} else if b.lineNumbers {
 				gut = gutterStyle.Render(gut)
 			}
 			body = b.renderSegment(v, selStyle, cursorStyle)

@@ -19,6 +19,10 @@ kbrd.ui = {}
 	  return request("input", spec)
 	end
 
+	function kbrd.ui.textarea(spec)
+	  return request("textarea", spec)
+	end
+
 	function kbrd.ui.select(spec)
 	  return request("select", spec)
 	end
@@ -33,6 +37,10 @@ kbrd.ui = {}
 
 	function kbrd.ui.actions(spec)
 	  return request("actions", spec)
+	end
+
+	function kbrd.ui.viewer(spec)
+	  return request("viewer", spec)
 	end
 
 	local function normalize_pick_choices(choices)

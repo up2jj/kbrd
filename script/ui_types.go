@@ -55,6 +55,8 @@ type UISpec struct {
 	Actions      []UIAction
 	Content      string
 	Format       string
+	Wrap         bool
+	LineNumbers  bool
 }
 
 type UIItem struct {
@@ -120,7 +122,7 @@ type UIResult struct {
 
 func (r UIRequest) validate() error {
 	switch r.Kind {
-	case UIKindInput, UIKindSelect, UIKindMultiSelect, UIKindConfirm, UIKindForm, UIKindActions:
+	case UIKindInput, UIKindTextarea, UIKindSelect, UIKindMultiSelect, UIKindConfirm, UIKindForm, UIKindActions, UIKindViewer:
 		return nil
 	default:
 		return fmt.Errorf("unsupported kbrd.ui kind %q", r.Kind)

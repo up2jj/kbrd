@@ -9,13 +9,14 @@ import (
 )
 
 type Action struct {
-	ID             string
-	Label          string
-	Key            string
-	Primary        bool
-	Destructive    bool
-	Disabled       bool
-	DisabledReason string
+	ID                string
+	Label             string
+	Key               string
+	Primary           bool
+	Destructive       bool
+	Disabled          bool
+	DisabledReason    string
+	RequiresSelection bool
 }
 
 type ActionsOptions struct {

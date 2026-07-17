@@ -71,6 +71,7 @@ func (b *Board) modalLayers() []modalLayer {
 			active: b.scriptUI.Active,
 			view:   func(_, _, _ int) string { return b.scriptUI.View() },
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.scriptUI.Update(msg) },
+			mouse:  func(msg tea.MouseMsg) tea.Cmd { return b.scriptUI.Update(msg) },
 		},
 		{
 			active: func() bool { return b.editor.state != editorNone },
