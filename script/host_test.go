@@ -1187,11 +1187,11 @@ end)`)
 	if req == nil {
 		t.Fatal("expected UI request, got nil")
 	}
-	if req.Kind != UIKindPick || req.Spec.Title != "Priority" || len(req.Spec.Choices) != 3 {
+	if req.Kind != UIKindSelect || req.Spec.Title != "Priority" || len(req.Spec.Items) != 3 {
 		t.Fatalf("unexpected req: %+v", req)
 	}
 
-	req2, err := h.ResumeWith(req.Token, "P1")
+	req2, err := h.ResumeWith(req.Token, UIResult{Submitted: true, Action: "submit", Value: "2"})
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -1309,8 +1309,8 @@ func TestTakeReturnAfterPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if req == nil || req.Kind != "prompt" {
-		t.Fatalf("expected prompt yield, got %+v", req)
+	if req == nil || req.Kind != UIKindInput {
+		t.Fatalf("expected input yield, got %+v", req)
 	}
 	// Nothing captured yet — the command hasn't returned.
 	if _, ok := h.TakeReturn(); ok {
@@ -1387,7 +1387,7 @@ end)`)
 	if err != nil || req == nil {
 		t.Fatalf("expected req, got req=%v err=%v", req, err)
 	}
-	if req.Kind != UIKindPrompt || req.Spec.Default != "default" {
+	if req.Kind != UIKindInput || req.Spec.Initial != "default" {
 		t.Fatalf("unexpected req: %+v", req)
 	}
 	if _, err := h.ResumeWith(req.Token, "hello"); err != nil {
@@ -1441,12 +1441,12 @@ end)`)
 	defer h.Close()
 
 	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
-	if err != nil || req == nil || req.Kind != "pick" {
-		t.Fatalf("expected pick, got req=%+v err=%v", req, err)
+	if err != nil || req == nil || req.Kind != UIKindSelect {
+		t.Fatalf("expected select, got req=%+v err=%v", req, err)
 	}
-	req2, err := h.ResumeWith(req.Token, "x")
-	if err != nil || req2 == nil || req2.Kind != "prompt" {
-		t.Fatalf("expected prompt, got req=%+v err=%v", req2, err)
+	req2, err := h.ResumeWith(req.Token, UIResult{Submitted: true, Action: "submit", Value: "1"})
+	if err != nil || req2 == nil || req2.Kind != UIKindInput {
+		t.Fatalf("expected input, got req=%+v err=%v", req2, err)
 	}
 	if _, err := h.ResumeWith(req2.Token, "world"); err != nil {
 		t.Fatalf("final resume: %v", err)

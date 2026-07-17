@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
+	"kbrd/script"
 )
 
 func openTestEditor(t *testing.T, b *Board) {
@@ -24,7 +25,9 @@ func TestBoardViewFrame_OverlayPriorityCustomAndScriptOverEditor(t *testing.T) {
 	t.Parallel()
 	b := boardWithNCols(t, 1, 1)
 	openTestEditor(t, b)
-	b.scriptUI.OpenPicker("cmd", "tok", "Script picker", []string{"script choice"})
+	b.scriptUI.Open("cmd", &script.UIRequest{Token: "tok", Kind: script.UIKindSelect, Spec: script.UISpec{
+		Title: "Script picker", Items: []script.UIItem{{ID: "choice", Label: "script choice"}},
+	}})
 	b.customCmds.Open([]config.Command{{Name: "Custom first"}}, nil, nil, nil)
 
 	overlay := boardViewFrame{b: b}.activeOverlay(120, 30, 28)

@@ -420,33 +420,11 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 	}
 }
 
-// openScriptUI installs the appropriate UI state for a yielded UI request.
-// Confirms reuse the existing Dialog primitive; pick and prompt use ScriptUI.
+// openScriptUI installs the reusable control for a yielded UI request.
 func (b *Board) openScriptUI(name string, req *script.UIRequest) tea.Cmd {
 	switch req.Kind {
-	case script.UIKindPick:
-		b.scriptUI.OpenPicker(name, req.Token, req.Spec.Title, req.Spec.Choices)
-		return nil
-	case script.UIKindPrompt:
-		b.scriptUI.OpenPrompt(name, req.Token, req.Spec.Title, req.Spec.Default)
-		return nil
-	case script.UIKindConfirm:
-		title := req.Spec.Title
-		if title == "" {
-			title = "Confirm?"
-		}
-		b.scriptUI.OpenConfirm(name, req.Token, title)
-		b.dialog.Open(DialogOptions{
-			Title: title,
-			Buttons: []DialogButton{
-				{Label: "Yes", Kind: ButtonPrimary,
-					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Submitted: true, Action: "submit", Value: true}}},
-				{Label: "No",
-					Msg: scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Submitted: true, Action: "submit", Value: false}}},
-			},
-			DefaultIndex: 0,
-			CancelMsg:    scriptResumeMsg{Name: name, Token: req.Token, Result: script.UIResult{Cancelled: true, Action: "cancel"}},
-		})
+	case script.UIKindInput, script.UIKindSelect, script.UIKindConfirm, script.UIKindActions:
+		b.scriptUI.Open(name, req)
 		return nil
 	}
 	b.scripts.CancelPending()
@@ -478,21 +456,8 @@ func (b *Board) cancelScriptUI() {
 	if b.scripts != nil {
 		b.scripts.CancelPending()
 	}
-	if b.scriptUI.kind == scriptUIConfirm && b.dialog.active && b.dialogHasScriptToken(b.scriptUI.token) {
-		b.dialog.Close()
-	}
 	b.scriptUI.Close()
 	b.lineApplyPending = false
-}
-
-func (b *Board) dialogHasScriptToken(token string) bool {
-	for _, button := range b.dialog.buttons {
-		if msg, ok := button.Msg.(scriptResumeMsg); ok && msg.Token == token {
-			return true
-		}
-	}
-	msg, ok := b.dialog.cancelMsg.(scriptResumeMsg)
-	return ok && msg.Token == token
 }
 
 func (a boardScriptAPI) Notify(msg, level string) {

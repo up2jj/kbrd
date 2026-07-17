@@ -101,8 +101,8 @@ end)`)
 	if b.scriptUI.kind != scriptUIPick {
 		t.Fatalf("expected pick kind, got %v", b.scriptUI.kind)
 	}
-	if len(b.scriptUI.choices) != 2 {
-		t.Fatalf("expected 2 choices, got %v", b.scriptUI.choices)
+	if b.scriptUI.selectOne.SelectedIndex() != 0 {
+		t.Fatalf("expected first choice selected, got %d", b.scriptUI.selectOne.SelectedIndex())
 	}
 }
 
@@ -128,8 +128,8 @@ end)`)
 		t.Fatalf("expected scriptResumeMsg, got %T %+v", msg, msg)
 	}
 	result, ok := rm.Result.(script.UIResult)
-	if !ok || result.Value != "a" || !result.Submitted {
-		t.Fatalf("expected submitted result 'a', got %#v", rm.Result)
+	if !ok || result.Value != "1" || !result.Submitted {
+		t.Fatalf("expected submitted result ID '1', got %#v", rm.Result)
 	}
 	// Drive resume through Update.
 	_, c2 := b.Update(rm)
@@ -158,18 +158,18 @@ end)`)
 	}
 	// Press down arrow — should move selection from 0 to 1.
 	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if b.scriptUI.selected != 1 {
-		t.Fatalf("expected selected=1 after down, got %d", b.scriptUI.selected)
+	if b.scriptUI.selectOne.SelectedIndex() != 1 {
+		t.Fatalf("expected selected=1 after down, got %d", b.scriptUI.selectOne.SelectedIndex())
 	}
 	// Press down again.
 	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if b.scriptUI.selected != 2 {
-		t.Fatalf("expected selected=2, got %d", b.scriptUI.selected)
+	if b.scriptUI.selectOne.SelectedIndex() != 2 {
+		t.Fatalf("expected selected=2, got %d", b.scriptUI.selectOne.SelectedIndex())
 	}
 	// Press up.
 	b.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	if b.scriptUI.selected != 1 {
-		t.Fatalf("expected selected=1 after up, got %d", b.scriptUI.selected)
+	if b.scriptUI.selectOne.SelectedIndex() != 1 {
+		t.Fatalf("expected selected=1 after up, got %d", b.scriptUI.selectOne.SelectedIndex())
 	}
 	// Press esc — should cancel.
 	_, c := b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -287,8 +287,8 @@ end)`)
 			t.Fatalf("opening confirm produced %T", msg)
 		}
 	}
-	if !b.dialog.active || b.scriptUI.kind != scriptUIConfirm {
-		t.Fatalf("confirm not active: dialog=%v script=%v", b.dialog.active, b.scriptUI.kind)
+	if b.dialog.active || b.scriptUI.kind != scriptUIConfirm {
+		t.Fatalf("confirm routing incorrect: dialog=%v script=%v", b.dialog.active, b.scriptUI.kind)
 	}
 	_, cancelCmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cancelCmd == nil {
@@ -394,6 +394,62 @@ kbrd.command("n", "New board command", function() end)
 	for _, root := range []string{oldBoard, newBoard} {
 		if _, err := os.Stat(filepath.Join(root, "OLD_MUTATION")); !os.IsNotExist(err) {
 			t.Fatalf("cancelled old-board coroutine mutated %s: %v", root, err)
+		}
+	}
+}
+
+func TestScriptUITableWidgetsChainThroughSharedControls(t *testing.T) {
+	b, dir := makeBoard(t, `
+kbrd.command("w", "Widgets", function()
+  local input = kbrd.ui.input({title="Input", initial="ok", required=true})
+  local selected = kbrd.ui.select({title="Select", initial_id="b", items={
+    {id="a", label="A"}, {id="b", label="B"},
+  }})
+  local confirmed = kbrd.ui.confirm({title="Confirm", default=true, confirm_label="Do it"})
+  local action = kbrd.ui.actions({title="Actions", actions={{id="save", label="Save", key="ctrl+s"}}})
+  kbrd.fs.write("WIDGETS", input.value..":"..selected.value..":"..tostring(confirmed.value)..":"..action.action)
+end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0]})
+	if b.scriptUI.kind != scriptUIInput {
+		t.Fatalf("first widget kind = %v", b.scriptUI.kind)
+	}
+	resumeScriptWidget(t, b, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if b.scriptUI.kind != scriptUISelect {
+		t.Fatalf("second widget kind = %v", b.scriptUI.kind)
+	}
+	resumeScriptWidget(t, b, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if b.scriptUI.kind != scriptUIConfirm || !strings.Contains(b.scriptUI.View(), "Do it") {
+		t.Fatalf("confirm widget not opened with custom label: %q", b.scriptUI.View())
+	}
+	resumeScriptWidget(t, b, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if b.scriptUI.kind != scriptUIActions {
+		t.Fatalf("fourth widget kind = %v", b.scriptUI.kind)
+	}
+	resumeScriptWidget(t, b, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	body, err := os.ReadFile(filepath.Join(dir, "WIDGETS"))
+	if err != nil || string(body) != "ok:b:true:save" {
+		t.Fatalf("widget chain result = %q, err=%v", body, err)
+	}
+}
+
+func resumeScriptWidget(t *testing.T, b *Board, msg tea.Msg) {
+	t.Helper()
+	_, cmd := b.Update(msg)
+	if cmd == nil {
+		t.Fatalf("%T did not resolve active scripted widget", msg)
+	}
+	resume := cmd()
+	if _, ok := resume.(scriptResumeMsg); !ok {
+		t.Fatalf("widget command returned %T", resume)
+	}
+	_, follow := b.Update(resume)
+	if follow != nil {
+		for next := follow(); next != nil; {
+			_, follow = b.Update(next)
+			if follow == nil {
+				break
+			}
+			next = follow()
 		}
 	}
 }

@@ -23,7 +23,7 @@ shell commands keep working unchanged.
   - Core — [layer](#kbrdlayer--runtime-layer), [debug / inspect](#kbrddebug--kbrdinspectvalue), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
-  - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
+  - [`kbrd.ui.*`](#scripted-ui) — input, select, confirm, actions, notify, plus legacy pick/prompt
   - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
@@ -1029,7 +1029,116 @@ local ok, err = kbrd.board.select("Todo", "buy-milk")
 if not ok then kbrd.notify(err, "error") end
 ```
 
-### `kbrd.ui.pick(title, choices)`
+### Scripted UI
+
+Blocking widgets return a common result table:
+
+```lua
+{
+  submitted = true,
+  cancelled = false,
+  action = "submit", -- an action id for kbrd.ui.actions
+  value = "...",     -- input text, selected item id, or confirm boolean
+}
+```
+
+Pressing Escape returns `{cancelled=true, submitted=false, action="cancel"}`.
+Item and action IDs are stable script-owned values; labels are presentation.
+
+#### `kbrd.ui.input(options)`
+
+Open a single-line input. Options are `title`, `label`, `initial`,
+`placeholder`, `required`, `min_length`, `max_length`, `pattern`, and
+`pattern_hint`. Lengths count Unicode characters. `pattern` uses Go's RE2
+regular-expression syntax; `pattern_hint` is shown when it does not match.
+
+```lua
+local result = kbrd.ui.input({
+  title = "Rename card",
+  label = "New title",
+  initial = ctx.fileName,
+  required = true,
+  max_length = 80,
+  pattern = "^\\S.*$",
+  pattern_hint = "Start with a non-space character",
+})
+if result.cancelled then return end
+kbrd.notify("New title: " .. result.value)
+```
+
+#### `kbrd.ui.select(options)`
+
+Options are `title`, `items`, `searchable`, and `initial_id`. Each item requires
+unique string `id` and `label` fields and may set `description`, `icon`,
+`disabled`, `disabled_reason`, and `group`. Arrow keys or `j`/`k` move; Enter
+submits the selected ID. Typing filters a searchable select.
+
+```lua
+local result = kbrd.ui.select({
+  title = "Move to column",
+  searchable = true,
+  initial_id = "todo",
+  items = {
+    {id="todo", label="Todo", icon="○", group="Board"},
+    {id="doing", label="Doing", description="2 of 3 cards", group="Board"},
+    {id="done", label="Done", disabled=true, disabled_reason="Archived"},
+  },
+})
+if not result.cancelled then kbrd.board.move(ctx, result.value) end
+```
+
+#### `kbrd.ui.confirm(options)`
+
+Options are `title`, `message`, `detail` (a list of lines), `confirm_label`,
+`reject_label`, `default`, and `destructive`. The safe default is rejection;
+set `default=true` only when confirmation should be preselected. A destructive
+confirm uses danger styling. Submitting either button returns its boolean in
+`value`; Escape is cancellation.
+
+```lua
+local result = kbrd.ui.confirm({
+  title = "Delete card",
+  message = "Delete " .. ctx.fileName .. "?",
+  detail = {"This cannot be undone."},
+  confirm_label = "Delete",
+  reject_label = "Keep",
+  destructive = true,
+})
+if result.submitted and result.value then kbrd.board.delete(ctx) end
+```
+
+#### `kbrd.ui.actions(options)`
+
+Options are `title` and `actions`. Each action requires unique string `id` and
+`label` fields and may set `key`, `primary`, `destructive`, `disabled`, and
+`disabled_reason`. Shortcut keys must be unique and cannot replace reserved
+navigation, Enter, or Escape keys. The chosen ID is returned as both `action`
+and `value`.
+
+```lua
+local result = kbrd.ui.actions({
+  title = "Card action",
+  actions = {
+    {id="open", label="Open"},
+    {id="archive", label="Archive", key="ctrl+a", destructive=true},
+  },
+})
+if result.action == "archive" then kbrd.board.move(ctx, "Archive") end
+```
+
+#### `kbrd.ui.notify(options)`
+
+Send a non-blocking notification. It does not suspend the command and returns
+no value. `message` is required; `level` is `info` (default), `success`,
+`warning`, or `error`.
+
+```lua
+kbrd.ui.notify({message="Card saved", level="success"})
+```
+
+#### Legacy scalar calls
+
+##### `kbrd.ui.pick(title, choices)`
 
 Open a list picker. Blocks the script (via a Lua coroutine) until the user
 chooses or cancels. Returns the chosen string, or `nil` on cancel.
@@ -1040,9 +1149,9 @@ if pri == nil then return end   -- user pressed esc
 ```
 
 `choices` is a list of strings. Arrow keys / `j`/`k` move; enter confirms;
-esc / `q` cancels.
+Escape or `ctrl+p` cancels.
 
-### `kbrd.ui.prompt(title, default)`
+##### `kbrd.ui.prompt(title, default)`
 
 Open a single-line text input. Returns the entered string, or `nil` on cancel.
 `default` is optional; pass `""` (or omit) for an empty box.
@@ -1054,16 +1163,30 @@ if name == nil or name == "" then return end
 
 Enter submits; esc cancels.
 
-### `kbrd.ui.confirm(title)`
+##### `kbrd.ui.confirm(title)`
 
-Open a yes/no dialog (the same primitive kbrd uses for its own
-delete-confirms). Returns `true` for yes, `false` for no.
+Open a yes/no confirm and return `true` for yes, `false` for no or Escape.
 
 ```lua
 if not kbrd.ui.confirm("Delete " .. ctx.fileName .. "?") then return end
 ```
 
-### How UI calls work (briefly)
+#### Chained workflow
+
+```lua
+local title = kbrd.ui.input({title="New card", required=true})
+if title.cancelled then return end
+local column = kbrd.ui.select({title="Column", items={
+  {id="todo", label="Todo"}, {id="doing", label="Doing"},
+}})
+if column.cancelled then return end
+local ok = kbrd.ui.confirm({title="Create?", default=true})
+if ok.submitted and ok.value then
+  kbrd.board.create(column.value, title.value)
+end
+```
+
+#### How UI calls work (briefly)
 
 UI primitives are blocking from your script's perspective, but they don't
 freeze kbrd. Internally, calling `kbrd.ui.*` suspends your script's
@@ -1075,8 +1198,13 @@ script resumes with the answer. While the UI is open:
 - Multiple `kbrd.ui.*` calls in a row work — the script suspends and
   resumes once per call.
 
-Hooks (`kbrd.on`) **cannot** call `kbrd.ui.*` — they run synchronously
-and have nowhere to yield to. A yield from a hook is dropped silently.
+Only command coroutines may open blocking UI. Hooks (`kbrd.on`), timers, and
+async callbacks cannot call `input`, `select`, `confirm`, `actions`, `pick`, or
+`prompt`; those contexts have nowhere to yield and receive an actionable Lua
+error. `kbrd.ui.notify` remains safe because it is non-blocking. Switching
+boards, reloading scripts, entering safe mode, or shutting down cancels an open
+widget and discards its coroutine, so an old script cannot resume against a new
+board.
 
 ### `kbrd.timer.every(intervalMs, fn)` / `kbrd.timer.after(delayMs, fn)`
 

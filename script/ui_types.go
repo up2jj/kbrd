@@ -17,10 +17,6 @@ const (
 	UIKindForm        UIKind = "form"
 	UIKindActions     UIKind = "actions"
 	UIKindViewer      UIKind = "viewer"
-
-	// Legacy kinds remain distinct until the shared controls land in phase 2.
-	UIKindPick   UIKind = "pick"
-	UIKindPrompt UIKind = "prompt"
 )
 
 // ErrUnknownUIToken identifies a delayed or otherwise stale UI response.
@@ -36,27 +32,28 @@ type UIRequest struct {
 // UISpec is the declarative payload shared by scripted widgets. Fields that
 // are not relevant to a particular Kind remain at their zero value.
 type UISpec struct {
-	Title       string
-	Label       string
-	Initial     any
-	Placeholder string
-	Required    bool
-	MinLength   int
-	MaxLength   int
-	Pattern     string
-	PatternHint string
-	Message     string
-	Detail      []string
-	Items       []UIItem
-	Fields      []UIField
-	Actions     []UIAction
-	Content     string
-	Format      string
-
-	// Choices and Default carry the positional API until phase 2 normalizes
-	// pick and prompt onto Items and Initial.
-	Choices []string
-	Default string
+	Title        string
+	Label        string
+	Initial      any
+	Placeholder  string
+	Required     bool
+	MinLength    int
+	MaxLength    int
+	Pattern      string
+	PatternHint  string
+	Searchable   bool
+	InitialID    string
+	Message      string
+	Detail       []string
+	ConfirmLabel string
+	RejectLabel  string
+	Default      bool
+	Destructive  bool
+	Items        []UIItem
+	Fields       []UIField
+	Actions      []UIAction
+	Content      string
+	Format       string
 }
 
 type UIItem struct {
@@ -116,7 +113,7 @@ type UIResult struct {
 
 func (r UIRequest) validate() error {
 	switch r.Kind {
-	case UIKindPick, UIKindPrompt, UIKindConfirm:
+	case UIKindInput, UIKindSelect, UIKindConfirm, UIKindActions:
 		return nil
 	default:
 		return fmt.Errorf("unsupported kbrd.ui kind %q", r.Kind)

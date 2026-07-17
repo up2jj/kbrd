@@ -14,7 +14,7 @@ type KeyMap struct {
 
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		Cancel: key.NewBinding(key.WithKeys("esc", "ctrl+p"), key.WithHelp("esc", "cancel")),
 		Submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 		Prev:   key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "previous")),
 		Next:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "next")),

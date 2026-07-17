@@ -1,22 +1,17 @@
 package model
 
 import (
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"kbrd/script"
-	"kbrd/theme"
 	"kbrd/tui"
 )
 
 // scriptResumeMsg carries the user's response back to the Lua coroutine that
-// asked for it. Result is the value passed to coroutine.resume — a string
-// for pick/prompt, a bool for confirm, or nil on cancel.
+// asked for it.
 type scriptResumeMsg struct {
-	Name   string // command name, for error reporting
-	Token  string // coroutine token returned by Host.RunCommand / ResumeWith
+	Name   string
+	Token  string
 	Result any
 }
 
@@ -24,208 +19,194 @@ type scriptUIKind int
 
 const (
 	scriptUINone scriptUIKind = iota
-	scriptUIPick
-	scriptUIPrompt
+	scriptUIInput
+	scriptUISelect
 	scriptUIConfirm
+	scriptUIActions
+
+	// Retain the old internal names while legacy calls migrate to shared controls.
+	scriptUIPrompt = scriptUIInput
+	scriptUIPick   = scriptUISelect
 )
 
-// ScriptUI coordinates one in-flight scripted request. Confirm rendering is
-// temporarily delegated to Dialog until the shared control lands in phase 2.
+// ScriptUI coordinates one in-flight scripted request and delegates terminal
+// behavior to reusable controls in tui.
 type ScriptUI struct {
-	kind     scriptUIKind
-	name     string
-	token    string
-	title    string
-	choices  []string
-	selected int
-	input    textinput.Model
-	size     tui.Size
-	palette  Palette
+	kind  scriptUIKind
+	name  string
+	token string
+
+	input     tui.Input
+	selectOne tui.Select
+	confirm   tui.Confirm
+	actions   tui.Actions
+	size      tui.Size
+	palette   Palette
 }
 
-// SetPalette updates the UI's palette and restyles the active input.
 func (s *ScriptUI) SetPalette(p Palette) {
 	s.palette = p
-	if s.input.Prompt != "" {
-		theme.ApplyTextInputPalette(&s.input, p)
-	}
+	s.input.SetPalette(p)
+	s.selectOne.SetPalette(p)
+	s.confirm.SetPalette(p)
+	s.actions.SetPalette(p)
 }
 
 func (s *ScriptUI) Active() bool { return s.kind != scriptUINone }
 
 func (s *ScriptUI) Close() {
+	s.input.Close()
+	s.selectOne.Close()
+	s.confirm.Close()
+	s.actions.Close()
 	s.kind = scriptUINone
 	s.name = ""
 	s.token = ""
-	s.title = ""
-	s.choices = nil
-	s.selected = 0
-	s.input = textinput.Model{}
 }
 
-func (s *ScriptUI) OpenPicker(name, token, title string, choices []string) {
-	s.kind = scriptUIPick
+func (s *ScriptUI) Open(name string, req *script.UIRequest) {
+	s.Close()
 	s.name = name
-	s.token = token
-	s.title = title
-	s.choices = choices
-	s.selected = 0
-}
+	s.token = req.Token
 
-func (s *ScriptUI) OpenPrompt(name, token, title, def string) {
-	ti := textinput.New()
-	ti.Prompt = "› "
-	ti.CharLimit = 256
-	ti.SetWidth(50)
-	ti.SetValue(def)
-	ti.Focus()
-	theme.ApplyTextInputPalette(&ti, s.palette)
-
-	s.kind = scriptUIPrompt
-	s.name = name
-	s.token = token
-	s.title = title
-	s.input = ti
-}
-
-func (s *ScriptUI) OpenConfirm(name, token, title string) {
-	s.kind = scriptUIConfirm
-	s.name = name
-	s.token = token
-	s.title = title
+	switch req.Kind {
+	case script.UIKindInput:
+		s.kind = scriptUIInput
+		s.input.SetPalette(s.palette)
+		s.input.SetSize(s.size.Width, s.size.Height)
+		s.input.Open(tui.InputOptions{
+			Title: req.Spec.Title, Label: req.Spec.Label, Initial: stringValue(req.Spec.Initial),
+			Placeholder: req.Spec.Placeholder, Required: req.Spec.Required,
+			MinLength: req.Spec.MinLength, MaxLength: req.Spec.MaxLength,
+			Pattern: req.Spec.Pattern, PatternHint: req.Spec.PatternHint,
+		})
+	case script.UIKindSelect:
+		s.kind = scriptUISelect
+		s.selectOne.SetPalette(s.palette)
+		s.selectOne.SetSize(s.size.Width, s.size.Height)
+		s.selectOne.Open(tui.SelectOptions{
+			Title: req.Spec.Title, Items: selectItems(req.Spec.Items),
+			Searchable: req.Spec.Searchable, InitialID: req.Spec.InitialID,
+		})
+	case script.UIKindConfirm:
+		s.kind = scriptUIConfirm
+		s.confirm.SetPalette(s.palette)
+		s.confirm.SetSize(s.size.Width, s.size.Height)
+		s.confirm.Open(tui.ConfirmOptions{
+			Title: req.Spec.Title, Message: req.Spec.Message, Detail: req.Spec.Detail,
+			ConfirmLabel: req.Spec.ConfirmLabel, RejectLabel: req.Spec.RejectLabel,
+			Default: req.Spec.Default, Destructive: req.Spec.Destructive,
+		})
+	case script.UIKindActions:
+		s.kind = scriptUIActions
+		s.actions.SetPalette(s.palette)
+		s.actions.SetSize(s.size.Width, s.size.Height)
+		s.actions.Open(tui.ActionsOptions{Title: req.Spec.Title, Actions: actionItems(req.Spec.Actions)})
+	}
 }
 
 func (s *ScriptUI) MatchesToken(token string) bool {
 	return s.Active() && s.token == token
 }
 
-func (s *ScriptUI) SetSize(width, height int) { s.size.Set(width, height) }
+func (s *ScriptUI) SetSize(width, height int) {
+	s.size.Set(width, height)
+	s.input.SetSize(width, height)
+	s.selectOne.SetSize(width, height)
+	s.confirm.SetSize(width, height)
+	s.actions.SetSize(width, height)
+}
 
-// Update routes a key event and, when the user resolves the UI, returns a
-// tea.Cmd that emits a scriptResumeMsg with the appropriate result.
 func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
+	if !s.Active() {
+		return nil
+	}
+	var cmd tea.Cmd
 	switch s.kind {
-	case scriptUIPick:
-		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-			return s.updatePicker(keyMsg)
+	case scriptUIInput:
+		cmd = s.input.Update(msg)
+		if result, ok := s.input.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.Value})
 		}
-	case scriptUIPrompt:
-		return s.updatePrompt(msg)
-	}
-	return nil
-}
-
-func (s *ScriptUI) updatePicker(msg tea.KeyPressMsg) tea.Cmd {
-	switch {
-	case key.Matches(msg, Keys.SwitcherClose):
-		name, token := s.name, s.token
-		s.Close()
-		return func() tea.Msg {
-			return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
+	case scriptUISelect:
+		cmd = s.selectOne.Update(msg)
+		if result, ok := s.selectOne.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.ID})
 		}
-	case key.Matches(msg, Keys.SwitcherPrev):
-		if s.selected > 0 {
-			s.selected--
+	case scriptUIConfirm:
+		cmd = s.confirm.Update(msg)
+		if result, ok := s.confirm.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.Value})
 		}
-	case key.Matches(msg, Keys.SwitcherNext):
-		if s.selected < len(s.choices)-1 {
-			s.selected++
-		}
-	case key.Matches(msg, Keys.SwitcherConfirm):
-		if len(s.choices) == 0 {
-			name, token := s.name, s.token
-			s.Close()
-			return func() tea.Msg {
-				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
-			}
-		}
-		chosen := s.choices[s.selected]
-		name, token := s.name, s.token
-		s.Close()
-		return func() tea.Msg {
-			return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Submitted: true, Action: "submit", Value: chosen}}
+	case scriptUIActions:
+		cmd = s.actions.Update(msg)
+		if result, ok := s.actions.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: actionResultAction(result), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.ID})
 		}
 	}
-	return nil
-}
-
-func (s *ScriptUI) updatePrompt(msg tea.Msg) tea.Cmd {
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch {
-		case key.Matches(keyMsg, Keys.SwitcherClose):
-			name, token := s.name, s.token
-			s.Close()
-			return func() tea.Msg {
-				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Cancelled: true, Action: "cancel"}}
-			}
-		case key.Matches(keyMsg, Keys.SwitcherConfirm):
-			val := s.input.Value()
-			name, token := s.name, s.token
-			s.Close()
-			return func() tea.Msg {
-				return scriptResumeMsg{Name: name, Token: token, Result: script.UIResult{Submitted: true, Action: "submit", Value: val}}
-			}
-		}
-	}
-	ti, cmd := s.input.Update(msg)
-	s.input = ti
 	return cmd
 }
 
 func (s *ScriptUI) View() string {
-	if s.kind == scriptUINone {
-		return ""
-	}
-	title := s.title
-	if title == "" {
-		if s.kind == scriptUIPick {
-			title = "Pick"
-		} else {
-			title = "Input"
-		}
-	}
-
-	var body, footer string
 	switch s.kind {
-	case scriptUIPick:
-		body = s.renderChoices()
-		footer = RenderInlineHints([]Shortcut{{"↑/↓", "select"}, {"enter", "confirm"}, {"esc", "cancel"}})
-	case scriptUIPrompt:
-		body = s.input.View()
-		footer = RenderInlineHints([]Shortcut{{"enter", "confirm"}, {"esc", "cancel"}})
+	case scriptUIInput:
+		return s.input.View()
+	case scriptUISelect:
+		return s.selectOne.View()
 	case scriptUIConfirm:
+		return s.confirm.View()
+	case scriptUIActions:
+		return s.actions.View()
+	default:
 		return ""
 	}
-
-	return OverlayFrame{Title: title, Body: body, Footer: footer, Palette: s.palette}.Render()
 }
 
-func (s *ScriptUI) renderChoices() string {
-	return renderPickerChoices(s.palette, s.choices, s.selected)
+func (s *ScriptUI) resume(result script.UIResult) tea.Cmd {
+	name, token := s.name, s.token
+	s.Close()
+	return func() tea.Msg {
+		return scriptResumeMsg{Name: name, Token: token, Result: result}
+	}
 }
 
-// renderPickerChoices renders a vertical pick list with the shared gutter +
-// inverted-selection look. Used by both ScriptUI (kbrd.ui.pick) and the
-// picker overlays so scripted choices stay visually aligned with built-in menus.
-func renderPickerChoices(p Palette, choices []string, selected int) string {
-	if len(choices) == 0 {
-		return helpDimStyle.Render("(no choices)")
+func resultAction(cancelled bool) string {
+	if cancelled {
+		return "cancel"
 	}
-	nameStyle := lipgloss.NewStyle().Foreground(p.FgBase)
-	selStyle := lipgloss.NewStyle().Bold(true).Foreground(p.FgInverse).Background(p.Primary)
-	gutterSel := lipgloss.NewStyle().Foreground(p.Primary).Bold(true).Render("▌")
+	return "submit"
+}
 
-	rows := make([]string, 0, len(choices))
-	for i, c := range choices {
-		gutter := " "
-		if i == selected {
-			gutter = gutterSel
-		}
-		if i == selected {
-			rows = append(rows, gutter+" "+selStyle.Render(" "+c+" "))
-			continue
-		}
-		rows = append(rows, gutter+" "+nameStyle.Render(c))
+func actionResultAction(result tui.ActionResult) string {
+	if result.Cancelled {
+		return "cancel"
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return result.ID
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func selectItems(items []script.UIItem) []tui.SelectItem {
+	out := make([]tui.SelectItem, len(items))
+	for index, item := range items {
+		out[index] = tui.SelectItem{
+			ID: item.ID, Label: item.Label, Description: item.Description, Icon: item.Icon,
+			Disabled: item.Disabled, DisabledReason: item.DisabledReason, Group: item.Group,
+		}
+	}
+	return out
+}
+
+func actionItems(actions []script.UIAction) []tui.Action {
+	out := make([]tui.Action, len(actions))
+	for index, action := range actions {
+		out[index] = tui.Action{
+			ID: action.ID, Label: action.Label, Key: action.Key, Primary: action.Primary,
+			Destructive: action.Destructive, Disabled: action.Disabled, DisabledReason: action.DisabledReason,
+		}
+	}
+	return out
 }
