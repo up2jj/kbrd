@@ -180,18 +180,36 @@ func TestGitPushDoesNotRetryPermanentFailures(t *testing.T) {
 }
 
 func TestGitPushCancellationInterruptsBackoff(t *testing.T) {
-	setPushRetryDelays(t, time.Second, time.Second)
+	setPushRetryDelays(t, time.Hour, time.Hour)
 	countFile := installFakePushGit(t, "fatal: unable to access remote: Connection reset by peer", 0)
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-
-	started := time.Now()
-	err := GitPushContext(ctx, t.TempDir())
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("push error = %v, want deadline exceeded", err)
+	backoffStarted := make(chan struct{})
+	waitForRetry := func(ctx context.Context, delay time.Duration) error {
+		close(backoffStarted)
+		return waitForGitPushRetry(ctx, delay)
 	}
-	if elapsed := time.Since(started); elapsed >= 750*time.Millisecond {
-		t.Fatalf("cancellation took %s; retry backoff was not interrupted", elapsed)
+	repoRoot := t.TempDir()
+	done := make(chan error, 1)
+	go func() {
+		done <- gitPushContext(ctx, repoRoot, waitForRetry)
+	}()
+
+	select {
+	case <-backoffStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("git push did not enter retry backoff")
+	}
+	cancel()
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(750 * time.Millisecond):
+		t.Fatal("cancellation did not interrupt retry backoff")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("push error = %v, want context cancellation", err)
 	}
 	if got := pushAttemptCount(t, countFile); got != 1 {
 		t.Fatalf("push attempts = %d, want 1", got)

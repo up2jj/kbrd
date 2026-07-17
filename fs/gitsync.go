@@ -82,6 +82,10 @@ func (e *gitPushAttemptsError) Unwrap() error { return e.err }
 // retries transient transport failures twice, while repository, auth,
 // non-fast-forward, and cancellation failures return immediately.
 func GitPushContext(ctx context.Context, repoRoot string) error {
+	return gitPushContext(ctx, repoRoot, waitForGitPushRetry)
+}
+
+func gitPushContext(ctx context.Context, repoRoot string, waitForRetry func(context.Context, time.Duration) error) error {
 	for attempt := 1; attempt <= gitPushMaxAttempts; attempt++ {
 		err := gitRunContext(ctx, repoRoot, "push")
 		if err == nil {
@@ -93,7 +97,7 @@ func GitPushContext(ctx context.Context, repoRoot string) error {
 		if attempt == gitPushMaxAttempts {
 			return &gitPushAttemptsError{attempts: attempt, err: err}
 		}
-		if err := waitForGitPushRetry(ctx, gitPushRetryDelays[attempt-1]); err != nil {
+		if err := waitForRetry(ctx, gitPushRetryDelays[attempt-1]); err != nil {
 			return &gitCommandError{verb: "push", detail: err.Error(), cause: err}
 		}
 	}
