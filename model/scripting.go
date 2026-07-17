@@ -423,9 +423,8 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 // openScriptUI installs the reusable control for a yielded UI request.
 func (b *Board) openScriptUI(name string, req *script.UIRequest) tea.Cmd {
 	switch req.Kind {
-	case script.UIKindInput, script.UIKindSelect, script.UIKindConfirm, script.UIKindActions:
-		b.scriptUI.Open(name, req)
-		return nil
+	case script.UIKindInput, script.UIKindSelect, script.UIKindMultiSelect, script.UIKindConfirm, script.UIKindForm, script.UIKindActions:
+		return b.scriptUI.Open(name, req)
 	}
 	b.scripts.CancelPending()
 	return func() tea.Msg {

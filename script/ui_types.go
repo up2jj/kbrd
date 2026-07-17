@@ -43,6 +43,7 @@ type UISpec struct {
 	PatternHint  string
 	Searchable   bool
 	InitialID    string
+	InitialIDs   []string
 	Message      string
 	Detail       []string
 	ConfirmLabel string
@@ -67,12 +68,18 @@ type UIItem struct {
 }
 
 type UIField struct {
-	ID       string
-	Type     string
-	Label    string
-	Required bool
-	Initial  any
-	Items    []UIItem
+	ID          string
+	Type        string
+	Label       string
+	Description string
+	Placeholder string
+	Required    bool
+	Initial     any
+	Items       []UIItem
+	MinLength   int
+	MaxLength   int
+	Pattern     string
+	PatternHint string
 }
 
 type UIAction struct {
@@ -113,7 +120,7 @@ type UIResult struct {
 
 func (r UIRequest) validate() error {
 	switch r.Kind {
-	case UIKindInput, UIKindSelect, UIKindConfirm, UIKindActions:
+	case UIKindInput, UIKindSelect, UIKindMultiSelect, UIKindConfirm, UIKindForm, UIKindActions:
 		return nil
 	default:
 		return fmt.Errorf("unsupported kbrd.ui kind %q", r.Kind)

@@ -23,6 +23,14 @@ kbrd.ui = {}
 	  return request("select", spec)
 	end
 
+	function kbrd.ui.multiselect(spec)
+	  return request("multiselect", spec)
+	end
+
+	function kbrd.ui.form(spec)
+	  return request("form", spec)
+	end
+
 	function kbrd.ui.actions(spec)
 	  return request("actions", spec)
 	end

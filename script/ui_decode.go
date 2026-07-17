@@ -33,10 +33,14 @@ func decodeUIRequest(vals []lua.LValue) (*UIRequest, bool, error) {
 		err = decodeInputSpec(t, &req.Spec)
 	case UIKindSelect:
 		err = decodeSelectSpec(t, &req.Spec)
+	case UIKindMultiSelect:
+		err = decodeMultiSelectSpec(t, &req.Spec)
 	case UIKindConfirm:
 		err = decodeConfirmSpec(t, &req.Spec)
 	case UIKindActions:
 		err = decodeActionsSpec(t, &req.Spec)
+	case UIKindForm:
+		err = decodeFormSpec(t, &req.Spec)
 	default:
 		err = req.validate()
 	}
@@ -44,6 +48,46 @@ func decodeUIRequest(vals []lua.LValue) (*UIRequest, bool, error) {
 		return nil, true, err
 	}
 	return req, true, nil
+}
+
+func decodeMultiSelectSpec(t *lua.LTable, spec *UISpec) error {
+	var err error
+	if spec.Items, err = uiItems(t, "items"); err != nil {
+		return err
+	}
+	if spec.Searchable, err = uiBool(t, "searchable", false); err != nil {
+		return err
+	}
+	if spec.InitialIDs, err = uiStringList(t, "initial_ids"); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(spec.InitialIDs))
+	for _, id := range spec.InitialIDs {
+		item, ok := findItem(spec.Items, id)
+		if !ok {
+			return fmt.Errorf("kbrd.ui multiselect initial_ids contains unknown item %q", id)
+		}
+		if item.Disabled {
+			return fmt.Errorf("kbrd.ui multiselect initial_ids contains disabled item %q", id)
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("kbrd.ui multiselect initial_ids contains duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func decodeFormSpec(t *lua.LTable, spec *UISpec) error {
+	fields, err := uiFields(t, "fields")
+	if err != nil {
+		return err
+	}
+	if len(fields) == 0 {
+		return fmt.Errorf("kbrd.ui form requires at least one field")
+	}
+	spec.Fields = fields
+	return nil
 }
 
 func decodeCommonSpec(t *lua.LTable, spec *UISpec) error {
@@ -298,6 +342,153 @@ func uiActions(t *lua.LTable, key string) ([]UIAction, error) {
 	return actions, nil
 }
 
+func uiFields(t *lua.LTable, key string) ([]UIField, error) {
+	fields, err := uiSequence(t, key, func(index int, value lua.LValue) (UIField, error) {
+		row, ok := value.(*lua.LTable)
+		if !ok {
+			return UIField{}, fmt.Errorf("kbrd.ui request field %q item %d must be a table, got %s", key, index, value.Type())
+		}
+		fieldType, err := uiString(row, "type", true)
+		if err != nil {
+			return UIField{}, fmt.Errorf("fields item %d: %w", index, err)
+		}
+		switch fieldType {
+		case "input", "textarea", "select", "multiselect", "checkbox", "number", "label", "separator":
+		default:
+			return UIField{}, fmt.Errorf("kbrd.ui form field %d has unsupported type %q", index, fieldType)
+		}
+
+		field := UIField{Type: fieldType}
+		if fieldType != "label" && fieldType != "separator" {
+			if field.ID, err = uiString(row, "id", true); err != nil {
+				return UIField{}, fmt.Errorf("fields item %d: %w", index, err)
+			}
+		} else if field.ID, err = uiString(row, "id", false); err != nil {
+			return UIField{}, err
+		}
+		if field.Label, err = uiString(row, "label", false); err != nil {
+			return UIField{}, err
+		}
+		if field.Description, err = uiString(row, "description", false); err != nil {
+			return UIField{}, err
+		}
+		if field.Placeholder, err = uiString(row, "placeholder", false); err != nil {
+			return UIField{}, err
+		}
+		if field.Required, err = uiBool(row, "required", false); err != nil {
+			return UIField{}, err
+		}
+		if field.MinLength, err = uiNonNegativeInt(row, "min_length"); err != nil {
+			return UIField{}, err
+		}
+		if field.MaxLength, err = uiNonNegativeInt(row, "max_length"); err != nil {
+			return UIField{}, err
+		}
+		if field.MaxLength > 0 && field.MinLength > field.MaxLength {
+			return UIField{}, fmt.Errorf("kbrd.ui form field %q min_length must not exceed max_length", field.ID)
+		}
+		if field.Pattern, err = uiString(row, "pattern", false); err != nil {
+			return UIField{}, err
+		}
+		if field.PatternHint, err = uiString(row, "pattern_hint", false); err != nil {
+			return UIField{}, err
+		}
+		if field.Pattern != "" {
+			if _, err := regexp.Compile(field.Pattern); err != nil {
+				return UIField{}, fmt.Errorf("kbrd.ui form field %q pattern is not valid RE2: %w", field.ID, err)
+			}
+		}
+
+		initial := row.RawGetString("initial")
+		switch fieldType {
+		case "input", "textarea", "select":
+			if initial != lua.LNil {
+				text, ok := initial.(lua.LString)
+				if !ok {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial must be a string", field.ID)
+				}
+				field.Initial = string(text)
+			}
+		case "multiselect":
+			values, err := uiStringList(row, "initial")
+			if err != nil {
+				return UIField{}, fmt.Errorf("kbrd.ui form field %q: %w", field.ID, err)
+			}
+			field.Initial = values
+		case "checkbox":
+			if initial != lua.LNil {
+				value, ok := initial.(lua.LBool)
+				if !ok {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial must be a boolean", field.ID)
+				}
+				field.Initial = bool(value)
+			}
+		case "number":
+			if initial != lua.LNil {
+				value, ok := initial.(lua.LNumber)
+				if !ok {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial must be a number", field.ID)
+				}
+				field.Initial = float64(value)
+			}
+		}
+
+		if fieldType == "select" || fieldType == "multiselect" {
+			if field.Items, err = uiItems(row, "items"); err != nil {
+				return UIField{}, fmt.Errorf("kbrd.ui form field %q: %w", field.ID, err)
+			}
+			if len(field.Items) == 0 {
+				return UIField{}, fmt.Errorf("kbrd.ui form field %q requires at least one item", field.ID)
+			}
+			enabled := 0
+			for _, item := range field.Items {
+				if !item.Disabled {
+					enabled++
+				}
+			}
+			if enabled == 0 {
+				return UIField{}, fmt.Errorf("kbrd.ui form field %q requires at least one enabled item", field.ID)
+			}
+			initialIDs := []string{}
+			if fieldType == "select" {
+				if initial, ok := field.Initial.(string); ok && initial != "" {
+					initialIDs = []string{initial}
+				}
+			} else if initial, ok := field.Initial.([]string); ok {
+				initialIDs = initial
+			}
+			seen := make(map[string]struct{}, len(initialIDs))
+			for _, id := range initialIDs {
+				item, ok := findItem(field.Items, id)
+				if !ok {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial contains unknown item %q", field.ID, id)
+				}
+				if item.Disabled {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial contains disabled item %q", field.ID, id)
+				}
+				if _, ok := seen[id]; ok {
+					return UIField{}, fmt.Errorf("kbrd.ui form field %q initial contains duplicate item %q", field.ID, id)
+				}
+				seen[id] = struct{}{}
+			}
+		}
+		return field, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.ID != "" {
+			ids = append(ids, field.ID)
+		}
+	}
+	if err := uniqueIDs(key, len(ids), func(i int) string { return ids[i] }); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
 func uiSequence[T any](t *lua.LTable, key string, decode func(int, lua.LValue) (T, error)) ([]T, error) {
 	v := t.RawGetString(key)
 	if v == lua.LNil {
@@ -354,12 +545,17 @@ func uniqueIDs(kind string, count int, id func(int) string) error {
 }
 
 func hasItemID(items []UIItem, id string) bool {
+	_, ok := findItem(items, id)
+	return ok
+}
+
+func findItem(items []UIItem, id string) (UIItem, bool) {
 	for _, item := range items {
 		if item.ID == id {
-			return true
+			return item, true
 		}
 	}
-	return false
+	return UIItem{}, false
 }
 
 func isReservedActionKey(value string) bool {

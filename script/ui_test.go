@@ -251,3 +251,101 @@ end)`)
 		t.Fatalf("notifications = %v", api.notifies)
 	}
 }
+
+func TestPhaseThreeWidgetsDecodeTypedSpecs(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("multi", "Multi", function()
+  kbrd.ui.multiselect({title="Areas", searchable=true, initial_ids={"ui"}, items={
+    {id="ui", label="UI"}, {id="data", label="Data"},
+  }})
+end)
+kbrd.command("form", "Form", function()
+  kbrd.ui.form({title="Promote", fields={
+    {id="title", type="input", label="Title", initial="Draft", required=true, min_length=2},
+    {id="body", type="textarea", label="Body", placeholder="Details"},
+    {id="column", type="select", label="Column", initial="todo", items={{id="todo",label="Todo"}}},
+    {id="tags", type="multiselect", label="Tags", initial={"ui"}, items={{id="ui",label="UI"}}},
+    {id="remove", type="checkbox", label="Remove", initial=true},
+    {id="estimate", type="number", label="Estimate", initial=2.5},
+    {type="label", label="Review carefully"},
+    {type="separator", label="Advanced"},
+  }})
+end)`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	multi, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || multi.Kind != UIKindMultiSelect || !multi.Spec.Searchable || len(multi.Spec.InitialIDs) != 1 || multi.Spec.InitialIDs[0] != "ui" {
+		t.Fatalf("multiselect = (%+v, %v)", multi, err)
+	}
+	h.CancelPending()
+	form, err := h.RunCommand(h.Commands()[1].LuaRef, nil)
+	if err != nil || form.Kind != UIKindForm || len(form.Spec.Fields) != 8 {
+		t.Fatalf("form = (%+v, %v)", form, err)
+	}
+	if form.Spec.Fields[0].Initial != "Draft" || form.Spec.Fields[4].Initial != true || form.Spec.Fields[5].Initial != 2.5 {
+		t.Fatalf("form initial values = %+v", form.Spec.Fields)
+	}
+}
+
+func TestPhaseThreeWidgetValidationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"unknown multiselect initial", `kbrd.command("x","x",function() kbrd.ui.multiselect({initial_ids={"x"},items={}}) end)`, `unknown item "x"`},
+		{"duplicate field id", `kbrd.command("x","x",function() kbrd.ui.form({fields={{id="x",type="input"},{id="x",type="number"}}}) end)`, `duplicate id "x"`},
+		{"unsupported field", `kbrd.command("x","x",function() kbrd.ui.form({fields={{id="x",type="file"}}}) end)`, `unsupported type "file"`},
+		{"missing items", `kbrd.command("x","x",function() kbrd.ui.form({fields={{id="x",type="select",items={}}}}) end)`, `requires at least one item`},
+		{"wrong checkbox initial", `kbrd.command("x","x",function() kbrd.ui.form({fields={{id="x",type="checkbox",initial="yes"}}}) end)`, `initial must be a boolean`},
+		{"invalid form pattern", `kbrd.command("x","x",function() kbrd.ui.form({fields={{id="x",type="input",pattern="["}}}) end)`, `pattern is not valid RE2`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := writeInit(t, tt.body)
+			h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			defer h.Close()
+			req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+			if req != nil || err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("RunCommand = (%+v, %v), want %q", req, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPhaseThreeStructuredResults(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command("x", "Results", function()
+  local multi = kbrd.ui.multiselect({items={{id="ui",label="UI"}}})
+  local form = kbrd.ui.form({fields={{id="title",type="input"}}})
+  kbrd.notify(multi.ids[1] .. ":" .. form.values.title .. ":" .. tostring(form.values.remove))
+end)`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+	req, err := h.RunCommand(h.Commands()[0].LuaRef, nil)
+	if err != nil || req == nil {
+		t.Fatalf("run = (%+v, %v)", req, err)
+	}
+	req, err = h.ResumeWith(req.Token, UIResult{Action: "submit", Submitted: true, IDs: []string{"ui"}})
+	if err != nil || req == nil || req.Kind != UIKindForm {
+		t.Fatalf("resume multi = (%+v, %v)", req, err)
+	}
+	_, err = h.ResumeWith(req.Token, UIResult{Action: "submit", Submitted: true, Values: map[string]any{"title": "Draft", "remove": true}})
+	if err != nil {
+		t.Fatalf("resume form: %v", err)
+	}
+	if !contains(api.notifies, "ui:Draft:true") {
+		t.Fatalf("notifications = %v", api.notifies)
+	}
+}

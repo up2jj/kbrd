@@ -21,8 +21,10 @@ const (
 	scriptUINone scriptUIKind = iota
 	scriptUIInput
 	scriptUISelect
+	scriptUIMultiSelect
 	scriptUIConfirm
 	scriptUIActions
+	scriptUIForm
 
 	// Retain the old internal names while legacy calls migrate to shared controls.
 	scriptUIPrompt = scriptUIInput
@@ -36,20 +38,24 @@ type ScriptUI struct {
 	name  string
 	token string
 
-	input     tui.Input
-	selectOne tui.Select
-	confirm   tui.Confirm
-	actions   tui.Actions
-	size      tui.Size
-	palette   Palette
+	input      tui.Input
+	selectOne  tui.Select
+	selectMany tui.MultiSelect
+	confirm    tui.Confirm
+	actions    tui.Actions
+	form       tui.Form
+	size       tui.Size
+	palette    Palette
 }
 
 func (s *ScriptUI) SetPalette(p Palette) {
 	s.palette = p
 	s.input.SetPalette(p)
 	s.selectOne.SetPalette(p)
+	s.selectMany.SetPalette(p)
 	s.confirm.SetPalette(p)
 	s.actions.SetPalette(p)
+	s.form.SetPalette(p)
 }
 
 func (s *ScriptUI) Active() bool { return s.kind != scriptUINone }
@@ -57,14 +63,16 @@ func (s *ScriptUI) Active() bool { return s.kind != scriptUINone }
 func (s *ScriptUI) Close() {
 	s.input.Close()
 	s.selectOne.Close()
+	s.selectMany.Close()
 	s.confirm.Close()
 	s.actions.Close()
+	s.form.Close()
 	s.kind = scriptUINone
 	s.name = ""
 	s.token = ""
 }
 
-func (s *ScriptUI) Open(name string, req *script.UIRequest) {
+func (s *ScriptUI) Open(name string, req *script.UIRequest) tea.Cmd {
 	s.Close()
 	s.name = name
 	s.token = req.Token
@@ -88,6 +96,14 @@ func (s *ScriptUI) Open(name string, req *script.UIRequest) {
 			Title: req.Spec.Title, Items: selectItems(req.Spec.Items),
 			Searchable: req.Spec.Searchable, InitialID: req.Spec.InitialID,
 		})
+	case script.UIKindMultiSelect:
+		s.kind = scriptUIMultiSelect
+		s.selectMany.SetPalette(s.palette)
+		s.selectMany.SetSize(s.size.Width, s.size.Height)
+		s.selectMany.Open(tui.MultiSelectOptions{
+			Title: req.Spec.Title, Items: selectItems(req.Spec.Items),
+			Searchable: req.Spec.Searchable, InitialIDs: req.Spec.InitialIDs,
+		})
 	case script.UIKindConfirm:
 		s.kind = scriptUIConfirm
 		s.confirm.SetPalette(s.palette)
@@ -102,7 +118,13 @@ func (s *ScriptUI) Open(name string, req *script.UIRequest) {
 		s.actions.SetPalette(s.palette)
 		s.actions.SetSize(s.size.Width, s.size.Height)
 		s.actions.Open(tui.ActionsOptions{Title: req.Spec.Title, Actions: actionItems(req.Spec.Actions)})
+	case script.UIKindForm:
+		s.kind = scriptUIForm
+		s.form.SetPalette(s.palette)
+		s.form.SetSize(s.size.Width, s.size.Height)
+		return s.form.Open(tui.FormOptions{Title: req.Spec.Title, Fields: formFields(req.Spec.Fields)})
 	}
+	return nil
 }
 
 func (s *ScriptUI) MatchesToken(token string) bool {
@@ -113,8 +135,10 @@ func (s *ScriptUI) SetSize(width, height int) {
 	s.size.Set(width, height)
 	s.input.SetSize(width, height)
 	s.selectOne.SetSize(width, height)
+	s.selectMany.SetSize(width, height)
 	s.confirm.SetSize(width, height)
 	s.actions.SetSize(width, height)
+	s.form.SetSize(width, height)
 }
 
 func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
@@ -133,6 +157,11 @@ func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
 		if result, ok := s.selectOne.TakeResult(); ok {
 			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.ID})
 		}
+	case scriptUIMultiSelect:
+		cmd = s.selectMany.Update(msg)
+		if result, ok := s.selectMany.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, IDs: result.IDs})
+		}
 	case scriptUIConfirm:
 		cmd = s.confirm.Update(msg)
 		if result, ok := s.confirm.TakeResult(); ok {
@@ -142,6 +171,11 @@ func (s *ScriptUI) Update(msg tea.Msg) tea.Cmd {
 		cmd = s.actions.Update(msg)
 		if result, ok := s.actions.TakeResult(); ok {
 			return s.resume(script.UIResult{Action: actionResultAction(result), Submitted: result.Submitted, Cancelled: result.Cancelled, Value: result.ID})
+		}
+	case scriptUIForm:
+		cmd = s.form.Update(msg)
+		if result, ok := s.form.TakeResult(); ok {
+			return s.resume(script.UIResult{Action: resultAction(result.Cancelled), Submitted: result.Submitted, Cancelled: result.Cancelled, Values: result.Values})
 		}
 	}
 	return cmd
@@ -153,10 +187,14 @@ func (s *ScriptUI) View() string {
 		return s.input.View()
 	case scriptUISelect:
 		return s.selectOne.View()
+	case scriptUIMultiSelect:
+		return s.selectMany.View()
 	case scriptUIConfirm:
 		return s.confirm.View()
 	case scriptUIActions:
 		return s.actions.View()
+	case scriptUIForm:
+		return s.form.View()
 	default:
 		return ""
 	}
@@ -206,6 +244,19 @@ func actionItems(actions []script.UIAction) []tui.Action {
 		out[index] = tui.Action{
 			ID: action.ID, Label: action.Label, Key: action.Key, Primary: action.Primary,
 			Destructive: action.Destructive, Disabled: action.Disabled, DisabledReason: action.DisabledReason,
+		}
+	}
+	return out
+}
+
+func formFields(fields []script.UIField) []tui.FormField {
+	out := make([]tui.FormField, len(fields))
+	for index, field := range fields {
+		out[index] = tui.FormField{
+			ID: field.ID, Type: field.Type, Label: field.Label, Description: field.Description,
+			Placeholder: field.Placeholder, Required: field.Required, Initial: field.Initial,
+			Items: selectItems(field.Items), MinLength: field.MinLength, MaxLength: field.MaxLength,
+			Pattern: field.Pattern, PatternHint: field.PatternHint,
 		}
 	}
 	return out

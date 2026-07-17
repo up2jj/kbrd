@@ -187,6 +187,116 @@ end)`)
 	}
 }
 
+func TestScriptUIMultiSelectSubmit(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.command("m", "Multi", function()
+  local result = kbrd.ui.multiselect({items={{id="ui",label="UI"},{id="data",label="Data"}}})
+  if result.submitted then kbrd.notify(table.concat(result.ids, ","), "success") end
+end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0], Vars: nil})
+	if !b.scriptUI.Active() || b.scriptUI.kind != scriptUIMultiSelect {
+		t.Fatalf("multiselect did not open: kind=%v", b.scriptUI.kind)
+	}
+	b.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	b.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, cmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter did not produce resume command")
+	}
+	raw := cmd()
+	msg, ok := raw.(scriptResumeMsg)
+	if !ok {
+		t.Fatalf("resume message = %T", raw)
+	}
+	result, ok := msg.Result.(script.UIResult)
+	if !ok || !result.Submitted || len(result.IDs) != 2 || result.IDs[0] != "ui" || result.IDs[1] != "data" {
+		t.Fatalf("result = %#v", msg.Result)
+	}
+}
+
+func TestScriptUIFormOpenAndCancel(t *testing.T) {
+	b, _ := makeBoard(t, `
+kbrd.command("f", "Form", function()
+  local result = kbrd.ui.form({title="Promote", fields={{id="title",type="input",label="Title",required=true}}})
+  if result.cancelled then kbrd.notify("cancelled") end
+end)`)
+	b.Update(runCustomCommandMsg{Cmd: b.commands[0], Vars: nil})
+	if !b.scriptUI.Active() || b.scriptUI.kind != scriptUIForm {
+		t.Fatalf("form did not open: kind=%v", b.scriptUI.kind)
+	}
+	if view := b.scriptUI.View(); !strings.Contains(view, "Promote") || !strings.Contains(view, "Title") {
+		t.Fatalf("unexpected form view: %q", view)
+	}
+	_, cmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("escape did not produce resume command")
+	}
+	raw := cmd()
+	msg, ok := raw.(scriptResumeMsg)
+	if !ok {
+		t.Fatalf("resume message = %T", raw)
+	}
+	result, ok := msg.Result.(script.UIResult)
+	if !ok || !result.Cancelled {
+		t.Fatalf("result = %#v", msg.Result)
+	}
+}
+
+func TestScriptUIFormSubmitResumesLuaWithTypedValues(t *testing.T) {
+	b, dir := makeBoard(t, `
+kbrd.command("f", "Form", function()
+  local result = kbrd.ui.form({fields={
+    {id="remove", type="checkbox", label="Remove", initial=true},
+  }})
+  kbrd.fs.write("FORM_RESULT", type(result.values.remove)..":"..tostring(result.values.remove))
+end)`)
+
+	_, initCmd := b.Update(runCustomCommandMsg{Cmd: b.commands[0], Vars: nil})
+	pumpScriptUICmds(t, b, initCmd)
+	if !b.scriptUI.Active() || b.scriptUI.kind != scriptUIForm {
+		t.Fatalf("form did not open: kind=%v", b.scriptUI.kind)
+	}
+
+	_, submitCmd := b.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	pumpScriptUICmds(t, b, submitCmd)
+
+	body, err := os.ReadFile(filepath.Join(dir, "FORM_RESULT"))
+	if err != nil || string(body) != "boolean:true" {
+		t.Fatalf("form result = %q, err=%v", body, err)
+	}
+	if b.scriptUI.Active() {
+		t.Fatal("form remained active after submission")
+	}
+}
+
+func pumpScriptUICmds(t *testing.T, b *Board, initial tea.Cmd) {
+	t.Helper()
+	queue := []tea.Cmd{initial}
+	for steps := 0; len(queue) > 0; steps++ {
+		if steps >= 50 {
+			t.Fatal("script UI command loop did not converge")
+		}
+		cmd := queue[0]
+		queue = queue[1:]
+		if cmd == nil {
+			continue
+		}
+		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		if msg == nil {
+			continue
+		}
+		_, next := b.Update(msg)
+		if next != nil {
+			queue = append(queue, next)
+		}
+	}
+}
+
 // Regression: a hook that schedules a timer (e.g. on item_created) must
 // have its pending timer drained by Update, not left dangling in the
 // host's pendingTimers queue.

@@ -23,7 +23,7 @@ shell commands keep working unchanged.
   - Core — [layer](#kbrdlayer--runtime-layer), [debug / inspect](#kbrddebug--kbrdinspectvalue), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
-  - [`kbrd.ui.*`](#scripted-ui) — input, select, confirm, actions, notify, plus legacy pick/prompt
+  - [`kbrd.ui.*`](#scripted-ui) — input, select, multiselect, form, confirm, actions, notify, plus legacy pick/prompt
   - [`kbrd.timer.*`](#kbrdtimereveryintervalms-fn--kbrdtimerafterdelayms-fn) — every, after, cancel
   - [`kbrd.async.*`](#kbrdasyncrunshellcmd-fn) — run, cancel
   - [`kbrd.cell.*`](#kbrdcellsetid-opts) — set, clear, clear_all
@@ -1039,6 +1039,8 @@ Blocking widgets return a common result table:
   cancelled = false,
   action = "submit", -- an action id for kbrd.ui.actions
   value = "...",     -- input text, selected item id, or confirm boolean
+  ids = {...},        -- selected IDs from multiselect
+  values = {...},     -- values keyed by field ID from form
 }
 ```
 
@@ -1105,6 +1107,70 @@ local result = kbrd.ui.confirm({
   destructive = true,
 })
 if result.submitted and result.value then kbrd.board.delete(ctx) end
+```
+
+#### `kbrd.ui.multiselect(options)`
+
+Options are `title`, `items`, `searchable`, and `initial_ids`. Items use the
+same stable-ID schema as `kbrd.ui.select`. `initial_ids` is an optional list of
+enabled item IDs. Arrow keys move, Space toggles the focused item, and Enter
+submits the selected IDs in declaration order as `result.ids`. An empty
+selection is valid.
+
+```lua
+local result = kbrd.ui.multiselect({
+  title = "Areas",
+  searchable = true,
+  initial_ids = {"ui"},
+  items = {
+    {id="ui", label="UI"},
+    {id="data", label="Data"},
+    {id="ops", label="Operations", disabled=true, disabled_reason="Not available"},
+  },
+})
+if result.cancelled then return end
+for _, id in ipairs(result.ids) do kbrd.notify("Selected " .. id) end
+```
+
+#### `kbrd.ui.form(options)`
+
+A form requires `fields` and accepts an optional `title`. Every value-producing
+field requires a unique string `id`; `label` and `separator` are display-only
+and do not require one. Submission returns `result.values`, keyed by field ID.
+
+| Field type | Options | Result |
+|---|---|---|
+| `input` | `label`, `description`, `initial`, `placeholder`, `required`, `min_length`, `max_length`, `pattern`, `pattern_hint` | string |
+| `textarea` | same as `input` | string |
+| `select` | `label`, `description`, `initial` ID, `items` | string ID |
+| `multiselect` | `label`, `description`, `initial` IDs, `items`, `required` | array of string IDs |
+| `checkbox` | `label`, `description`, boolean `initial`, `required` | boolean |
+| `number` | `label`, `description`, numeric `initial`, `placeholder`, `required` | number, or absent when optional and empty |
+| `label` | `label`, `description` | no value |
+| `separator` | `label` | no value |
+
+Select and multiselect items use the same schema as `kbrd.ui.select`. Disabled
+items are shown by the standalone multi-select but omitted from form fields;
+an initial value must name an enabled item. Input lengths count Unicode
+characters and patterns use RE2. A required checkbox must be checked.
+
+```lua
+local result = kbrd.ui.form({
+  title = "Promote to card",
+  fields = {
+    {id="title", type="input", label="Title", required=true, max_length=80},
+    {id="body", type="textarea", label="Body"},
+    {id="column", type="select", label="Column", items={
+      {id="todo", label="Todo"}, {id="doing", label="Doing"},
+    }},
+    {id="tags", type="multiselect", label="Tags", items={
+      {id="ui", label="UI"}, {id="data", label="Data"},
+    }},
+    {id="remove", type="checkbox", label="Remove from source", initial=true},
+  },
+})
+if result.cancelled then return end
+kbrd.notify("Promoting " .. result.values.title .. " to " .. result.values.column)
 ```
 
 #### `kbrd.ui.actions(options)`
@@ -1199,9 +1265,10 @@ script resumes with the answer. While the UI is open:
   resumes once per call.
 
 Only command coroutines may open blocking UI. Hooks (`kbrd.on`), timers, and
-async callbacks cannot call `input`, `select`, `confirm`, `actions`, `pick`, or
-`prompt`; those contexts have nowhere to yield and receive an actionable Lua
-error. `kbrd.ui.notify` remains safe because it is non-blocking. Switching
+async callbacks cannot call `input`, `select`, `multiselect`, `confirm`,
+`form`, `actions`, `pick`, or `prompt`; those contexts have nowhere to yield
+and receive an actionable Lua error. `kbrd.ui.notify` remains safe because it
+is non-blocking. Switching
 boards, reloading scripts, entering safe mode, or shutting down cancels an open
 widget and discards its coroutine, so an old script cannot resume against a new
 board.
