@@ -65,6 +65,7 @@ func (b *Board) initScripting() error {
 // watchers are loaded. A successful Lua host is retained for normal startup.
 func (b *Board) initRuntime() error {
 	b.commandWarnings = nil
+	b.resetScriptRuntimeState()
 	if err := b.initScripting(); err != nil {
 		return err
 	}
@@ -73,6 +74,20 @@ func (b *Board) initRuntime() error {
 	b.commandWarnings = append(scriptWarnings, b.commandWarnings...)
 	boardHooks{board: b}.init()
 	return nil
+}
+
+// resetScriptRuntimeState removes presentation and visibility state owned by
+// the previous Lua host. Script files are evaluated for every startup attempt,
+// so a failed attempt must not leave effects that the repaired script no
+// longer declares when the user retries.
+func (b *Board) resetScriptRuntimeState() {
+	b.cells.ClearAll()
+	b.indicators.clearAll()
+	b.virtualCols = nil
+	b.hiddenColumns = nil
+	b.virtualHidden = false
+	b.scriptStatus = ""
+	b.scriptStatusSeq++
 }
 
 // boardScriptAPI is the TUI capability implementation handed to the Lua host.

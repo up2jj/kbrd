@@ -64,6 +64,41 @@ func TestRetryKeepsSuccessfulHostAndContinuesStartup(t *testing.T) {
 	}
 }
 
+func TestRetryClearsStateFromFailedScriptAttempt(t *testing.T) {
+	b := startupTestBoard(t, `
+kbrd.cell.set(7, { text = "stale cell" })
+kbrd.column.indicator("Todo", "stale indicator")
+kbrd.column.set("stale", { name = "Stale virtual" })
+local ok, err = kbrd.column.hide("Todo")
+if not ok then error(err) end
+error("broken")`)
+	if err := os.Mkdir(filepath.Join(b.cfg.Path, "Todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = b.Update(scriptInitRunMsg{})
+	if !b.scriptStartup.active || len(b.virtualCols) != 1 || !b.columnHidden("Todo") {
+		t.Fatalf("failed attempt state: startup=%v virtual=%d hidden=%v", b.scriptStartup.active, len(b.virtualCols), b.columnHidden("Todo"))
+	}
+	if b.cells.cells[7] == nil || b.indicators.get("Todo").Text == "" {
+		t.Fatal("failed attempt did not install the expected presentation state")
+	}
+
+	if err := os.WriteFile(filepath.Join(b.cfg.Path, ".kbrd.lua"), []byte(`kbrd.command("ok", "OK", function() end)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, cmd := b.Update(scriptInitRunMsg{})
+	if b.scriptStartup.active || cmd == nil {
+		t.Fatalf("retry state: active=%v cmd=%v", b.scriptStartup.active, cmd)
+	}
+	if len(b.virtualCols) != 0 || b.columnHidden("Todo") || b.virtualHidden {
+		t.Fatalf("stale visibility state survived retry: virtual=%d hidden=%v virtualHidden=%v", len(b.virtualCols), b.columnHidden("Todo"), b.virtualHidden)
+	}
+	if b.cells.cells[7] != nil || b.indicators.get("Todo").Text != "" {
+		t.Fatalf("stale presentation state survived retry: cell=%v indicator=%q", b.cells.cells[7], b.indicators.get("Todo").Text)
+	}
+}
+
 func TestScriptEditorCommandUsesShellEditorFallback(t *testing.T) {
 	cmd := scriptEditorCommand("/board", "/board/.kbrd.lua")
 	if cmd.Dir != "/board" || len(cmd.Args) < 5 || cmd.Args[len(cmd.Args)-1] != "/board/.kbrd.lua" {
