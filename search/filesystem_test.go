@@ -29,6 +29,33 @@ func TestColumnPaths(t *testing.T) {
 	}
 }
 
+func TestFilesystemPathsAddsNestedVirtualFilesExplicitly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	column := filepath.Join(root, "Todo")
+	nested := filepath.Join(column, "nested", "deep.md")
+	direct := filepath.Join(column, "direct.md")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{direct, nested} {
+		if err := os.WriteFile(path, []byte("needle\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	source := NewFilesystemSource(
+		[]Root{{Path: root}},
+		[]VirtualItem{{FilePath: direct}, {FilePath: nested}},
+	)
+	got := source.paths()
+	want := []string{column, nested}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("search paths = %v, want %v", got, want)
+	}
+}
+
 func TestParseRipgrep(t *testing.T) {
 	t.Parallel()
 

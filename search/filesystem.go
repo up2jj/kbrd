@@ -107,10 +107,11 @@ func columnPaths(roots []Root) []string {
 }
 
 func coveredBySearchDir(path string, dirs []string) bool {
-	path = canonicalPath(path)
 	for _, dir := range dirs {
-		rel, err := filepath.Rel(canonicalPath(dir), path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// The directory roots are searched with --max-depth 1, so only files
+		// directly inside them are already covered. Nested virtual files must be
+		// passed to ripgrep explicitly.
+		if samePath(filepath.Dir(path), dir) {
 			return true
 		}
 	}
