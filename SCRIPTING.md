@@ -20,7 +20,7 @@ shell commands keep working unchanged.
 - [Declarative hooks (`hooks.yml`)](#declarative-hooks-no-lua--hooksyml)
 - [The `ctx` table](#the-ctx-table)
 - [API reference](#api-reference)
-  - Core — [layer](#kbrdlayer--runtime-layer), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
+  - Core — [layer](#kbrdlayer--runtime-layer), [debug / inspect](#kbrddebug--kbrdinspectvalue), [notify](#kbrdnotifymsg-level), [status](#kbrdstatusmsg-ttl), [instance.name](#kbrdinstancename), [command](#kbrdcommandid-name-fn--short-form), [has_command](#kbrdhas_commandid), [register](#kbrdregistername-fn--kbrdregistername-fn-usage), [editor.open](#kbrdeditoropentarget-line), [on](#kbrdonevent-fn)
   - Transform hooks — [column_items](#kbrdoncolumn_items-fn--column-transform-hook), [frontmatter_suggestions](#kbrdonfrontmatter_suggestions-fn--frontmatter-editor-completions), [http_request / http_response](#kbrdonhttp_request-fn--kbrdonhttp_response-fn--serve-middleware)
   - [`kbrd.board.*`](#kbrdboardmoveitem-columnname) — move, create, templates, createFromTemplate, rename, delete, refresh, createColumn
   - [`kbrd.ui.*`](#kbrduipicktitle-choices) — pick, prompt, confirm
@@ -487,6 +487,25 @@ table by hand: `kbrd.board.move({column="todo", name="foo"}, "done")`.
 ---
 
 ## API reference
+
+### `kbrd.debug(...)` / `kbrd.inspect(value)`
+
+Use `kbrd.debug` for source-aware development output. It accepts any number of
+values, formats tables deterministically, and appends the result (including the
+calling Lua line) to `~/.cache/kbrd/script.log`. The global `print(...)` function
+uses the same sink, so printing never corrupts the terminal UI.
+
+`kbrd.inspect(value)` returns the same bounded, cycle-safe representation for
+embedding in another string:
+
+```lua
+local state = {column = "Backlog", counts = {open = 3}}
+state.self = state
+kbrd.debug("startup state", state)
+kbrd.notify(kbrd.inspect(state), "info")
+```
+
+The log rotates at 5 MiB and retains `script.log.1` through `script.log.3`.
 
 ### `kbrd.notify(msg, level)`
 
@@ -1899,8 +1918,12 @@ end)
 
 ## Debugging tips
 
-- Errors and panic traces go to `~/.cache/kbrd/script.log`. `tail -f` it
-  while developing.
+- `.kbrd.lua` is initialized before the board opens. A syntax, top-level,
+  layer-validation, or default-layer setup error opens a recovery screen instead
+  of the board. Press `e` to edit, `r` to retry, or `enter` for the traceback.
+- Errors, panic traces, `print(...)`, and `kbrd.debug(...)` output go to
+  `~/.cache/kbrd/script.log`. `tail -f` it while developing. The file rotates at
+  5 MiB and retains three archives.
 - Re-registering the same id overrides the previous binding —
   iteration is just edit-save-restart.
 - Wrap suspicious lines in `pcall` to see the exact error message:

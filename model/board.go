@@ -102,6 +102,8 @@ type Board struct {
 
 	scriptInitError  string // persistent init/default-layer failure shown in the header
 	scriptLayerError string // latest interactive layer-switch failure; cleared by a successful switch
+	scriptStartup    scriptStartupState
+	scriptLogger     *script.FileLogger
 	scriptStatus     string // transient kbrd.status message shown in the status bar
 	scriptStatusSeq  int    // bumped per kbrd.status; guards stale expiry ticks
 
@@ -276,15 +278,6 @@ func (b *Board) Init() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
-}
-
-func (b *Board) initRuntime() {
-	b.commandWarnings = nil
-	b.initScripting()
-	scriptWarnings := append([]config.CommandLoadWarning(nil), b.commandWarnings...)
-	b.loadCommands()
-	b.commandWarnings = append(scriptWarnings, b.commandWarnings...)
-	boardHooks{board: b}.init()
 }
 
 func (b *Board) startupCmd() tea.Cmd {
@@ -544,9 +537,15 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case tea.KeyPressMsg:
+		if b.scriptStartup.active {
+			return b.scriptStartupFlow().handleKey(msg)
+		}
 		return b.inputRouter().HandleKey(msg)
 
 	case tea.MouseMsg:
+		if b.scriptStartup.active {
+			return b, nil
+		}
 		return b.mouseRouter().HandleMouse(msg)
 
 	case notifyMsg:
@@ -556,13 +555,13 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.handleReleaseCheck(msg)
 
 	case scriptInitStartMsg:
-		b.showScriptActivity()
-		return b, func() tea.Msg { return scriptInitRunMsg{} }
+		return b.scriptStartupFlow().handleStart()
 
 	case scriptInitRunMsg:
-		b.initRuntime()
-		b.clearScriptActivity()
-		return b, b.startupCmd()
+		return b.scriptStartupFlow().handleRun()
+
+	case scriptEditorDoneMsg:
+		return b.scriptStartupFlow().handleEditorDone(msg)
 
 	case watchStartMsg:
 		return b.lifecycle().HandleWatchStart()
@@ -878,6 +877,9 @@ func (b *Board) handleBoardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) View() tea.View {
+	if b.scriptStartup.active {
+		return b.scriptStartupFlow().view()
+	}
 	view := tea.NewView(boardViewFrame{b: b}.render())
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion

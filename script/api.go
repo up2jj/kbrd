@@ -23,6 +23,8 @@ func (h *Host) installAPI() {
 	kbrd := L.NewTable()
 
 	kbrd.RawSetString("notify", L.NewFunction(h.luaNotify))
+	kbrd.RawSetString("debug", L.NewFunction(h.luaDebug))
+	kbrd.RawSetString("inspect", L.NewFunction(h.luaInspect))
 	kbrd.RawSetString("status", L.NewFunction(h.luaStatus))
 	kbrd.RawSetString("command", L.NewFunction(h.luaCommand))
 	kbrd.RawSetString("layer", L.NewFunction(h.luaLayer))
@@ -110,6 +112,9 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("date", date)
 
 	L.SetGlobal("kbrd", kbrd)
+	// Lua's stock print writes directly to stdout and corrupts a full-screen
+	// terminal program. Route it through the same source-aware debug sink.
+	L.SetGlobal("print", L.NewFunction(h.luaDebug))
 
 	// kbrd.ui — defined in Lua so the three wrappers can call coroutine.yield
 	// directly. Yielding from a Go function in gopher-lua is awkward; a Lua

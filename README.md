@@ -864,9 +864,15 @@ The API surface includes:
 - `kbrd.async.run / cancel` — run shell commands on a worker goroutine.
 - `kbrd.timer.every / after / cancel` — schedule recurring or one-shot callbacks.
 - `kbrd.notify(msg, level)` / `kbrd.status(...)` — toasts and status line.
+- `kbrd.debug(...)` / `kbrd.inspect(value)` — source-aware, table-friendly debug output; `print(...)` is captured too.
 
 Scripting can be disabled and tuned via the `[scripting]` config section. See
 **[SCRIPTING.md](./SCRIPTING.md)** for the full API reference, examples, and safety model.
+
+Before the board UI opens, kbrd fully initializes `.kbrd.lua`. A syntax,
+top-level, layer-validation, or default-layer setup failure opens a recovery
+screen with captured output and source context; edit the file and retry without
+restarting kbrd. Logs rotate under `~/.cache/kbrd/script.log`.
 
 ### MCP server
 

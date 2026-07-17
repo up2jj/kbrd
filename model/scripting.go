@@ -21,7 +21,7 @@ import (
 // initScripting creates the Lua host (if enabled and init files exist) and
 // subscribes it to the event bus. Idempotent: a second call closes the
 // previous host first, which is what board-switching needs.
-func (b *Board) initScripting() {
+func (b *Board) initScripting() error {
 	b.scriptInitError = ""
 	b.scriptLayerError = ""
 	if b.scripts != nil {
@@ -31,32 +31,48 @@ func (b *Board) initScripting() {
 	b.bus = events.Bus{}
 
 	if !b.cfg.Scripting.Enabled {
-		return
+		return nil
 	}
 	logger := script.NewFileLogger()
+	b.scriptLogger = logger
 	host, err := script.New(b.cfg.Scripting, boardScriptAPI{b: b}, logger, b.cfg.Path, b.cfg.InstanceName)
-	if err != nil && host == nil {
-		// Hard failure during init — surface but keep running.
-		b.scriptInitError = err.Error()
+	globalErr, folderErr := script.InitErrors(err)
+	if host == nil && err != nil {
 		b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{
 			Source:  "init.lua",
 			Message: err.Error(),
 		})
-		return
+		return folderErr
 	}
 	if host == nil {
-		return
+		return nil
 	}
-	if err != nil {
-		// Partial failure — some files loaded, others errored.
-		b.scriptInitError = err.Error()
+	if globalErr != nil {
 		b.commandWarnings = append(b.commandWarnings, config.CommandLoadWarning{
 			Source:  "init.lua",
-			Message: err.Error(),
+			Message: globalErr.Error(),
 		})
+	}
+	if folderErr != nil {
+		b.scriptInitError = folderErr.Error()
 	}
 	b.scripts = host
 	b.bus.Subscribe(host)
+	return folderErr
+}
+
+// initRuntime builds the script-dependent board runtime before any cards or
+// watchers are loaded. A successful Lua host is retained for normal startup.
+func (b *Board) initRuntime() error {
+	b.commandWarnings = nil
+	if err := b.initScripting(); err != nil {
+		return err
+	}
+	scriptWarnings := append([]config.CommandLoadWarning(nil), b.commandWarnings...)
+	b.loadCommands()
+	b.commandWarnings = append(scriptWarnings, b.commandWarnings...)
+	boardHooks{board: b}.init()
+	return nil
 }
 
 // boardScriptAPI is the TUI capability implementation handed to the Lua host.

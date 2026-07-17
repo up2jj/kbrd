@@ -8,6 +8,7 @@ package script
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -148,6 +149,36 @@ type EvalCompletion struct {
 	Usage string
 }
 
+// InitError separates failures in the personal global init.lua from failures
+// in the board's .kbrd.lua. The TUI blocks startup only for Folder errors.
+type InitError struct {
+	Global error
+	Folder error
+}
+
+func (e *InitError) Error() string {
+	switch {
+	case e == nil:
+		return ""
+	case e.Global != nil && e.Folder != nil:
+		return e.Global.Error() + "\n" + e.Folder.Error()
+	case e.Folder != nil:
+		return e.Folder.Error()
+	default:
+		return e.Global.Error()
+	}
+}
+
+// InitErrors extracts scoped initialization failures from err. Older callers
+// can continue treating the returned value as an ordinary error.
+func InitErrors(err error) (global, folder error) {
+	var initErr *InitError
+	if errors.As(err, &initErr) {
+		return initErr.Global, initErr.Folder
+	}
+	return nil, err
+}
+
 // EvalCompletions returns the registered eval functions (in registration order)
 // with their usage hints, for the editor's command-line autocomplete.
 func (h *Host) EvalCompletions() []EvalCompletion {
@@ -281,7 +312,7 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		candidates = append(candidates, filepath.Join(folderPath, FolderInitFile))
 	}
 
-	var firstErr error
+	var globalErr, folderErr error
 	any := false
 	localOK := true
 	for _, p := range candidates {
@@ -297,8 +328,11 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 				localOK = false
 			}
 			h.logger.Log("error", p, err.Error())
-			if firstErr == nil {
-				firstErr = fmt.Errorf("%s: %w", filepath.Base(p), err)
+			scoped := fmt.Errorf("%s: %w", filepath.Base(p), err)
+			if filepath.Base(p) == FolderInitFile {
+				folderErr = scoped
+			} else {
+				globalErr = scoped
 			}
 		}
 	}
@@ -317,16 +351,17 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		}
 		if activationErr != nil {
 			h.logger.Log("error", FolderInitFile, activationErr.Error())
-			if firstErr == nil {
-				firstErr = fmt.Errorf("%s: %w", FolderInitFile, activationErr)
-			}
+			folderErr = fmt.Errorf("%s: %w", FolderInitFile, activationErr)
 		}
 	}
 	if !any {
 		L.Close()
 		return nil, nil
 	}
-	return h, firstErr
+	if globalErr != nil || folderErr != nil {
+		return h, &InitError{Global: globalErr, Folder: folderErr}
+	}
+	return h, nil
 }
 
 // Close releases the underlying Lua VM and drops all registered callbacks.

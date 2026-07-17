@@ -121,3 +121,20 @@ Sleep 500ms
 # Quit cleanly
 Ctrl+C
 Sleep 500ms
+
+# 11. Lua startup recovery screen. Replace the generated demo script only for
+# this capture, then restore it after quitting the blocked startup.
+Hide
+Type "cp .kbrd.lua .kbrd.lua.demo-backup" Enter
+Type "printf cHJpbnQoImxvYWRpbmcgZGVtbyBzY3JpcHQiKQplcnJvcigiZGVtbyBzdGFydHVwIGZhaWx1cmUiKQo= | base64 -d > .kbrd.lua" Enter
+Type "export PATH=/usr/bin:/bin" Enter
+Show
+Type "${KBRD:-../../kbrd}" Enter
+Sleep 3s
+Enter
+Sleep 1s
+Screenshot docs/screenshots/lua-startup-error.png
+Ctrl+C
+Sleep 500ms
+Hide
+Type "mv .kbrd.lua.demo-backup .kbrd.lua" Enter

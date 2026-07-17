@@ -138,7 +138,18 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	// Virtual columns belong to the previous board's (now-closed) script host;
 	// drop them so they don't leak onto the new board before its board_load runs.
 	b.virtualCols = nil
-	b.initRuntime()
+	if err := b.initRuntime(); err != nil {
+		b.openScriptStartupFailure(err, true)
+		return nil, nil
+	}
+	return s.finishBoardLoad()
+}
+
+// finishBoardLoad completes a board switch after its .kbrd.lua preflight has
+// succeeded. It is also called after a successful retry from the startup debug
+// screen, so the script host is retained and never initialized twice.
+func (s boardSession) finishBoardLoad() (tea.Cmd, error) {
+	b := s.b
 
 	if err := b.loadColumns(); err != nil {
 		return nil, fmt.Errorf("failed to load columns: %w", err)
