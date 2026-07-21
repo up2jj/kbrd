@@ -131,6 +131,9 @@ func (l boardLineCommands) applyReturn() tea.Cmd {
 	b := l.board
 	if out, ok := b.scripts.TakeReturn(); ok {
 		b.editor.ReplaceLine(b.lineApplyRow, out)
+		if b.editor.IsScratchpad() {
+			return b.scratchpadActions().save(b.editor.ScratchpadContent())
+		}
 	}
 	return nil
 }
@@ -151,6 +154,9 @@ func (l boardLineCommands) handleShellDone(msg lineShellDoneMsg) (tea.Model, tea
 		return b, b.notifier.Error(msg.Name + ": " + detail)
 	}
 	b.editor.ReplaceLine(msg.Row, trimOneTrailingNewline(msg.Out))
+	if b.editor.IsScratchpad() {
+		return b, b.scratchpadActions().save(b.editor.ScratchpadContent())
+	}
 	return b, nil
 }
 

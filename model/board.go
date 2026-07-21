@@ -15,6 +15,7 @@ import (
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
 	"kbrd/git"
+	"kbrd/scratchpad"
 	"kbrd/script"
 	"kbrd/theme"
 )
@@ -32,63 +33,66 @@ type scriptInitStartMsg struct{}
 type scriptInitRunMsg struct{}
 
 type Board struct {
-	cfg              config.Config
-	safeMode         bool
-	environment      *boardenv.Manager
-	columns          []*Column
-	filesystemCols   []*Column // authoritative set; columns is the visible projection plus virtual columns
-	hiddenColumns    map[string]struct{}
-	virtualHidden    bool
-	visibleHeight    int
-	termWidth        int
-	termHeight       int
-	selectedCol      int
-	firstVisibleCol  int
-	quitting         bool
-	shuttingDown     bool // waiting for an in-flight git sync before quitting
-	editor           *Editor
-	notifier         *Notifier
-	mnemonic         mnemonicSelectorState
-	harpoon          HarpoonMenu
-	theme            string
-	terminalDark     bool
-	palette          Palette
-	watcher          *kbrdfs.Watcher
-	dialog           Dialog
-	helpMenu         HelpMenu
-	pasteMenu        PasteMenu
-	clipboardMenu    ClipboardMenu
-	clipboardRing    *clipboardring.Store
-	clipboardReturn  bool
-	clipboardTarget  pasteMenuTarget
-	clipboardRead    clipboardReadState
-	clipboardReadSeq uint64
-	templateMenu     TemplateMenu
-	presetMenu       frontmatterPresetMenu
-	moveMenu         MoveMenu
-	configMenuOpen   bool
-	peek             Peek
-	timeline         Timeline
-	peekSeq          int
-	peekItemPath     string
-	zoom             Zoom
-	switcher         Switcher
-	layerSwitcher    LayerSwitcher
-	search           Search
-	git              git.Controller
-	conflictReview   ConflictReview
-	terminal         Terminal
-	customCmds       CustomCommandMenu
-	commands         []config.Command
-	commandWarnings  []config.CommandLoadWarning
-	cells            CellBar
-	indicators       colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
-	mcpStatus        MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
-	updateVersion    string        // newer stable GitHub release, if the startup check found one
-	releaseChecker   releaseChecker
-	remindersSyncer  ReminderSyncer
-	remindersSyncing bool
-	remindersStatus  string
+	cfg                 config.Config
+	safeMode            bool
+	environment         *boardenv.Manager
+	columns             []*Column
+	filesystemCols      []*Column // authoritative set; columns is the visible projection plus virtual columns
+	hiddenColumns       map[string]struct{}
+	virtualHidden       bool
+	visibleHeight       int
+	termWidth           int
+	termHeight          int
+	selectedCol         int
+	firstVisibleCol     int
+	quitting            bool
+	shuttingDown        bool // waiting for an in-flight git sync before quitting
+	editor              *Editor
+	notifier            *Notifier
+	mnemonic            mnemonicSelectorState
+	harpoon             HarpoonMenu
+	theme               string
+	terminalDark        bool
+	palette             Palette
+	watcher             *kbrdfs.Watcher
+	dialog              Dialog
+	helpMenu            HelpMenu
+	pasteMenu           PasteMenu
+	clipboardMenu       ClipboardMenu
+	clipboardRing       *clipboardring.Store
+	clipboardReturn     bool
+	clipboardTarget     pasteMenuTarget
+	clipboardRead       clipboardReadState
+	clipboardReadSeq    uint64
+	clipboardScratchpad bool
+	scratchpads         *scratchpad.Store
+	scratchPromotion    *scratchpadPromotion
+	templateMenu        TemplateMenu
+	presetMenu          frontmatterPresetMenu
+	moveMenu            MoveMenu
+	configMenuOpen      bool
+	peek                Peek
+	timeline            Timeline
+	peekSeq             int
+	peekItemPath        string
+	zoom                Zoom
+	switcher            Switcher
+	layerSwitcher       LayerSwitcher
+	search              Search
+	git                 git.Controller
+	conflictReview      ConflictReview
+	terminal            Terminal
+	customCmds          CustomCommandMenu
+	commands            []config.Command
+	commandWarnings     []config.CommandLoadWarning
+	cells               CellBar
+	indicators          colIndicators // script-set per-column header labels (kbrd.column.indicator), keyed by column name
+	mcpStatus           MCPStatus     // drives the header MCP chip (off / running / failed-to-bind)
+	updateVersion       string        // newer stable GitHub release, if the startup check found one
+	releaseChecker      releaseChecker
+	remindersSyncer     ReminderSyncer
+	remindersSyncing    bool
+	remindersStatus     string
 
 	asyncInflight int // count of kbrd.async.run jobs currently running
 
@@ -149,6 +153,7 @@ type BoardOptions struct {
 	Safe        bool
 	Reminders   ReminderSyncer
 	Environment *boardenv.Manager
+	Scratchpad  *scratchpad.Store
 }
 
 func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
@@ -170,6 +175,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		terminal:        NewTerminal(),
 		releaseChecker:  newReleaseChecker(),
 		remindersSyncer: opts.Reminders,
+		scratchpads:     opts.Scratchpad,
 	}
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
@@ -611,6 +617,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.quitting = true
 		return b, tea.Quit
 
+	case scratchpadSaveMsg:
+		return b.scratchpadActions().handleSave(msg)
+
 	case editorSaveMsg:
 		return b.mutationHandlers().handleSave(msg)
 
@@ -786,6 +795,13 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.templateExec.done(msg)
 
 	default:
+		if b.editor.state != editorNone {
+			if b.editor.IsScratchpad() {
+				return b.scratchpadActions().updateEditor(msg)
+			}
+			cmd, _ := b.editor.Update(msg)
+			return b, cmd
+		}
 		if b.scriptUI.Active() {
 			return b, b.scriptUI.Update(msg)
 		}
@@ -847,12 +863,21 @@ func (b *Board) finishShutdown() (tea.Model, tea.Cmd) {
 
 func (b *Board) handleBoardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if len(b.columns) == 0 {
+		if key.Matches(msg, Keys.Scratchpad) {
+			return b.scratchpadActions().open()
+		}
 		return b, nil
 	}
 
 	col := b.columns[b.selectedCol]
 	if col.IsFiltering() {
 		return b, col.UpdateList(msg)
+	}
+	if key.Matches(msg, Keys.Scratchpad) {
+		return b.scratchpadActions().open()
+	}
+	if key.Matches(msg, Keys.ScratchpadAppend) {
+		return b.scratchpadActions().appendSelectedCard()
 	}
 	if key.Matches(msg, Keys.MnemonicJump) {
 		return b, b.mnemonicSelector().open()

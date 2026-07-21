@@ -105,6 +105,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	if ctx.HasSelectedItem {
 		return append(prefix,
 			bindingShortcut(Keys.Peek),
+			bindingShortcut(Keys.Scratchpad),
 			bindingShortcut(Keys.Edit),
 			bindingShortcut(Keys.Append),
 			bindingShortcut(Keys.Timeline),
@@ -121,6 +122,7 @@ func ContextShortcuts(ctx ShortcutContext) []Shortcut {
 	}
 	return append(prefix,
 		short(Keys.New.Help().Key, "new"),
+		bindingShortcut(Keys.Scratchpad),
 		bindingShortcut(Keys.TemplateMenu),
 		bindingShortcut(Keys.Filter),
 		short(Keys.RenameCol.Help().Key, "rename col"),

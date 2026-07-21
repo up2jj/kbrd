@@ -84,6 +84,10 @@ A quick, scannable rundown of everything kbrd does:
   of up to 100 typed entries (`c`), browse it with `C`, pin or delete snippets,
   and paste a selected entry using the existing append/prepend/journal/new-card
   choices. See [Clipboard ring](./CLIPBOARD.md).
+- **Scratchpad** — keep an autosaved, board-scoped quick note outside the board
+  repository (`q`), append the selected card to it (`Q`), exchange text with the
+  system clipboard or clipboard ring, and promote a selection or the whole note
+  into a card.
 - **Pin cards** — float important cards to the top of a column (`!`).
 - **Move cards** — choose any destination with fuzzy search (`m`), or move quickly to the next column (`M`).
 - **Rename & delete** — cards (`r` / `d`) and columns (`R`), with confirmation on delete.
@@ -326,6 +330,8 @@ All bindings below are the defaults from the in-app help (`?`).
 | `f` | Search across boards |
 | `g` | Git panel |
 | `C` | Browse clipboard history |
+| `q` | Open the current board's machine-local scratchpad |
+| `Q` | Append the selected card to the scratchpad and open it |
 | `z` | Terminal actions menu (inside Zellij or tmux) |
 | `,` | Config menu |
 | `?` | Toggle help |
@@ -338,6 +344,19 @@ without adding state to the board repository. Open the list with `h`, use `↑` 
 to choose a slot, then press `a` to assign the currently selected file. Press `1`–`5`
 or `enter` to jump to a slot, and `d` to clear it. Jumping selects the file and opens
 its column when it was collapsed.
+
+### Scratchpad (`q`)
+
+Press `q` to open an autosaved quick note for the current board. Scratchpads live
+in the machine-local kbrd config directory, outside the board checkout, so edits
+never appear in Git. Press `Q` on a card to append its contents and open the note.
+
+Inside the scratchpad, `ctrl+v` pastes the system clipboard, `C` in Vim Normal or
+Visual mode (`ctrl+g` everywhere) opens clipboard history, and `ctrl+c` copies the
+visual selection or whole note into both clipboard surfaces. Press `ctrl+n` to
+promote the visual selection—or the entire note when there is no selection—into
+a new card in the focused column. Promoted text is removed only after the card is
+created successfully; cancelling or failing creation leaves the note unchanged.
 
 ### Inline editor (vim-like)
 

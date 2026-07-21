@@ -249,7 +249,13 @@ func entryMeta(entry clipboardring.Entry) string {
 	if entry.Pinned {
 		when = "★ " + when
 	}
-	source := strings.Trim(strings.Join([]string{entry.Source.Board, entry.Source.Column, entry.Source.Card}, " / "), " /")
+	parts := make([]string, 0, 4)
+	for _, part := range []string{entry.Source.Board, entry.Source.Column, entry.Source.Card, entry.Source.Heading} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	source := strings.Join(parts, " / ")
 	if source != "" {
 		return fmt.Sprintf("%s · %s", when, source)
 	}
@@ -280,13 +286,28 @@ func (a boardClipboardActions) openBrowser() tea.Cmd {
 	return nil
 }
 
+func (a boardClipboardActions) openScratchpadBrowser() tea.Cmd {
+	b := a.board
+	store, err := b.clipboardStore()
+	if err != nil {
+		return b.notifier.ErrorCause("open clipboard history", err)
+	}
+	b.clipboardScratchpad = true
+	b.clipboardMenu.Open(store.Entries(), pasteMenuTarget{})
+	return nil
+}
+
 func (a boardClipboardActions) updateBrowser(msg tea.KeyPressMsg) tea.Cmd {
 	b := a.board
+	scratchTarget := b.clipboardScratchpad
 	target := b.clipboardMenu.target
 	if msg.String() == "ctrl+i" {
 		return a.readRingImport(target)
 	}
 	action, entry := b.clipboardMenu.Update(msg)
+	if !b.clipboardMenu.Active() && action == "" {
+		b.clipboardScratchpad = false
+	}
 	store, err := b.clipboardStore()
 	if err != nil {
 		return b.notifier.ErrorCause("clipboard history", err)
@@ -317,6 +338,10 @@ func (a boardClipboardActions) updateBrowser(msg tea.KeyPressMsg) tea.Cmd {
 	case "import":
 		return a.readRingImport(target)
 	case "paste":
+		if scratchTarget {
+			b.clipboardScratchpad = false
+			return b.scratchpadActions().insertClipboard(entry.Text)
+		}
 		_, cmd := b.pasteActions().openMenuWithText(target, entry.Text)
 		if b.pasteMenu.Active() {
 			b.clipboardReturn = true

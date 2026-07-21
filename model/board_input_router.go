@@ -87,6 +87,9 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) 
 
 func (r boardInputRouter) handleEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	b := r.board
+	if b.editor.IsScratchpad() {
+		return b.scratchpadActions().handleKey(msg)
+	}
 	// The textarea path treats esc as cancel (with a discard confirm when dirty);
 	// the vim path handles esc itself and quits via :q/:q!.
 	if b.editor.usesTextarea() && key.Matches(msg, Keys.EditorCancel) && b.editor.IsDirty() {
@@ -95,6 +98,9 @@ func (r boardInputRouter) handleEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	}
 	cmd, _ := b.editor.Update(msg)
 	if b.editor.state == editorNone {
+		if b.scratchPromotion != nil {
+			b.scratchpadActions().cancelPromotion()
+		}
 		b.resetEditor()
 	}
 	return b, cmd

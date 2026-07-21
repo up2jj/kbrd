@@ -759,6 +759,27 @@ func TestVisualSurround(t *testing.T) {
 	mustText(t, b, "*hello* world")
 }
 
+func TestSelectedTextAndCutSelection(t *testing.T) {
+	b := New("alpha\nbravo\ncharlie")
+	b.HandleKey("V")
+	b.HandleKey("j")
+	selected, ok := b.SelectedText()
+	if !ok || selected != "alpha\nbravo\n" {
+		t.Fatalf("SelectedText = %q, %v", selected, ok)
+	}
+	cut, ok := b.CutSelection()
+	if !ok || cut != selected {
+		t.Fatalf("CutSelection = %q, %v", cut, ok)
+	}
+	if got := b.Text(); got != "charlie" {
+		t.Fatalf("buffer after cut = %q", got)
+	}
+	b.Undo()
+	if got := b.Text(); got != "alpha\nbravo\ncharlie" {
+		t.Fatalf("buffer after undo = %q", got)
+	}
+}
+
 func TestDeleteSurround(t *testing.T) {
 	b := New(`say "hi" now`)
 	keys(b, "f\"") // move onto opening quote

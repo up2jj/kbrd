@@ -153,17 +153,32 @@ func (h boardMutationHandlers) handleTemplateAuthorSubmit(msg templateAuthorSubm
 
 func (h boardMutationHandlers) handleNew(msg editorNewMsg) (tea.Model, tea.Cmd) {
 	b := h.board
+	promotion := b.scratchPromotion != nil
 	col, err := b.resolveDelayedColumnRef(msg.Column)
 	if err != nil {
+		if promotion {
+			b.scratchpadActions().cancelPromotion()
+		}
 		return b, b.notifier.ErrorCause("", err)
 	}
 	if msg.FileName == "" {
+		if promotion {
+			b.scratchpadActions().cancelPromotion()
+		}
 		return b, b.notifier.Error("filename cannot be empty")
 	}
 	if _, err := b.createItemContent(col, msg.FileName, msg.Content); err != nil {
+		if promotion {
+			b.scratchpadActions().cancelPromotion()
+		}
 		return b, b.notifier.ErrorCause("failed to create", err)
 	}
 	col.SelectByName(msg.FileName)
+	if b.scratchPromotion != nil {
+		if err := b.scratchpadActions().finishPromotion(); err != nil {
+			return b, b.notifier.ErrorCause("card created but scratchpad was not cleared", err)
+		}
+	}
 	return b, b.notifier.Success("created " + msg.FileName + ".md")
 }
 

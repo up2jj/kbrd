@@ -34,6 +34,7 @@ const (
 	editorRenameItem
 	editorRenameColumn
 	editorManagedFile
+	editorScratchpad
 )
 
 func isInputState(s editorState) bool {
@@ -212,6 +213,16 @@ func (e *Editor) currentText() string {
 	return e.textarea.Value()
 }
 
+func (e *Editor) IsScratchpad() bool { return e.state == editorScratchpad }
+
+// ScratchpadContent returns the live note text while the scratchpad is open.
+func (e *Editor) ScratchpadContent() string {
+	if !e.IsScratchpad() {
+		return ""
+	}
+	return e.currentText()
+}
+
 // setStatus sets the transient status line (shown in the vim footer).
 func (e *Editor) setStatus(s string) tea.Cmd {
 	e.status = s
@@ -302,6 +313,36 @@ func (e *Editor) OpenManagedFile(label, path string) tea.Cmd {
 	e.initialValue = normalized
 	e.resetHistory(normalized)
 	e.expanded = true
+	e.applySize()
+	return e.textarea.Focus()
+}
+
+// OpenScratchpad opens a board-scoped, machine-local note. Scratchpad writes
+// are owned by the Board rather than the editor, so no card-adjacent swap file
+// is created. The vim path starts in Insert mode for immediate note taking.
+func (e *Editor) OpenScratchpad(initial string) tea.Cmd {
+	e.state = editorScratchpad
+	e.ColIndex = 0
+	e.ColPath = ""
+	e.ColName = ""
+	e.FileName = "Scratchpad"
+	e.ItemPath = ""
+	e.ManagedPath = ""
+	e.swapFile = ""
+	e.lastSwapRevision = 0
+	e.expanded = true
+	e.status = ""
+	if e.vim {
+		e.initialValue = initial
+		cmd := e.startVim(initial, false)
+		e.buf.GoToLine(e.buf.LineCount())
+		e.buf.HandleKey("A")
+		return cmd
+	}
+	e.textarea.SetValue(strings.TrimRight(initial, "\n"))
+	e.textarea.CursorEnd()
+	e.initialValue = e.textarea.Value()
+	e.resetHistory(e.initialValue)
 	e.applySize()
 	return e.textarea.Focus()
 }
@@ -428,6 +469,55 @@ func (e *Editor) CurrentLine() string {
 		return ""
 	}
 	return lines[row]
+}
+
+// InsertText inserts clipboard text at the active cursor.
+func (e *Editor) InsertText(text string) {
+	if text == "" || e.state == editorNone || isInputState(e.state) {
+		return
+	}
+	if e.vim && e.buf != nil {
+		e.buf.InsertText(text)
+		return
+	}
+	e.textarea.InsertString(text)
+}
+
+// SelectedOrAllText returns a vim visual selection when one is active;
+// otherwise it returns the entire document. The textarea has no selection API,
+// so its explicit copy action copies the whole note.
+func (e *Editor) SelectedOrAllText() string {
+	if e.vim && e.buf != nil {
+		if text, ok := e.buf.SelectedText(); ok {
+			return text
+		}
+	}
+	return e.currentText()
+}
+
+// TakePromotion returns the selected text (or the whole document) and the
+// scratchpad content that should remain after successful card creation. A vim
+// selection is cut only from the in-memory buffer; the persisted note remains
+// untouched until the card has been created successfully.
+func (e *Editor) TakePromotion() (content, remainder string) {
+	if e.vim && e.buf != nil {
+		if selected, ok := e.buf.CutSelection(); ok {
+			return selected, e.buf.Text()
+		}
+	}
+	return e.currentText(), ""
+}
+
+// confirmScratchpadSaved rebaselines dirty tracking after an autosave without
+// disturbing the editor's undo history.
+func (e *Editor) confirmScratchpadSaved() {
+	if !e.IsScratchpad() {
+		return
+	}
+	e.initialValue = e.currentText()
+	if e.vim && e.buf != nil {
+		e.cleanRevision = e.buf.Revision()
+	}
 }
 
 // CurrentRow returns the 0-based logical row the cursor is on — the row a line
@@ -699,6 +789,8 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 		msg = newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorManagedFile:
 		msg = newStableManagedFileSaveMsg(e.ManagedPath, e.FileName, e.textarea.Value())
+	case editorScratchpad:
+		msg = scratchpadSaveMsg{Content: e.textarea.Value()}
 	case editorAppend:
 		msg = newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, e.textarea.Value())
 	case editorPrepend:
@@ -727,7 +819,7 @@ func (e *Editor) submit() (tea.Cmd, tea.Msg) {
 		}
 		msg = newStableRenameColumnRequestMsg(e.columnTarget(), e.ColIndex, e.initialValue, name)
 	}
-	if e.state != editorManagedFile {
+	if e.state != editorManagedFile && e.state != editorScratchpad {
 		e.Close()
 	}
 	return func() tea.Msg { return msg }, nil
@@ -881,7 +973,7 @@ func (e *Editor) applyVimEffect(eff vimbuf.Effect, contentChanged bool) (tea.Cmd
 	var yankCmd tea.Cmd
 	if eff.Yank != "" {
 		_ = clipboard.WriteAll(eff.Yank) // mirror yanks to the system clipboard
-		msg := editorYankMsg{content: eff.Yank, column: e.columnTarget(), fileName: e.FileName}
+		msg := editorYankMsg{content: eff.Yank, column: e.columnTarget(), fileName: e.FileName, scratchpad: e.IsScratchpad()}
 		yankCmd = func() tea.Msg { return msg }
 	}
 	switch {
@@ -942,7 +1034,7 @@ func (e *Editor) confirmSaved() {
 	if e == nil || e.state == editorNone {
 		return
 	}
-	if e.state == editorManagedFile && !e.vim {
+	if (e.state == editorManagedFile || e.state == editorScratchpad) && !e.vim {
 		e.initialValue = e.textarea.Value()
 		e.resetHistory(e.initialValue)
 		return
@@ -951,7 +1043,7 @@ func (e *Editor) confirmSaved() {
 		return
 	}
 	e.clearSwap()
-	if e.pendingSaveClose || (e.state != editorEdit && e.state != editorManagedFile) {
+	if e.pendingSaveClose || (e.state != editorEdit && e.state != editorManagedFile && e.state != editorScratchpad) {
 		e.Close()
 	} else {
 		e.initialValue = e.buf.Text()
@@ -967,6 +1059,8 @@ func (e *Editor) saveMsg() tea.Msg {
 		return newStableEditorSaveMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorManagedFile:
 		return newStableManagedFileSaveMsg(e.ManagedPath, e.FileName, text)
+	case editorScratchpad:
+		return scratchpadSaveMsg{Content: text}
 	case editorAppend:
 		return newStableEditorAppendMsg(e.itemTarget(), e.ColIndex, e.FileName, text)
 	case editorPrepend:
@@ -1111,6 +1205,8 @@ func (e *Editor) vimLabel() string {
 		return "Prepend to: " + e.FileName
 	case editorJournal:
 		return "Journal entry for: " + e.FileName
+	case editorScratchpad:
+		return "Scratchpad"
 	}
 	return e.FileName
 }
@@ -1155,7 +1251,11 @@ func (e *Editor) vimFooter() string {
 		status += "  " + lipgloss.NewStyle().Bold(true).Foreground(p.Danger).
 			Render("⚠ swap write failed — crash recovery off")
 	}
-	hints := RenderInlineHints([]Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+t", "task"}, {"ctrl+l", "line cmd"}, {":help", "keys"}})
+	hintItems := []Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+t", "task"}, {"ctrl+l", "line cmd"}, {":help", "keys"}}
+	if e.state == editorScratchpad {
+		hintItems = []Shortcut{{"ctrl+v", "paste"}, {"C/ctrl+g", "history"}, {"ctrl+c", "copy"}, {"ctrl+n", "promote"}, {":q", "close"}}
+	}
+	hints := RenderInlineHints(hintItems)
 	return status + "\n" + hints
 }
 
@@ -1228,6 +1328,9 @@ func (e *Editor) view() string {
 	case editorJournal:
 		label = "Journal entry for: " + e.FileName
 		hints = textareaHints
+	case editorScratchpad:
+		label = "Scratchpad"
+		hints = []Shortcut{{"ctrl+v", "paste"}, {"ctrl+g", "history"}, {"ctrl+c", "copy all"}, {"ctrl+n", "promote all"}, {"esc", "close"}}
 	case editorNew:
 		if e.NewContent != "" {
 			label = "Paste as new item in: " + e.ColName
@@ -1282,6 +1385,8 @@ type managedFileSaveMsg struct {
 	Label   string
 	Content string
 }
+
+type scratchpadSaveMsg struct{ Content string }
 
 type editorAppendMsg struct {
 	Target   itemRefStable

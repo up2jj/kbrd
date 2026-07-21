@@ -1,5 +1,30 @@
 package vimbuf
 
+// SelectedText returns the active visual selection without changing the
+// buffer. The boolean is false outside Visual and Visual Line modes.
+func (b *Buffer) SelectedText() (string, bool) {
+	if b.mode != ModeVisual && b.mode != ModeVisualLine {
+		return "", false
+	}
+	f, t := orderPos(b.anchor, b.cursor)
+	if b.mode == ModeVisualLine {
+		return b.copyLines(f.Row, t.Row), true
+	}
+	return b.copyRange(f, Pos{Row: t.Row, Col: t.Col + 1}), true
+}
+
+// CutSelection removes and returns the active visual selection as one undo
+// step. It is used when a host needs to move selected text into another
+// document while retaining the resulting buffer text.
+func (b *Buffer) CutSelection() (string, bool) {
+	text, ok := b.SelectedText()
+	if !ok {
+		return "", false
+	}
+	b.visualDelete(false)
+	return text, true
+}
+
 // handleVisual processes keys in charwise (ModeVisual) and linewise
 // (ModeVisualLine) visual modes: motions extend the selection from the anchor,
 // and operators act on the selected span.

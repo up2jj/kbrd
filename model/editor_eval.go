@@ -47,6 +47,9 @@ func (e boardEditorEval) handle(msg editorEvalMsg) (tea.Model, tea.Cmd) {
 	} else {
 		b.editor.ReplaceCurrentLine(out)
 	}
+	if b.editor.IsScratchpad() {
+		return b, b.scratchpadActions().save(b.editor.ScratchpadContent())
+	}
 	return b, nil
 }
 

@@ -8,15 +8,17 @@ import (
 
 type KeyMap struct {
 	// Global
-	Quit         key.Binding
-	ToggleHelp   key.Binding
-	MnemonicJump key.Binding
-	Harpoon      key.Binding
-	SwitchBoard  key.Binding
-	Search       key.Binding
-	Refresh      key.Binding
-	Clipboard    key.Binding
-	SwitchLayer  key.Binding
+	Quit             key.Binding
+	ToggleHelp       key.Binding
+	MnemonicJump     key.Binding
+	Harpoon          key.Binding
+	SwitchBoard      key.Binding
+	Search           key.Binding
+	Refresh          key.Binding
+	Clipboard        key.Binding
+	SwitchLayer      key.Binding
+	Scratchpad       key.Binding
+	ScratchpadAppend key.Binding
 
 	// Navigation
 	PrevCol     key.Binding
@@ -133,15 +135,17 @@ type KeyMap struct {
 
 var Keys = KeyMap{
 	// Global
-	Quit:         key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-	ToggleHelp:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
-	MnemonicJump: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "jump to card mnemonic")),
-	Harpoon:      key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "open harpoon slots")),
-	SwitchBoard:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
-	Search:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
-	Refresh:      key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
-	Clipboard:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "clipboard history")),
-	SwitchLayer:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "switch script layer")),
+	Quit:             key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+	ToggleHelp:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle this help")),
+	MnemonicJump:     key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "jump to card mnemonic")),
+	Harpoon:          key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "open harpoon slots")),
+	SwitchBoard:      key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch board")),
+	Search:           key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "search in boards")),
+	Refresh:          key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "refresh")),
+	Clipboard:        key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "clipboard history")),
+	SwitchLayer:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "switch script layer")),
+	Scratchpad:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "scratchpad")),
+	ScratchpadAppend: key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "add card to scratchpad")),
 
 	// Navigation
 	PrevCol:     key.NewBinding(key.WithKeys("[", "shift+tab", "left"), key.WithHelp("← / shift+tab / [", "previous column / move marked left")),
@@ -294,6 +298,7 @@ func HelpMenuGroups() []HelpGroup {
 	global := []HelpEntry{
 		helpEntry(Keys.Refresh, "Reload every column from disk, picking up external edits."),
 		helpEntry(Keys.Clipboard, "Browse the machine-local clipboard ring and paste a saved entry."),
+		helpEntry(Keys.Scratchpad, "Open this board's machine-local scratchpad."),
 		helpEntry(Keys.Harpoon, "Open five board-scoped quick-jump slots; assign the current file or jump to a saved one."),
 		helpEntry(Keys.SwitchBoard, "Open the board switcher to jump to a recent or pinned board."),
 		helpEntry(Keys.Search, "Full-text search across all known boards."),
@@ -329,6 +334,11 @@ func HelpMenuGroups() []HelpGroup {
 					return e
 				}(),
 				helpEntry(Keys.ClearMarks, "Clear marks in the focused column."),
+				func() HelpEntry {
+					e := helpEntry(Keys.ScratchpadAppend, "Append the selected card's text to the scratchpad and open it.")
+					e.NeedsItem = true
+					return e
+				}(),
 			}, itemActionHelpEntries()...),
 		},
 		{

@@ -45,9 +45,10 @@ type clipboardSystemReadMsg struct {
 }
 
 type editorYankMsg struct {
-	column   columnRef
-	fileName string
-	content  string
+	column     columnRef
+	fileName   string
+	content    string
+	scratchpad bool
 }
 
 type boardClipboardActions struct {
@@ -171,19 +172,29 @@ func (a boardClipboardActions) recordEditorYank(msg editorYankMsg) tea.Cmd {
 	if msg.content == "" {
 		return nil
 	}
-	col, err := b.resolveDelayedColumnRef(msg.column)
-	if err != nil {
-		return nil
+	var source clipboardring.Source
+	if msg.scratchpad {
+		source = b.scratchpadActions().clipboardSource()
+	} else {
+		col, err := b.resolveDelayedColumnRef(msg.column)
+		if err != nil {
+			return nil
+		}
+		source = b.clipboardSource(col, msg.fileName)
 	}
 	store, err := b.clipboardStore()
 	if err != nil {
 		return b.notifier.ErrorCause("open clipboard history", err)
 	}
-	entry := b.newClipboardEntry(msg.content, b.clipboardSource(col, msg.fileName), map[string]any{
+	metadata := map[string]any{
 		"bytes":       len(msg.content),
 		"lines":       strings.Count(msg.content, "\n") + 1,
 		"editor_yank": true,
-	})
+	}
+	if msg.scratchpad {
+		metadata["scratchpad"] = true
+	}
+	entry := b.newClipboardEntry(msg.content, source, metadata)
 	if err := store.Add(entry); err != nil {
 		return b.notifier.ErrorCause("save clipboard history", err)
 	}
@@ -206,6 +217,9 @@ func (a boardClipboardActions) handleContent(content string) (tea.Model, tea.Cmd
 	case clipboardReadPasteMenu:
 		return b.pasteActions().openMenuWithText(state.paste, content)
 	case clipboardReadEditor:
+		if b.editor.IsScratchpad() {
+			return b, b.scratchpadActions().insertClipboard(content)
+		}
 		return b, b.editor.PasteClipboard(content)
 	case clipboardReadTemplate:
 		if b.templateFlow.stage != tfClipboard {

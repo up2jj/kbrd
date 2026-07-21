@@ -57,6 +57,11 @@ func (f boardViewFrame) renderEmpty() string {
 	if dialogView := b.dialog.View(); dialogView != "" {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialogView)
 	}
+	if layer := b.activeModalLayer(); layer != nil {
+		if overlay := layer.view(w, h, h); overlay != "" {
+			return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay)
+		}
+	}
 	return "No columns found in " + b.cfg.Path
 }
 
