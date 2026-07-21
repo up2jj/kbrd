@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -22,6 +23,7 @@ const (
 	resourceSchemaV1     = 1
 	jsonResourceMIME     = "application/json"
 	markdownResourceMIME = "text/markdown; charset=utf-8"
+	maxCompletionValues  = 100
 )
 
 type boardsResource struct {
@@ -82,6 +84,137 @@ func registerResources(s *mcp.Server, policy Policy) {
 			MIMEType:    markdownResourceMIME,
 		}, readCardResource)
 	}
+}
+
+func completeResourceArgument(_ context.Context, req *mcp.CompleteRequest, policy Policy) (*mcp.CompleteResult, error) {
+	if req == nil || req.Params == nil || req.Params.Ref == nil || req.Params.Ref.Type != "ref/resource" {
+		return completionResult(nil), nil
+	}
+
+	var values []string
+	var err error
+	switch req.Params.Ref.URI {
+	case boardResourceTmpl:
+		if req.Params.Argument.Name == "board" {
+			values, err = completableBoardNames()
+		}
+	case cardResourceTmpl:
+		if !policy.AllowCardReads {
+			break
+		}
+		switch req.Params.Argument.Name {
+		case "board":
+			values, err = completableBoardNames()
+		case "column":
+			values, err = completableColumns(completionContextArgument(req, "board"))
+		case "card":
+			values, err = completableCards(
+				completionContextArgument(req, "board"),
+				completionContextArgument(req, "column"),
+			)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return completionResult(filterCompletionValues(values, req.Params.Argument.Value)), nil
+}
+
+func completableBoardNames() ([]string, error) {
+	refs, err := board.ListBoards()
+	if err != nil {
+		return nil, fmt.Errorf("list boards for completion: %w", err)
+	}
+	counts := make(map[string]int, len(refs))
+	for _, ref := range refs {
+		counts[ref.Label()]++
+	}
+	values := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if counts[ref.Label()] != 1 {
+			continue
+		}
+		info, err := os.Stat(ref.Path)
+		if err == nil && info.IsDir() {
+			values = append(values, ref.Label())
+		}
+	}
+	return values, nil
+}
+
+func completableColumns(boardName string) ([]string, error) {
+	if boardName == "" {
+		return nil, nil
+	}
+	ref, err := resolveBoardExact(boardName)
+	if err != nil {
+		return nil, nil
+	}
+	columns, err := board.Columns(ref.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list columns for completion: %w", err)
+	}
+	return columns, nil
+}
+
+func completableCards(boardName, column string) ([]string, error) {
+	if boardName == "" || column == "" {
+		return nil, nil
+	}
+	ref, err := resolveBoardExact(boardName)
+	if err != nil {
+		return nil, nil
+	}
+	columnPath, err := resolveColumnExact(ref.Path, column)
+	if err != nil {
+		return nil, nil
+	}
+	items, err := board.Items(columnPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list cards for completion: %w", err)
+	}
+	return items, nil
+}
+
+func completionContextArgument(req *mcp.CompleteRequest, name string) string {
+	if req.Params.Context == nil {
+		return ""
+	}
+	return req.Params.Context.Arguments[name]
+}
+
+func filterCompletionValues(values []string, query string) []string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	filtered := make([]string, 0, min(len(values), maxCompletionValues))
+	for _, value := range values {
+		if query != "" && !strings.Contains(strings.ToLower(value), query) {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	slices.Sort(filtered)
+	return filtered
+}
+
+func completionResult(values []string) *mcp.CompleteResult {
+	total := len(values)
+	if values == nil {
+		values = []string{}
+	}
+	if len(values) > maxCompletionValues {
+		values = values[:maxCompletionValues]
+	}
+	return &mcp.CompleteResult{Completion: mcp.CompletionResultDetails{
+		Values:  values,
+		Total:   total,
+		HasMore: total > len(values),
+	}}
 }
 
 func readBoardsResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

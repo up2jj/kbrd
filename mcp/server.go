@@ -38,7 +38,12 @@ type Policy struct {
 func newServer(policy Policy) *mcp.Server {
 	s := mcp.NewServer(
 		&mcp.Implementation{Name: "kbrd", Version: version},
-		&mcp.ServerOptions{Instructions: ServerInstructions()},
+		&mcp.ServerOptions{
+			Instructions: ServerInstructions(),
+			CompletionHandler: func(ctx context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+				return completeResourceArgument(ctx, req, policy)
+			},
+		},
 	)
 	registerResources(s, policy)
 	falsePtr := false

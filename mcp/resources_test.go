@@ -212,7 +212,43 @@ func TestResourceRegistrationHonorsCardReadPolicy(t *testing.T) {
 			if !gotBoard || gotCard != tc.wantCard {
 				t.Fatalf("templates = %+v", templates.ResourceTemplates)
 			}
+			boardCompletion, err := session.Complete(t.Context(), &sdkmcp.CompleteParams{
+				Ref:      &sdkmcp.CompleteReference{Type: "ref/resource", URI: boardResourceTmpl},
+				Argument: sdkmcp.CompleteParamsArgument{Name: "board", Value: ""},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := boardCompletion.Completion.Values; len(got) != 1 || got[0] != "Work" {
+				t.Fatalf("board completions = %#v", got)
+			}
 			if tc.wantCard {
+				columnCompletion, err := session.Complete(t.Context(), &sdkmcp.CompleteParams{
+					Ref:      &sdkmcp.CompleteReference{Type: "ref/resource", URI: cardResourceTmpl},
+					Argument: sdkmcp.CompleteParamsArgument{Name: "column", Value: "to"},
+					Context:  &sdkmcp.CompleteContext{Arguments: map[string]string{"board": "Work"}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := columnCompletion.Completion.Values; len(got) != 1 || got[0] != "todo" {
+					t.Fatalf("column completions = %#v", got)
+				}
+
+				cardCompletion, err := session.Complete(t.Context(), &sdkmcp.CompleteParams{
+					Ref:      &sdkmcp.CompleteReference{Type: "ref/resource", URI: cardResourceTmpl},
+					Argument: sdkmcp.CompleteParamsArgument{Name: "card", Value: "car"},
+					Context: &sdkmcp.CompleteContext{Arguments: map[string]string{
+						"board": "Work", "column": "todo",
+					}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := cardCompletion.Completion.Values; len(got) != 1 || got[0] != "card" {
+					t.Fatalf("card completions = %#v", got)
+				}
+
 				res, err := session.ReadResource(t.Context(), &sdkmcp.ReadResourceParams{URI: cardResourceURI("Work", "todo", "card")})
 				if err != nil {
 					t.Fatal(err)

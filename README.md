@@ -944,7 +944,8 @@ Resource names are exact and URI path segments are percent-encoded. Unlike conve
 inputs, resource URIs never use fuzzy board matching. Reads reflect the current filesystem state;
 stale entries from the recents registry remain visible in `kbrd://boards` with
 `"available": false`. Card reads are separately opt-in because the server covers every board in
-the recents registry and its loopback HTTP endpoint is not authenticated.
+the recents registry and its loopback HTTP endpoint is not authenticated. MCP completion responses
+populate resource-template board, column, and card selectors in clients such as MCP Inspector.
 
 Create a local `AGENTS.md` (config menu → `a`) to give agents orientation about a board,
 and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. Note that a
