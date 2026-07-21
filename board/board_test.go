@@ -238,8 +238,16 @@ func TestResolveFrom(t *testing.T) {
 	}
 	// Ambiguous exact (two boards same label).
 	dup := []Ref{{Name: "Dup", Path: "/x"}, {Name: "dup", Path: "/y"}}
-	if _, err := resolveFrom("dup", dup); !errors.Is(err, ErrBoardAmbiguous) {
+	_, err := resolveFrom("dup", dup)
+	if !errors.Is(err, ErrBoardAmbiguous) {
 		t.Fatalf("ambiguous err = %v", err)
+	}
+	var ambiguous *AmbiguousBoardError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("ambiguous err type = %T, want *AmbiguousBoardError", err)
+	}
+	if len(ambiguous.Candidates) != 2 || ambiguous.Candidates[0].Path != "/x" || ambiguous.Candidates[1].Path != "/y" {
+		t.Fatalf("ambiguous candidates = %+v", ambiguous.Candidates)
 	}
 	// Empty store.
 	if _, err := resolveFrom("anything", nil); !errors.Is(err, ErrBoardNotFound) {

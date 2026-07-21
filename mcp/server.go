@@ -94,9 +94,12 @@ func (c closer) Close() error {
 const (
 	mcpReadHeaderTimeout = 5 * time.Second
 	mcpReadTimeout       = 30 * time.Second
-	mcpWriteTimeout      = 30 * time.Second
-	mcpIdleTimeout       = 120 * time.Second
-	mcpShutdownTimeout   = 5 * time.Second
+	// Streamable HTTP may keep an SSE response open while a tool waits for a
+	// user's elicitation response. Per-operation contexts bound that work; a
+	// server-wide write deadline would terminate otherwise healthy sessions.
+	mcpWriteTimeout    time.Duration = 0
+	mcpIdleTimeout                   = 120 * time.Second
+	mcpShutdownTimeout               = 5 * time.Second
 )
 
 func newHTTPServer(handler http.Handler) *http.Server {

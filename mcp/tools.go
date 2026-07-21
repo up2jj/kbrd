@@ -29,12 +29,12 @@ type AddFileOutput struct {
 	Folder string `json:"folder"`
 }
 
-func addFileToBoard(ctx context.Context, _ *mcp.CallToolRequest, in AddFileInput) (*mcp.CallToolResult, AddFileOutput, error) {
-	ref, err := board.Resolve(in.Board)
+func addFileToBoard(ctx context.Context, req *mcp.CallToolRequest, in AddFileInput) (*mcp.CallToolResult, AddFileOutput, error) {
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
 	if err != nil {
 		return nil, AddFileOutput{}, err
 	}
-	colPath, err := board.ResolveColumn(ref.Path, in.Folder, in.CreateFolder)
+	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, in.CreateFolder)
 	if err != nil {
 		return nil, AddFileOutput{}, err
 	}
@@ -77,8 +77,8 @@ type ListFoldersOutput struct {
 	Folders []string `json:"folders"`
 }
 
-func listFolders(ctx context.Context, _ *mcp.CallToolRequest, in ListFoldersInput) (*mcp.CallToolResult, ListFoldersOutput, error) {
-	ref, err := board.Resolve(in.Board)
+func listFolders(ctx context.Context, req *mcp.CallToolRequest, in ListFoldersInput) (*mcp.CallToolResult, ListFoldersOutput, error) {
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
 	if err != nil {
 		return nil, ListFoldersOutput{}, err
 	}
@@ -101,12 +101,12 @@ type ListFilesOutput struct {
 	Files  []string `json:"files"`
 }
 
-func listFiles(ctx context.Context, _ *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
-	ref, err := board.Resolve(in.Board)
+func listFiles(ctx context.Context, req *mcp.CallToolRequest, in ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
 	if err != nil {
 		return nil, ListFilesOutput{}, err
 	}
-	colPath, err := board.ResolveColumn(ref.Path, in.Folder, false)
+	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, false)
 	if err != nil {
 		return nil, ListFilesOutput{}, err
 	}

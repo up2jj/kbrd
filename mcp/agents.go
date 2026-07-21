@@ -42,6 +42,8 @@ kbrd runs a built-in MCP server (Streamable HTTP) while the TUI is open. The
 
 Prefer these tools over editing files blindly: resolve the board with
 §list_boards§, inspect folders with §list_folders§, then §add_file_to_board§.
+When the MCP client supports form elicitation, kbrd may ask the user to choose
+between ambiguous boards or to replace an unknown folder with an existing one.
 
 Read-only MCP resources offer the same hierarchy as stable context:
 
@@ -74,12 +76,14 @@ left to right. Names beginning with §.§ or §_§ are hidden.
   §list_boards§ and use the returned friendly name for later calls. The server
   may expose multiple boards from kbrd's recents store.
 - If a board name is missing or ambiguous, list the boards and ask the user to
-  choose; do not guess. Inspect a selected board with §list_folders§ and
-  §list_files§ before changing it when the target is not already unambiguous.
+  choose; do not guess. kbrd may elicit this choice directly when the client
+  supports it. Inspect a selected board with §list_folders§ and §list_files§
+  before changing it when the target is not already unambiguous.
 - Use §add_file_to_board§ to create a card. The §name§ is the filename/title
   (the §.md§ suffix is optional), §content§ is its Markdown body, and §folder§
   selects its column. If §folder§ is omitted, the first alphabetical column is
-  used. Set §create_folder§ only when the user asked to create a new column.
+  used. An unknown named folder may trigger an elicitation offering existing
+  folders. Set §create_folder§ only when the user asked to create a new column.
 - Card creation never overwrites an existing file. If a name conflicts, report
   it and ask for a different name instead of silently changing or replacing it.
 - Do not move a card to a Done-like column merely because work appears complete.

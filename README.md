@@ -925,6 +925,11 @@ folder-local `.mcp.json`.
 | `list_custom_commands` | List available shell custom commands |
 | `run_custom_command` | Run a shell custom command with full context; requires `[mcp] allow_commands = true` and is disabled by `--safe` |
 
+When the connected client advertises MCP form elicitation, tool calls can recover interactively
+from ambiguous board names and unknown named folders. The client presents the valid choices to the
+user and returns the selection to the pending tool call. Clients without elicitation support keep
+the existing descriptive tool errors, so callers can still recover by listing boards or folders.
+
 **Resources exposed**
 
 | Resource | Purpose |

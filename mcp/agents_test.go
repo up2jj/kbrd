@@ -42,6 +42,7 @@ func TestServerInstructions(t *testing.T) {
 		"Do not move a card",
 		"destructive",
 		"kbrd://boards",
+		"elicit",
 	} {
 		if !strings.Contains(doc, phrase) {
 			t.Errorf("server instructions do not mention %q", phrase)

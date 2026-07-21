@@ -42,8 +42,8 @@ func listCustomCommands(ctx context.Context, _ *mcp.CallToolRequest, in ListComm
 	return listCustomCommandsWithPolicy(ctx, nil, in, Policy{AllowFolderCommands: true})
 }
 
-func listCustomCommandsWithPolicy(ctx context.Context, _ *mcp.CallToolRequest, in ListCommandsInput, policy Policy) (*mcp.CallToolResult, ListCommandsOutput, error) {
-	ref, err := board.Resolve(in.Board)
+func listCustomCommandsWithPolicy(ctx context.Context, req *mcp.CallToolRequest, in ListCommandsInput, policy Policy) (*mcp.CallToolResult, ListCommandsOutput, error) {
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
 	if err != nil {
 		return nil, ListCommandsOutput{}, err
 	}
@@ -83,11 +83,11 @@ func runCustomCommand(ctx context.Context, _ *mcp.CallToolRequest, in RunCommand
 	return runCustomCommandWithPolicy(ctx, nil, in, Policy{AllowCommands: true, AllowFolderCommands: true})
 }
 
-func runCustomCommandWithPolicy(ctx context.Context, _ *mcp.CallToolRequest, in RunCommandInput, policy Policy) (*mcp.CallToolResult, RunCommandOutput, error) {
+func runCustomCommandWithPolicy(ctx context.Context, req *mcp.CallToolRequest, in RunCommandInput, policy Policy) (*mcp.CallToolResult, RunCommandOutput, error) {
 	if !policy.AllowCommands {
 		return nil, RunCommandOutput{}, errors.New("run_custom_command is disabled; set [mcp] allow_commands = true and do not use --safe to enable shell command execution")
 	}
-	ref, err := board.Resolve(in.Board)
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
 	if err != nil {
 		return nil, RunCommandOutput{}, err
 	}

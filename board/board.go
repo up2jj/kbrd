@@ -18,27 +18,15 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/sahilm/fuzzy"
-
 	kbrdfs "kbrd/fs"
-	"kbrd/recents"
 )
 
 var (
-	ErrBoardNotFound  = errors.New("board not found")
-	ErrBoardAmbiguous = errors.New("board name is ambiguous")
 	ErrNoColumns      = errors.New("board has no folders")
 	ErrFolderNotFound = errors.New("folder not found")
 	ErrEmptyName      = errors.New("name cannot be empty")
 	ErrBadName        = errors.New("name cannot contain path separators or '..'")
 )
-
-// Ref is a board known to kbrd: a friendly name (may be empty) and its path.
-type Ref struct {
-	Name   string
-	Path   string
-	Pinned bool
-}
 
 // Hidden reports whether a directory entry name is skipped during board and
 // item discovery. Mirrors the rule in model.loadColumns / Column.LoadItems:
@@ -78,146 +66,6 @@ func (v VarContext) Vars() map[string]string {
 		m["fileDir"] = filepath.Dir(v.FilePath)
 	}
 	return m
-}
-
-// ListBoards returns the boards known from the recents store. Paths are not
-// required to still exist on disk; callers may filter on existence.
-func ListBoards() ([]Ref, error) {
-	store, err := recents.Load()
-	if err != nil {
-		return nil, err
-	}
-	refs := make([]Ref, 0, len(store.Entries))
-	for _, e := range store.Entries {
-		refs = append(refs, Ref{Name: e.Name, Path: e.Path, Pinned: e.Pinned})
-	}
-	return refs, nil
-}
-
-// label is the string a board is matched against: its friendly name if set,
-// otherwise the base name of its directory.
-func (r Ref) Label() string {
-	if r.Name != "" {
-		return r.Name
-	}
-	return filepath.Base(r.Path)
-}
-
-// Resolve maps a user-supplied board name to a known board:
-//
-//  1. exact case-insensitive match on the friendly name (or, for boards
-//     without a name, the directory base name). Exactly one match wins; more
-//     than one is ErrBoardAmbiguous.
-//  2. otherwise a fuzzy match over the same labels. A single result wins; more
-//     than one is ErrBoardAmbiguous; none is ErrBoardNotFound.
-//
-// Returned errors enumerate the known board names so a caller (or an LLM) can
-// correct itself.
-func Resolve(name string) (Ref, error) {
-	refs, err := ListBoards()
-	if err != nil {
-		return Ref{}, err
-	}
-	return resolveFrom(name, refs)
-}
-
-// ResolveExisting resolves a board from the recent-board registry first, then
-// falls back to interpreting input as a filesystem path. Unlike Resolve, its
-// successful result always points at an existing directory.
-func ResolveExisting(input string) (Ref, error) {
-	query := strings.TrimSpace(input)
-	ref, recentErr := Resolve(query)
-	if recentErr == nil {
-		abs, err := existingDir(ref.Path)
-		if err == nil {
-			ref.Path = abs
-			return ref, nil
-		}
-		recentErr = fmt.Errorf("recent board %q at %s is unavailable: %w", ref.Label(), ref.Path, err)
-	}
-
-	if query != "" {
-		if abs, err := existingDir(query); err == nil {
-			return Ref{Path: abs}, nil
-		}
-	}
-	if recentErr != nil {
-		return Ref{}, recentErr
-	}
-	return Ref{}, fmt.Errorf("%w: %q is neither a known board nor an existing directory", ErrBoardNotFound, query)
-}
-
-func existingDir(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory")
-	}
-	return abs, nil
-}
-
-func resolveFrom(name string, refs []Ref) (Ref, error) {
-	query := strings.TrimSpace(name)
-	if len(refs) == 0 {
-		return Ref{}, fmt.Errorf("%w: no boards known — open a board in kbrd first", ErrBoardNotFound)
-	}
-	if query == "" {
-		return Ref{}, fmt.Errorf("%w: provide a board name; known boards: %s", ErrBoardNotFound, knownNames(refs))
-	}
-
-	// 1) exact case-insensitive match.
-	var exact []Ref
-	for _, r := range refs {
-		if strings.EqualFold(r.Label(), query) {
-			exact = append(exact, r)
-		}
-	}
-	if len(exact) == 1 {
-		return exact[0], nil
-	}
-	if len(exact) > 1 {
-		return Ref{}, fmt.Errorf("%w: %q matches %d boards: %s", ErrBoardAmbiguous, query, len(exact), refsNames(exact))
-	}
-
-	// 2) fuzzy fallback over labels.
-	labels := make([]string, len(refs))
-	for i, r := range refs {
-		labels[i] = r.Label()
-	}
-	matches := fuzzy.Find(query, labels)
-	if len(matches) == 0 {
-		return Ref{}, fmt.Errorf("%w: %q; known boards: %s", ErrBoardNotFound, query, knownNames(refs))
-	}
-	if len(matches) == 1 {
-		return refs[matches[0].Index], nil
-	}
-	// Multiple fuzzy candidates: accept the top one only if it scores
-	// decisively ahead of the runner-up; otherwise ask the caller to be
-	// specific. fuzzy.Find returns results sorted best-first.
-	if matches[0].Score > matches[1].Score {
-		return refs[matches[0].Index], nil
-	}
-	cands := make([]Ref, 0, len(matches))
-	for _, m := range matches {
-		cands = append(cands, refs[m.Index])
-	}
-	return Ref{}, fmt.Errorf("%w: %q; candidates: %s", ErrBoardAmbiguous, query, refsNames(cands))
-}
-
-func knownNames(refs []Ref) string { return refsNames(refs) }
-
-func refsNames(refs []Ref) string {
-	names := make([]string, 0, len(refs))
-	for _, r := range refs {
-		names = append(names, r.Label())
-	}
-	return strings.Join(names, ", ")
 }
 
 // Columns returns the column/folder names of a board: immediate subdirectories
