@@ -929,6 +929,11 @@ and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. N
 folder-local `.mcp.json` can point the MCP server at external processes, so it carries the
 same trust caveat as folder-local scripts — see **[SECURITY.md](./SECURITY.md)**.
 
+The server also advertises a working-directory-independent operating guide in its MCP
+initialize response. Compatible clients receive the board model, tool workflow, card and
+frontmatter conventions, ambiguity handling, and command safety rules even when they connect
+globally or over HTTP and never inspect a board-local `AGENTS.md`.
+
 > Note: the MCP server sees **shell** custom commands only — Lua-registered commands are
 > not visible to or runnable via MCP.
 

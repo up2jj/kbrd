@@ -43,6 +43,14 @@ func TestServeRoundTrip(t *testing.T) {
 	}
 	defer session.Close()
 
+	initResult := session.InitializeResult()
+	if initResult == nil {
+		t.Fatal("initialize result is nil")
+	}
+	if got, want := initResult.Instructions, ServerInstructions(); got != want {
+		t.Errorf("server instructions = %q, want %q", got, want)
+	}
+
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)

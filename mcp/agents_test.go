@@ -24,3 +24,21 @@ func TestAgentsMarkdown(t *testing.T) {
 		t.Errorf("AGENTS.md does not mention server name %q", ServerName)
 	}
 }
+
+func TestServerInstructions(t *testing.T) {
+	doc := ServerInstructions()
+	if strings.Contains(doc, "§") {
+		t.Fatal("sentinel § left unsubstituted in server instructions")
+	}
+	for _, phrase := range []string{
+		"list_boards",
+		"multiple boards",
+		"frontmatter",
+		"Do not move a card",
+		"destructive",
+	} {
+		if !strings.Contains(doc, phrase) {
+			t.Errorf("server instructions do not mention %q", phrase)
+		}
+	}
+}

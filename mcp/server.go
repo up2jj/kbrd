@@ -34,7 +34,10 @@ type Policy struct {
 
 // newServer builds the MCP server with all kbrd tools registered.
 func newServer(policy Policy) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "kbrd", Version: version}, nil)
+	s := mcp.NewServer(
+		&mcp.Implementation{Name: "kbrd", Version: version},
+		&mcp.ServerOptions{Instructions: ServerInstructions()},
+	)
 	falsePtr := false
 
 	mcp.AddTool(s, &mcp.Tool{
