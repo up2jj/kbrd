@@ -34,7 +34,7 @@ func addFileToBoard(ctx context.Context, req *mcp.CallToolRequest, in AddFileInp
 	if err != nil {
 		return nil, AddFileOutput{}, err
 	}
-	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, in.CreateFolder)
+	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, in.CreateFolder, true)
 	if err != nil {
 		return nil, AddFileOutput{}, err
 	}
@@ -106,7 +106,7 @@ func listFiles(ctx context.Context, req *mcp.CallToolRequest, in ListFilesInput)
 	if err != nil {
 		return nil, ListFilesOutput{}, err
 	}
-	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, false)
+	colPath, err := resolveColumnForTool(ctx, req, ref, in.Folder, false, false)
 	if err != nil {
 		return nil, ListFilesOutput{}, err
 	}

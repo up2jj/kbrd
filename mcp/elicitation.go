@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,31 +20,31 @@ var (
 	errElicitationTimedOut    = errors.New("elicitation timed out")
 )
 
+// elicitationChoice separates the stable value returned by the client from
+// the title shown to the user. This lets board paths and other opaque IDs stay
+// unambiguous without making the form difficult to read.
+type elicitationChoice struct {
+	Value string
+	Title string
+}
+
 // elicitChoice asks the user to choose one of the supplied values. The MCP SDK
 // validates accepted content against this schema before returning it.
-func elicitChoice(ctx context.Context, req *mcp.CallToolRequest, message string, choices []string) (string, error) {
+func elicitChoice(ctx context.Context, req *mcp.CallToolRequest, message string, choices []elicitationChoice) (string, error) {
 	if !supportsFormElicitation(req) {
 		return "", errElicitationUnsupported
 	}
-	if len(choices) == 0 {
-		return "", errors.New("elicitation requires at least one choice")
+	schema, err := choiceSchema(choices)
+	if err != nil {
+		return "", err
 	}
 
 	elicitCtx, cancel := context.WithTimeout(ctx, elicitationTimeout)
 	defer cancel()
 	res, err := req.Session.Elicit(elicitCtx, &mcp.ElicitParams{
-		Mode:    "form",
-		Message: message,
-		RequestedSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"choice": map[string]any{
-					"type": "string",
-					"enum": choices,
-				},
-			},
-			"required": []string{"choice"},
-		},
+		Mode:            "form",
+		Message:         message,
+		RequestedSchema: schema,
 	})
 	if err != nil {
 		if errors.Is(elicitCtx.Err(), context.DeadlineExceeded) {
@@ -63,7 +62,12 @@ func elicitChoice(ctx context.Context, req *mcp.CallToolRequest, message string,
 		if !ok || choice == "" {
 			return "", errors.New("MCP client accepted elicitation without a choice")
 		}
-		return choice, nil
+		for _, candidate := range choices {
+			if candidate.Value == choice {
+				return choice, nil
+			}
+		}
+		return "", fmt.Errorf("MCP client selected unknown choice %q", choice)
 	case "decline":
 		return "", errElicitationDeclined
 	case "cancel":
@@ -71,6 +75,39 @@ func elicitChoice(ctx context.Context, req *mcp.CallToolRequest, message string,
 	default:
 		return "", fmt.Errorf("unknown elicitation action %q", res.Action)
 	}
+}
+
+func choiceSchema(choices []elicitationChoice) (map[string]any, error) {
+	if len(choices) == 0 {
+		return nil, errors.New("elicitation requires at least one choice")
+	}
+	oneOf := make([]map[string]any, 0, len(choices))
+	seen := make(map[string]bool, len(choices))
+	for _, choice := range choices {
+		if choice.Value == "" {
+			return nil, errors.New("elicitation choice value cannot be empty")
+		}
+		if seen[choice.Value] {
+			return nil, fmt.Errorf("duplicate elicitation choice %q", choice.Value)
+		}
+		seen[choice.Value] = true
+		title := choice.Title
+		if title == "" {
+			title = choice.Value
+		}
+		oneOf = append(oneOf, map[string]any{"const": choice.Value, "title": title})
+	}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"choice": map[string]any{
+				"type":  "string",
+				"title": "Choice",
+				"oneOf": oneOf,
+			},
+		},
+		"required": []string{"choice"},
+	}, nil
 }
 
 func supportsFormElicitation(req *mcp.CallToolRequest) bool {
@@ -104,12 +141,15 @@ func resolveBoardForTool(ctx context.Context, req *mcp.CallToolRequest, name str
 	if len(candidates) == 1 {
 		return candidates[0], nil
 	}
-	paths := make([]string, 0, len(candidates))
+	choices := make([]elicitationChoice, 0, len(candidates))
 	for _, candidate := range candidates {
-		paths = append(paths, candidate.Path)
+		choices = append(choices, elicitationChoice{
+			Value: candidate.Path,
+			Title: fmt.Sprintf("%s — %s", candidate.Label(), candidate.Path),
+		})
 	}
 	choice, choiceErr := elicitChoice(ctx, req,
-		fmt.Sprintf("Several boards match %q. Choose the intended board path.", name), paths)
+		fmt.Sprintf("Several boards match %q. Choose the intended board.", name), choices)
 	if errors.Is(choiceErr, errElicitationUnsupported) {
 		return board.Ref{}, err
 	}
@@ -137,31 +177,55 @@ func uniqueBoardCandidates(candidates []board.Ref) []board.Ref {
 	return unique
 }
 
-// resolveColumnForTool retains the existing default and auto-create behavior.
-// For an invalid named folder, it lets an elicitation-capable client choose an
-// existing folder and otherwise returns the original error.
-func resolveColumnForTool(ctx context.Context, req *mcp.CallToolRequest, ref board.Ref, folder string, autoCreate bool) (string, error) {
+// resolveColumnForTool retains the existing default and explicit auto-create
+// behavior. For an invalid named folder, it lets an elicitation-capable client
+// explicitly create that folder or choose an existing one.
+func resolveColumnForTool(ctx context.Context, req *mcp.CallToolRequest, ref board.Ref, folder string, autoCreate, offerCreate bool) (string, error) {
 	path, err := board.ResolveColumn(ref.Path, folder, autoCreate)
 	if err == nil || !errors.Is(err, board.ErrFolderNotFound) || autoCreate {
 		return path, err
 	}
 
 	columns, columnsErr := board.Columns(ref.Path)
-	if columnsErr != nil || len(columns) == 0 {
+	if columnsErr != nil {
 		return "", err
 	}
-	choice, choiceErr := elicitChoice(ctx, req,
-		fmt.Sprintf("Folder %q does not exist in board %q. Choose an existing folder.", folder, ref.Label()), columns)
+	type folderAction struct {
+		name   string
+		create bool
+	}
+	actions := make(map[string]folderAction, len(columns)+1)
+	choices := make([]elicitationChoice, 0, len(columns)+1)
+	if clean, sanitizeErr := board.SanitizeFolder(folder); offerCreate && sanitizeErr == nil {
+		const value = "create"
+		actions[value] = folderAction{name: clean, create: true}
+		choices = append(choices, elicitationChoice{Value: value, Title: fmt.Sprintf("Create %q", clean)})
+	}
+	for i, column := range columns {
+		value := fmt.Sprintf("folder:%d", i)
+		actions[value] = folderAction{name: column}
+		choices = append(choices, elicitationChoice{Value: value, Title: fmt.Sprintf("Use %q", column)})
+	}
+	if len(choices) == 0 {
+		return "", err
+	}
+	message := fmt.Sprintf("Folder %q does not exist in board %q. Choose an existing folder.", folder, ref.Label())
+	if offerCreate {
+		message = fmt.Sprintf("Folder %q does not exist in board %q. Create it or choose an existing folder.", folder, ref.Label())
+	}
+	choice, choiceErr := elicitChoice(ctx, req, message, choices)
 	if errors.Is(choiceErr, errElicitationUnsupported) {
 		return "", err
 	}
 	if choiceErr != nil {
 		return "", fmt.Errorf("choose folder: %w", choiceErr)
 	}
-	for _, column := range columns {
-		if column == choice {
-			return filepath.Join(ref.Path, column), nil
-		}
+	action, ok := actions[choice]
+	if !ok {
+		return "", fmt.Errorf("MCP client selected unknown folder action %q", choice)
 	}
-	return "", fmt.Errorf("MCP client selected unknown folder %q", choice)
+	if action.create {
+		return board.ResolveColumn(ref.Path, action.name, true)
+	}
+	return board.ResolveColumn(ref.Path, action.name, false)
 }

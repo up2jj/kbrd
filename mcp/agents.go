@@ -43,7 +43,8 @@ kbrd runs a built-in MCP server (Streamable HTTP) while the TUI is open. The
 Prefer these tools over editing files blindly: resolve the board with
 §list_boards§, inspect folders with §list_folders§, then §add_file_to_board§.
 When the MCP client supports form elicitation, kbrd may ask the user to choose
-between ambiguous boards or to replace an unknown folder with an existing one.
+between ambiguous boards, create or replace an unknown folder while adding a
+card, or replace an unknown custom-command id with an available command.
 
 Read-only MCP resources offer the same hierarchy as stable context:
 
@@ -109,7 +110,8 @@ content and do not invent metadata the user did not request.
   permits it. Commands may modify files or run arbitrary programs. Run one only
   when the user's request requires that specific command; never use it to bypass
   a disabled or absent MCP operation. Treat deletion and other destructive
-  effects as requiring explicit user intent.
+  effects as requiring explicit user intent. An unknown command id may trigger
+  an elicitation offering only commands permitted by the current server policy.
 - Lua commands are available only in the kbrd TUI and are not exposed by MCP.
 
 Available tools: §list_boards§, §list_folders§, §list_files§,

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -104,7 +105,7 @@ func TestServeRoundTripElicitsBoardAndFolderChoices(t *testing.T) {
 			case strings.Contains(req.Params.Message, "Several boards"):
 				return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": secondBoard}}, nil
 			case strings.Contains(req.Params.Message, "does not exist"):
-				return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "2. doing"}}, nil
+				return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "folder:1"}}, nil
 			default:
 				return nil, fmt.Errorf("unexpected elicitation message %q", req.Params.Message)
 			}
@@ -131,9 +132,141 @@ func TestServeRoundTripElicitsBoardAndFolderChoices(t *testing.T) {
 	}
 }
 
+func TestServeRoundTripElicitsMissingFolderCreation(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+
+	ctx, session := connectTestClient(t, &mcp.ClientOptions{
+		ElicitationHandler: func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			if !strings.Contains(req.Params.Message, "Create it or choose") {
+				return nil, fmt.Errorf("unexpected elicitation message %q", req.Params.Message)
+			}
+			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "create"}}, nil
+		},
+	})
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "add_file_to_board",
+		Arguments: AddFileInput{
+			Board: "Demo", Name: "new", Folder: "doing", Content: "created interactively",
+		},
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(boardPath, "doing", "new.md")); err != nil {
+		t.Fatalf("item not created in elicited new folder: %v", err)
+	}
+}
+
+func TestServeRoundTripReadOnlyFolderChoiceDoesNotOfferCreation(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	if err := os.WriteFile(filepath.Join(boardPath, "todo", "card.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+
+	ctx, session := connectTestClient(t, &mcp.ClientOptions{
+		ElicitationHandler: func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			schema, err := json.Marshal(req.Params.RequestedSchema)
+			if err != nil {
+				return nil, err
+			}
+			if strings.Contains(string(schema), `"const":"create"`) {
+				return nil, fmt.Errorf("read-only folder choice offered creation: %s", schema)
+			}
+			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "folder:0"}}, nil
+		},
+	})
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_files",
+		Arguments: ListFilesInput{Board: "Demo", Folder: "missing"},
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(boardPath, "missing")); !os.IsNotExist(err) {
+		t.Fatalf("read-only tool created missing folder: %v", err)
+	}
+}
+
+func TestServeRoundTripElicitsUnknownCommand(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+	writeCommands(t, boardPath, `commands:
+  - name: Selected command
+    id: selected
+    description: print a marker
+    command: printf selected-via-elicitation
+`)
+
+	ctx, session := connectTestClientWithPolicy(t, &mcp.ClientOptions{
+		ElicitationHandler: func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			if !strings.Contains(req.Params.Message, "Command \"missing\"") {
+				return nil, fmt.Errorf("unexpected elicitation message %q", req.Params.Message)
+			}
+			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "selected"}}, nil
+		},
+	}, Policy{AllowCommands: true, AllowFolderCommands: true})
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "run_custom_command",
+		Arguments: RunCommandInput{Board: "Demo", Command: "missing"},
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "selected-via-elicitation") {
+		t.Fatalf("command output = %q", text)
+	}
+}
+
+func TestServeRoundTripCommandElicitationCannotBypassPolicy(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+	writeCommands(t, boardPath, `commands:
+  - name: Must not run
+    id: blocked
+    command: printf should-not-run
+`)
+
+	var calls atomic.Int32
+	ctx, session := connectTestClientWithPolicy(t, &mcp.ClientOptions{
+		ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			calls.Add(1)
+			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "blocked"}}, nil
+		},
+	}, Policy{AllowFolderCommands: true})
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "run_custom_command",
+		Arguments: RunCommandInput{Board: "Demo", Command: "missing"},
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("result IsError = false, content = %+v", res.Content)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("elicitation calls = %d, want 0 when commands are disabled", got)
+	}
+}
+
 func TestServeRoundTripElicitationFallbackAndUserActions(t *testing.T) {
-	for _, action := range []string{"unsupported", "decline", "cancel"} {
-		t.Run(action, func(t *testing.T) {
+	for _, scenario := range []string{"unsupported", "url-only", "decline", "cancel", "invalid", "client-error"} {
+		t.Run(scenario, func(t *testing.T) {
 			firstBoard := makeBoardDir(t, "todo")
 			secondBoard := makeBoardDir(t, "doing")
 			seedRecents(t, []recents.Entry{
@@ -141,13 +274,31 @@ func TestServeRoundTripElicitationFallbackAndUserActions(t *testing.T) {
 				{Path: secondBoard, Name: "Demo"},
 			})
 
+			var calls atomic.Int32
 			var opts *mcp.ClientOptions
-			if action != "unsupported" {
+			switch scenario {
+			case "url-only":
 				opts = &mcp.ClientOptions{
+					Capabilities: &mcp.ClientCapabilities{
+						Elicitation: &mcp.ElicitationCapabilities{URL: &mcp.URLElicitationCapabilities{}},
+					},
 					ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-						return &mcp.ElicitResult{Action: action}, nil
+						calls.Add(1)
+						return &mcp.ElicitResult{Action: "accept"}, nil
 					},
 				}
+			case "decline", "cancel":
+				opts = &mcp.ClientOptions{ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					return &mcp.ElicitResult{Action: scenario}, nil
+				}}
+			case "invalid":
+				opts = &mcp.ClientOptions{ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"choice": "not-an-option"}}, nil
+				}}
+			case "client-error":
+				opts = &mcp.ClientOptions{ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					return nil, fmt.Errorf("client form failed")
+				}}
 			}
 			ctx, session := connectTestClient(t, opts)
 			res, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -162,26 +313,37 @@ func TestServeRoundTripElicitationFallbackAndUserActions(t *testing.T) {
 			}
 			text := res.Content[0].(*mcp.TextContent).Text
 			want := "board name is ambiguous"
-			if action != "unsupported" {
-				want = "user " + action + "d elicitation"
-				if action == "cancel" {
-					want = "user canceled elicitation"
-				}
+			switch scenario {
+			case "decline":
+				want = "user declined elicitation"
+			case "cancel":
+				want = "user canceled elicitation"
+			case "invalid":
+				want = "does not match requested schema"
+			case "client-error":
+				want = "client form failed"
 			}
 			if !strings.Contains(text, want) {
 				t.Fatalf("tool error = %q, want containing %q", text, want)
+			}
+			if scenario == "url-only" && calls.Load() != 0 {
+				t.Fatal("form elicitation was sent to a URL-only client")
 			}
 		})
 	}
 }
 
 func connectTestClient(t *testing.T, opts *mcp.ClientOptions) (context.Context, *mcp.ClientSession) {
+	return connectTestClientWithPolicy(t, opts, Policy{})
+}
+
+func connectTestClientWithPolicy(t *testing.T, opts *mcp.ClientOptions, policy Policy) (context.Context, *mcp.ClientSession) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	closer := serveListener(ln, Policy{})
+	closer := serveListener(ln, policy)
 	t.Cleanup(func() {
 		if err := closer.Close(); err != nil {
 			t.Errorf("shutdown: %v", err)

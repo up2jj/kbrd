@@ -98,16 +98,9 @@ func runCustomCommandWithPolicy(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, RunCommandOutput{}, err
 	}
-	var cmd *config.Command
-	ids := make([]string, 0, len(cmds))
-	for i := range cmds {
-		ids = append(ids, cmds[i].ID)
-		if cmds[i].ID == in.Command {
-			cmd = &cmds[i]
-		}
-	}
-	if cmd == nil {
-		return nil, RunCommandOutput{}, fmt.Errorf("unknown command %q; available: %v", in.Command, ids)
+	cmd, err := resolveCommandForTool(ctx, req, in.Command, cmds)
+	if err != nil {
+		return nil, RunCommandOutput{}, err
 	}
 	if cmd.Source != config.SourceShell {
 		return nil, RunCommandOutput{}, fmt.Errorf("command %q is a Lua command and can only be run from the kbrd TUI", in.Command)
@@ -121,7 +114,7 @@ func runCustomCommandWithPolicy(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		// missingkey=error surfaces here when the template needs a variable
 		// (e.g. filePath) that wasn't supplied (no item/folder given).
-		return nil, RunCommandOutput{}, fmt.Errorf("cannot run %q: %w", in.Command, err)
+		return nil, RunCommandOutput{}, fmt.Errorf("cannot run %q: %w", cmd.ID, err)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, commandTimeout)
