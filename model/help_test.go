@@ -127,6 +127,68 @@ func TestHelpMenuGroups_Structure(t *testing.T) {
 	}
 }
 
+func TestBoardHelpGroups_MarkedCardsMakeBatchScopeExplicit(t *testing.T) {
+	t.Parallel()
+	b := boardWithNCols(t, 1, 1)
+	writeColItem(t, b.columns[0], "alpha")
+	writeColItem(t, b.columns[0], "beta")
+	b.columns[0].ToggleMark("alpha")
+	b.columns[0].ToggleMark("beta")
+
+	groups := b.helpActions().groups()
+	if len(groups) == 0 || groups[0].Title != "Marked cards (2)" {
+		t.Fatalf("first help group = %q, want Marked cards (2)", groups[0].Title)
+	}
+
+	markedLabels := make(map[string]bool, len(groups[0].Items))
+	for _, entry := range groups[0].Items {
+		markedLabels[entry.Label] = true
+		if !strings.HasPrefix(entry.Desc, "Applies to all 2 marked cards.") {
+			t.Errorf("marked action %q description does not explain its scope: %q", entry.Label, entry.Desc)
+		}
+	}
+	for _, want := range []string{
+		"previous column / move marked left",
+		"next column / move marked right",
+		"clear marks",
+		"copy",
+		"move to…",
+		"move to next column",
+		"delete",
+		"custom commands",
+		"apply frontmatter preset",
+	} {
+		if !markedLabels[want] {
+			t.Errorf("marked-card group missing %q", want)
+		}
+	}
+
+	foundSelectedOnly := false
+	for _, group := range groups[1:] {
+		if group.Title != "Selected card only" {
+			continue
+		}
+		foundSelectedOnly = true
+		for _, entry := range group.Items {
+			if entry.UsesMarkedCards {
+				t.Errorf("marked action %q remained in selected-card group", entry.Label)
+			}
+			if !entry.NeedsItem {
+				t.Errorf("non-cursor action %q appeared in selected-card group", entry.Label)
+			}
+		}
+	}
+	if !foundSelectedOnly {
+		t.Fatal("marked context did not identify the cursor-scoped item actions")
+	}
+
+	b.helpActions().open()
+	view := ansi.Strip(b.helpMenu.View(100, 40))
+	if !strings.Contains(view, "Keybindings · c0 · 2 marked") {
+		t.Fatalf("help title does not include mark count:\n%s", view)
+	}
+}
+
 // menuKey condenses a verbose multi-alternative help key but preserves a literal
 // "/" binding (the filter key).
 func TestMenuKey(t *testing.T) {

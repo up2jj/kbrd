@@ -280,6 +280,18 @@ func helpEntry(b key.Binding, tooltip string) HelpEntry {
 	return HelpEntry{Keys: menuKey(h.Key), Label: h.Desc, Desc: tooltip, RunKey: run}
 }
 
+func selectedCardHelpEntry(b key.Binding, tooltip string) HelpEntry {
+	entry := helpEntry(b, tooltip)
+	entry.NeedsItem = true
+	return entry
+}
+
+func markedCardsHelpEntry(b key.Binding, tooltip string) HelpEntry {
+	entry := helpEntry(b, tooltip)
+	entry.UsesMarkedCards = true
+	return entry
+}
+
 // menuKey condenses a binding's help key to a single token for the menu column.
 // Help keys often list every alternative ("← / shift+tab / [") which is too wide
 // for an aligned column; the first alternative is the representative one. Splits
@@ -314,8 +326,8 @@ func HelpMenuGroups() []HelpGroup {
 		{
 			Title: "Navigation",
 			Items: []HelpEntry{
-				helpEntry(Keys.NextCol, "Move focus to the next column, or move marked cards right."),
-				helpEntry(Keys.PrevCol, "Move focus to the previous column, or move marked cards left."),
+				markedCardsHelpEntry(Keys.NextCol, "Move focus to the next column, or move marked cards right."),
+				markedCardsHelpEntry(Keys.PrevCol, "Move focus to the previous column, or move marked cards left."),
 				helpEntry(Keys.JumpCol, "Jump straight to a column by its mnemonic letter."),
 				helpEntry(Keys.PanLeft, "Scroll the visible column window left."),
 				helpEntry(Keys.PanRight, "Scroll the visible column window right."),
@@ -328,17 +340,9 @@ func HelpMenuGroups() []HelpGroup {
 		{
 			Title: "Item",
 			Items: append([]HelpEntry{
-				func() HelpEntry {
-					e := helpEntry(Keys.ToggleMark, "Mark or unmark the selected card for batch actions.")
-					e.NeedsItem = true
-					return e
-				}(),
-				helpEntry(Keys.ClearMarks, "Clear marks in the focused column."),
-				func() HelpEntry {
-					e := helpEntry(Keys.ScratchpadAppend, "Append the selected card's text to the scratchpad and open it.")
-					e.NeedsItem = true
-					return e
-				}(),
+				selectedCardHelpEntry(Keys.ToggleMark, "Mark or unmark the selected card for batch actions."),
+				markedCardsHelpEntry(Keys.ClearMarks, "Clear marks in the focused column."),
+				selectedCardHelpEntry(Keys.ScratchpadAppend, "Append the selected card's text to the scratchpad and open it."),
 			}, itemActionHelpEntries()...),
 		},
 		{

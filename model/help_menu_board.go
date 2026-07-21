@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"runtime"
 
 	"charm.land/bubbles/v2/key"
@@ -90,7 +91,11 @@ func (h boardHelpActions) open() {
 	b := h.board
 	label := ""
 	if b.selectedCol < len(b.columns) {
-		label = b.columns[b.selectedCol].Name
+		col := b.columns[b.selectedCol]
+		label = col.Name
+		if marked := col.MarkedCount(); marked > 0 {
+			label += fmt.Sprintf(" · %d marked", marked)
+		}
 	}
 	b.helpMenu.SetContext(label)
 	b.helpMenu.Open(h.groups())
@@ -120,6 +125,10 @@ func (h boardHelpActions) groups() []HelpGroup {
 	}
 	hasItem := col != nil && col.HasSelectedItem()
 	virtual := col != nil && col.Virtual
+	markedCount := 0
+	if col != nil {
+		markedCount = col.MarkedCount()
+	}
 
 	groups := HelpMenuGroups()
 	if b.scripts != nil && len(b.scripts.Layers()) > 0 {
@@ -153,7 +162,7 @@ func (h boardHelpActions) groups() []HelpGroup {
 			e := &groups[gi].Items[ei]
 			// Item-scoped rows need a selected card; file-mutation rows don't
 			// apply on virtual (script-owned, fileless) columns.
-			if e.NeedsItem && !hasItem {
+			if e.NeedsItem && !hasItem && !(e.UsesMarkedCards && markedCount > 0) {
 				e.Disabled = true
 			}
 			if virtual && isVirtualBlockedRunKey(e.RunKey) {
@@ -195,20 +204,90 @@ func (h boardHelpActions) groups() []HelpGroup {
 			if !col.Virtual {
 				avail = c.ShowsOnFiles()
 			}
-			if !avail || (c.NeedsItem() && !hasItem) {
+			if !avail || (c.NeedsItem() && !hasItem && markedCount == 0) {
 				continue
 			}
 			desc := c.Description
 			if desc == "" {
 				desc = "Run the custom command \"" + c.Name + "\"."
 			}
-			cmds = append(cmds, HelpEntry{Keys: "↵", Label: c.Name, Desc: desc, CmdID: c.ID})
+			cmds = append(cmds, HelpEntry{
+				Keys:            "↵",
+				Label:           c.Name,
+				Desc:            desc,
+				CmdID:           c.ID,
+				UsesMarkedCards: c.NeedsItem(),
+			})
 		}
 		if len(cmds) > 0 {
 			local = append(local, HelpGroup{Title: "Custom commands", Items: cmds})
 		}
 	}
-	return append(local, groups...)
+	return contextualizeMarkedHelp(append(local, groups...), markedCount)
+}
+
+// contextualizeMarkedHelp makes the scope of batch-capable bindings obvious.
+// Without marks the catalog retains its stable, general-purpose structure. With
+// marks, every action that will consume the marked set moves into a leading
+// section and cursor-scoped item actions receive their own section.
+func contextualizeMarkedHelp(groups []HelpGroup, markedCount int) []HelpGroup {
+	if markedCount == 0 {
+		return groups
+	}
+
+	var markedItems []HelpEntry
+	remaining := make([]HelpGroup, 0, len(groups))
+	for _, group := range groups {
+		marked, items := splitMarkedHelpEntries(group.Items, markedCount)
+		markedItems = append(markedItems, marked...)
+		if len(items) == 0 {
+			continue
+		}
+		if group.Title == "Item" {
+			selected, other := splitSelectedCardHelpEntries(items)
+			remaining = appendHelpGroup(remaining, "Selected card only", selected)
+			remaining = appendHelpGroup(remaining, group.Title, other)
+			continue
+		}
+		group.Items = items
+		remaining = append(remaining, group)
+	}
+
+	if len(markedItems) == 0 {
+		return remaining
+	}
+	markedGroup := HelpGroup{Title: fmt.Sprintf("Marked cards (%d)", markedCount), Items: markedItems}
+	return append([]HelpGroup{markedGroup}, remaining...)
+}
+
+func splitMarkedHelpEntries(entries []HelpEntry, markedCount int) (marked, remaining []HelpEntry) {
+	for _, entry := range entries {
+		if !entry.UsesMarkedCards {
+			remaining = append(remaining, entry)
+			continue
+		}
+		entry.Desc = fmt.Sprintf("Applies to all %d marked cards. %s", markedCount, entry.Desc)
+		marked = append(marked, entry)
+	}
+	return marked, remaining
+}
+
+func splitSelectedCardHelpEntries(entries []HelpEntry) (selected, other []HelpEntry) {
+	for _, entry := range entries {
+		if entry.NeedsItem {
+			selected = append(selected, entry)
+		} else {
+			other = append(other, entry)
+		}
+	}
+	return selected, other
+}
+
+func appendHelpGroup(groups []HelpGroup, title string, items []HelpEntry) []HelpGroup {
+	if len(items) == 0 {
+		return groups
+	}
+	return append(groups, HelpGroup{Title: title, Items: items})
 }
 
 // runSelected closes the menu and runs the highlighted row — injecting its

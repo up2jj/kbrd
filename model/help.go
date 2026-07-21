@@ -23,6 +23,10 @@ type HelpEntry struct {
 	RunKey    string
 	NeedsItem bool
 	Disabled  bool
+	// UsesMarkedCards identifies actions that operate on the focused column's
+	// marked cards when marks exist. The board uses it to collect those actions
+	// into an explicit contextual section of the help menu.
+	UsesMarkedCards bool
 	// CmdID names a custom command to run on Enter (no single-key binding); the
 	// board dispatches it through the normal custom-command path.
 	CmdID string

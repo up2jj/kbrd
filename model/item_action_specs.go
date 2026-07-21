@@ -394,6 +394,7 @@ func itemActionHelpEntries() []HelpEntry {
 		e := helpEntry(spec.Binding, spec.Description)
 		e.Label = spec.Label
 		e.NeedsItem = spec.NeedsItem
+		e.UsesMarkedCards = spec.Cardinality != actionSingle
 		out = append(out, e)
 	}
 	return out
