@@ -126,6 +126,13 @@ type scriptAsyncDoneMsg struct {
 	Err      string
 }
 
+// scriptHTTPDoneMsg carries one completed kbrd.http.request back to the Lua
+// host on Bubble Tea's owning goroutine.
+type scriptHTTPDoneMsg struct {
+	Token  string
+	Result script.HTTPClientResult
+}
+
 // quitConfirmedMsg is dispatched when the user confirms quitting with unsaved
 // editor changes; it discards the edit and proceeds with shutdown.
 type quitConfirmedMsg struct{}
@@ -344,6 +351,29 @@ func (b *Board) collectAsyncCmds() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// collectHTTPRequests drains outbound HTTP work and runs every request in a
+// Bubble Tea worker goroutine. ExecuteHTTP applies each request's own timeout
+// and response-size limit.
+func (b *Board) collectHTTPRequests() tea.Cmd {
+	if b.scripts == nil {
+		return nil
+	}
+	pending := b.scripts.PendingHTTP()
+	if len(pending) == 0 {
+		return nil
+	}
+	b.asyncInflight += len(pending)
+	workCtx := b.scripts.WorkContext()
+	cmds := make([]tea.Cmd, 0, len(pending))
+	for _, request := range pending {
+		req := request
+		cmds = append(cmds, func() tea.Msg {
+			return scriptHTTPDoneMsg{Token: req.Token, Result: script.ExecuteHTTP(workCtx, req)}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
 // handleScriptAsyncDone routes the async result back into the Lua callback.
 func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cmd) {
 	scriptDebugf("handleScriptAsyncDone token=%s exit=%d err=%q outLen=%d", msg.Token, msg.ExitCode, msg.Err, len(msg.Out))
@@ -372,6 +402,26 @@ func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cm
 	}
 }
 
+func (b *Board) handleScriptHTTPDone(msg scriptHTTPDoneMsg) (tea.Model, tea.Cmd) {
+	if b.asyncInflight > 0 {
+		b.asyncInflight--
+	}
+	if b.scripts == nil {
+		return b, nil
+	}
+	if err := b.scripts.FireHTTP(msg.Token, msg.Result); err != nil {
+		scriptDebugf("FireHTTP returned err: %v", err)
+	}
+	cmd := b.collectTimerCmds()
+	if asyncCmd := b.collectAsyncCmds(); asyncCmd != nil {
+		cmd = batchCmd(cmd, asyncCmd)
+	}
+	if httpCmd := b.collectHTTPRequests(); httpCmd != nil {
+		cmd = batchCmd(cmd, httpCmd)
+	}
+	return b, cmd
+}
+
 // handleScriptResult turns the (req, err) tuple from a Lua command/resume
 // call into a tea.Cmd: open the matching UI on a yield, fire a finished msg
 // on completion or error. Also drains pending timer + async work scheduled
@@ -379,6 +429,7 @@ func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cm
 func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error) tea.Cmd {
 	timerCmd := b.collectTimerCmds()
 	asyncCmd := b.collectAsyncCmds()
+	httpCmd := b.collectHTTPRequests()
 	var resultCmd tea.Cmd
 	if err != nil {
 		b.lineApplyPending = false // command died; nothing to splice
@@ -400,12 +451,15 @@ func (b *Board) handleScriptResult(name string, req *script.UIRequest, err error
 	} else {
 		resultCmd = b.openScriptUI(name, req)
 	}
-	cmds := make([]tea.Cmd, 0, 3)
+	cmds := make([]tea.Cmd, 0, 4)
 	if timerCmd != nil {
 		cmds = append(cmds, timerCmd)
 	}
 	if asyncCmd != nil {
 		cmds = append(cmds, asyncCmd)
+	}
+	if httpCmd != nil {
+		cmds = append(cmds, httpCmd)
 	}
 	if resultCmd != nil {
 		cmds = append(cmds, resultCmd)

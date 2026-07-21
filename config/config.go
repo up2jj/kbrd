@@ -169,6 +169,10 @@ type ScriptingConfig struct {
 	// runs with the same trust level as the user's own init file, so it must
 	// be opted into explicitly. See SCRIPTING.md "Remote scripts".
 	RemoteRequire bool
+	// HTTPTimeoutMs is the maximum timeout an outbound kbrd.http request may
+	// select. HTTPMaxResponseBytes bounds bodies buffered for Lua callbacks.
+	HTTPTimeoutMs        int
+	HTTPMaxResponseBytes int
 }
 
 // EditorConfig controls the in-app text editor. When Vim is true (the default)
@@ -239,6 +243,8 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("scripting.instruction_limit", 10000000)
 	v.SetDefault("scripting.error_threshold", 3)
 	v.SetDefault("scripting.remote_require", false)
+	v.SetDefault("scripting.http_timeout_ms", 10000)
+	v.SetDefault("scripting.http_max_response_bytes", 2097152)
 	v.SetDefault("hooks.enabled", true)
 	v.SetDefault("hooks.timeout_ms", 2000)
 	v.SetDefault("mcp.enabled", false)
@@ -328,12 +334,14 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		GitSyncOnStartup:     v.GetBool("git.sync_on_startup"),
 		GitAutoCommit:        v.GetBool("git.auto_commit"),
 		Scripting: ScriptingConfig{
-			Enabled:          v.GetBool("scripting.enabled"),
-			CommandTimeoutMs: v.GetInt("scripting.command_timeout_ms"),
-			HookTimeoutMs:    v.GetInt("scripting.hook_timeout_ms"),
-			InstructionLimit: v.GetInt("scripting.instruction_limit"),
-			ErrorThreshold:   v.GetInt("scripting.error_threshold"),
-			RemoteRequire:    v.GetBool("scripting.remote_require"),
+			Enabled:              v.GetBool("scripting.enabled"),
+			CommandTimeoutMs:     v.GetInt("scripting.command_timeout_ms"),
+			HookTimeoutMs:        v.GetInt("scripting.hook_timeout_ms"),
+			InstructionLimit:     v.GetInt("scripting.instruction_limit"),
+			ErrorThreshold:       v.GetInt("scripting.error_threshold"),
+			RemoteRequire:        v.GetBool("scripting.remote_require"),
+			HTTPTimeoutMs:        v.GetInt("scripting.http_timeout_ms"),
+			HTTPMaxResponseBytes: v.GetInt("scripting.http_max_response_bytes"),
 		},
 		Hooks: HooksConfig{
 			Enabled:   v.GetBool("hooks.enabled"),

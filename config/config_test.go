@@ -45,6 +45,9 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.MCP.AllowCardReads {
 		t.Fatal("MCP card reads must default to disabled")
 	}
+	if cfg.Scripting.HTTPTimeoutMs != 10000 || cfg.Scripting.HTTPMaxResponseBytes != 2097152 {
+		t.Fatalf("unexpected scripting HTTP defaults: %+v", cfg.Scripting)
+	}
 	if got := strings.Join(cfg.Reminders.DoneColumns, ","); got != "Done" {
 		t.Fatalf("reminders done columns: got %q want Done", got)
 	}
@@ -59,6 +62,22 @@ func TestLoad_MCPAllowCardReads(t *testing.T) {
 	}
 	if !cfg.MCP.AllowCardReads {
 		t.Fatal("mcp.allow_card_reads was not loaded")
+	}
+}
+
+func TestLoad_ScriptingHTTPOverrides(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), `
+[scripting]
+http_timeout_ms = 2500
+http_max_response_bytes = 8192
+`)
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scripting.HTTPTimeoutMs != 2500 || cfg.Scripting.HTTPMaxResponseBytes != 8192 {
+		t.Fatalf("unexpected scripting HTTP config: %+v", cfg.Scripting)
 	}
 }
 

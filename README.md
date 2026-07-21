@@ -565,6 +565,8 @@ command_timeout_ms = 2000     # timeout for command callbacks
 hook_timeout_ms    = 500      # timeout for event hooks and timers
 instruction_limit  = 10000000 # CPU backstop per script run
 error_threshold    = 3        # auto-disable a failing hook/timer after N errors (0 = never)
+http_timeout_ms    = 10000    # maximum timeout for outbound kbrd.http requests
+http_max_response_bytes = 2097152 # maximum response body buffered for Lua (2 MiB)
 
 [journal]
 detect_date = true          # parse a leading natural-language date in journal entries
@@ -890,6 +892,8 @@ The API surface includes:
 - `kbrd.ui.pick / prompt / confirm` — interactive dialogs (commands only, not hooks/timers).
 - `kbrd.fs.read / write / exists / mkdir / glob` — filesystem helpers (paths resolve against the board root).
 - `kbrd.async.run / cancel` — run shell commands on a worker goroutine.
+- `kbrd.http.request` — make bounded asynchronous HTTP(S) requests with optional JSON encoding/decoding.
+- `kbrd.json` / `require("json")` — encode and decode JSON with explicit null, array, and object values.
 - `kbrd.timer.every / after / cancel` — schedule recurring or one-shot callbacks.
 - `kbrd.notify(msg, level)` / `kbrd.status(...)` — toasts and status line.
 - `kbrd.debug(...)` / `kbrd.inspect(value)` — source-aware, table-friendly debug output; `print(...)` is captured too.
@@ -1059,7 +1063,9 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 
 - Several scripting helpers are **planned but not yet available**: synchronous shell
   capture (`kbrd.shell.run/exec`), `kbrd.git.*`, `kbrd.log.*`, `kbrd.config.get/all`,
-  `kbrd.inspect`, bundled `require("json"|"re"|"http")`, and a `lua/?.lua` `require` path.
+  bundled `require("re")`, a standalone `require("http")` compatibility module, and a
+  `lua/?.lua` `require` path. JSON is available as both `kbrd.json` and `require("json")`;
+  outbound HTTP is available through `kbrd.http.request`.
 - The `git_post_commit` event is reserved but not yet emitted.
 - `kbrd.ui.*` dialogs cannot be called from hooks or timers (no coroutine context), and
   new commands/hooks/timers cannot be registered from inside a timer callback or hook.

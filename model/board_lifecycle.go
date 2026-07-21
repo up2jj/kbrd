@@ -133,6 +133,9 @@ func (l boardLifecycle) DrainPostUpdate(cmd tea.Cmd) tea.Cmd {
 	if acmd := b.collectAsyncCmds(); acmd != nil {
 		cmd = batchCmd(cmd, acmd)
 	}
+	if httpCmd := b.collectHTTPRequests(); httpCmd != nil {
+		cmd = batchCmd(cmd, httpCmd)
+	}
 	if hcmd := (boardHooks{board: b}).collectCmd(); hcmd != nil {
 		cmd = batchCmd(cmd, hcmd)
 	}

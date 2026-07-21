@@ -111,6 +111,9 @@ func (h *Host) installAPI() {
 	date.RawSetString("parse", L.NewFunction(h.luaDateParse))
 	kbrd.RawSetString("date", date)
 
+	h.installJSONAPI(kbrd)
+	h.installHTTPClientAPI(kbrd)
+
 	L.SetGlobal("kbrd", kbrd)
 	// Lua's stock print writes directly to stdout and corrupts a full-screen
 	// terminal program. Route it through the same source-aware debug sink.

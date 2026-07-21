@@ -105,6 +105,18 @@ type Host struct {
 	asyncCallbacks   map[string]ownedFn
 	pendingAsyncCmds []AsyncCmd
 
+	// httpCallbacks and pendingHTTPRequests are the outbound HTTP equivalent
+	// of asyncCallbacks/pendingAsyncCmds. The scheduler performs network I/O;
+	// only FireHTTP re-enters Lua on its owning goroutine.
+	httpCallbacks       map[string]ownedFn
+	pendingHTTPRequests []HTTPClientRequest
+
+	jsonNull       *lua.LUserData
+	jsonArrayMeta  *lua.LTable
+	jsonObjectMeta *lua.LTable
+	workCtx        context.Context
+	workCancel     context.CancelFunc
+
 	// inTimer is set while FireTimer is on the stack — including the
 	// deferred event drain that follows. It blocks scripts from scheduling
 	// new timers from inside a timer callback (or from a hook triggered by
@@ -272,6 +284,7 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 	}
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
+	workCtx, workCancel := context.WithCancel(context.Background())
 	h := &Host{
 		cfg:            cfg,
 		api:            api,
@@ -286,9 +299,12 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		hostID:         hostSequence.Add(1),
 		timers:         make(map[string]*timerEntry),
 		asyncCallbacks: make(map[string]ownedFn),
+		httpCallbacks:  make(map[string]ownedFn),
 		vcolFns:        make(map[string]ownedFn),
 		baseVCols:      newVirtualColumns(),
 		layerVCols:     newVirtualColumns(),
+		workCtx:        workCtx,
+		workCancel:     workCancel,
 	}
 	h.installAPI()
 
@@ -351,6 +367,7 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 		}
 	}
 	if !any {
+		workCancel()
 		L.Close()
 		return nil, nil
 	}
@@ -368,6 +385,10 @@ func (h *Host) Close() {
 		return
 	}
 	h.CancelPending()
+	if h.workCancel != nil {
+		h.workCancel()
+		h.workCancel = nil
+	}
 	if h.L != nil {
 		h.L.Close()
 		h.L = nil
@@ -388,12 +409,27 @@ func (h *Host) Close() {
 	h.pendingEditorOpen = nil
 	h.asyncCallbacks = nil
 	h.pendingAsyncCmds = nil
+	h.httpCallbacks = nil
+	h.pendingHTTPRequests = nil
+	h.jsonNull = nil
+	h.jsonArrayMeta = nil
+	h.jsonObjectMeta = nil
+	h.workCtx = nil
 	h.deferred = nil
 	h.vcolFns = nil
 	h.baseVCols = virtualColumns{}
 	h.layerVCols = virtualColumns{}
 	h.evalEnv = nil
 	h.evalNames = nil
+}
+
+// WorkContext is cancelled when the host closes, allowing schedulers to stop
+// outbound work during board switches and shutdown.
+func (h *Host) WorkContext() context.Context {
+	if h == nil || h.workCtx == nil {
+		return context.Background()
+	}
+	return h.workCtx
 }
 
 // Commands returns the Lua-registered commands as config.Command values,
@@ -1093,6 +1129,13 @@ func (h *Host) callHook(fn *lua.LFunction, arg any, nret int) (lua.LValue, error
 	if h.L == nil {
 		return lua.LNil, fmt.Errorf("lua VM closed")
 	}
+	return h.callHookLValue(fn, toLValue(h.L, arg), nret)
+}
+
+func (h *Host) callHookLValue(fn *lua.LFunction, arg lua.LValue, nret int) (lua.LValue, error) {
+	if h.L == nil {
+		return lua.LNil, fmt.Errorf("lua VM closed")
+	}
 
 	timeout := time.Duration(h.cfg.HookTimeoutMs) * time.Millisecond
 	var cancel context.CancelFunc
@@ -1115,7 +1158,7 @@ func (h *Host) callHook(fn *lua.LFunction, arg any, nret int) (lua.LValue, error
 			}
 		}()
 		h.L.Push(fn)
-		h.L.Push(toLValue(h.L, arg))
+		h.L.Push(arg)
 		if err := h.L.PCall(1, nret, nil); err != nil {
 			return err
 		}

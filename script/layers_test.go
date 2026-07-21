@@ -20,6 +20,9 @@ kbrd.layer{
     kbrd.command("mode", "Work command", function() kbrd.notify("work") end)
     kbrd.timer.after("1h", function() kbrd.notify("old timer") end)
     kbrd.async.run("printf work", function() kbrd.column.set("late", { name = "Late", items = {} }) end)
+    kbrd.http.request({url="https://example.test/work"}, function()
+      kbrd.column.set("late-http", { name = "Late HTTP", items = {} })
+    end)
     kbrd.column.set("shared", { name = "Work column", items = {} })
   end,
 }
@@ -27,6 +30,7 @@ kbrd.layer{
   id = "home", name = "Home",
   setup = function()
     kbrd.command("mode", "Home command", function() kbrd.notify("home") end)
+    kbrd.http.request({url="https://example.test/home"}, function() end)
     kbrd.column.set("home", { name = "Home column", items = {} })
   end,
 }`)
@@ -50,8 +54,9 @@ kbrd.layer{
 	}
 	timers := h.PendingTimers()
 	async := h.PendingAsync()
-	if len(timers) != 1 || len(async) != 1 {
-		t.Fatalf("default pending timers=%d async=%d", len(timers), len(async))
+	httpRequests := h.PendingHTTP()
+	if len(timers) != 1 || len(async) != 1 || len(httpRequests) != 1 {
+		t.Fatalf("default pending timers=%d async=%d http=%d", len(timers), len(async), len(httpRequests))
 	}
 	if got := api.vcolSets[len(api.vcolSets)-1].Spec.Name; got != "Work column" {
 		t.Fatalf("active shared column = %q", got)
@@ -69,9 +74,18 @@ kbrd.layer{
 	if err := h.FireAsync(async[0].Token, "work", 0, ""); err != nil {
 		t.Fatalf("stale async: %v", err)
 	}
+	if err := h.FireHTTP(httpRequests[0].Token, HTTPClientResult{}); err != nil {
+		t.Fatalf("stale HTTP: %v", err)
+	}
+	if pending := h.PendingHTTP(); len(pending) != 1 || pending[0].URL != "https://example.test/home" {
+		t.Fatalf("home pending HTTP = %+v", pending)
+	}
 	for _, set := range api.vcolSets {
 		if set.Spec.Name == "Late" {
 			t.Fatal("stale async callback recreated a virtual column")
+		}
+		if set.Spec.Name == "Late HTTP" {
+			t.Fatal("stale HTTP callback recreated a virtual column")
 		}
 	}
 	if got := api.vcolSets[len(api.vcolSets)-2].Spec.Name; got != "Base column" {

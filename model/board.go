@@ -94,7 +94,7 @@ type Board struct {
 	remindersSyncing    bool
 	remindersStatus     string
 
-	asyncInflight int // count of kbrd.async.run jobs currently running
+	asyncInflight int // count of scripted shell/HTTP jobs currently running
 
 	// lineApplyPending marks a Lua line command in flight: when its coroutine
 	// completes (possibly after kbrd.ui.* yields), handleScriptResult drains the
@@ -763,6 +763,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptAsyncDoneMsg:
 		return b.handleScriptAsyncDone(msg)
+
+	case scriptHTTPDoneMsg:
+		return b.handleScriptHTTPDone(msg)
 
 	case hookDoneMsg:
 		return boardHooks{board: b}.handleDone(msg)

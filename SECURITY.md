@@ -45,6 +45,8 @@ Folder-local `.kbrd.lua` runs with the full Lua standard library plus the `kbrd.
 which includes:
 
 - `kbrd.async.run(cmd, ...)` — run arbitrary shell commands.
+- `kbrd.http.request(...)` — make outbound HTTP(S) requests, including sending
+  environment-derived credentials when a script chooses to do so.
 - `kbrd.fs.read / write / mkdir / glob` — read and write files. **By design these are
   not sandboxed to the board root**: a script may pass an absolute path
   (`/Users/you/.ssh/id_rsa`) or escape via `..`. Once you trust the folder, full

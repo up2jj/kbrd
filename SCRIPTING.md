@@ -166,6 +166,8 @@ hook_timeout_ms    = 500      # stricter budget for event hooks (they fire on ho
 instruction_limit  = 10000000 # backstop against pure-CPU infinite loops
 error_threshold    = 3        # auto-disable a timer/hook after N consecutive errors (0 = never)
 remote_require     = false    # allow require() of scripts from remote URLs — see "Remote scripts"
+http_timeout_ms    = 10000    # maximum per-request timeout for kbrd.http (10 seconds)
+http_max_response_bytes = 2097152 # maximum response body buffered for Lua (2 MiB)
 ```
 
 When `enabled = false`, no Lua VM is created and `init.lua` is not read.
@@ -895,6 +897,71 @@ Behavior and limits:
 - **No form-body rewrite (v1).** `rewrite` covers path/query/headers only;
   altering POST form fields is not supported — use `action = "respond"` to
   fully take over such a request.
+
+### `kbrd.http.request(opts, fn)` — outbound HTTP client
+
+Schedule an HTTP or HTTPS request without blocking the TUI or serve scheduler.
+It returns an opaque handle immediately (or `nil, err` when the options are
+invalid), then invokes `fn(result)` on the Lua-owning goroutine:
+
+```lua
+local handle, err = kbrd.http.request({
+  url = "https://api.example.com/cards",
+  method = "POST",                         -- default GET
+  headers = { Authorization = "Bearer " .. token },
+  json = { title = "Review", tags = {"work"} },
+  decode_json = true,
+  timeout_ms = 5000,
+}, function(res)
+  if not res.ok then
+    kbrd.notify("request failed: " .. res.error, "error")
+    return
+  end
+  kbrd.status("created card " .. res.json.id)
+end)
+```
+
+Request options:
+
+- `url` — required absolute `http://` or `https://` URL.
+- `method` — defaults to `GET`; any valid HTTP method token is accepted.
+- `headers` — string keys whose values are a string or an array of strings.
+- `body` — raw string request body.
+- `json` — Lua value encoded as JSON; mutually exclusive with `body`. It sets
+  `Content-Type: application/json` unless the header was supplied explicitly.
+- `decode_json` — decode the response into `result.json` while retaining the
+  raw `result.body`.
+- `timeout_ms` — positive timeout no greater than the configured
+  `http_timeout_ms` maximum.
+
+The result is `{ok, status, headers, body, url, error?, json?}`. Response
+headers preserve repeated values as arrays. HTTP 4xx/5xx responses still have
+`ok = true`; `ok = false` means a transport, size-limit, timeout, or requested
+JSON-decoding failure. Status/body/final URL remain available when the server
+responded. Callbacks use hook semantics: they run sequentially, cannot open
+`kbrd.ui.*`, and are bounded by `hook_timeout_ms`. Requests are cancelled when
+the scripting host closes. Starting one inside a timer callback is rejected,
+matching `kbrd.async.run`.
+
+### `kbrd.json` / `require("json")`
+
+Both names expose the same JSON module:
+
+```lua
+local json = require("json")
+local text, err = json.encode({name = "card", missing = json.null})
+local value, err = json.decode(text)
+```
+
+- `encode(value)` returns `string` or `nil, err`.
+- `decode(text)` returns a Lua value or `nil, err`.
+- `null` is a singleton preserving JSON null inside objects and arrays.
+- `array(table?)` and `object(table?)` tag a table's JSON container type.
+
+An untagged empty table encodes as `{}`; use `json.array()` for `[]`. Decoded
+containers retain their type, including when empty. Cyclic, sparse, mixed-key,
+non-finite, and unsupported values are rejected. Lua numbers are IEEE-754
+doubles, so JSON integers above `2^53` may lose precision.
 
 ### `kbrd.board.move(item, columnName)`
 
@@ -1878,9 +1945,8 @@ These are planned but not in the current build:
   `kbrd.async.run` ships already)
 - `kbrd.git.*` — read-only mirrors of kbrd's git helpers
 - `kbrd.log.*` — structured logging from scripts
-- `kbrd.inspect` — table pretty-printer
 - `kbrd.config.get / all` — read kbrd config from Lua
-- Bundled `require("json")`, `require("re")`, `require("http")`
+- Bundled `require("re")` and standalone `require("http")` compatibility module
 - `~/.config/kbrd/lua/?.lua` package path for `require`
 
 The full Lua standard library that ships with gopher-lua *is* available

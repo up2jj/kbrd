@@ -31,6 +31,8 @@ type layerStage struct {
 	pendingTimers  []TimerSchedule
 	asyncCallbacks map[string]ownedFn
 	pendingAsync   []AsyncCmd
+	httpCallbacks  map[string]ownedFn
+	pendingHTTP    []HTTPClientRequest
 	vcols          virtualColumns
 }
 
@@ -122,6 +124,7 @@ func (h *Host) ActivateLayer(id string) error {
 	stage := &layerStage{
 		timers:         make(map[string]*timerEntry),
 		asyncCallbacks: make(map[string]ownedFn),
+		httpCallbacks:  make(map[string]ownedFn),
 		vcols:          newVirtualColumns(),
 	}
 
@@ -150,6 +153,10 @@ func (h *Host) ActivateLayer(id string) error {
 		h.asyncCallbacks[token] = callback
 	}
 	h.pendingAsyncCmds = append(h.pendingAsyncCmds, stage.pendingAsync...)
+	for token, callback := range stage.httpCallbacks {
+		h.httpCallbacks[token] = callback
+	}
+	h.pendingHTTPRequests = append(h.pendingHTTPRequests, stage.pendingHTTP...)
 	h.layerVCols = stage.vcols
 	h.activeLayerID = id
 	h.reconcileVirtualColumns()
@@ -199,6 +206,15 @@ func (h *Host) unloadActiveLayer() {
 	}
 	h.pendingAsyncCmds = slices.DeleteFunc(h.pendingAsyncCmds, func(cmd AsyncCmd) bool {
 		_, exists := h.asyncCallbacks[cmd.Token]
+		return !exists
+	})
+	for token, callback := range h.httpCallbacks {
+		if callback.owner == old {
+			delete(h.httpCallbacks, token)
+		}
+	}
+	h.pendingHTTPRequests = slices.DeleteFunc(h.pendingHTTPRequests, func(req HTTPClientRequest) bool {
+		_, exists := h.httpCallbacks[req.Token]
 		return !exists
 	})
 	for token, pending := range h.pending {
