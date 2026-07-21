@@ -48,9 +48,19 @@ func TestClipboardMenuActions(t *testing.T) {
 	if action != "delete" || got.ID != entry.ID {
 		t.Fatalf("delete = %q/%q, want delete/one", action, got.ID)
 	}
-	action, _ = menu.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	action, _ = menu.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	if action != "clear" {
 		t.Fatalf("clear = %q, want clear", action)
+	}
+}
+
+func TestClipboardMenuDoesNotClearWithC(t *testing.T) {
+	var menu ClipboardMenu
+	menu.Open([]clipboardring.Entry{{ID: "one", Text: "saved"}}, pasteMenuTarget{})
+
+	action, _ := menu.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	if action != "" {
+		t.Fatalf("c action = %q, want no action", action)
 	}
 }
 

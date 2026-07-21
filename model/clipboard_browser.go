@@ -93,7 +93,7 @@ func (m *ClipboardMenu) Update(msg tea.KeyPressMsg) (action string, entry clipbo
 		if ok {
 			return "delete", entry
 		}
-	case "c", "ctrl+x":
+	case "ctrl+x":
 		return "clear", clipboardring.Entry{}
 	case "j", "down":
 		m.Move(1)
@@ -171,7 +171,7 @@ func (m *ClipboardMenu) View(termWidth, termHeight int) string {
 			{Keys: "i", Label: "import OS clipboard"},
 			{Keys: "p", Label: "pin"},
 			{Keys: "d", Label: "delete"},
-			{Keys: "c", Label: "clear"},
+			{Keys: "ctrl+x", Label: "clear all"},
 			{Keys: "/", Label: "filter"},
 			{Keys: "esc", Label: "close"},
 		}
