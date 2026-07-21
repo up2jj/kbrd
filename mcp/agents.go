@@ -37,11 +37,21 @@ kbrd runs a built-in MCP server (Streamable HTTP) while the TUI is open. The
 - §add_file_to_board§ — create a card in a board folder by friendly name;
   optional §folder§ (defaults to the first column) and §content§; set
   §create_folder§ to make a missing folder.
-- §list_custom_commands§ — list the board's shell custom commands.
+- §get_card§ — read raw Markdown, parsed frontmatter, and a revision hash;
+  requires §[mcp] allow_card_reads = true§.
+- §search_cards§ — search names, bodies, tags, and frontmatter across columns;
+  requires §[mcp] allow_card_reads = true§.
+- §update_card§ — replace complete Markdown using an §expected_revision§.
+- §move_card§ and §rename_card§ — relocate or rename without overwriting.
+- §delete_card§ — delete only when §expected_revision§ still matches.
+- §create_column§ — create a durable empty column.
+- §list_custom_commands§ — list the board's shell custom commands, optionally
+  filtered with the same §folder§ and §item§ context used for execution.
 - §run_custom_command§ — run one of those commands by id.
 
 Prefer these tools over editing files blindly: resolve the board with
-§list_boards§, inspect folders with §list_folders§, then §add_file_to_board§.
+§list_boards§, inspect folders with §list_folders§, then use the focused card or
+column tool for the requested operation.
 When the MCP client supports form elicitation, kbrd may ask the user to choose
 between ambiguous boards, create or replace an unknown folder while adding a
 card, or replace an unknown custom-command id with an available command.
@@ -88,9 +98,12 @@ left to right. Names beginning with §.§ or §_§ are hidden.
 - Card creation never overwrites an existing file. If a name conflicts, report
   it and ask for a different name instead of silently changing or replacing it.
 - Do not move a card to a Done-like column merely because work appears complete.
-  Move, edit, rename, and delete are not general MCP tools; do not emulate them
-  with a shell command unless the user explicitly requests that operation and a
-  listed custom command is intended for it.
+  Use §move_card§, §update_card§, §rename_card§, and §delete_card§ only when the
+  user explicitly requests the corresponding change. Never emulate them with a
+  shell command.
+- Before updating or deleting, call §get_card§ or §search_cards§ and pass its
+  revision as §expected_revision§. On a revision conflict, read the card again
+  and reconsider the change; do not blindly retry stale content.
 - Use §kbrd://boards§ and §kbrd://board/{board}§ when MCP resources are
   available. Card resources contain complete Markdown, including frontmatter,
   and are advertised only when §[mcp] allow_card_reads = true§.
@@ -105,7 +118,9 @@ content and do not invent metadata the user did not request.
 
 ## Custom commands and safety
 
-- §list_custom_commands§ lists configured shell commands for a board.
+- §list_custom_commands§ lists configured shell commands for a board. Pass
+  §folder§ and optionally §item§ to return commands applicable to that context;
+  its arguments can then be forwarded to §run_custom_command§.
 - §run_custom_command§ executes a listed command by id only when server policy
   permits it. Commands may modify files or run arbitrary programs. Run one only
   when the user's request requires that specific command; never use it to bypass
@@ -115,7 +130,9 @@ content and do not invent metadata the user did not request.
 - Lua commands are available only in the kbrd TUI and are not exposed by MCP.
 
 Available tools: §list_boards§, §list_folders§, §list_files§,
-§add_file_to_board§, §list_custom_commands§, and §run_custom_command§.
+§add_file_to_board§, §get_card§, §search_cards§, §update_card§, §move_card§,
+§rename_card§, §delete_card§, §create_column§, §list_custom_commands§, and
+§run_custom_command§.
 `
 
 // ServerInstructions returns the working-directory-independent operating guide

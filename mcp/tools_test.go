@@ -131,6 +131,10 @@ func TestOutputMarshals(t *testing.T) {
 		ListBoardsOutput{},
 		ListFoldersOutput{},
 		ListFilesOutput{},
+		CardOutput{},
+		SearchCardsOutput{},
+		MutationOutput{},
+		CreateColumnOutput{},
 	} {
 		if _, err := json.Marshal(v); err != nil {
 			t.Fatalf("marshal %T: %v", v, err)

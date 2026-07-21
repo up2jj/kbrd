@@ -28,13 +28,77 @@ func TestListCustomCommands(t *testing.T) {
     command: echo "{{.boardPath}}"
 `)
 
-	_, out, err := listCustomCommands(context.Background(), nil, ListCommandsInput{Board: "Work"})
+	_, out, err := listCustomCommands(t.Context(), nil, ListCommandsInput{Board: "Work"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(out.Commands) != 1 || out.Commands[0].ID != "echo-board" {
 		t.Fatalf("commands = %+v", out.Commands)
 	}
+	if !out.Commands[0].RequiresItem || out.Commands[0].Scope != "files" {
+		t.Fatalf("command metadata = %+v", out.Commands[0])
+	}
+}
+
+func TestListCustomCommandsFiltersForFolderAndItemContext(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	if err := os.WriteFile(filepath.Join(boardPath, "todo", "card.md"), []byte("body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Work"}})
+	writeCommands(t, boardPath, `commands:
+  - name: Item command
+    id: item
+    command: echo "{{.fileName}}"
+  - name: Column command
+    id: column
+    requiresItem: false
+    command: echo "{{.columnName}}"
+  - name: Editor command
+    id: editor
+    scope: line
+    command: echo "{{.line}}"
+`)
+
+	_, unscoped, err := listCustomCommands(t.Context(), nil, ListCommandsInput{Board: "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := commandIDs(unscoped.Commands); strings.Join(got, ",") != "item,column" {
+		t.Fatalf("unscoped commands = %v, want item,column", got)
+	}
+
+	_, folder, err := listCustomCommands(t.Context(), nil, ListCommandsInput{Board: "Work", Folder: "TODO"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := commandIDs(folder.Commands); len(got) != 1 || got[0] != "column" {
+		t.Fatalf("folder commands = %v, want column", got)
+	}
+
+	_, item, err := listCustomCommands(t.Context(), nil, ListCommandsInput{
+		Board: "Work", Folder: "todo", Item: "card.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := commandIDs(item.Commands); strings.Join(got, ",") != "item,column" {
+		t.Fatalf("item commands = %v, want item,column", got)
+	}
+
+	if _, _, err := listCustomCommands(t.Context(), nil, ListCommandsInput{
+		Board: "Work", Folder: "todo", Item: "missing",
+	}); err == nil {
+		t.Fatal("expected missing item context to fail")
+	}
+}
+
+func commandIDs(commands []CommandEntry) []string {
+	ids := make([]string, 0, len(commands))
+	for _, command := range commands {
+		ids = append(ids, command.ID)
+	}
+	return ids
 }
 
 func TestListCustomCommandsCanSkipFolderLocalCommands(t *testing.T) {

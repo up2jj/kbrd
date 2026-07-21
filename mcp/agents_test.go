@@ -14,7 +14,8 @@ func TestAgentsMarkdown(t *testing.T) {
 	// out of date with the registered tools.
 	for _, tool := range []string{
 		"add_file_to_board", "list_boards", "list_folders", "list_files",
-		"list_custom_commands", "run_custom_command",
+		"get_card", "search_cards", "update_card", "move_card", "rename_card",
+		"delete_card", "create_column", "list_custom_commands", "run_custom_command",
 	} {
 		if !strings.Contains(doc, tool) {
 			t.Errorf("AGENTS.md does not mention tool %q", tool)
@@ -40,6 +41,7 @@ func TestServerInstructions(t *testing.T) {
 		"multiple boards",
 		"frontmatter",
 		"Do not move a card",
+		"expected_revision",
 		"destructive",
 		"kbrd://boards",
 		"elicit",

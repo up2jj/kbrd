@@ -47,6 +47,7 @@ func newServer(policy Policy) *mcp.Server {
 	)
 	registerResources(s, policy)
 	falsePtr := false
+	truePtr := true
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_file_to_board",
@@ -69,8 +70,54 @@ func newServer(policy Policy) *mcp.Server {
 	}, listFiles)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_card",
+		Description: "Read a card's raw Markdown, body, parsed frontmatter, column, and SHA-256 revision. Requires [mcp] allow_card_reads = true.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in GetCardInput) (*mcp.CallToolResult, CardOutput, error) {
+		return getCard(ctx, req, in, policy.AllowCardReads)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_cards",
+		Description: "Search card names, bodies, tags, and frontmatter across all or selected columns. Requires [mcp] allow_card_reads = true.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in SearchCardsInput) (*mcp.CallToolResult, SearchCardsOutput, error) {
+		return searchCards(ctx, req, in, policy.AllowCardReads)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "update_card",
+		Description: "Replace a card's complete Markdown only when expected_revision matches its current revision.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &truePtr, IdempotentHint: true, OpenWorldHint: &falsePtr},
+	}, updateCard)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "move_card",
+		Description: "Move a card to an existing destination column without overwriting a card of the same name.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &truePtr, OpenWorldHint: &falsePtr},
+	}, moveCard)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "rename_card",
+		Description: "Rename a card within its column without overwriting another card.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &truePtr, OpenWorldHint: &falsePtr},
+	}, renameCard)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "delete_card",
+		Description: "Delete a card only when expected_revision matches its current revision. This cannot be undone by kbrd.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &truePtr, OpenWorldHint: &falsePtr},
+	}, deleteCard)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "create_column",
+		Description: "Create a durable empty column that can be committed to version control.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &falsePtr, OpenWorldHint: &falsePtr},
+	}, createColumn)
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_custom_commands",
-		Description: "List the shell custom commands available for a kbrd board. Folder-local .kbrd_commands.yml commands are included only when MCP policy allows board-local commands. Lua commands are not included.",
+		Description: "List shell custom commands available for a kbrd board, optionally filtered for a folder or item context. Folder-local .kbrd_commands.yml commands are included only when MCP policy allows board-local commands. Lua and editor-line commands are not included.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListCommandsInput) (*mcp.CallToolResult, ListCommandsOutput, error) {
 		return listCustomCommandsWithPolicy(ctx, req, in, policy)

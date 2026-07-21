@@ -2,7 +2,6 @@ package board
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"kbrd/frontmatter"
@@ -38,11 +37,10 @@ func ScanItems(boardPath string, filter func(ScannedItem) bool) ([]ScannedItem, 
 		}
 		for _, name := range items {
 			path := filepath.Join(columnPath, name+".md")
-			data, err := os.ReadFile(path)
+			raw, err := ReadItem(columnPath, name)
 			if err != nil {
 				return nil, fmt.Errorf("read item %s: %w", path, err)
 			}
-			raw := string(data)
 			front, body, _ := frontmatter.Split(raw)
 			parsed, err := frontmatter.Parse([]byte(front))
 			if err != nil {

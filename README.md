@@ -584,7 +584,7 @@ delete_remote_on_card_delete = false # opt in to two-step remote deletion
 enabled          = false      # built-in MCP server; off by default (start with --mcp or enabled = true)
 addr             = "127.0.0.1:7777"  # Streamable HTTP listen address; loopback only without auth
 allow_commands   = false      # allow run_custom_command shell execution (disabled by --safe)
-allow_card_reads = false      # expose complete card Markdown through MCP resources
+allow_card_reads = false      # expose complete card Markdown through MCP tools and resources
 ```
 
 ### Apple Reminders sync
@@ -922,7 +922,14 @@ folder-local `.mcp.json`.
 | `list_folders` | List the columns in a board |
 | `list_files` | List the cards in a column |
 | `add_file_to_board` | Create a card in a board/column, with optional content |
-| `list_custom_commands` | List available shell custom commands |
+| `get_card` | Read raw Markdown, parsed frontmatter, column, and revision; requires `[mcp] allow_card_reads = true` |
+| `search_cards` | Search card names, bodies, tags, and frontmatter; requires `[mcp] allow_card_reads = true` |
+| `update_card` | Replace complete card content using an optimistic `expected_revision` |
+| `move_card` | Move a card to an existing column without overwriting |
+| `rename_card` | Rename a card without overwriting |
+| `delete_card` | Delete a card only when its `expected_revision` matches |
+| `create_column` | Create a durable empty column |
+| `list_custom_commands` | List shell commands, optionally filtered by folder/item context |
 | `run_custom_command` | Run a shell custom command with full context; requires `[mcp] allow_commands = true` and is disabled by `--safe` |
 
 When the connected client advertises MCP form elicitation, tool calls can recover interactively

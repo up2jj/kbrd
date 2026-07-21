@@ -59,7 +59,11 @@ func TestServeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	want := map[string]bool{"add_file_to_board": false, "list_boards": false, "list_folders": false, "list_files": false}
+	want := map[string]bool{
+		"add_file_to_board": false, "list_boards": false, "list_folders": false, "list_files": false,
+		"get_card": false, "search_cards": false, "update_card": false, "move_card": false,
+		"rename_card": false, "delete_card": false, "create_column": false,
+	}
 	for _, tl := range tools.Tools {
 		if _, ok := want[tl.Name]; ok {
 			want[tl.Name] = true
@@ -83,6 +87,53 @@ func TestServeRoundTrip(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(boardPath, "1. todo", "hello.md")); err != nil {
 		t.Fatalf("item not created: %v", err)
+	}
+}
+
+func TestServeRoundTripSearchCardsWithoutFrontmatter(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	if err := os.WriteFile(filepath.Join(boardPath, "todo", "plain.md"), []byte("plain body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+
+	ctx, session := connectTestClientWithPolicy(t, nil, Policy{AllowCardReads: true})
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "search_cards",
+		Arguments: SearchCardsInput{Board: "Demo", Query: "plain"},
+	})
+	if err != nil {
+		t.Fatalf("search_cards protocol validation: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("search_cards tool error: %+v", res.Content)
+	}
+}
+
+func TestServeRoundTripListCustomCommandsForItem(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	if err := os.WriteFile(filepath.Join(boardPath, "todo", "card.md"), []byte("body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeCommands(t, boardPath, `commands:
+  - name: Item command
+    id: item
+    command: echo "{{.fileName}}"
+`)
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Demo"}})
+
+	ctx, session := connectTestClientWithPolicy(t, nil, Policy{AllowFolderCommands: true})
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_custom_commands",
+		Arguments: ListCommandsInput{
+			Board: "Demo", Folder: "todo", Item: "card",
+		},
+	})
+	if err != nil {
+		t.Fatalf("list_custom_commands protocol validation: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("list_custom_commands tool error: %+v", res.Content)
 	}
 }
 

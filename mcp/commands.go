@@ -23,13 +23,17 @@ const commandTimeout = 60 * time.Second
 const maxCommandOutputBytes = 64 * 1024
 
 type ListCommandsInput struct {
-	Board string `json:"board" jsonschema:"friendly name of the board (folder-local commands depend on it)"`
+	Board  string `json:"board" jsonschema:"friendly name of the board (folder-local commands depend on it)"`
+	Folder string `json:"folder,omitempty" jsonschema:"optional folder (column) context; defaults to the first folder when an item is given"`
+	Item   string `json:"item,omitempty" jsonschema:"optional item context used to list commands applicable to that card"`
 }
 
 type CommandEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Scope        string `json:"scope"`
+	RequiresItem bool   `json:"requires_item"`
 }
 
 type ListCommandsOutput struct {
@@ -56,9 +60,21 @@ func listCustomCommandsWithPolicy(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, ListCommandsOutput{}, err
 	}
+	contextual := in.Folder != "" || in.Item != ""
+	if contextual {
+		if _, err := commandVars(ref, in.Folder, in.Item); err != nil {
+			return nil, ListCommandsOutput{}, err
+		}
+	}
 	out := ListCommandsOutput{Board: ref.Label(), Commands: make([]CommandEntry, 0, len(cmds))}
 	for _, c := range cmds {
-		out.Commands = append(out.Commands, CommandEntry{ID: c.ID, Name: c.Name, Description: c.Description})
+		if !c.ShowsOnFiles() || (contextual && in.Item == "" && c.NeedsItem()) {
+			continue
+		}
+		out.Commands = append(out.Commands, CommandEntry{
+			ID: c.ID, Name: c.Name, Description: c.Description,
+			Scope: c.EffectiveScope(), RequiresItem: c.NeedsItem(),
+		})
 	}
 	for _, w := range warnings {
 		out.Warnings = append(out.Warnings, w.Source+": "+w.Message)
