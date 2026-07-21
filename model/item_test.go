@@ -473,8 +473,8 @@ func TestTimeAgo(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := timeAgo(c.t); got != c.want {
-				t.Errorf("timeAgo = %q, want %q", got, c.want)
+			if got := TimeAgo(c.t); got != c.want {
+				t.Errorf("TimeAgo = %q, want %q", got, c.want)
 			}
 		})
 	}
@@ -486,16 +486,16 @@ func TestTimeAgo(t *testing.T) {
 			t.Skip("rolled over a year boundary")
 		}
 		want := past.Format("Jan 2")
-		if got := timeAgo(past); got != want {
-			t.Errorf("timeAgo = %q, want %q", got, want)
+		if got := TimeAgo(past); got != want {
+			t.Errorf("TimeAgo = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("previous year includes year", func(t *testing.T) {
 		past := now.AddDate(-1, 0, -1)
 		want := past.Format("Jan 2 2006")
-		if got := timeAgo(past); got != want {
-			t.Errorf("timeAgo = %q, want %q", got, want)
+		if got := TimeAgo(past); got != want {
+			t.Errorf("TimeAgo = %q, want %q", got, want)
 		}
 	})
 }

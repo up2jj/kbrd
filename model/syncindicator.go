@@ -41,7 +41,7 @@ func syncCell(ss git.SyncStatus, dirty int, shuttingDown, editorActive, autoComm
 		// auto_commit on, the next tick commits for you, so skip this hint.
 		return cell("⇅ commit to sync", string(p.FgMuted))
 	case !ss.LastSync.IsZero():
-		return cell("⇅ synced "+timeAgo(ss.LastSync), string(p.FgMuted))
+		return cell("⇅ synced "+TimeAgo(ss.LastSync), string(p.FgMuted))
 	default:
 		return cell("⇅ sync", string(p.FgMuted))
 	}

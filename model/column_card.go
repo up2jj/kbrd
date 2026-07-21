@@ -201,7 +201,7 @@ func filesystemMeta(item Item, d renderConfig) string {
 	p := d.palette
 	meta := item.Meta
 	if meta == "" {
-		meta = timeAgo(item.Modified) + "  ·  " + item.HumanSize()
+		meta = TimeAgo(item.Modified) + "  ·  " + item.HumanSize()
 		if d.statFor != nil {
 			if s, ok := d.statFor(item.FullPath); ok {
 				switch {

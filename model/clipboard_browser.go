@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -241,11 +240,7 @@ func entryLabel(entry clipboardring.Entry) string {
 }
 
 func entryMeta(entry clipboardring.Entry) string {
-	age := time.Since(entry.Time).Round(time.Minute)
-	when := "just now"
-	if age >= time.Minute {
-		when = age.String() + " ago"
-	}
+	when := TimeAgo(entry.Time)
 	if entry.Pinned {
 		when = "★ " + when
 	}

@@ -120,7 +120,8 @@ func (i Item) HumanSize() string {
 	return fmt.Sprintf("%.1f KB", float64(i.Size)/1024)
 }
 
-func timeAgo(t time.Time) string {
+// TimeAgo formats a timestamp as a compact, human-readable age for TUI views.
+func TimeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:

@@ -54,6 +54,13 @@ func TestClipboardMenuActions(t *testing.T) {
 	}
 }
 
+func TestClipboardEntryMetaUsesHumanReadableAge(t *testing.T) {
+	entry := clipboardring.Entry{Time: time.Now().Add(-5 * 24 * time.Hour)}
+	if got, want := entryMeta(entry), "5d ago"; got != want {
+		t.Fatalf("entryMeta() = %q, want %q", got, want)
+	}
+}
+
 func TestClipboardMenuPreviewIsBoxed(t *testing.T) {
 	menu := ClipboardMenu{palette: DarkPalette()}
 	preview := menu.previewBlock(clipboardring.Entry{Kind: clipboardring.KindMarkdown, Text: "# Notes"}, 80)
