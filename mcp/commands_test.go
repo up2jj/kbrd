@@ -37,6 +37,41 @@ func TestListCustomCommands(t *testing.T) {
 	}
 }
 
+func TestListCustomCommandsCanSkipFolderLocalCommands(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Work"}})
+	writeCommands(t, boardPath, `commands:
+  - name: Local
+    id: local
+    command: echo local
+`)
+
+	_, out, err := listCustomCommandsWithPolicy(context.Background(), nil, ListCommandsInput{Board: "Work"}, Policy{AllowFolderCommands: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Commands) != 0 {
+		t.Fatalf("commands = %+v, want no folder-local commands", out.Commands)
+	}
+}
+
+func TestRunCustomCommandRequiresPolicy(t *testing.T) {
+	boardPath := makeBoardDir(t, "todo")
+	seedRecents(t, []recents.Entry{{Path: boardPath, Name: "Work"}})
+	writeCommands(t, boardPath, `commands:
+  - name: Local
+    id: local
+    command: echo local
+`)
+
+	if _, _, err := runCustomCommandWithPolicy(context.Background(), nil, RunCommandInput{Board: "Work", Command: "local"}, Policy{}); err == nil {
+		t.Fatal("expected command execution to require explicit policy")
+	}
+	if _, _, err := runCustomCommandWithPolicy(context.Background(), nil, RunCommandInput{Board: "Work", Command: "local"}, Policy{AllowCommands: true, AllowFolderCommands: false}); err == nil {
+		t.Fatal("expected folder-local command to be unavailable when folder commands are disabled")
+	}
+}
+
 func TestRunCustomCommand(t *testing.T) {
 	boardPath := makeBoardDir(t, "1. todo")
 	os.WriteFile(filepath.Join(boardPath, "1. todo", "card.md"), []byte("hi"), 0o644)
@@ -97,5 +132,12 @@ func TestRunCustomCommand(t *testing.T) {
 	// Unknown board.
 	if _, _, err := runCustomCommand(ctx, nil, RunCommandInput{Board: "Ghost", Command: "board-echo"}); err == nil {
 		t.Fatal("expected board-not-found error")
+	}
+}
+
+func TestRunCustomCommandTruncatesOutput(t *testing.T) {
+	out := limitCommandOutput(strings.Repeat("x", maxCommandOutputBytes+1))
+	if len(out) <= maxCommandOutputBytes || !strings.Contains(out, "output truncated") {
+		t.Fatalf("output was not truncated with marker: len=%d", len(out))
 	}
 }

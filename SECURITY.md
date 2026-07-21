@@ -66,14 +66,17 @@ defaults off.
 ## Mitigations
 
 - **`kbrd --safe`** opens a board with **all** board-supplied code disabled — direnv,
-  Lua scripting, event hooks, and template `{{shell}}` exec — regardless of config (including a folder-local
-  `kbrd.toml` that tried to enable them). This is the one switch a board cannot ship around;
-  use it for any board you didn't author and haven't reviewed.
+  Lua scripting, event hooks, template `{{shell}}` exec, and MCP `run_custom_command`
+  shell execution — regardless of config (including a folder-local `kbrd.toml` that tried
+  to enable them). This is the one switch a board cannot ship around; use it for any board
+  you didn't author and haven't reviewed.
 - **Disable scripting** for untrusted boards: set `[scripting] enabled = false` in
   `~/.config/kbrd/config.toml` (or a board's `kbrd.toml`). With scripting disabled no Lua
   VM is created and `.kbrd.lua` is never read. See [SCRIPTING.md](./SCRIPTING.md).
 - **Keep template exec off** (`[template] exec = false`, the default) unless you trust the
   board and want its `{{shell}}` templates to run.
+- **Keep MCP custom commands off** (`[mcp] allow_commands = false`, the default) unless you
+  explicitly want MCP clients to execute configured shell commands.
 - **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
   `.kbrd_templates/`, and `.mcp.json` in any board you didn't author before opening it.
 - **Delete** folder-local config you don't need or trust.

@@ -20,6 +20,7 @@ import (
 // stdin from /dev/null, so interactive prompts return immediately rather than
 // blocking the server.
 const commandTimeout = 60 * time.Second
+const maxCommandOutputBytes = 64 * 1024
 
 type ListCommandsInput struct {
 	Board string `json:"board" jsonschema:"friendly name of the board (folder-local commands depend on it)"`
@@ -38,6 +39,10 @@ type ListCommandsOutput struct {
 }
 
 func listCustomCommands(ctx context.Context, _ *mcp.CallToolRequest, in ListCommandsInput) (*mcp.CallToolResult, ListCommandsOutput, error) {
+	return listCustomCommandsWithPolicy(ctx, nil, in, Policy{AllowFolderCommands: true})
+}
+
+func listCustomCommandsWithPolicy(ctx context.Context, _ *mcp.CallToolRequest, in ListCommandsInput, policy Policy) (*mcp.CallToolResult, ListCommandsOutput, error) {
 	ref, err := board.Resolve(in.Board)
 	if err != nil {
 		return nil, ListCommandsOutput{}, err
@@ -45,7 +50,9 @@ func listCustomCommands(ctx context.Context, _ *mcp.CallToolRequest, in ListComm
 	// LoadCommands returns only shell commands (from YAML). Lua-registered
 	// commands live in the running TUI's script VM and are not available to
 	// the headless MCP server, so they are not listed.
-	cmds, warnings, err := config.LoadCommands(ref.Path)
+	cmds, warnings, err := config.LoadCommandsWithOptions(ref.Path, config.CommandLoadOptions{
+		IncludeFolder: policy.AllowFolderCommands,
+	})
 	if err != nil {
 		return nil, ListCommandsOutput{}, err
 	}
@@ -73,12 +80,21 @@ type RunCommandOutput struct {
 }
 
 func runCustomCommand(ctx context.Context, _ *mcp.CallToolRequest, in RunCommandInput) (*mcp.CallToolResult, RunCommandOutput, error) {
+	return runCustomCommandWithPolicy(ctx, nil, in, Policy{AllowCommands: true, AllowFolderCommands: true})
+}
+
+func runCustomCommandWithPolicy(ctx context.Context, _ *mcp.CallToolRequest, in RunCommandInput, policy Policy) (*mcp.CallToolResult, RunCommandOutput, error) {
+	if !policy.AllowCommands {
+		return nil, RunCommandOutput{}, errors.New("run_custom_command is disabled; set [mcp] allow_commands = true and do not use --safe to enable shell command execution")
+	}
 	ref, err := board.Resolve(in.Board)
 	if err != nil {
 		return nil, RunCommandOutput{}, err
 	}
 
-	cmds, _, err := config.LoadCommands(ref.Path)
+	cmds, _, err := config.LoadCommandsWithOptions(ref.Path, config.CommandLoadOptions{
+		IncludeFolder: policy.AllowFolderCommands,
+	})
 	if err != nil {
 		return nil, RunCommandOutput{}, err
 	}
@@ -118,12 +134,19 @@ func runCustomCommand(ctx context.Context, _ *mcp.CallToolRequest, in RunCommand
 		return nil, RunCommandOutput{}, fmt.Errorf("run %q: %w", in.Command, runErr)
 	}
 
-	out := RunCommandOutput{Command: cmd.ID, Output: res.Output, ExitCode: res.ExitCode}
+	out := RunCommandOutput{Command: cmd.ID, Output: limitCommandOutput(res.Output), ExitCode: res.ExitCode}
 	if res.ExitCode != 0 {
 		// Non-zero exit is a command result, not a tool failure: report it.
 		return textf("%s exited %d\n%s", cmd.Name, out.ExitCode, out.Output), out, nil
 	}
 	return textf("%s finished\n%s", cmd.Name, out.Output), out, nil
+}
+
+func limitCommandOutput(out string) string {
+	if len(out) <= maxCommandOutputBytes {
+		return out
+	}
+	return out[:maxCommandOutputBytes] + fmt.Sprintf("\n[output truncated to %d bytes]", maxCommandOutputBytes)
 }
 
 // commandVars builds the template variables for a custom command, mirroring

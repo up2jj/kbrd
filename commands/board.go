@@ -94,7 +94,10 @@ func startMCP(cfg config.Config, flags cliFlags) (io.Closer, model.MCPStatus) {
 	if flags.mcpAddr != "" {
 		addr = flags.mcpAddr
 	}
-	c, ok := mcp.Start(model.Version, addr)
+	c, ok := mcp.Start(model.Version, addr, mcp.Policy{
+		AllowCommands:       cfg.MCP.AllowCommands && !flags.safe,
+		AllowFolderCommands: !flags.safe,
+	})
 	if !ok {
 		return nil, model.MCPFailed
 	}

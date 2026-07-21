@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,9 +25,17 @@ func SetVersion(v string) {
 	}
 }
 
+// Policy carries the trust decisions made by the CLI/config layer into the
+// headless MCP server. The zero value is conservative.
+type Policy struct {
+	AllowCommands       bool
+	AllowFolderCommands bool
+}
+
 // newServer builds the MCP server with all kbrd tools registered.
-func newServer() *mcp.Server {
+func newServer(policy Policy) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "kbrd", Version: version}, nil)
+	falsePtr := false
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_file_to_board",
@@ -50,13 +59,19 @@ func newServer() *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_custom_commands",
-		Description: "List the shell custom commands available for a kbrd board (from commands.yml and the board's .kbrd_commands.yml). Lua commands are not included.",
-	}, listCustomCommands)
+		Description: "List the shell custom commands available for a kbrd board. Folder-local .kbrd_commands.yml commands are included only when MCP policy allows board-local commands. Lua commands are not included.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListCommandsInput) (*mcp.CallToolResult, ListCommandsOutput, error) {
+		return listCustomCommandsWithPolicy(ctx, req, in, policy)
+	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "run_custom_command",
-		Description: "Run a shell custom command (by id) for a kbrd board. Provide a folder/item if the command uses file variables. Returns the combined output and exit code.",
-	}, runCustomCommand)
+		Description: "DANGEROUS: run a shell custom command (by id) for a kbrd board. Requires [mcp] allow_commands = true and is disabled by --safe. Output is truncated to a bounded size.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &falsePtr},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in RunCommandInput) (*mcp.CallToolResult, RunCommandOutput, error) {
+		return runCustomCommandWithPolicy(ctx, req, in, policy)
+	})
 
 	return s
 }
@@ -92,18 +107,21 @@ func newHTTPServer(handler http.Handler) *http.Server {
 // returns immediately. The returned io.Closer stops the server. A bind error
 // (e.g. the port is already in use by another kbrd instance) is returned so
 // the caller can warn and continue without an MCP server.
-func Serve(addr string) (io.Closer, error) {
+func Serve(addr string, policy Policy) (io.Closer, error) {
+	if err := requireLoopbackAddr(addr); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	return serveListener(ln), nil
+	return serveListener(ln, policy), nil
 }
 
 // serveListener starts the MCP server on an already-bound listener. Keeping
 // the bind separate lets tests request an OS-assigned port without a race.
-func serveListener(ln net.Listener) io.Closer {
-	srv := newServer()
+func serveListener(ln net.Listener, policy Policy) io.Closer {
+	srv := newServer(policy)
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 
 	httpSrv := newHTTPServer(handler)
@@ -121,9 +139,9 @@ func serveListener(ln net.Listener) io.Closer {
 // the port is already held by another kbrd instance, which already serves every
 // board via recents — is warned about and reported as running=false, never
 // fatal. A nil closer is safe to ignore; callers should still guard Close.
-func Start(version, addr string) (io.Closer, bool) {
+func Start(version, addr string, policy Policy) (io.Closer, bool) {
 	SetVersion(version)
-	c, err := Serve(addr)
+	c, err := Serve(addr, policy)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: MCP server not started on %s: %v\n", addr, err)
 		return nil, false
@@ -135,10 +153,26 @@ func Start(version, addr string) (io.Closer, bool) {
 // running the MCP server standalone (not currently wired, but handy for tests
 // and tooling).
 func Run(ctx context.Context, addr string) error {
-	c, err := Serve(addr)
+	c, err := Serve(addr, Policy{})
 	if err != nil {
 		return err
 	}
 	<-ctx.Done()
 	return c.Close()
+}
+
+func requireLoopbackAddr(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("parse listen address: %w", err)
+	}
+	host = strings.Trim(host, "[]")
+	if host == "localhost" {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("refusing non-loopback MCP listen address %q; authentication is not configured", addr)
 }

@@ -25,7 +25,7 @@ func TestServeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	c := serveListener(ln)
+	c := serveListener(ln, Policy{})
 	defer func() {
 		if err := c.Close(); err != nil {
 			t.Errorf("shutdown: %v", err)
@@ -71,6 +71,12 @@ func TestServeRoundTrip(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(boardPath, "1. todo", "hello.md")); err != nil {
 		t.Fatalf("item not created: %v", err)
+	}
+}
+
+func TestServeRefusesNonLoopbackAddr(t *testing.T) {
+	if _, err := Serve("0.0.0.0:0", Policy{}); err == nil {
+		t.Fatal("expected non-loopback address to be refused")
 	}
 }
 

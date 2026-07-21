@@ -107,9 +107,22 @@ type CommandLoadWarning struct {
 // Missing files are not errors. Invalid entries are skipped and reported via
 // the returned warnings slice (non-fatal).
 func LoadCommands(folderPath string) ([]Command, []CommandLoadWarning, error) {
+	return LoadCommandsWithOptions(folderPath, CommandLoadOptions{IncludeFolder: true})
+}
+
+type CommandLoadOptions struct {
+	IncludeFolder bool
+}
+
+// LoadCommandsWithOptions reads custom commands with caller-controlled trust
+// boundaries. IncludeFolder gates the board-local .kbrd_commands.yml file.
+func LoadCommandsWithOptions(folderPath string, opts CommandLoadOptions) ([]Command, []CommandLoadWarning, error) {
 	globalDir, err := os.UserConfigDir()
 	if err != nil {
 		globalDir = ""
+	}
+	if !opts.IncludeFolder {
+		folderPath = ""
 	}
 	return loadCommandsFrom(filepath.Join(globalDir, AppDirName), folderPath)
 }

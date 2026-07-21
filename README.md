@@ -581,8 +581,9 @@ done_columns   = ["Done"]    # first entry receives completed reminders
 delete_remote_on_card_delete = false # opt in to two-step remote deletion
 
 [mcp]
-enabled = false             # built-in MCP server; off by default (start with --mcp or enabled = true)
-addr    = "127.0.0.1:7777"  # Streamable HTTP listen address
+enabled        = false      # built-in MCP server; off by default (start with --mcp or enabled = true)
+addr           = "127.0.0.1:7777"  # Streamable HTTP listen address; loopback only without auth
+allow_commands = false      # allow run_custom_command shell execution (disabled by --safe)
 ```
 
 ### Apple Reminders sync
@@ -906,10 +907,11 @@ kbrd can run a built-in [Model Context Protocol](https://modelcontextprotocol.io
 Streamable HTTP, letting external tools and LLM agents operate on your boards headlessly.
 It is **off by default** — start it with `--mcp` for a single run, or set `enabled = true` in
 the `[mcp]` config section to opt a board in permanently. It listens on `127.0.0.1:7777`
-(override with `--mcp-addr` or `[mcp].addr`). The header strip shows its state: `◆ mcp`
-(green) when running, `✕ mcp` (red) when it was requested but couldn't bind — e.g. the port
-is already in use — and `◇ mcp` (muted) when off. Its scope covers boards in your recents
-plus any folder-local `.mcp.json`.
+(override with `--mcp-addr` or `[mcp].addr`) and refuses non-loopback addresses unless MCP
+authentication support is added. The header strip shows its state: `◆ mcp` (green) when
+running, `✕ mcp` (red) when it was requested but couldn't bind — e.g. the port is already in
+use — and `◇ mcp` (muted) when off. Its scope covers boards in your recents plus any
+folder-local `.mcp.json`.
 
 **Tools exposed**
 
@@ -920,7 +922,7 @@ plus any folder-local `.mcp.json`.
 | `list_files` | List the cards in a column |
 | `add_file_to_board` | Create a card in a board/column, with optional content |
 | `list_custom_commands` | List available shell custom commands |
-| `run_custom_command` | Run a shell custom command with full context |
+| `run_custom_command` | Run a shell custom command with full context; requires `[mcp] allow_commands = true` and is disabled by `--safe` |
 
 Create a local `AGENTS.md` (config menu → `a`) to give agents orientation about a board,
 and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. Note that a
