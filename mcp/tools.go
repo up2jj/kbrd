@@ -118,6 +118,33 @@ func listFiles(ctx context.Context, req *mcp.CallToolRequest, in ListFilesInput)
 	return textf("%d file(s) in [%s] %s", len(items), out.Board, out.Folder), out, nil
 }
 
+type ShowBoardInput struct {
+	Board string `json:"board" jsonschema:"friendly name of the board"`
+}
+
+type ShowBoardOutput struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Board         string                `json:"board"`
+	Columns       []resourceColumnEntry `json:"columns"`
+}
+
+func showBoard(ctx context.Context, req *mcp.CallToolRequest, in ShowBoardInput) (*mcp.CallToolResult, ShowBoardOutput, error) {
+	ref, err := resolveBoardForTool(ctx, req, in.Board)
+	if err != nil {
+		return nil, ShowBoardOutput{}, err
+	}
+	columns, err := loadBoardColumns(ref, false)
+	if err != nil {
+		return nil, ShowBoardOutput{}, err
+	}
+	out := ShowBoardOutput{SchemaVersion: resourceSchemaV1, Board: ref.Label(), Columns: columns}
+	cardCount := 0
+	for _, column := range columns {
+		cardCount += len(column.Cards)
+	}
+	return textf("[%s] has %d column(s) and %d card(s)", out.Board, len(columns), cardCount), out, nil
+}
+
 // textf builds a CallToolResult carrying a single human-readable text line.
 // Structured output is populated separately by the SDK from the typed Out.
 func textf(format string, args ...any) *mcp.CallToolResult {

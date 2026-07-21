@@ -57,6 +57,8 @@ type resourceCardEntry struct {
 }
 
 func registerResources(s *mcp.Server, policy Policy) {
+	registerAppResources(s)
+
 	s.AddResource(&mcp.Resource{
 		URI:         boardsResourceURI,
 		Name:        "boards",
@@ -261,16 +263,25 @@ func readBoardResource(_ context.Context, req *mcp.ReadResourceRequest, includeC
 		return nil, mcp.ResourceNotFoundError(uri)
 	}
 
-	columns, err := board.Columns(ref.Path)
+	columns, err := loadBoardColumns(ref, includeCardURIs)
 	if err != nil {
-		return nil, fmt.Errorf("list columns for board resource %q: %w", ref.Label(), err)
+		return nil, err
 	}
 	out := boardResource{
 		SchemaVersion: resourceSchemaV1,
 		Name:          ref.Label(),
 		URI:           boardResourceURI(ref.Label()),
-		Columns:       make([]resourceColumnEntry, 0, len(columns)),
+		Columns:       columns,
 	}
+	return jsonResourceResult(uri, out)
+}
+
+func loadBoardColumns(ref board.Ref, includeCardURIs bool) ([]resourceColumnEntry, error) {
+	columns, err := board.Columns(ref.Path)
+	if err != nil {
+		return nil, fmt.Errorf("list columns for board %q: %w", ref.Label(), err)
+	}
+	out := make([]resourceColumnEntry, 0, len(columns))
 	for _, column := range columns {
 		items, err := board.Items(filepath.Join(ref.Path, column))
 		if err != nil {
@@ -284,9 +295,9 @@ func readBoardResource(_ context.Context, req *mcp.ReadResourceRequest, includeC
 			}
 			entry.Cards = append(entry.Cards, card)
 		}
-		out.Columns = append(out.Columns, entry)
+		out = append(out, entry)
 	}
-	return jsonResourceResult(uri, out)
+	return out, nil
 }
 
 func readCardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

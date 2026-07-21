@@ -121,6 +121,17 @@ func TestListTools(t *testing.T) {
 	if len(files.Files) != 2 || files.Files[0] != "a" || files.Files[1] != "b" {
 		t.Fatalf("files = %+v", files.Files)
 	}
+
+	_, snapshot, err := showBoard(ctx, nil, ShowBoardInput{Board: "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.SchemaVersion != resourceSchemaV1 || snapshot.Board != "Work" || len(snapshot.Columns) != 1 {
+		t.Fatalf("board snapshot = %+v", snapshot)
+	}
+	if got := snapshot.Columns[0].Cards; len(got) != 2 || got[0].Name != "a" || got[0].URI != "" {
+		t.Fatalf("board cards = %+v", got)
+	}
 }
 
 // TestOutputMarshals guards that the structured output types serialize to JSON
@@ -131,6 +142,7 @@ func TestOutputMarshals(t *testing.T) {
 		ListBoardsOutput{},
 		ListFoldersOutput{},
 		ListFilesOutput{},
+		ShowBoardOutput{},
 		CardOutput{},
 		SearchCardsOutput{},
 		MutationOutput{},

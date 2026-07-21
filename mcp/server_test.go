@@ -54,25 +54,54 @@ func TestServeRoundTrip(t *testing.T) {
 	if got, want := initResult.Instructions, ServerInstructions(); got != want {
 		t.Errorf("server instructions = %q, want %q", got, want)
 	}
+	uiExtension, ok := initResult.Capabilities.Extensions[mcpAppsExtension].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP Apps capability = %#v", initResult.Capabilities.Extensions[mcpAppsExtension])
+	}
+	if mimeTypes, ok := uiExtension["mimeTypes"].([]any); !ok || len(mimeTypes) != 1 || mimeTypes[0] != mcpAppHTMLMIME {
+		t.Fatalf("MCP Apps MIME types = %#v", uiExtension["mimeTypes"])
+	}
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
 	want := map[string]bool{
-		"add_file_to_board": false, "list_boards": false, "list_folders": false, "list_files": false,
+		"add_file_to_board": false, "list_boards": false, "list_folders": false, "list_files": false, "show_board": false,
 		"get_card": false, "search_cards": false, "update_card": false, "move_card": false,
 		"rename_card": false, "delete_card": false, "create_column": false,
 	}
+	var showBoardTool *mcp.Tool
 	for _, tl := range tools.Tools {
 		if _, ok := want[tl.Name]; ok {
 			want[tl.Name] = true
+		}
+		if tl.Name == "show_board" {
+			showBoardTool = tl
 		}
 	}
 	for name, found := range want {
 		if !found {
 			t.Errorf("tool %q not advertised", name)
 		}
+	}
+	if showBoardTool == nil {
+		t.Fatal("show_board tool not advertised")
+	}
+	uiMeta, ok := showBoardTool.Meta["ui"].(map[string]any)
+	if !ok || uiMeta["resourceUri"] != boardAppResourceURI {
+		t.Fatalf("show_board UI metadata = %#v", showBoardTool.Meta)
+	}
+
+	boardResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "show_board",
+		Arguments: ShowBoardInput{Board: "Demo"},
+	})
+	if err != nil {
+		t.Fatalf("show_board: %v", err)
+	}
+	if boardResult.IsError || boardResult.StructuredContent == nil {
+		t.Fatalf("show_board result = %+v", boardResult)
 	}
 
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{

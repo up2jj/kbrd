@@ -40,6 +40,7 @@ func newServer(policy Policy) *mcp.Server {
 		&mcp.Implementation{Name: "kbrd", Version: version},
 		&mcp.ServerOptions{
 			Instructions: ServerInstructions(),
+			Capabilities: mcpAppServerCapabilities(),
 			CompletionHandler: func(ctx context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
 				return completeResourceArgument(ctx, req, policy)
 			},
@@ -70,6 +71,20 @@ func newServer(policy Policy) *mcp.Server {
 	}, listFiles)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": boardAppResourceURI,
+				"visibility":  []string{"model", "app"},
+			},
+		},
+		Name:        "show_board",
+		Title:       "Show board",
+		Description: "Show a read-only snapshot of a kbrd board's columns and card names. MCP Apps clients render an interactive board; other clients receive structured data.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
+	}, showBoard)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Meta:        mcp.Meta{"ui": map[string]any{"visibility": []string{"model", "app"}}},
 		Name:        "get_card",
 		Description: "Read a card's raw Markdown, body, parsed frontmatter, column, and SHA-256 revision. Requires [mcp] allow_card_reads = true.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},

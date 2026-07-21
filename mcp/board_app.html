@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>kbrd board</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+      background: var(--color-background-primary, Canvas);
+      color: var(--color-text-primary, CanvasText);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; }
+    header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    h1 { font-size: 17px; margin: 0; }
+    #summary { color: var(--color-text-secondary, GrayText); font-size: 12px; }
+    #status { color: var(--color-text-secondary, GrayText); margin: 24px 0; text-align: center; }
+    #board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+    .column { min-width: 0; border: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 18%, transparent)); border-radius: 9px; background: var(--color-background-secondary, color-mix(in srgb, Canvas 94%, CanvasText)); padding: 9px; }
+    .column h2 { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin: 0 0 8px; }
+    .count { color: var(--color-text-secondary, GrayText); font-weight: 400; }
+    .cards { display: grid; gap: 6px; }
+    .card { width: 100%; overflow-wrap: anywhere; border: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 14%, transparent)); border-radius: 7px; background: var(--color-background-primary, Canvas); color: inherit; padding: 8px; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    .card:hover, .card:focus-visible { border-color: var(--color-border-info, Highlight); outline: none; }
+    .card[aria-pressed="true"] { border-color: var(--color-border-info, Highlight); box-shadow: 0 0 0 1px var(--color-border-info, Highlight); }
+    .empty { color: var(--color-text-secondary, GrayText); font-size: 12px; padding: 8px 2px; }
+    #detail { margin-top: 12px; border: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 18%, transparent)); border-radius: 9px; background: var(--color-background-secondary, color-mix(in srgb, Canvas 94%, CanvasText)); padding: 12px; }
+    .detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+    .detail-heading h2 { margin: 0; font-size: 15px; }
+    #detail-location { margin: 3px 0 0; color: var(--color-text-secondary, GrayText); font-size: 12px; }
+    #detail-close { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 18px; line-height: 1; padding: 2px 5px; }
+    #detail-body, #detail-frontmatter { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1.45; }
+    #detail-frontmatter { border-top: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 14%, transparent)); padding-top: 10px; color: var(--color-text-secondary, GrayText); }
+  </style>
+</head>
+<body>
+  <header hidden><h1 id="title"></h1><span id="summary"></span></header>
+  <p id="status">Loading board…</p>
+  <main id="board" hidden></main>
+  <section id="detail" hidden aria-live="polite">
+    <div class="detail-heading">
+      <div><h2 id="detail-title"></h2><p id="detail-location"></p></div>
+      <button id="detail-close" type="button" aria-label="Close card details">×</button>
+    </div>
+    <pre id="detail-body"></pre>
+    <pre id="detail-frontmatter" hidden></pre>
+  </section>
+  <script>
+    (() => {
+      const protocolVersion = "2026-01-26";
+      let nextID = 1;
+      const pending = new Map();
+      let boardName = "";
+      let activeCard = null;
+      const title = document.querySelector("#title");
+      const summary = document.querySelector("#summary");
+      const status = document.querySelector("#status");
+      const board = document.querySelector("#board");
+      const header = document.querySelector("header");
+      const detail = document.querySelector("#detail");
+      const detailTitle = document.querySelector("#detail-title");
+      const detailLocation = document.querySelector("#detail-location");
+      const detailBody = document.querySelector("#detail-body");
+      const detailFrontmatter = document.querySelector("#detail-frontmatter");
+
+      function post(message) { window.parent.postMessage(message, "*"); }
+      function notify(method, params = {}) { post({ jsonrpc: "2.0", method, params }); }
+      function request(method, params) {
+        const id = nextID++;
+        post({ jsonrpc: "2.0", id, method, params });
+        return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+      }
+      function applyHostContext(context = {}) {
+        if (context.theme === "light" || context.theme === "dark") {
+          document.documentElement.style.colorScheme = context.theme;
+        }
+        const variables = context.styles && context.styles.variables;
+        if (variables) {
+          for (const [name, value] of Object.entries(variables)) {
+            if (name.startsWith("--") && typeof value === "string") document.documentElement.style.setProperty(name, value);
+          }
+        }
+      }
+      function render(result) {
+        const data = result && result.structuredContent;
+        if (!data || !Array.isArray(data.columns)) {
+          if (board.hidden) status.textContent = result && result.isError ? toolError(result) : "No board data returned.";
+          return;
+        }
+        boardName = data.board || "";
+        let cards = 0;
+        board.replaceChildren();
+        for (const column of data.columns) {
+          const section = document.createElement("section");
+          section.className = "column";
+          const heading = document.createElement("h2");
+          const name = document.createElement("span");
+          name.textContent = column.name || "Untitled";
+          const count = document.createElement("span");
+          count.className = "count";
+          const entries = Array.isArray(column.cards) ? column.cards : [];
+          cards += entries.length;
+          count.textContent = String(entries.length);
+          heading.append(name, count);
+          const list = document.createElement("div");
+          list.className = "cards";
+          if (entries.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "No cards";
+            list.append(empty);
+          }
+          for (const entry of entries) {
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = "card";
+            card.setAttribute("aria-pressed", "false");
+            const cardName = entry.name || "Untitled";
+            card.textContent = cardName;
+            card.addEventListener("click", () => showCard(column.name || "", cardName, card));
+            list.append(card);
+          }
+          section.append(heading, list);
+          board.append(section);
+        }
+        title.textContent = data.board || "kbrd board";
+        summary.textContent = `${data.columns.length} columns · ${cards} cards`;
+        status.hidden = true;
+        header.hidden = false;
+        board.hidden = false;
+        reportSize();
+      }
+      function toolError(result) {
+        const text = result && Array.isArray(result.content)
+          ? result.content.find((entry) => entry && entry.type === "text")
+          : null;
+        return text && text.text ? text.text : "Could not read this card.";
+      }
+      async function showCard(columnName, cardName, button) {
+        if (activeCard) activeCard.setAttribute("aria-pressed", "false");
+        activeCard = button;
+        activeCard.setAttribute("aria-pressed", "true");
+        detail.hidden = false;
+        detailTitle.textContent = cardName;
+        detailLocation.textContent = columnName;
+        detailBody.textContent = "Loading…";
+        detailFrontmatter.hidden = true;
+        detailFrontmatter.textContent = "";
+        reportSize();
+        try {
+          const result = await request("tools/call", {
+            name: "get_card",
+            arguments: { board: boardName, column: columnName, name: cardName }
+          });
+          if (result && result.isError) {
+            detailBody.textContent = toolError(result);
+            return;
+          }
+          const data = result && result.structuredContent;
+          if (!data) {
+            detailBody.textContent = "No card data returned.";
+            return;
+          }
+          detailTitle.textContent = data.name || cardName;
+          detailLocation.textContent = data.column || columnName;
+          detailBody.textContent = data.body || "(empty card)";
+          const frontmatter = data.frontmatter && Object.keys(data.frontmatter).length > 0
+            ? JSON.stringify(data.frontmatter, null, 2)
+            : "";
+          detailFrontmatter.textContent = frontmatter;
+          detailFrontmatter.hidden = frontmatter === "";
+        } catch (error) {
+          detailBody.textContent = error && error.message ? error.message : "Could not read this card.";
+        } finally {
+          reportSize();
+        }
+      }
+      document.querySelector("#detail-close").addEventListener("click", () => {
+        detail.hidden = true;
+        if (activeCard) activeCard.setAttribute("aria-pressed", "false");
+        activeCard = null;
+        reportSize();
+      });
+      function reportSize() {
+        notify("ui/notifications/size-changed", {
+          width: Math.ceil(document.documentElement.scrollWidth),
+          height: Math.ceil(document.documentElement.scrollHeight)
+        });
+      }
+      window.addEventListener("message", (event) => {
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (message.id !== undefined && !message.method) {
+          const waiter = pending.get(message.id);
+          if (!waiter) return;
+          pending.delete(message.id);
+          if (message.error) waiter.reject(new Error(message.error.message || "Host request failed"));
+          else waiter.resolve(message.result);
+          return;
+        }
+        if (message.method === "ui/notifications/tool-result") render(message.params);
+        if (message.method === "ui/notifications/host-context-changed") applyHostContext(message.params);
+        if (message.method === "ui/resource-teardown" && message.id !== undefined) {
+          post({ jsonrpc: "2.0", id: message.id, result: {} });
+        }
+        if (message.method === "ping" && message.id !== undefined) {
+          post({ jsonrpc: "2.0", id: message.id, result: {} });
+        }
+      });
+      request("ui/initialize", {
+        protocolVersion,
+        appCapabilities: { availableDisplayModes: ["inline"] },
+        appInfo: { name: "kbrd board", version: "1.0.0" }
+      }).then((result) => {
+        applyHostContext(result && result.hostContext);
+        notify("ui/notifications/initialized");
+      }).catch((error) => {
+        const detail = error && error.message ? `: ${error.message}` : "";
+        status.textContent = `This host could not initialize the board view${detail}`;
+      });
+      if ("ResizeObserver" in window) new ResizeObserver(reportSize).observe(document.body);
+    })();
+  </script>
+</body>
+</html>

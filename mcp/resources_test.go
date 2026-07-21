@@ -196,7 +196,11 @@ func TestResourceRegistrationHonorsCardReadPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(resources.Resources) != 1 || resources.Resources[0].URI != boardsResourceURI {
+			gotResources := make(map[string]bool, len(resources.Resources))
+			for _, resource := range resources.Resources {
+				gotResources[resource.URI] = true
+			}
+			if len(gotResources) != 2 || !gotResources[boardsResourceURI] || !gotResources[boardAppResourceURI] {
 				t.Fatalf("resources = %+v", resources.Resources)
 			}
 			templates, err := session.ListResourceTemplates(t.Context(), nil)

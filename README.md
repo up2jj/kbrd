@@ -921,6 +921,7 @@ folder-local `.mcp.json`.
 | `list_boards` | List known boards and their friendly names |
 | `list_folders` | List the columns in a board |
 | `list_files` | List the cards in a column |
+| `show_board` | Return a board snapshot; MCP Apps clients render a Kanban view with clickable card details when card reads are enabled |
 | `add_file_to_board` | Create a card in a board/column, with optional content |
 | `get_card` | Read raw Markdown, parsed frontmatter, column, and revision; requires `[mcp] allow_card_reads = true` |
 | `search_cards` | Search card names, bodies, tags, and frontmatter; requires `[mcp] allow_card_reads = true` |
@@ -946,6 +947,7 @@ descriptive tool errors, so callers can still recover by listing boards, folders
 | `kbrd://boards` | JSON index of known boards, availability, and board resource URIs |
 | `kbrd://board/{board}` | JSON snapshot of a board's columns and cards |
 | `kbrd://card/{board}/{column}/{card}` | Complete card Markdown, including frontmatter; requires `[mcp] allow_card_reads = true` |
+| `ui://kbrd/board-v3.html` | Embedded read-only MCP App used by `show_board` |
 
 Resource names are exact and URI path segments are percent-encoded. Unlike conversational tool
 inputs, resource URIs never use fuzzy board matching. Reads reflect the current filesystem state;
