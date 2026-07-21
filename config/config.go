@@ -121,9 +121,10 @@ type RemindersConfig struct {
 // exposes board operations to MCP clients over Streamable HTTP. It is opt-in: a
 // listener is started only when the --mcp flag is passed or Enabled is set true.
 type MCPConfig struct {
-	Enabled       bool
-	Addr          string
-	AllowCommands bool
+	Enabled        bool
+	Addr           string
+	AllowCommands  bool
+	AllowCardReads bool
 }
 
 // TemplateConfig controls card templates. Exec gates the {{shell}} template
@@ -243,6 +244,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("mcp.enabled", false)
 	v.SetDefault("mcp.addr", "127.0.0.1:7777")
 	v.SetDefault("mcp.allow_commands", false)
+	v.SetDefault("mcp.allow_card_reads", false)
 	v.SetDefault("journal.detect_date", true)
 	v.SetDefault("ingest.created_at_format", time.RFC3339)
 	v.SetDefault("editor.vim", true)
@@ -338,9 +340,10 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 			TimeoutMs: v.GetInt("hooks.timeout_ms"),
 		},
 		MCP: MCPConfig{
-			Enabled:       v.GetBool("mcp.enabled"),
-			Addr:          v.GetString("mcp.addr"),
-			AllowCommands: v.GetBool("mcp.allow_commands"),
+			Enabled:        v.GetBool("mcp.enabled"),
+			Addr:           v.GetString("mcp.addr"),
+			AllowCommands:  v.GetBool("mcp.allow_commands"),
+			AllowCardReads: v.GetBool("mcp.allow_card_reads"),
 		},
 		Template: TemplateConfig{
 			Exec:             v.GetBool("template.exec"),

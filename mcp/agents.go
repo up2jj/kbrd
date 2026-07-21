@@ -43,6 +43,13 @@ kbrd runs a built-in MCP server (Streamable HTTP) while the TUI is open. The
 Prefer these tools over editing files blindly: resolve the board with
 §list_boards§, inspect folders with §list_folders§, then §add_file_to_board§.
 
+Read-only MCP resources offer the same hierarchy as stable context:
+
+- §kbrd://boards§ — discover known boards and their board resource URIs.
+- §kbrd://board/{board}§ — read a board snapshot with columns and cards.
+- §kbrd://card/{board}/{column}/{card}§ — read a card's complete Markdown
+  when §[mcp] allow_card_reads = true§.
+
 ## Conventions
 
 - Card files are plain Markdown. Keep the first line a short title or summary.
@@ -79,6 +86,9 @@ left to right. Names beginning with §.§ or §_§ are hidden.
   Move, edit, rename, and delete are not general MCP tools; do not emulate them
   with a shell command unless the user explicitly requests that operation and a
   listed custom command is intended for it.
+- Use §kbrd://boards§ and §kbrd://board/{board}§ when MCP resources are
+  available. Card resources contain complete Markdown, including frontmatter,
+  and are advertised only when §[mcp] allow_card_reads = true§.
 
 ## Card content
 

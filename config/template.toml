@@ -42,9 +42,10 @@
 # timeout_ms = 2000         # per-hook command timeout; hooks run one at a time, in order
 
 [mcp]
-# enabled        = false    # built-in MCP server; off by default (start with --mcp or enabled = true)
-# addr           = "127.0.0.1:7777" # Streamable HTTP listen address; loopback only without auth
-# allow_commands = false    # allow run_custom_command shell execution (disabled by --safe)
+# enabled          = false    # built-in MCP server; off by default (start with --mcp or enabled = true)
+# addr             = "127.0.0.1:7777" # Streamable HTTP listen address; loopback only without auth
+# allow_commands   = false    # allow run_custom_command shell execution (disabled by --safe)
+# allow_card_reads = false    # expose complete card Markdown through MCP resources
 
 [journal]
 # detect_date = true        # read a leading natural-language date ("yesterday ...",

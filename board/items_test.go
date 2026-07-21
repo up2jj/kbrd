@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,24 @@ func TestReadItem(t *testing.T) {
 
 	if _, err := ReadItem(col, "missing"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("want os.ErrNotExist, got %v", err)
+	}
+}
+
+func TestReadItemRejectsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require elevated privileges")
+	}
+	root := makeBoard(t, map[string][]string{"todo": nil})
+	outside := filepath.Join(t.TempDir(), "secret.md")
+	if err := os.WriteFile(outside, []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "todo", "linked.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadItem(filepath.Join(root, "todo"), "linked"); err == nil {
+		t.Fatal("ReadItem followed a symlink outside its column")
 	}
 }
 

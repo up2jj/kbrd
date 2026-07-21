@@ -3,6 +3,7 @@ package board
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,11 +26,22 @@ func ItemPath(columnPath, name string) (string, error) {
 // ReadItem returns the raw content of an item file. The error wraps
 // os.ErrNotExist when the item does not exist.
 func ReadItem(columnPath, name string) (string, error) {
-	path, err := ItemPath(columnPath, name)
+	clean, err := SanitizeName(name)
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	root, err := os.OpenRoot(columnPath)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+
+	f, err := root.Open(clean + ".md")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return "", err
 	}

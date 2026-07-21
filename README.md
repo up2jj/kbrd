@@ -581,9 +581,10 @@ done_columns   = ["Done"]    # first entry receives completed reminders
 delete_remote_on_card_delete = false # opt in to two-step remote deletion
 
 [mcp]
-enabled        = false      # built-in MCP server; off by default (start with --mcp or enabled = true)
-addr           = "127.0.0.1:7777"  # Streamable HTTP listen address; loopback only without auth
-allow_commands = false      # allow run_custom_command shell execution (disabled by --safe)
+enabled          = false      # built-in MCP server; off by default (start with --mcp or enabled = true)
+addr             = "127.0.0.1:7777"  # Streamable HTTP listen address; loopback only without auth
+allow_commands   = false      # allow run_custom_command shell execution (disabled by --safe)
+allow_card_reads = false      # expose complete card Markdown through MCP resources
 ```
 
 ### Apple Reminders sync
@@ -923,6 +924,20 @@ folder-local `.mcp.json`.
 | `add_file_to_board` | Create a card in a board/column, with optional content |
 | `list_custom_commands` | List available shell custom commands |
 | `run_custom_command` | Run a shell custom command with full context; requires `[mcp] allow_commands = true` and is disabled by `--safe` |
+
+**Resources exposed**
+
+| Resource | Purpose |
+| --- | --- |
+| `kbrd://boards` | JSON index of known boards, availability, and board resource URIs |
+| `kbrd://board/{board}` | JSON snapshot of a board's columns and cards |
+| `kbrd://card/{board}/{column}/{card}` | Complete card Markdown, including frontmatter; requires `[mcp] allow_card_reads = true` |
+
+Resource names are exact and URI path segments are percent-encoded. Unlike conversational tool
+inputs, resource URIs never use fuzzy board matching. Reads reflect the current filesystem state;
+stale entries from the recents registry remain visible in `kbrd://boards` with
+`"available": false`. Card reads are separately opt-in because the server covers every board in
+the recents registry and its loopback HTTP endpoint is not authenticated.
 
 Create a local `AGENTS.md` (config menu → `a`) to give agents orientation about a board,
 and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. Note that a

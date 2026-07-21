@@ -30,14 +30,17 @@ func SetVersion(v string) {
 type Policy struct {
 	AllowCommands       bool
 	AllowFolderCommands bool
+	AllowCardReads      bool
 }
 
-// newServer builds the MCP server with all kbrd tools registered.
+// newServer builds the MCP server with all kbrd tools and permitted resources
+// registered.
 func newServer(policy Policy) *mcp.Server {
 	s := mcp.NewServer(
 		&mcp.Implementation{Name: "kbrd", Version: version},
 		&mcp.ServerOptions{Instructions: ServerInstructions()},
 	)
+	registerResources(s, policy)
 	falsePtr := false
 
 	mcp.AddTool(s, &mcp.Tool{

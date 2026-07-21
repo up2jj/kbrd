@@ -23,6 +23,11 @@ func TestAgentsMarkdown(t *testing.T) {
 	if !strings.Contains(doc, ServerName) {
 		t.Errorf("AGENTS.md does not mention server name %q", ServerName)
 	}
+	for _, uri := range []string{"kbrd://boards", "kbrd://board/{board}", "kbrd://card/{board}/{column}/{card}"} {
+		if !strings.Contains(doc, uri) {
+			t.Errorf("AGENTS.md does not mention resource %q", uri)
+		}
+	}
 }
 
 func TestServerInstructions(t *testing.T) {
@@ -36,6 +41,7 @@ func TestServerInstructions(t *testing.T) {
 		"frontmatter",
 		"Do not move a card",
 		"destructive",
+		"kbrd://boards",
 	} {
 		if !strings.Contains(doc, phrase) {
 			t.Errorf("server instructions do not mention %q", phrase)

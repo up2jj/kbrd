@@ -42,8 +42,23 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.Reminders.DeleteRemoteOnCardDelete {
 		t.Fatal("remote deletion must default to disabled")
 	}
+	if cfg.MCP.AllowCardReads {
+		t.Fatal("MCP card reads must default to disabled")
+	}
 	if got := strings.Join(cfg.Reminders.DoneColumns, ","); got != "Done" {
 		t.Fatalf("reminders done columns: got %q want Done", got)
+	}
+}
+
+func TestLoad_MCPAllowCardReads(t *testing.T) {
+	folder := t.TempDir()
+	writeFile(t, filepath.Join(folder, FolderConfigFile), "[mcp]\nallow_card_reads = true\n")
+	cfg, err := loadFrom(t.TempDir(), folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MCP.AllowCardReads {
+		t.Fatal("mcp.allow_card_reads was not loaded")
 	}
 }
 

@@ -77,6 +77,10 @@ defaults off.
   board and want its `{{shell}}` templates to run.
 - **Keep MCP custom commands off** (`[mcp] allow_commands = false`, the default) unless you
   explicitly want MCP clients to execute configured shell commands.
+- **Keep MCP card reads off** (`[mcp] allow_card_reads = false`, the default) unless you
+  explicitly want clients connected to the unauthenticated loopback endpoint to read complete
+  Markdown from every board in kbrd's recents registry. Board and card resource identifiers are
+  exact; card reads are constrained to the selected column and cannot follow a symlink outside it.
 - **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
   `.kbrd_templates/`, and `.mcp.json` in any board you didn't author before opening it.
 - **Delete** folder-local config you don't need or trust.
