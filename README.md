@@ -960,6 +960,44 @@ stale entries from the recents registry remain visible in `kbrd://boards` with
 the recents registry and its loopback HTTP endpoint is not authenticated. MCP completion responses
 populate resource-template board, column, and card selectors in clients such as MCP Inspector.
 
+**Prompts exposed**
+
+The server advertises three built-in prompts through MCP `prompts/list`: `board_summary`,
+`board_triage`, and `plan_board_work`. Their `board` and optional `column` arguments offer
+context-aware completion in compatible clients. Omit `column` to operate on the whole board.
+Built-in prompts inspect and plan by default; they tell the agent not to mutate a board without
+user approval.
+
+A board can add text prompts in `<board>/.kbrd_mcp_prompts.yml`. Local names are advertised with a
+board prefix so the same prompt can exist on several boards: `weekly_review` on a board named
+`Work` becomes `work__weekly_review`. Files are loaded when the MCP server starts.
+
+```yaml
+prompts:
+  - name: weekly_review
+    title: Weekly review
+    description: Review progress and decide what matters next
+    arguments:
+      - name: focus
+        description: Optional area to emphasize
+        required: false
+      - name: column
+        description: Optional column to review
+        required: false
+    content: |
+      Review the {{.boardName}} board. Pay special attention to {{.focus}}.
+      {{if .column}}Limit the review to column {{.column}}.{{end}}
+      Inspect the board before proposing changes.
+```
+
+`content` creates one user message. For a multi-message prompt, replace it with `messages`, whose
+entries have `role` (`user` or `assistant`) and `content`. Message text uses Go template syntax.
+Every declared argument is available as `{{.argumentName}}`; optional omitted arguments render as
+an empty string. `{{.boardName}}` and `{{.boardPath}}` are always available and cannot be declared
+as arguments. A declared `column` argument receives completion from the owning board. Prompt and
+argument names may contain ASCII letters, digits, underscores, and hyphens. Malformed files or
+entries are ignored with a warning instead of preventing MCP startup.
+
 Create a local `AGENTS.md` (config menu → `a`) to give agents orientation about a board,
 and a local `.mcp.json` (config menu → `m`) for per-board MCP configuration. Note that a
 folder-local `.mcp.json` can point the MCP server at external processes, so it carries the

@@ -89,7 +89,17 @@ func registerResources(s *mcp.Server, policy Policy) {
 }
 
 func completeResourceArgument(_ context.Context, req *mcp.CompleteRequest, policy Policy) (*mcp.CompleteResult, error) {
-	if req == nil || req.Params == nil || req.Params.Ref == nil || req.Params.Ref.Type != "ref/resource" {
+	if req == nil || req.Params == nil || req.Params.Ref == nil {
+		return completionResult(nil), nil
+	}
+	if req.Params.Ref.Type == "ref/prompt" {
+		values, err := completePromptArgument(req)
+		if err != nil {
+			return nil, err
+		}
+		return completionResult(filterCompletionValues(values, req.Params.Argument.Value)), nil
+	}
+	if req.Params.Ref.Type != "ref/resource" {
 		return completionResult(nil), nil
 	}
 

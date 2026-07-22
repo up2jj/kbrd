@@ -47,6 +47,7 @@ func newServer(policy Policy) *mcp.Server {
 		},
 	)
 	registerResources(s, policy)
+	registerPrompts(s)
 	falsePtr := false
 	truePtr := true
 

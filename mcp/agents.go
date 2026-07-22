@@ -63,6 +63,11 @@ Read-only MCP resources offer the same hierarchy as stable context:
 - §kbrd://card/{board}/{column}/{card}§ — read a card's complete Markdown
   when §[mcp] allow_card_reads = true§.
 
+The server also offers built-in MCP prompts for summarizing, triaging, and
+planning board work, optionally scoped to a column. Board-local prompts from
+§.kbrd_mcp_prompts.yml§ are advertised with a board-qualified name such as
+§work__weekly_review§.
+
 ## Conventions
 
 - Card files are plain Markdown. Keep the first line a short title or summary.
@@ -107,6 +112,9 @@ left to right. Names beginning with §.§ or §_§ are hidden.
 - Use §kbrd://boards§ and §kbrd://board/{board}§ when MCP resources are
   available. Card resources contain complete Markdown, including frontmatter,
   and are advertised only when §[mcp] allow_card_reads = true§.
+- Built-in MCP prompts cover board summaries, triage, and work planning.
+  Boards may add prompts in §.kbrd_mcp_prompts.yml§; their names are qualified
+  with the board name so prompts from different boards do not replace one another.
 
 ## Card content
 
