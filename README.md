@@ -40,6 +40,7 @@ engine, custom shell commands, and a built-in MCP server for LLM/agent tooling.
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Clipboard ring](./CLIPBOARD.md)
+- [Browser extension](./EXTENSION.md)
 - [Configuration](#configuration)
 - [Terminal multiplexer integration](#terminal-multiplexer-integration)
 - [Card templates](#card-templates)
@@ -119,6 +120,7 @@ A quick, scannable rundown of everything kbrd does:
 
 **Interface & integrations**
 
+- **Bundled Chrome extension** — capture the active page or a right-clicked text selection directly into a board through Native Messaging; it ships inside the kbrd binary for unpacked installation, requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Terminal multiplexer integration** — inside [Zellij](https://zellij.dev) or [tmux](https://github.com/tmux/tmux), open a card in an editor pane/window or a shell scoped to the board (`z`); the current tab/window is named after the board.
@@ -257,6 +259,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
 | `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column. |
 | `kbrd reminders sync [--dry-run]` | Synchronize due-bearing cards with the board's configured Apple Reminders list (macOS only). Use `--create-list` to create a missing list and `--import-existing` to adopt unmarked reminders on the first sync. |
+| `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**
@@ -1124,6 +1127,7 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 | `events/` | Event bus that feeds the scripting hooks |
 | `fs/` | Filesystem and git CLI helpers, plus the file watcher |
 | `mcp/` | MCP server: protocol, tools, command bridge, agents template |
+| `extension/` | Embedded unpacked Chrome extension and its safe extraction logic |
 | `web/` | Headless web frontend (`kbrd serve`): handlers, templates, auth, git sync |
 | `model/` | The Bubble Tea TUI — board state, dialogs, git panel, search, switcher, theming, keys |
 | `recents/` | Persisted list of recent/pinned boards |

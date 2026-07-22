@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Capture to kbrd</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Capture to kbrd</h1>
+          <p id="status" class="status pending">Finding installed kbrd…</p>
+        </div>
+      </header>
+
+      <form id="capture-form">
+        <div class="grid">
+          <label>
+            Board
+            <select id="board" required disabled></select>
+          </label>
+          <label>
+            Column
+            <select id="folder" required disabled></select>
+          </label>
+        </div>
+
+        <label>
+          Card name
+          <input id="card-name" required autocomplete="off">
+        </label>
+
+        <label>
+          Selected text
+          <textarea id="selection" rows="4" placeholder="No text selected on this page"></textarea>
+        </label>
+
+        <label>
+          Notes
+          <textarea id="notes" rows="3" placeholder="Optional notes"></textarea>
+        </label>
+
+        <label class="check">
+          <input id="include-url" type="checkbox" checked>
+          Include page URL
+        </label>
+
+        <button id="save" class="primary" type="submit" disabled>Save card</button>
+      </form>
+
+      <p id="message" class="message" role="alert" hidden></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

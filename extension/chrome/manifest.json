@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "kbrd Capture",
+  "version": "0.1.1",
+  "description": "Capture the current page or selected text into a local kbrd board.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvlRmY9o87vJ3YcwXFVCckwK6LSP0/JSG80MqoqeszPRxGptQIGZTH7yLRa/O2iufvqPNwunPkUJfKs+puERwBDLhZ/pT9X21gx42kAzp0HRknbr+1FhQC1Zphboj4YGcTVLeVQ0+AqyGoM6QokmUyAFyJEID85yrOqc4j6JDEpI+AXB9hUath1/CKP6sACd1wmmxJrjl8tN6tG2oT7+ky3EFWMnk5ZsWExqqvYaLPfJ8zxnGCPU7FyegrOqRM1RB3M0+l3RpbdgDnjWJBncdkZABsayCjbLm7OajKIovvyGRGLlvlKaVClKKWWmhw+cIuU1pF4V9HESHm1x924AF8wIDAQAB",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "nativeMessaging",
+    "scripting",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Capture to kbrd",
+    "default_popup": "popup.html"
+  }
+}
