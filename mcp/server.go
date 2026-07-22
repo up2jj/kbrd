@@ -213,6 +213,14 @@ func serveListener(ln net.Listener, policy Policy) io.Closer {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 
 	httpSrv := newHTTPServer(handler)
+	httpSrv.RegisterOnShutdown(func() {
+		// Streamable HTTP keeps a GET request open for each stateful session.
+		// net/http's graceful shutdown waits for those requests, so close the
+		// MCP sessions first to let their streams terminate.
+		for session := range srv.Sessions() {
+			_ = session.Close()
+		}
+	})
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintf(os.Stderr, "warning: MCP server stopped: %v\n", err)
