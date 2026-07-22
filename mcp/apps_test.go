@@ -26,6 +26,9 @@ func TestReadBoardAppResource(t *testing.T) {
 	if !strings.Contains(content.Text, `request("tools/call"`) || !strings.Contains(content.Text, `name: "get_card"`) {
 		t.Fatal("embedded board app does not fetch selected cards with get_card")
 	}
+	if !strings.Contains(content.Text, `name: "show_board"`) || !strings.Contains(content.Text, "data.boards") {
+		t.Fatal("embedded board app does not open selected list_boards entries with show_board")
+	}
 	uiMeta, ok := content.Meta["ui"].(map[string]any)
 	if !ok || uiMeta["prefersBorder"] != true {
 		t.Fatalf("UI metadata = %#v", content.Meta)

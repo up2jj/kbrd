@@ -58,8 +58,15 @@ func newServer(policy Policy) *mcp.Server {
 	}, addFileToBoard)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": boardAppResourceURI,
+				"visibility":  []string{"model", "app"},
+			},
+		},
 		Name:        "list_boards",
-		Description: "List the kbrd boards known to this machine (name, path, pinned). Use this to discover valid board names.",
+		Title:       "List boards",
+		Description: "List the kbrd boards known to this machine (name, path, pinned). MCP Apps clients render a board picker; other clients receive structured data.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
 	}, listBoards)
 

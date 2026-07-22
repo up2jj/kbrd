@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>kbrd board</title>
+  <title>kbrd boards</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -13,10 +13,19 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 14px; }
-    header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     h1 { font-size: 17px; margin: 0; }
     #summary { color: var(--color-text-secondary, GrayText); font-size: 12px; }
+    #back { border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 4px 6px; }
+    #back:hover, #back:focus-visible { background: var(--color-background-secondary, color-mix(in srgb, Canvas 94%, CanvasText)); outline: none; }
     #status { color: var(--color-text-secondary, GrayText); margin: 24px 0; text-align: center; }
+    #picker { display: grid; gap: 7px; }
+    .board-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; width: 100%; border: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 14%, transparent)); border-radius: 8px; background: var(--color-background-primary, Canvas); color: inherit; padding: 10px; font: inherit; text-align: left; cursor: pointer; }
+    .board-choice:hover, .board-choice:focus-visible { border-color: var(--color-border-info, Highlight); outline: none; }
+    .board-choice:disabled { cursor: wait; opacity: .65; }
+    .board-name { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; }
+    .board-path { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; color: var(--color-text-secondary, GrayText); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; }
+    .pinned { color: var(--color-text-secondary, GrayText); font-size: 12px; }
     #board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 4px; }
     .column { min-width: 0; border: 1px solid var(--color-border-primary, color-mix(in srgb, CanvasText 18%, transparent)); border-radius: 9px; background: var(--color-background-secondary, color-mix(in srgb, Canvas 94%, CanvasText)); padding: 9px; }
     .column h2 { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin: 0 0 8px; }
@@ -36,8 +45,9 @@
   </style>
 </head>
 <body>
-  <header hidden><h1 id="title"></h1><span id="summary"></span></header>
+  <header hidden><button id="back" type="button" aria-label="Back to boards" hidden>←</button><h1 id="title"></h1><span id="summary"></span></header>
   <p id="status">Loading board…</p>
+  <main id="picker" hidden></main>
   <main id="board" hidden></main>
   <section id="detail" hidden aria-live="polite">
     <div class="detail-heading">
@@ -53,12 +63,15 @@
       let nextID = 1;
       const pending = new Map();
       let boardName = "";
+      let boardList = null;
       let activeCard = null;
       const title = document.querySelector("#title");
       const summary = document.querySelector("#summary");
       const status = document.querySelector("#status");
+      const picker = document.querySelector("#picker");
       const board = document.querySelector("#board");
       const header = document.querySelector("header");
+      const back = document.querySelector("#back");
       const detail = document.querySelector("#detail");
       const detailTitle = document.querySelector("#detail-title");
       const detailLocation = document.querySelector("#detail-location");
@@ -85,11 +98,92 @@
       }
       function render(result) {
         const data = result && result.structuredContent;
-        if (!data || !Array.isArray(data.columns)) {
-          if (board.hidden) status.textContent = result && result.isError ? toolError(result) : "No board data returned.";
+        if (data && Array.isArray(data.boards)) {
+          renderBoardPicker(data);
+          return;
+        }
+        if (data && Array.isArray(data.columns)) {
+          renderBoard(data);
+          return;
+        }
+        if (picker.hidden && board.hidden) {
+          status.textContent = result && result.isError ? toolError(result) : "No board data returned.";
+        }
+      }
+      function renderBoardPicker(data) {
+        boardList = data;
+        boardName = "";
+        closeCard();
+        picker.replaceChildren();
+        for (const entry of data.boards) {
+          const choice = document.createElement("button");
+          choice.type = "button";
+          choice.className = "board-choice";
+          const name = document.createElement("span");
+          name.className = "board-name";
+          const label = boardLabel(entry);
+          name.textContent = label;
+          choice.append(name);
+          if (entry.pinned) {
+            const pinned = document.createElement("span");
+            pinned.className = "pinned";
+            pinned.textContent = "Pinned";
+            choice.append(pinned);
+          }
+          const path = document.createElement("span");
+          path.className = "board-path";
+          path.textContent = entry.path || "";
+          choice.append(path);
+          choice.addEventListener("click", () => openBoard(label, choice));
+          picker.append(choice);
+        }
+        if (data.boards.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No known boards";
+          picker.append(empty);
+        }
+        title.textContent = "kbrd boards";
+        summary.textContent = `${data.boards.length} board${data.boards.length === 1 ? "" : "s"}`;
+        back.hidden = true;
+        status.hidden = true;
+        board.hidden = true;
+        picker.hidden = false;
+        header.hidden = false;
+        reportSize();
+      }
+      function boardLabel(entry) {
+        if (entry.name) return entry.name;
+        const parts = String(entry.path || "").split(/[\\/]/).filter(Boolean);
+        return parts.at(-1) || "Untitled board";
+      }
+      async function openBoard(name, choice) {
+        choice.disabled = true;
+        status.textContent = `Loading ${name || "board"}…`;
+        status.hidden = false;
+        try {
+          const result = await request("tools/call", {
+            name: "show_board",
+            arguments: { board: name }
+          });
+          if (result && result.isError) {
+            status.textContent = toolError(result);
+            return;
+          }
+          render(result);
+        } catch (error) {
+          status.textContent = error && error.message ? error.message : "Could not open this board.";
+        } finally {
+          choice.disabled = false;
+          reportSize();
+        }
+      }
+      function renderBoard(data) {
+        if (!Array.isArray(data.columns)) {
           return;
         }
         boardName = data.board || "";
+        closeCard();
         let cards = 0;
         board.replaceChildren();
         for (const column of data.columns) {
@@ -127,7 +221,9 @@
         }
         title.textContent = data.board || "kbrd board";
         summary.textContent = `${data.columns.length} columns · ${cards} cards`;
+        back.hidden = boardList === null;
         status.hidden = true;
+        picker.hidden = true;
         header.hidden = false;
         board.hidden = false;
         reportSize();
@@ -177,11 +273,17 @@
           reportSize();
         }
       }
-      document.querySelector("#detail-close").addEventListener("click", () => {
+      function closeCard() {
         detail.hidden = true;
         if (activeCard) activeCard.setAttribute("aria-pressed", "false");
         activeCard = null;
+      }
+      document.querySelector("#detail-close").addEventListener("click", () => {
+        closeCard();
         reportSize();
+      });
+      back.addEventListener("click", () => {
+        if (boardList) renderBoardPicker(boardList);
       });
       function reportSize() {
         notify("ui/notifications/size-changed", {
@@ -212,7 +314,7 @@
       request("ui/initialize", {
         protocolVersion,
         appCapabilities: { availableDisplayModes: ["inline"] },
-        appInfo: { name: "kbrd board", version: "1.0.0" }
+        appInfo: { name: "kbrd boards", version: "1.1.0" }
       }).then((result) => {
         applyHostContext(result && result.hostContext);
         notify("ui/notifications/initialized");

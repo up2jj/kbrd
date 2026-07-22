@@ -71,6 +71,7 @@ func TestServeRoundTrip(t *testing.T) {
 		"get_card": false, "search_cards": false, "update_card": false, "move_card": false,
 		"rename_card": false, "delete_card": false, "create_column": false,
 	}
+	var listBoardsTool *mcp.Tool
 	var showBoardTool *mcp.Tool
 	for _, tl := range tools.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -78,6 +79,9 @@ func TestServeRoundTrip(t *testing.T) {
 		}
 		if tl.Name == "show_board" {
 			showBoardTool = tl
+		}
+		if tl.Name == "list_boards" {
+			listBoardsTool = tl
 		}
 	}
 	for name, found := range want {
@@ -88,9 +92,24 @@ func TestServeRoundTrip(t *testing.T) {
 	if showBoardTool == nil {
 		t.Fatal("show_board tool not advertised")
 	}
-	uiMeta, ok := showBoardTool.Meta["ui"].(map[string]any)
+	if listBoardsTool == nil {
+		t.Fatal("list_boards tool not advertised")
+	}
+	uiMeta, ok := listBoardsTool.Meta["ui"].(map[string]any)
+	if !ok || uiMeta["resourceUri"] != boardAppResourceURI {
+		t.Fatalf("list_boards UI metadata = %#v", listBoardsTool.Meta)
+	}
+	uiMeta, ok = showBoardTool.Meta["ui"].(map[string]any)
 	if !ok || uiMeta["resourceUri"] != boardAppResourceURI {
 		t.Fatalf("show_board UI metadata = %#v", showBoardTool.Meta)
+	}
+
+	listResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_boards"})
+	if err != nil {
+		t.Fatalf("list_boards without MCP Apps capability: %v", err)
+	}
+	if listResult.IsError || listResult.StructuredContent == nil {
+		t.Fatalf("list_boards fallback result = %+v", listResult)
 	}
 
 	boardResult, err := session.CallTool(ctx, &mcp.CallToolParams{

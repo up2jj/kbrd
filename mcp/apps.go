@@ -10,7 +10,7 @@ import (
 const (
 	mcpAppsExtension    = "io.modelcontextprotocol/ui"
 	mcpAppHTMLMIME      = "text/html;profile=mcp-app"
-	boardAppResourceURI = "ui://kbrd/board-v3.html"
+	boardAppResourceURI = "ui://kbrd/board-v4.html"
 )
 
 //go:embed board_app.html
@@ -40,9 +40,9 @@ func registerAppResources(s *mcp.Server) {
 	s.AddResource(&mcp.Resource{
 		Meta:        mcp.Meta{"ui": uiMeta},
 		URI:         boardAppResourceURI,
-		Name:        "kbrd_board",
-		Title:       "kbrd board",
-		Description: "Read-only Kanban board view for the show_board tool.",
+		Name:        "kbrd_boards",
+		Title:       "kbrd boards",
+		Description: "Board picker for list_boards and read-only Kanban view for show_board.",
 		MIMEType:    mcpAppHTMLMIME,
 	}, readBoardAppResource)
 }
