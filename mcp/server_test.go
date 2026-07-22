@@ -529,3 +529,39 @@ func TestNewHTTPServer_Timeouts(t *testing.T) {
 		t.Errorf("IdleTimeout = %v, want %v", srv.IdleTimeout, mcpIdleTimeout)
 	}
 }
+
+func TestCloserForcesStuckConnectionsClosed(t *testing.T) {
+	started := make(chan struct{})
+	httpSrv := newHTTPServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		_ = httpSrv.Serve(ln)
+	}()
+
+	requestDone := make(chan error, 1)
+	go func() {
+		_, err := http.Get("http://" + ln.Addr().String())
+		requestDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("request did not reach server")
+	}
+
+	c := closer{srv: httpSrv, shutdownTimeout: 10 * time.Millisecond}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	select {
+	case <-requestDone:
+	case <-time.After(time.Second):
+		t.Fatal("active request remained after close")
+	}
+}

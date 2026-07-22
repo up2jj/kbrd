@@ -162,12 +162,27 @@ func newServer(policy Policy) *mcp.Server {
 }
 
 // closer shuts down the HTTP server it wraps.
-type closer struct{ srv *http.Server }
+type closer struct {
+	srv             *http.Server
+	shutdownTimeout time.Duration
+}
 
 func (c closer) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), mcpShutdownTimeout)
+	timeout := c.shutdownTimeout
+	if timeout == 0 {
+		timeout = mcpShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return c.srv.Shutdown(ctx)
+	if err := c.srv.Shutdown(ctx); err != nil {
+		// Shutdown is best-effort: a stuck stream or shutdown callback can use
+		// the entire grace period. Close guarantees that callers do not leave
+		// the listener and its active connections behind.
+		if closeErr := c.srv.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+	}
+	return nil
 }
 
 const (
