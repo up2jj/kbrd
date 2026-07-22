@@ -42,6 +42,7 @@ type KeyMap struct {
 	Journal         key.Binding
 	Copy            key.Binding
 	Paste           key.Binding
+	Share           key.Binding
 	OpenExternal    key.Binding
 	Pin             key.Binding
 	MoveMenu        key.Binding
@@ -169,6 +170,7 @@ var Keys = KeyMap{
 	Journal:         key.NewBinding(key.WithKeys("b", "J"), key.WithHelp("b", "journal entry")),
 	Copy:            key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 	Paste:           key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "paste…")),
+	Share:           key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "share…")),
 	OpenExternal:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in $EDITOR")),
 	Pin:             key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "pin / unpin")),
 	MoveMenu:        key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "choose move destination")),

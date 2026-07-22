@@ -85,6 +85,8 @@ A quick, scannable rundown of everything kbrd does:
   of up to 100 typed entries (`c`), browse it with `C`, pin or delete snippets,
   and paste a selected entry using the existing append/prepend/journal/new-card
   choices. See [Clipboard ring](./CLIPBOARD.md).
+- **System sharing** — open the native macOS share sheet for the selected Markdown
+  card (`y`), with AirDrop, Mail, Messages, and installed sharing extensions.
 - **Scratchpad** — keep an autosaved, board-scoped quick note outside the board
   repository (`q`), append the selected card to it (`Q`), exchange text with the
   system clipboard or clipboard ring, and promote a selection or the whole note
@@ -297,6 +299,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | `a` / `p` | Append / prepend content |
 | `b` | Journal entry |
 | `c` / `v` | Copy / paste |
+| `y` | Share through the native macOS share sheet |
 | `o` | Open in `$EDITOR` |
 | `!` | Pin / unpin |
 | `m` | Choose a destination column and move the selected or marked cards |
@@ -360,6 +363,14 @@ visual selection or whole note into both clipboard surfaces. Press `ctrl+n` to
 promote the visual selection—or the entire note when there is no selection—into
 a new card in the focused column. Promoted text is removed only after the card is
 created successfully; cancelling or failing creation leaves the note unchanged.
+
+### macOS card sharing (`y`)
+
+Select a card and press `y` to open the native macOS share sheet. kbrd extracts
+an embedded universal AppKit helper into the user cache on first use, signs it
+locally, and passes the Markdown card as a file. There is no Shortcut to install,
+and the Go application remains cgo-free. The helper supports both Apple silicon
+and Intel Macs.
 
 ### Inline editor (vim-like)
 

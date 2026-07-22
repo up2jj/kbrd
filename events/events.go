@@ -171,7 +171,7 @@ func (ColumnChange) eventTag() {}
 // externally). Append/Prepend/Journal also count.
 type ItemOpen struct {
 	Item ItemRef
-	Kind string // "edit" | "append" | "prepend" | "journal" | "external"
+	Kind string // "edit" | "append" | "prepend" | "journal" | "external" | "share"
 }
 
 func (ItemOpen) eventTag() {}

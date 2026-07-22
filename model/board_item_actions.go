@@ -61,6 +61,20 @@ func (a boardItemActions) paste(colIdx int, col *Column, item *Item) tea.Cmd {
 	return a.board.pasteActions().openMenu(colIdx, col, item)
 }
 
+func (a boardItemActions) share(col *Column, item *Item) tea.Cmd {
+	b := a.board
+	b.bus.Publish(events.ItemOpen{
+		Item: events.ItemRef{Column: col.Name, Name: item.Name},
+		Kind: "share",
+	})
+	return func() tea.Msg {
+		if err := shareFile(item.FullPath); err != nil {
+			return notifyMsg{Message: "failed to share: " + err.Error(), Type: notifyError}
+		}
+		return notifyMsg{Message: "opened share sheet for " + item.Name, Type: notifyInfo}
+	}
+}
+
 func (a boardItemActions) openExternal(col *Column, item *Item) tea.Cmd {
 	b := a.board
 	if err := col.OpenFile(item.Name); err != nil {
@@ -137,6 +151,8 @@ func (a boardItemActions) dispatch(action byte, ref itemRefStable) tea.Cmd {
 		return a.copy(col, item)
 	case 'V', 'v':
 		return a.paste(colIdx, col, item)
+	case 'y':
+		return a.share(col, item)
 	case 'o':
 		return a.openExternal(col, item)
 	case '!':

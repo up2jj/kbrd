@@ -15,6 +15,7 @@ const (
 	actionJournal         itemActionID = "journal"
 	actionCopy            itemActionID = "copy"
 	actionPaste           itemActionID = "paste"
+	actionShare           itemActionID = "share"
 	actionOpenExternal    itemActionID = "open_external"
 	actionPin             itemActionID = "pin"
 	actionMoveMenu        itemActionID = "move_menu"
@@ -258,6 +259,17 @@ func itemActionSpecs() []itemActionSpec {
 			NeedsItem:   false,
 			Run: func(ctx itemActionContext) tea.Cmd {
 				return ctx.Board.itemActions().paste(ctx.ColIdx, ctx.Column, ctx.Item)
+			},
+		},
+		{
+			ID:          actionShare,
+			Binding:     Keys.Share,
+			Label:       "share…",
+			Description: "Share the selected card through the macOS share sheet.",
+			Cardinality: actionSingle,
+			NeedsItem:   true,
+			Run: func(ctx itemActionContext) tea.Cmd {
+				return ctx.Board.itemActions().share(ctx.Column, ctx.Item)
 			},
 		},
 		{
