@@ -122,6 +122,11 @@ A quick, scannable rundown of everything kbrd does:
 
 **Interface & integrations**
 
+- **macOS menu-bar quick capture** — install the compact companion with
+  `kbrd companion install`, then press `Command-Shift-K` anywhere to capture a
+  card or append to a board scratchpad. It remembers recent board/column choices,
+  searches kbrd's clipboard history, shows Git and Apple Reminders state, and
+  starts automatically when you log in.
 - **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; it ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
@@ -259,8 +264,10 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd` | Open the current directory as a board (default). |
 | `kbrd init [--global]` | Write a config template — local `kbrd.toml` by default, or the global template under `~/.config/kbrd/` with `--global`. |
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
-| `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column. |
+| `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column; `--source` records an integration identifier in frontmatter. |
 | `kbrd reminders sync [--dry-run]` | Synchronize due-bearing cards with the board's configured Apple Reminders list (macOS only). Use `--create-list` to create a missing list and `--import-existing` to adopt unmarked reminders on the first sync. |
+| `kbrd companion install` | Install and start the macOS menu-bar quick-capture companion (`Command-Shift-K`). Use `--no-launch` to install without starting it. |
+| `kbrd companion run` | Start the already-installed menu-bar companion without reinstalling it. |
 | `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 

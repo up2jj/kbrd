@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +25,10 @@ type ingestFlags struct {
 	name    string
 	content string
 	file    string
+	source  string
 }
+
+var ingestSourcePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // newIngestCmd builds `kbrd ingest`, a headless way for scripts to create a
 // card from text without starting the TUI. Declarative item_created hooks run
@@ -44,6 +48,7 @@ func newIngestCmd(flags *cliFlags) *cobra.Command {
 	cmd.Flags().StringVar(&f.name, "name", "", "external card name; normalized to a safe filename")
 	cmd.Flags().StringVar(&f.content, "content", "", "card content (mutually exclusive with --file)")
 	cmd.Flags().StringVar(&f.file, "file", "", "read card content from this file; use - for stdin")
+	cmd.Flags().StringVar(&f.source, "source", "", "record a machine-readable source identifier in frontmatter")
 	return cmd
 }
 
@@ -53,6 +58,9 @@ func runIngest(cmd *cobra.Command, f ingestFlags, safe bool) error {
 	}
 	if strings.TrimSpace(f.name) == "" {
 		return fmt.Errorf("--name is required")
+	}
+	if f.source != "" && !ingestSourcePattern.MatchString(f.source) {
+		return fmt.Errorf("--source must contain only letters, digits, dots, underscores, or hyphens")
 	}
 
 	content, err := ingestContent(cmd, f)
@@ -68,6 +76,9 @@ func runIngest(cmd *cobra.Command, f ingestFlags, safe bool) error {
 		return err
 	}
 	content = withIngestCreatedAt(content, time.Now(), cfg.Ingest.CreatedAtFormat)
+	if f.source != "" {
+		content = frontmatter.Set(content, "source", strconv.Quote(f.source))
+	}
 	columnPath, err := resolveIngestColumn(ref.Path, f.column)
 	if err != nil {
 		return err

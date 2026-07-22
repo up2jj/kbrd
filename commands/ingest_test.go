@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kbrd/config"
+	"kbrd/frontmatter"
 	"kbrd/recents"
 )
 
@@ -88,6 +89,48 @@ func TestIngestUsesFilesystemBoardAndFirstColumn(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(data), "---\n\nbody\n") {
 		t.Fatalf("content = %q, want created_at frontmatter followed by card body", data)
+	}
+}
+
+func TestIngestRecordsSourceInFrontmatter(t *testing.T) {
+	isolateConfig(t)
+	root := makeIngestBoard(t, "todo")
+
+	_, err := runIngestCommand(t, "", "--board", root, "--name", "Captured", "--content", "body", "--source", "companion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "todo", "captured.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "\nsource: \"companion\"\n") {
+		t.Fatalf("content = %q, want companion source frontmatter", data)
+	}
+
+	_, err = runIngestCommand(t, "", "--board", root, "--name", "Typed", "--content", "body", "--source", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(root, "todo", "typed.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _, fenced := frontmatter.Split(string(data))
+	if !fenced {
+		t.Fatalf("content = %q, want frontmatter", data)
+	}
+	parsed, err := frontmatter.Parse([]byte(block))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := parsed.Data["source"].(string); !ok || got != "true" {
+		t.Fatalf("source = %#v, want string %q", parsed.Data["source"], "true")
+	}
+
+	_, err = runIngestCommand(t, "", "--board", root, "--name", "Invalid", "--content", "body", "--source", "bad\nsource")
+	if err == nil || !strings.Contains(err.Error(), "--source") {
+		t.Fatalf("invalid source error = %v", err)
 	}
 }
 
