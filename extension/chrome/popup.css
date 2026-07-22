@@ -30,7 +30,7 @@
 [hidden] { display: none !important; }
 
 body {
-  width: 390px;
+  width: 410px;
   min-height: 480px;
   margin: 0;
   background: var(--bg);
@@ -95,6 +95,12 @@ input, select, textarea {
 }
 
 textarea { resize: vertical; }
+
+#markdown {
+  min-height: 190px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  line-height: 1.45;
+}
 
 button {
   padding: 9px 12px;

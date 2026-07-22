@@ -33,8 +33,17 @@
         </label>
 
         <label>
-          Selected text
-          <textarea id="selection" rows="4" placeholder="No text selected on this page"></textarea>
+          Capture
+          <select id="capture-mode">
+            <option value="selection">Selection</option>
+            <option value="article">Article</option>
+            <option value="link">Link only</option>
+          </select>
+        </label>
+
+        <label id="markdown-field">
+          Markdown
+          <textarea id="markdown" rows="11" placeholder="No Markdown extracted from this page"></textarea>
         </label>
 
         <label>

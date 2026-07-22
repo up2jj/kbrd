@@ -120,7 +120,7 @@ A quick, scannable rundown of everything kbrd does:
 
 **Interface & integrations**
 
-- **Bundled Chrome extension** — capture the active page or a right-clicked text selection directly into a board through Native Messaging; it ships inside the kbrd binary for unpacked installation, requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
+- **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; it ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Terminal multiplexer integration** — inside [Zellij](https://zellij.dev) or [tmux](https://github.com/tmux/tmux), open a card in an editor pane/window or a shell scoped to the board (`z`); the current tab/window is named after the board.

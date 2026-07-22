@@ -34,7 +34,7 @@ func TestNativeHostRoundTrip(t *testing.T) {
 		Board:   boardDir,
 		Folder:  "1. inbox",
 		Name:    "  Docs / API: What's New?  ",
-		Content: "from Chrome",
+		Content: "## Captured\n\nA [formatted link](https://example.com).",
 	})
 	if !created.OK {
 		t.Fatalf("add_file_to_board response: %+v", created)
@@ -43,7 +43,7 @@ func TestNativeHostRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read captured card: %v", err)
 	}
-	if string(content) != "from Chrome\n" {
+	if string(content) != "## Captured\n\nA [formatted link](https://example.com).\n" {
 		t.Fatalf("captured content = %q", content)
 	}
 }

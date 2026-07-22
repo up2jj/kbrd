@@ -85,7 +85,7 @@ defaults off.
   are exact; card reads are constrained to the selected column and cannot follow a symlink outside it.
 - **Review browser captures before saving.** The bundled unpacked [browser extension](./EXTENSION.md) receives access
   to the active tab when you open it or invoke its selection context menu, and can send the page
-  title, URL, selected text, and your notes to the installed kbrd binary through Chrome Native
+  title, URL, generated Markdown, and your notes to the installed kbrd binary through Chrome Native
   Messaging. The registered host only accepts the
   bundled extension's fixed origin and supports board/folder listing plus card creation; it cannot
   read existing card contents or run custom commands.

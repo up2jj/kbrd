@@ -1,3 +1,5 @@
+import { captureTab } from "./capture.js";
+
 const captureSelectionMenuID = "capture-selection";
 
 function registerContextMenu() {
@@ -26,18 +28,30 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function openSelectionCapture(info, tab) {
+  let markdown = info.selectionText || "";
+  let captureError = "";
+  if (tab?.id) {
+    try {
+      markdown = (await captureTab(tab.id, "selection")).markdown;
+    } catch (error) {
+      captureError = error.message;
+    }
+  }
   await chrome.storage.session.set({
     pendingCapture: {
       title: tab?.title || "New card",
       url: info.pageUrl || tab?.url || "",
-      selection: info.selectionText || "",
+      tabId: tab?.id,
+      mode: "selection",
+      markdown,
+      captureError,
     },
   });
   await chrome.windows.create({
     url: chrome.runtime.getURL("popup.html?source=context-menu"),
     type: "popup",
-    width: 420,
-    height: 680,
+    width: 440,
+    height: 760,
     focused: true,
   });
 }

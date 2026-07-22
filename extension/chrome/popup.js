@@ -1,8 +1,12 @@
+import { captureTab } from "./capture.js";
+
 const elements = {
   board: document.querySelector("#board"),
   folder: document.querySelector("#folder"),
   cardName: document.querySelector("#card-name"),
-  selection: document.querySelector("#selection"),
+  captureMode: document.querySelector("#capture-mode"),
+  markdownField: document.querySelector("#markdown-field"),
+  markdown: document.querySelector("#markdown"),
   notes: document.querySelector("#notes"),
   includeURL: document.querySelector("#include-url"),
   form: document.querySelector("#capture-form"),
@@ -12,13 +16,23 @@ const elements = {
 };
 
 let page = { title: "", url: "" };
+let sourceTabId;
+let captureWarning = "";
+const captureCache = new Map();
+let previousCaptureMode = elements.captureMode.value;
 
 elements.board.addEventListener("change", loadFolders);
+elements.captureMode.addEventListener("change", () => {
+  captureCache.set(previousCaptureMode, elements.markdown.value);
+  previousCaptureMode = elements.captureMode.value;
+  loadCaptureMarkdown();
+});
 elements.form.addEventListener("submit", saveCard);
 
 await loadPageContext();
 const stored = await chrome.storage.local.get(["board", "folder"]);
 await connect(stored);
+if (captureWarning) showMessage(captureWarning, true);
 
 async function loadPageContext() {
   const source = new URLSearchParams(window.location.search).get("source");
@@ -30,8 +44,14 @@ async function loadPageContext() {
         title: stored.pendingCapture.title || "New card",
         url: stored.pendingCapture.url || "",
       };
+      sourceTabId = stored.pendingCapture.tabId;
       elements.cardName.value = page.title;
-      elements.selection.value = stored.pendingCapture.selection || "";
+      elements.captureMode.value = stored.pendingCapture.mode || "selection";
+      previousCaptureMode = elements.captureMode.value;
+      elements.markdown.value = stored.pendingCapture.markdown || "";
+      captureCache.set(elements.captureMode.value, elements.markdown.value);
+      captureWarning = stored.pendingCapture.captureError || "";
+      updateMarkdownVisibility();
       return;
     }
   }
@@ -39,17 +59,59 @@ async function loadPageContext() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
   page = { title: tab.title || "New card", url: tab.url || "" };
+  sourceTabId = tab.id;
   elements.cardName.value = page.title;
-  if (!tab.id) return;
+  if (!sourceTabId) return;
   try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => window.getSelection()?.toString() || "",
-    });
-    elements.selection.value = results[0]?.result || "";
-  } catch {
-    // Browser-owned pages do not permit script injection; title/URL still work.
+    const selection = await captureTab(sourceTabId, "selection");
+    if (selection.markdown) {
+      elements.captureMode.value = "selection";
+      previousCaptureMode = "selection";
+      elements.markdown.value = selection.markdown;
+      captureCache.set("selection", selection.markdown);
+    } else {
+      elements.captureMode.value = "article";
+      previousCaptureMode = "article";
+      await loadCaptureMarkdown();
+    }
+  } catch (error) {
+    elements.captureMode.value = "link";
+    previousCaptureMode = "link";
+    captureWarning = `${error.message} Link-only capture is still available.`;
   }
+  updateMarkdownVisibility();
+}
+
+async function loadCaptureMarkdown() {
+  const mode = elements.captureMode.value;
+  updateMarkdownVisibility();
+  if (mode === "link") return;
+  if (captureCache.has(mode)) {
+    elements.markdown.value = captureCache.get(mode);
+    return;
+  }
+  if (!sourceTabId) {
+    showMessage("The original page is unavailable; use Link only or keep the current Markdown.", true);
+    return;
+  }
+
+  setBusy(true);
+  elements.markdown.disabled = true;
+  try {
+    const capture = await captureTab(sourceTabId, mode);
+    elements.markdown.value = capture.markdown;
+    captureCache.set(mode, capture.markdown);
+    hideMessage();
+  } catch (error) {
+    showMessage(error.message, true);
+  } finally {
+    elements.markdown.disabled = false;
+    setBusy(false);
+  }
+}
+
+function updateMarkdownVisibility() {
+  elements.markdownField.hidden = elements.captureMode.value === "link";
 }
 
 async function connect(previous = {}) {
@@ -128,10 +190,8 @@ function buildContent() {
   if (elements.includeURL.checked && page.url) metadata.push(`url: ${yamlString(page.url)}`);
   metadata.push("---", "");
 
-  const selected = elements.selection.value.trim();
-  if (selected) {
-    metadata.push(...selected.split("\n").map((line) => `> ${line}`), "");
-  }
+  const markdown = elements.markdown.value.trim();
+  if (elements.captureMode.value !== "link" && markdown) metadata.push(markdown, "");
   const notes = elements.notes.value.trim();
   if (notes) metadata.push(notes, "");
   return metadata.join("\n");

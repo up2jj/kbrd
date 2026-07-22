@@ -77,6 +77,34 @@ func TestInstall(t *testing.T) {
 	}
 }
 
+func TestInstallIncludesMarkdownCaptureAssets(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "extension")
+	if _, err := Install(dir, "v1.0.0"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	files := []string{
+		"capture.js",
+		"capture-page.js",
+		filepath.Join("vendor", "readability.js"),
+		filepath.Join("vendor", "turndown.js"),
+		filepath.Join("vendor", "turndown-plugin-gfm.js"),
+		filepath.Join("vendor", "licenses", "READABILITY-LICENSE.md"),
+		filepath.Join("vendor", "licenses", "TURNDOWN-LICENSE"),
+		filepath.Join("vendor", "licenses", "TURNDOWN-PLUGIN-GFM-LICENSE"),
+	}
+	for _, file := range files {
+		info, err := os.Stat(filepath.Join(dir, file))
+		if err != nil {
+			t.Errorf("installed Markdown capture asset %s: %v", file, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("installed Markdown capture asset %s is empty", file)
+		}
+	}
+}
+
 func TestInstallRefusesUnmanagedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "mine.txt"), nil, 0o644); err != nil {

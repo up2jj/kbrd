@@ -30,11 +30,18 @@ binary version.
 
 ## Capture a page
 
-Open **kbrd Capture** from the browser toolbar. The form lets you:
+Open **kbrd Capture** from the browser toolbar. Choose one of three capture modes:
+
+- **Selection** converts the current DOM selection to Markdown while preserving its structure.
+- **Article** extracts the page's main readable content and converts it to Markdown.
+- **Link only** creates a card from page metadata and notes without extracting page content.
+
+If the page contains a selection, the popup starts in **Selection** mode; otherwise it starts in
+**Article** mode. The form lets you:
 
 - select a known board and column;
 - review or edit the page-derived card name;
-- include the current text selection;
+- review and edit the generated Markdown;
 - add notes; and
 - include or omit the page URL.
 
@@ -44,11 +51,16 @@ manually.
 
 Captured cards receive `source`, `captured_at`, and optional `url` frontmatter.
 
+Markdown conversion preserves headings, links, remote images, lists, task lists, blockquotes,
+tables, emphasis, strikethrough, inline code, and fenced code blocks. Relative page and image URLs
+are converted to absolute HTTP(S) URLs. Images remain remote references and are not downloaded.
+
 ## Capture selected text
 
 Highlight text on a page, right-click it, and choose **Capture selection to kbrd…**. The extension
-opens the same confirmation form with the selection, page title, and URL prefilled. No card is
-created until **Save card** is pressed. The context-menu entry appears only when text is selected.
+opens the same confirmation form with the formatted selection converted to editable Markdown and
+the page title and URL prefilled. No card is created until **Save card** is pressed. The context-menu
+entry appears only when text is selected.
 
 ## How it connects
 
@@ -64,6 +76,10 @@ The native host supports only:
 It cannot read existing card contents or run custom commands. The native-host registration accepts
 only the bundled extension's fixed origin. See [SECURITY.md](./SECURITY.md) for the broader trust
 model.
+
+Article extraction uses bundled Mozilla Readability, and HTML-to-Markdown conversion uses bundled
+Turndown with its GFM plugin. No conversion code or page content is loaded from a third-party
+service.
 
 ## Update or move kbrd
 
