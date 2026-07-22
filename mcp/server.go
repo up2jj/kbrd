@@ -53,21 +53,25 @@ func newServer(policy Policy) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_file_to_board",
 		Description: "Create a markdown item (card) in a kbrd board, identified by its friendly name. Optionally place it in a named folder (column); defaults to the board's first folder. Set create_folder to make a missing folder.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &falsePtr, OpenWorldHint: &falsePtr},
 	}, addFileToBoard)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_boards",
 		Description: "List the kbrd boards known to this machine (name, path, pinned). Use this to discover valid board names.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
 	}, listBoards)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_folders",
 		Description: "List the folders (columns) of a kbrd board, identified by its friendly name.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
 	}, listFolders)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_files",
 		Description: "List the markdown items in a kbrd board folder. The folder defaults to the board's first folder.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
 	}, listFiles)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -133,7 +137,7 @@ func newServer(policy Policy) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_custom_commands",
 		Description: "List shell custom commands available for a kbrd board, optionally filtered for a folder or item context. Folder-local .kbrd_commands.yml commands are included only when MCP policy allows board-local commands. Lua and editor-line commands are not included.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &falsePtr},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListCommandsInput) (*mcp.CallToolResult, ListCommandsOutput, error) {
 		return listCustomCommandsWithPolicy(ctx, req, in, policy)
 	})
@@ -141,7 +145,7 @@ func newServer(policy Policy) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "run_custom_command",
 		Description: "DANGEROUS: run a shell custom command (by id) for a kbrd board. Requires [mcp] allow_commands = true and is disabled by --safe. Output is truncated to a bounded size.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &falsePtr},
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: &truePtr},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in RunCommandInput) (*mcp.CallToolResult, RunCommandOutput, error) {
 		return runCustomCommandWithPolicy(ctx, req, in, policy)
 	})

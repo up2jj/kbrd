@@ -139,6 +139,50 @@ func TestServeRoundTripSearchCardsWithoutFrontmatter(t *testing.T) {
 	}
 }
 
+func TestToolAnnotations(t *testing.T) {
+	ctx, session := connectTestClient(t, nil)
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+
+	tools := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		tools[tool.Name] = tool
+	}
+
+	readOnly := []string{
+		"list_boards", "list_folders", "list_files", "show_board",
+		"get_card", "search_cards", "list_custom_commands",
+	}
+	for _, name := range readOnly {
+		tool := tools[name]
+		if tool == nil || tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Errorf("tool %q is not annotated read-only: %#v", name, tool)
+		}
+	}
+
+	destructive := []string{"delete_card", "run_custom_command"}
+	for _, name := range destructive {
+		tool := tools[name]
+		if tool == nil || tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint {
+			t.Errorf("tool %q is not annotated destructive: %#v", name, tool)
+		}
+	}
+
+	closedWorld := []string{
+		"add_file_to_board", "list_boards", "list_folders", "list_files",
+		"show_board", "get_card", "search_cards", "update_card", "move_card",
+		"rename_card", "delete_card", "create_column", "list_custom_commands",
+	}
+	for _, name := range closedWorld {
+		tool := tools[name]
+		if tool == nil || tool.Annotations == nil || tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
+			t.Errorf("tool %q is not annotated closed-world: %#v", name, tool)
+		}
+	}
+}
+
 func TestServeRoundTripListCustomCommandsForItem(t *testing.T) {
 	boardPath := makeBoardDir(t, "todo")
 	if err := os.WriteFile(filepath.Join(boardPath, "todo", "card.md"), []byte("body\n"), 0o644); err != nil {
