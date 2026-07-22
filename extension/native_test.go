@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"kbrd/config"
 	"kbrd/recents"
 )
 
@@ -60,6 +61,38 @@ func TestNativeHostRejectsCardNameWithoutFilenameCharacters(t *testing.T) {
 	})
 	if response.OK || response.Error == "" {
 		t.Fatalf("response = %+v, want empty sanitized-name error", response)
+	}
+}
+
+func TestNativeHostRunsItemCreatedHooks(t *testing.T) {
+	boardDir := setupNativeBoard(t, "inbox")
+	hookOutput := filepath.Join(boardDir, "hook-output")
+	hooks := "hooks:\n" +
+		"  - name: Record browser capture\n" +
+		"    id: record-browser-capture\n" +
+		"    event: item_created\n" +
+		"    command: printf '%s|%s|%s' '{{.filePath}}' '{{.columnName}}' '{{.fileName}}' > '" + hookOutput + "'\n"
+	if err := os.WriteFile(filepath.Join(boardDir, config.FolderHooksFile), []byte(hooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response := runNativeRequest(t, nativeRequest{
+		Action:  "add_file_to_board",
+		Board:   boardDir,
+		Folder:  "inbox",
+		Name:    "Browser Capture",
+		Content: "content",
+	})
+	if !response.OK {
+		t.Fatalf("add_file_to_board response: %+v", response)
+	}
+	got, err := os.ReadFile(hookOutput)
+	if err != nil {
+		t.Fatalf("read hook output: %v", err)
+	}
+	want := filepath.Join(boardDir, "inbox", "browser-capture.md") + "|inbox|browser-capture"
+	if string(got) != want {
+		t.Fatalf("hook output = %q, want %q", got, want)
 	}
 }
 

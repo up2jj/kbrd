@@ -50,6 +50,8 @@ card filenames when saved, so browser punctuation and path separators do not nee
 manually.
 
 Captured cards receive `source`, `captured_at`, and optional `url` frontmatter.
+After a card is created, matching declarative `item_created` hooks run with the
+same non-fatal failure semantics as `kbrd ingest`.
 
 Markdown conversion preserves headings, links, remote images, lists, task lists, blockquotes,
 tables, emphasis, strikethrough, inline code, and fenced code blocks. Relative page and image URLs

@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -13,7 +14,10 @@ import (
 	"strings"
 
 	"kbrd/board"
+	"kbrd/config"
+	"kbrd/events"
 	kbrdfs "kbrd/fs"
+	"kbrd/hook"
 )
 
 const (
@@ -145,6 +149,10 @@ func createNativeCard(req nativeRequest) (nativeCreatedCard, error) {
 	if err != nil {
 		return nativeCreatedCard{}, err
 	}
+	cfg, err := config.Load(ref.Path)
+	if err != nil {
+		return nativeCreatedCard{}, err
+	}
 	column, err := board.ResolveColumn(ref.Path, req.Folder, false)
 	if err != nil {
 		return nativeCreatedCard{}, err
@@ -157,12 +165,29 @@ func createNativeCard(req nativeRequest) (nativeCreatedCard, error) {
 	if err != nil {
 		return nativeCreatedCard{}, err
 	}
+	runNativeItemCreatedHooks(cfg, filepath.Base(column), name)
 	return nativeCreatedCard{
 		Path:   path,
 		Name:   name,
 		Board:  ref.Label(),
 		Folder: filepath.Base(column),
 	}, nil
+}
+
+// runNativeItemCreatedHooks gives browser captures the same declarative-hook
+// behavior as `kbrd ingest`. Hook definition and execution failures are
+// non-fatal: the card has already been created, and later hooks still run.
+func runNativeItemCreatedHooks(cfg config.Config, column, name string) {
+	if !cfg.Hooks.Enabled {
+		return
+	}
+	dispatcher, _, err := hook.Load(cfg)
+	if err != nil || dispatcher == nil {
+		return
+	}
+	dispatcher.Dispatch(context.Background(), events.ItemCreated{
+		Item: events.ItemRef{Column: column, Name: name},
+	})
 }
 
 func readNativeMessage(r io.Reader, limit uint32) ([]byte, error) {
