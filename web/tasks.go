@@ -296,11 +296,16 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 	}
 	api := boardTaskAPI{root: root, boardName: boardName, ctx: ctx, sync: sync, logger: logger}
 	host, err := script.NewContext(ctx, sc, api, nil, root, instanceName)
-	if err != nil && host != nil {
-		// Partial init failure: some files loaded. Log and keep the host.
-		logf(logger, "web: scripting init: %v", err)
-	} else if err != nil {
+	globalErr, folderErr := script.InitErrors(err)
+	if folderErr != nil {
+		if host != nil {
+			host.Close()
+		}
 		return nil, err
+	}
+	if globalErr != nil {
+		// A personal global init failure must not disable a valid board script.
+		logf(logger, "web: scripting global init: %v", globalErr)
 	}
 	if host == nil {
 		// Scripting enabled but no init.lua / .kbrd.lua present.

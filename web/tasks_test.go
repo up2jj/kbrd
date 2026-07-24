@@ -56,6 +56,24 @@ kbrd.layer{ id="other", setup=function() end }`), 0o644); err != nil {
 	}
 }
 
+func TestTaskSchedulerRejectsFolderInitFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.timer.after(1000, function() end)
+error("folder startup failed")
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.ScriptingConfig{Enabled: true, InitTimeoutMs: 1000, CommandTimeoutMs: 1000}
+	scheduler, err := startTaskScheduler(t.Context(), dir, "test", "", cfg, nil, nil)
+	if err == nil {
+		t.Fatal("expected folder initialization error")
+	}
+	if scheduler != nil {
+		t.Fatal("scheduler retained a partially initialized folder script")
+	}
+}
+
 // TestTaskCreateItemCommits verifies a task-driven create lands on disk and is
 // committed by the Syncer (working tree clean afterwards), and that a repeat
 // create of the same name is rejected — the idempotency seatbelt that lets a
