@@ -303,6 +303,9 @@ require("https://raw.githubusercontent.com/owner/repo/v1.0/util.lua")
 require("github:owner/repo/util.lua@v1.0")
 ```
 
+Redirects are allowed only while they preserve the same transport policy:
+HTTPS cannot downgrade to HTTP, and plain HTTP is limited to loopback development servers.
+
 ### Library style — module returns a table
 
 The module `return`s a table; the caller keeps the handle and calls its functions:

@@ -225,6 +225,28 @@ func TestRemoteRequireRejectsNonLoopbackHTTP(t *testing.T) {
 	}
 }
 
+func TestRemoteRequireRejectsRedirectToNonLoopbackHTTP(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://example.com/mod.lua", http.StatusFound)
+	}))
+	t.Cleanup(ts.Close)
+	h, err := loadRemote(t, remoteCfg(), fmt.Sprintf("require(%q)", ts.URL))
+	if h != nil {
+		defer h.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "redirect target") {
+		t.Fatalf("error = %v, want rejected redirect target", err)
+	}
+}
+
+func TestRemoteRedirectRejectsHTTPSDowngrade(t *testing.T) {
+	previous := httptest.NewRequest(http.MethodGet, "https://example.com/mod.lua", nil)
+	next := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/mod.lua", nil)
+	if err := checkRemoteRedirect(next, []*http.Request{previous}); err == nil || !strings.Contains(err.Error(), "downgrade") {
+		t.Fatalf("error = %v, want HTTPS downgrade rejection", err)
+	}
+}
+
 // TestResolveRemoteURL covers the github: shorthand and pass-through, with no
 // network involved.
 func TestResolveRemoteURL(t *testing.T) {

@@ -106,6 +106,22 @@ func isLoopbackHTTPURL(raw string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+func checkRemoteRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if req.URL.Scheme == "https" {
+		return nil
+	}
+	if req.URL.Scheme != "http" || !isLoopbackHTTPURL(req.URL.String()) {
+		return fmt.Errorf("redirect target %q must use HTTPS or loopback HTTP", req.URL.Redacted())
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" {
+		return fmt.Errorf("refusing HTTPS downgrade redirect to %q", req.URL.Redacted())
+	}
+	return nil
+}
+
 // cacheKey is the cache filename (without extension) for a resolved URL.
 func cacheKey(resolvedURL string) string {
 	sum := sha256.Sum256([]byte(resolvedURL))
@@ -175,7 +191,10 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // httpGet fetches url with a bounded timeout and a size cap, returning the body
 // only on a 2xx response.
 func httpGet(ctx context.Context, url string) (string, error) {
-	client := &http.Client{Timeout: remoteFetchTimeout}
+	client := &http.Client{
+		Timeout:       remoteFetchTimeout,
+		CheckRedirect: checkRemoteRedirect,
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build request for %s: %w", url, err)
