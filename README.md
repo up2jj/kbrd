@@ -588,7 +588,6 @@ auto_commit        = false      # TUI: commit pending edits before auto-sync (pa
 enabled            = true     # master switch for the Lua VM
 command_timeout_ms = 2000     # timeout for command callbacks
 hook_timeout_ms    = 500      # timeout for event hooks and timers
-instruction_limit  = 10000000 # CPU backstop per script run
 error_threshold    = 3        # auto-disable a failing hook/timer after N errors (0 = never)
 http_timeout_ms    = 10000    # maximum timeout for outbound kbrd.http requests
 http_max_response_bytes = 2097152 # maximum response body buffered for Lua (2 MiB)

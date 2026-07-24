@@ -39,7 +39,6 @@ func makeBoard(t *testing.T, luaInit string) (*Board, string) {
 			Enabled:          true,
 			CommandTimeoutMs: 2000,
 			HookTimeoutMs:    500,
-			InstructionLimit: 10000000,
 		},
 	}
 	b := NewBoard(cfg)
@@ -545,7 +544,6 @@ backend = "none"
 enabled = true
 command_timeout_ms = 2000
 hook_timeout_ms = 500
-instruction_limit = 10000000
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

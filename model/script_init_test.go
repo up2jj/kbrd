@@ -19,7 +19,6 @@ func TestScriptInitActivityAndCommandMerge(t *testing.T) {
 		Enabled:          true,
 		CommandTimeoutMs: 2000,
 		HookTimeoutMs:    500,
-		InstructionLimit: 10_000_000,
 	}
 	b := NewBoard(cfg)
 

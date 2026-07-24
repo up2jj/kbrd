@@ -16,7 +16,6 @@ func scriptingCfg() config.ScriptingConfig {
 		Enabled:          true,
 		CommandTimeoutMs: 2000,
 		HookTimeoutMs:    500,
-		InstructionLimit: 10000000,
 	}
 }
 

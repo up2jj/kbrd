@@ -336,7 +336,7 @@ func newLayerTestBoard(t *testing.T, dir string) *Board {
 	t.Helper()
 	cfg := config.Config{Path: dir, ColumnWidth: 20, PreviewLines: 3, NotifyBackend: "none"}
 	cfg.Scripting = config.ScriptingConfig{
-		Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000,
+		Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500,
 	}
 	b := NewBoard(cfg)
 	b.initRuntime()

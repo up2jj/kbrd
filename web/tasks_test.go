@@ -27,7 +27,7 @@ kbrd.layer{ id="other", setup=function() end }`), 0o644); err != nil {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	cfg := config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, InstructionLimit: 10_000_000}
+	cfg := config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000}
 	scheduler, err := startTaskScheduler(ctx, dir, "test", "", cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("start scheduler: %v", err)

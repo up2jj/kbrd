@@ -163,7 +163,6 @@ Scripting is on by default. Tunables live in `~/.config/kbrd/config.toml`
 enabled            = true     # master switch — false disables the whole subsystem
 command_timeout_ms = 2000     # wall-clock budget for kbrd.command callbacks
 hook_timeout_ms    = 500      # stricter budget for event hooks (they fire on hot paths)
-instruction_limit  = 10000000 # backstop against pure-CPU infinite loops
 error_threshold    = 3        # auto-disable a timer/hook after N consecutive errors (0 = never)
 remote_require     = false    # allow require() of scripts from remote URLs — see "Remote scripts"
 http_timeout_ms    = 10000    # maximum per-request timeout for kbrd.http (10 seconds)
@@ -1892,8 +1891,7 @@ A broken script can never crash kbrd. Every Lua call is wrapped:
 - **Runtime error in a hook** — surfaced as a notification, hook continues
   to be invoked on future events.
 - **Infinite loops / runaway CPU** — the watchdog kills the call after
-  `command_timeout_ms` / `hook_timeout_ms` (or `instruction_limit`, whichever
-  fires first) and shows a timeout notification.
+  `command_timeout_ms` / `hook_timeout_ms` and shows a timeout notification.
 - **Errors from API calls** — most `kbrd.*` functions return `nil, err`
   instead of throwing. Use the conventional Lua pattern:
 

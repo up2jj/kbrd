@@ -612,9 +612,6 @@ func (h *Host) EvalWithContext(expr string, evalCtx map[string]any) (out string,
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	if h.cfg.InstructionLimit > 0 {
-		h.L.SetMx(h.cfg.InstructionLimit / 1000)
-	}
 	h.L.SetContext(ctx)
 	defer h.L.RemoveContext()
 
@@ -873,10 +870,6 @@ func (h *Host) driveResume(co *lua.LState, name string, fn *lua.LFunction, args 
 	}
 	co.SetContext(ctx)
 	defer co.RemoveContext()
-	if h.cfg.InstructionLimit > 0 {
-		co.SetMx(h.cfg.InstructionLimit / 1000)
-	}
-
 	var (
 		st   lua.ResumeState
 		rets []lua.LValue
@@ -1143,9 +1136,6 @@ func (h *Host) callHookLValue(fn *lua.LFunction, arg lua.LValue, nret int) (lua.
 	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
-	}
-	if h.cfg.InstructionLimit > 0 {
-		h.L.SetMx(h.cfg.InstructionLimit / 1000)
 	}
 	h.L.SetContext(ctx)
 	defer h.L.RemoveContext()

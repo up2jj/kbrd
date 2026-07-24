@@ -19,7 +19,7 @@ func startupTestBoard(t *testing.T, body string) *Board {
 		t.Fatal(err)
 	}
 	cfg := config.Config{Path: dir, NotifyBackend: "none"}
-	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 1000, HookTimeoutMs: 1000, InstructionLimit: 1_000_000}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 1000, HookTimeoutMs: 1000}
 	b := NewBoard(cfg)
 	b.termWidth, b.termHeight = 100, 30
 	return b

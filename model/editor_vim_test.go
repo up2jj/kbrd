@@ -234,7 +234,7 @@ kbrd.register("indent", function() return "" end, "indent(n)")
 	}
 
 	cfg := config.Config{Path: dir, ColumnWidth: 32, PreviewLines: 3, Editor: config.EditorConfig{Vim: true}}
-	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500}
 	b := NewBoard(cfg)
 	if b.scripts != nil {
 		t.Fatal("precondition: scripts should initialize after board construction")
@@ -413,7 +413,7 @@ func TestEditorOpenRefusesWhenDirty(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(""), 0o644)
 
 	cfg := config.Config{Path: dir, ColumnWidth: 32, PreviewLines: 3, Editor: config.EditorConfig{Vim: true}}
-	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500, InstructionLimit: 10_000_000}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500}
 	b := NewBoard(cfg)
 	b.initRuntime()
 	if b.scripts == nil {

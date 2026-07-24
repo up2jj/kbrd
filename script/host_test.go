@@ -349,7 +349,6 @@ func defaultCfg() config.ScriptingConfig {
 		Enabled:          true,
 		CommandTimeoutMs: 2000,
 		HookTimeoutMs:    500,
-		InstructionLimit: 10000000,
 	}
 }
 
@@ -778,7 +777,6 @@ func TestWatchdogTimeout(t *testing.T) {
 	dir := writeInit(t, `kbrd.command("l", "Loop", function() while true do end end)`)
 	cfg := defaultCfg()
 	cfg.CommandTimeoutMs = 200
-	cfg.InstructionLimit = 100000
 	api := &fakeAPI{}
 	h, err := New(cfg, api, nil, dir, "")
 	if err != nil {

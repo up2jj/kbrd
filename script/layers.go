@@ -171,9 +171,6 @@ func (h *Host) callLayerSetup(layer layerDef) (err error) {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	if h.cfg.InstructionLimit > 0 {
-		h.L.SetMx(h.cfg.InstructionLimit / 1000)
-	}
 	h.L.SetContext(ctx)
 	defer h.L.RemoveContext()
 	defer func() {
