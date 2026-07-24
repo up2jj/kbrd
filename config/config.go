@@ -157,7 +157,10 @@ type IngestConfig struct {
 // ScriptingConfig controls the embedded Lua scripting subsystem.
 // When Enabled is false, no Lua VM is created and no script files are read.
 type ScriptingConfig struct {
-	Enabled          bool
+	Enabled bool
+	// InitTimeoutMs bounds the combined global and folder initialization,
+	// including synchronous remote module downloads. 0 disables the deadline.
+	InitTimeoutMs    int
 	CommandTimeoutMs int
 	HookTimeoutMs    int
 	// ErrorThreshold is the number of consecutive errors that disables a
@@ -245,6 +248,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("git.sync_on_startup", true)
 	v.SetDefault("git.auto_commit", false)
 	v.SetDefault("scripting.enabled", true)
+	v.SetDefault("scripting.init_timeout_ms", 30000)
 	v.SetDefault("scripting.command_timeout_ms", 2000)
 	v.SetDefault("scripting.hook_timeout_ms", 500)
 	v.SetDefault("scripting.error_threshold", 3)
@@ -342,6 +346,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		GitAutoCommit:        v.GetBool("git.auto_commit"),
 		Scripting: ScriptingConfig{
 			Enabled:              v.GetBool("scripting.enabled"),
+			InitTimeoutMs:        v.GetInt("scripting.init_timeout_ms"),
 			CommandTimeoutMs:     v.GetInt("scripting.command_timeout_ms"),
 			HookTimeoutMs:        v.GetInt("scripting.hook_timeout_ms"),
 			ErrorThreshold:       v.GetInt("scripting.error_threshold"),

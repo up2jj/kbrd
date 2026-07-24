@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"kbrd/config"
 )
@@ -179,6 +180,35 @@ func TestRemoteRequire404(t *testing.T) {
 	}
 	if got := countCachedLua(t, cacheRoot); got != 0 {
 		t.Errorf("a failed fetch cached %d files, want 0", got)
+	}
+}
+
+func TestRemoteRequireHonorsInitTimeout(t *testing.T) {
+	started := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(ts.Close)
+	cfg := remoteCfg()
+	cfg.InitTimeoutMs = 50
+	dir := writeInit(t, fmt.Sprintf("require(%q)\n", ts.URL+"/mod.lua"))
+
+	begin := time.Now()
+	h, err := New(cfg, &fakeAPI{}, nil, dir, "")
+	if h != nil {
+		defer h.Close()
+	}
+	if err == nil {
+		t.Fatal("expected initialization timeout")
+	}
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Fatalf("remote initialization timeout took %v", elapsed)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("remote request never started")
 	}
 }
 

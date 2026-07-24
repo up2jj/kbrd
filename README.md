@@ -586,6 +586,7 @@ auto_commit        = false      # TUI: commit pending edits before auto-sync (pa
 
 [scripting]
 enabled            = true     # master switch for the Lua VM
+init_timeout_ms     = 30000    # whole init.lua + .kbrd.lua startup budget
 command_timeout_ms = 2000     # timeout for command callbacks
 hook_timeout_ms    = 500      # timeout for event hooks and timers
 error_threshold    = 3        # auto-disable a failing hook/timer after N errors (0 = never)

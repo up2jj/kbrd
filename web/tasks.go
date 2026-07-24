@@ -295,7 +295,7 @@ func startTaskScheduler(ctx context.Context, root, boardName, instanceName strin
 		return nil, nil
 	}
 	api := boardTaskAPI{root: root, boardName: boardName, ctx: ctx, sync: sync, logger: logger}
-	host, err := script.New(sc, api, nil, root, instanceName)
+	host, err := script.NewContext(ctx, sc, api, nil, root, instanceName)
 	if err != nil && host != nil {
 		// Partial init failure: some files loaded. Log and keep the host.
 		logf(logger, "web: scripting init: %v", err)

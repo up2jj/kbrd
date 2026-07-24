@@ -45,7 +45,7 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.MCP.AllowCardReads {
 		t.Fatal("MCP card reads must default to disabled")
 	}
-	if cfg.Scripting.HTTPTimeoutMs != 10000 || cfg.Scripting.HTTPMaxResponseBytes != 2097152 {
+	if cfg.Scripting.InitTimeoutMs != 30000 || cfg.Scripting.HTTPTimeoutMs != 10000 || cfg.Scripting.HTTPMaxResponseBytes != 2097152 {
 		t.Fatalf("unexpected scripting HTTP defaults: %+v", cfg.Scripting)
 	}
 	if got := strings.Join(cfg.Reminders.DoneColumns, ","); got != "Done" {

@@ -1,6 +1,7 @@
 package script
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -116,7 +117,7 @@ func cacheKey(resolvedURL string) string {
 // network error or non-200 response writes nothing, so a transient failure
 // cannot poison the purge-only cache. Requires cfg.RemoteRequire — when off it
 // returns an error rather than reaching the network.
-func (h *Host) fetchRemote(name string) (string, error) {
+func (h *Host) fetchRemote(ctx context.Context, name string) (string, error) {
 	if !h.cfg.RemoteRequire {
 		return "", errors.New("remote require is disabled (set scripting.remote_require = true to enable)")
 	}
@@ -136,7 +137,7 @@ func (h *Host) fetchRemote(name string) (string, error) {
 		return string(data), nil
 	}
 
-	body, err := httpGet(url)
+	body, err := httpGet(ctx, url)
 	if err != nil {
 		return "", err
 	}
@@ -173,9 +174,13 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 // httpGet fetches url with a bounded timeout and a size cap, returning the body
 // only on a 2xx response.
-func httpGet(url string) (string, error) {
+func httpGet(ctx context.Context, url string) (string, error) {
 	client := &http.Client{Timeout: remoteFetchTimeout}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request for %s: %w", url, err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetch %s: %w", url, err)
 	}
@@ -198,7 +203,11 @@ func httpGet(url string) (string, error) {
 // (nil, errmsg) following the package's error-tuple convention.
 func (h *Host) luaRemoteFetch(L *lua.LState) int {
 	name := L.CheckString(1)
-	src, err := h.fetchRemote(name)
+	ctx := L.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	src, err := h.fetchRemote(ctx, name)
 	if err != nil {
 		return errResult(L, err)
 	}

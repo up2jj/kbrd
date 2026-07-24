@@ -161,6 +161,7 @@ Scripting is on by default. Tunables live in `~/.config/kbrd/config.toml`
 ```toml
 [scripting]
 enabled            = true     # master switch — false disables the whole subsystem
+init_timeout_ms     = 30000    # whole init.lua + .kbrd.lua startup budget
 command_timeout_ms = 2000     # wall-clock budget for kbrd.command callbacks
 hook_timeout_ms    = 500      # stricter budget for event hooks (they fire on hot paths)
 error_threshold    = 3        # auto-disable a timer/hook after N consecutive errors (0 = never)

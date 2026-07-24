@@ -270,14 +270,29 @@ var hostSequence atomic.Uint64
 // Returns a Host even on partial failure — callers should always call Close.
 // nil is returned only when scripting is disabled in config.
 func New(cfg config.ScriptingConfig, api events.ScriptAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
+	return NewContext(context.Background(), cfg, api, logger, folderPath, instanceName)
+}
+
+// NewContext is New with cancellation propagated through initialization and
+// remote module downloads.
+func NewContext(ctx context.Context, cfg config.ScriptingConfig, api events.ScriptAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
 	nav, _ := api.(events.NavigationAPI)
 	pres, _ := api.(events.PresentationAPI)
-	return NewWithCapabilities(cfg, api, nav, pres, logger, folderPath, instanceName)
+	return NewWithCapabilitiesContext(ctx, cfg, api, nav, pres, logger, folderPath, instanceName)
 }
 
 func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav events.NavigationAPI, pres events.PresentationAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
+	return NewWithCapabilitiesContext(context.Background(), cfg, api, nav, pres, logger, folderPath, instanceName)
+}
+
+// NewWithCapabilitiesContext is NewWithCapabilities with cancellation
+// propagated through initialization and remote module downloads.
+func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig, api events.ScriptAPI, nav events.NavigationAPI, pres events.PresentationAPI, logger events.Logger, folderPath, instanceName string) (*Host, error) {
 	if !cfg.Enabled {
 		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if logger == nil {
 		logger = events.NopLogger{}
@@ -327,13 +342,19 @@ func NewWithCapabilities(cfg config.ScriptingConfig, api events.ScriptAPI, nav e
 	var globalErr, folderErr error
 	any := false
 	localOK := true
+	initCtx := ctx
+	var initCancel context.CancelFunc
+	if cfg.InitTimeoutMs > 0 {
+		initCtx, initCancel = context.WithTimeout(ctx, time.Duration(cfg.InitTimeoutMs)*time.Millisecond)
+		defer initCancel()
+	}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
 		any = true
 		h.loadingFolder = filepath.Base(p) == FolderInitFile && folderPath != ""
-		err := h.doFile(p)
+		err := h.doFile(initCtx, p)
 		h.loadingFolder = false
 		if err != nil {
 			if filepath.Base(p) == FolderInitFile {
@@ -1161,6 +1182,8 @@ func (h *Host) callHookLValue(fn *lua.LFunction, arg lua.LValue, nret int) (lua.
 	return ret, err
 }
 
-func (h *Host) doFile(path string) error {
+func (h *Host) doFile(ctx context.Context, path string) error {
+	h.L.SetContext(ctx)
+	defer h.L.RemoveContext()
 	return h.L.DoFile(path)
 }

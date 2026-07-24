@@ -791,6 +791,24 @@ func TestWatchdogTimeout(t *testing.T) {
 	}
 }
 
+func TestInitWatchdogTimeout(t *testing.T) {
+	dir := writeInit(t, `while true do end`)
+	cfg := defaultCfg()
+	cfg.InitTimeoutMs = 20
+
+	started := time.Now()
+	h, err := New(cfg, &fakeAPI{}, nil, dir, "")
+	if h != nil {
+		defer h.Close()
+	}
+	if err == nil {
+		t.Fatal("expected initialization timeout")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("initialization timeout took %v", elapsed)
+	}
+}
+
 func TestBoardMove(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("m", "Move", function(ctx)
