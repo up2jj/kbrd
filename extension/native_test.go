@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"kbrd/config"
+	"kbrd/frontmatter"
 	"kbrd/recents"
 )
 
@@ -31,11 +33,15 @@ func TestNativeHostRoundTrip(t *testing.T) {
 	}
 
 	created := runNativeRequest(t, nativeRequest{
-		Action:  "add_file_to_board",
-		Board:   boardDir,
-		Folder:  "1. inbox",
-		Name:    "  Docs / API: What's New?  ",
-		Content: "## Captured\n\nA [formatted link](https://example.com).",
+		Action:    "add_file_to_board",
+		Board:     boardDir,
+		Folder:    "1. inbox",
+		Name:      "  Docs / API: What's New?  ",
+		Content:   "## Captured\n\nA [formatted link](https://example.com).",
+		Source:    "chrome",
+		SourceApp: "Chromium browser",
+		URL:       "https://example.com",
+		Capture:   true,
 	})
 	if !created.OK {
 		t.Fatalf("add_file_to_board response: %+v", created)
@@ -44,8 +50,23 @@ func TestNativeHostRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read captured card: %v", err)
 	}
-	if string(content) != "## Captured\n\nA [formatted link](https://example.com).\n" {
+	block, body, fenced := frontmatter.Split(string(content))
+	if !fenced || strings.TrimSpace(body) != "## Captured\n\nA [formatted link](https://example.com)." {
 		t.Fatalf("captured content = %q", content)
+	}
+	parsed, err := frontmatter.Parse([]byte(block))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"source": "chrome", "source_app": "Chromium browser", "url": "https://example.com",
+	} {
+		if parsed.Data[key] != want {
+			t.Errorf("%s = %#v, want %q", key, parsed.Data[key], want)
+		}
+	}
+	if parsed.Data["created_at"] == nil || parsed.Data["captured_at"] == nil {
+		t.Fatalf("timestamps missing from %#v", parsed.Data)
 	}
 }
 
@@ -71,7 +92,11 @@ func TestNativeHostRunsItemCreatedHooks(t *testing.T) {
 		"  - name: Record browser capture\n" +
 		"    id: record-browser-capture\n" +
 		"    event: item_created\n" +
-		"    command: printf '%s|%s|%s' '{{.filePath}}' '{{.columnName}}' '{{.fileName}}' > '" + hookOutput + "'\n"
+		"    command: printf '%s|%s|%s' '{{.filePath}}' '{{.columnName}}' '{{.fileName}}' > '" + hookOutput + "'\n" +
+		"  - name: Report browser warning\n" +
+		"    id: report-browser-warning\n" +
+		"    event: item_created\n" +
+		"    command: false\n"
 	if err := os.WriteFile(filepath.Join(boardDir, config.FolderHooksFile), []byte(hooks), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +110,17 @@ func TestNativeHostRunsItemCreatedHooks(t *testing.T) {
 	})
 	if !response.OK {
 		t.Fatalf("add_file_to_board response: %+v", response)
+	}
+	encoded, err := json.Marshal(response.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created nativeCreatedCard
+	if err := json.Unmarshal(encoded, &created); err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Warnings) != 1 || created.Warnings[0].Source != "Report browser warning" {
+		t.Fatalf("warnings = %+v", created.Warnings)
 	}
 	got, err := os.ReadFile(hookOutput)
 	if err != nil {

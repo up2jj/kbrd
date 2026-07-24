@@ -49,9 +49,13 @@ The last selected board and column are remembered. Page titles are automatically
 card filenames when saved, so browser punctuation and path separators do not need to be removed
 manually.
 
-Captured cards receive `source`, `captured_at`, and optional `url` frontmatter.
+Captured cards receive canonical `created_at`, `source`, `source_app`,
+`captured_at`, and optional `url` frontmatter. The native kbrd host adds and
+escapes this metadata using its own clock; the browser sends only structured
+capture fields and Markdown.
 After a card is created, matching declarative `item_created` hooks run with the
-same non-fatal failure semantics as `kbrd ingest`.
+same non-fatal failure semantics as `kbrd ingest`. A hook failure is shown in
+the extension after the card has been saved.
 
 Markdown conversion preserves headings, links, remote images, lists, task lists, blockquotes,
 tables, emphasis, strikethrough, inline code, and fenced code blocks. Relative page and image URLs

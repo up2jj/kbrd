@@ -6,15 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
-	"kbrd/board"
-	"kbrd/config"
-	"kbrd/events"
-	"kbrd/frontmatter"
-	"kbrd/hook"
+	"kbrd/ingest"
 
 	"github.com/spf13/cobra"
 )
@@ -67,69 +61,23 @@ func runIngest(cmd *cobra.Command, f ingestFlags, safe bool) error {
 	if err != nil {
 		return err
 	}
-	ref, err := board.ResolveExisting(f.board)
+	result, err := ingest.Create(cmd.Context(), ingest.Request{
+		Board: f.board, Column: f.column, Name: f.name,
+		Content: content, Source: f.source, Safe: safe,
+	})
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(ref.Path)
-	if err != nil {
-		return err
-	}
-	content = withIngestCreatedAt(content, time.Now(), cfg.Ingest.CreatedAtFormat)
-	if f.source != "" {
-		content = frontmatter.Set(content, "source", strconv.Quote(f.source))
-	}
-	columnPath, err := resolveIngestColumn(ref.Path, f.column)
-	if err != nil {
-		return err
-	}
-	name, err := board.SanitizeGeneratedName(f.name)
-	if err != nil {
-		return fmt.Errorf("sanitize card name: %w", err)
-	}
-	path, err := board.CreateItem(columnPath, name, content)
-	if err != nil {
-		return fmt.Errorf("create card in %s: %w", filepath.Base(columnPath), err)
-	}
-	if !safe {
-		runIngestHooks(cmd, cfg, filepath.Base(columnPath), name)
-	}
-
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "ingested %s in [%s] %s\n", filepath.Base(path), ref.Label(), filepath.Base(columnPath))
-	return err
-}
-
-// runIngestHooks runs declarative item_created hooks after a successful write.
-// It matches TUI hook semantics: errors are reported but do not undo a card or
-// stop later hooks.
-func runIngestHooks(cmd *cobra.Command, cfg config.Config, column, name string) {
-	if !cfg.Hooks.Enabled {
-		return
-	}
-	dispatcher, warnings, err := hook.Load(cfg)
-	for _, warning := range warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %s: %s\n", warning.Source, warning.Message)
-	}
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: load hooks: %v\n", err)
-		return
-	}
-	if dispatcher == nil {
-		return
-	}
-
-	for _, result := range dispatcher.Dispatch(cmd.Context(), events.ItemCreated{Item: events.ItemRef{Column: column, Name: name}}) {
-		switch {
-		case result.Err != nil:
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %q: %v\n", result.Name, result.Err)
-		case result.ExitCode != 0:
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %q exited %d\n", result.Name, result.ExitCode)
+	for _, warning := range result.Warnings {
+		if warning.Source != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: hook %s: %s\n", warning.Source, warning.Message)
+		} else {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning.Message)
 		}
 	}
-}
 
-func withIngestCreatedAt(content string, now time.Time, layout string) string {
-	return frontmatter.Set(content, "created_at", strconv.Quote(now.UTC().Format(layout)))
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "ingested %s in [%s] %s\n", filepath.Base(result.Path), result.Board, result.Column)
+	return err
 }
 
 func ingestContent(cmd *cobra.Command, f ingestFlags) (string, error) {
@@ -170,26 +118,4 @@ func isTerminal(in io.Reader) bool {
 	}
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
-
-func resolveIngestColumn(boardPath, selector string) (string, error) {
-	columns, err := board.Columns(boardPath)
-	if err != nil {
-		return "", err
-	}
-	selector = strings.TrimSpace(selector)
-	if selector == "" {
-		if len(columns) == 0 {
-			return "", fmt.Errorf("%w: %s", board.ErrNoColumns, boardPath)
-		}
-		return filepath.Join(boardPath, columns[0]), nil
-	}
-
-	if index, err := strconv.Atoi(selector); err == nil {
-		if index < 1 || index > len(columns) {
-			return "", fmt.Errorf("column number %d is out of range; board has %d column(s)", index, len(columns))
-		}
-		return filepath.Join(boardPath, columns[index-1]), nil
-	}
-	return board.ResolveColumn(boardPath, selector, false)
 }

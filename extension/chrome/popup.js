@@ -167,17 +167,23 @@ async function saveCard(event) {
   const board = elements.board.value;
   const folder = elements.folder.value;
   try {
-    await nativeRequest({
+    const result = await nativeRequest({
       action: "add_file_to_board",
       board,
       folder,
       name: elements.cardName.value.trim(),
-      content: buildContent(),
+      content: buildMarkdown(),
+      source: "chrome",
+      source_app: "Chromium browser",
+      url: elements.includeURL.checked ? page.url : "",
+      capture: true,
     });
     await chrome.storage.local.set({ board, folder });
-    showMessage(`Saved to ${board} / ${folder}.`, false);
+    const warnings = result.warnings || [];
+    const suffix = warnings.length ? ` Hook warning: ${warnings[0].message}` : "";
+    showMessage(`Saved to ${board} / ${folder}.${suffix}`, warnings.length > 0);
     elements.save.textContent = "Saved";
-    setTimeout(() => window.close(), 650);
+    setTimeout(() => window.close(), warnings.length ? 1800 : 650);
   } catch (error) {
     showMessage(error.message, true);
   } finally {
@@ -185,20 +191,13 @@ async function saveCard(event) {
   }
 }
 
-function buildContent() {
-  const metadata = ["---", "source: chrome", `captured_at: ${yamlString(new Date().toISOString())}`];
-  if (elements.includeURL.checked && page.url) metadata.push(`url: ${yamlString(page.url)}`);
-  metadata.push("---", "");
-
+function buildMarkdown() {
+  const content = [];
   const markdown = elements.markdown.value.trim();
-  if (elements.captureMode.value !== "link" && markdown) metadata.push(markdown, "");
+  if (elements.captureMode.value !== "link" && markdown) content.push(markdown, "");
   const notes = elements.notes.value.trim();
-  if (notes) metadata.push(notes, "");
-  return metadata.join("\n");
-}
-
-function yamlString(value) {
-  return JSON.stringify(value);
+  if (notes) content.push(notes, "");
+  return content.join("\n");
 }
 
 function fillSelect(select, items, value, label) {

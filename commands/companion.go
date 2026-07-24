@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"kbrd/companion"
+	"kbrd/ingest"
 	"kbrd/notifyroute"
 
 	"github.com/spf13/cobra"
@@ -18,8 +19,49 @@ func newCompanionCmd() *cobra.Command {
 		Use:   "companion",
 		Short: "Manage the macOS menu-bar quick capture app",
 	}
-	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
+	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionCaptureCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
 	return cmd
+}
+
+type companionCaptureInput struct {
+	Board     string `json:"board"`
+	Column    string `json:"column"`
+	Name      string `json:"name"`
+	Content   string `json:"content"`
+	SourceApp string `json:"source_app,omitempty"`
+	URL       string `json:"url,omitempty"`
+}
+
+func newCompanionCaptureCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "capture",
+		Short:  "Create a card from a companion capture request",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if isTerminal(cmd.InOrStdin()) {
+				return fmt.Errorf("pipe a JSON capture request on stdin")
+			}
+			var input companionCaptureInput
+			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&input); err != nil {
+				return fmt.Errorf("decode capture request: %w", err)
+			}
+			if strings.TrimSpace(input.SourceApp) == "" {
+				input.SourceApp = "kbrd Companion"
+			}
+			result, err := ingest.Create(cmd.Context(), ingest.Request{
+				Board: input.Board, Column: input.Column, Name: input.Name,
+				Content: input.Content, Source: "companion",
+				Capture: &ingest.CaptureMetadata{SourceApp: input.SourceApp, URL: input.URL},
+			})
+			if err != nil {
+				return err
+			}
+			encoder := json.NewEncoder(cmd.OutOrStdout())
+			encoder.SetEscapeHTML(false)
+			return encoder.Encode(result)
+		},
+	}
 }
 
 func newCompanionHotKeyCmd() *cobra.Command {

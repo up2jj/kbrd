@@ -168,17 +168,6 @@ func TestIngestReadsFileAndRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestWithIngestCreatedAtAddsAndReplacesTimestamp(t *testing.T) {
-	now := time.Date(2026, time.July, 11, 10, 30, 0, 0, time.FixedZone("CEST", 2*60*60))
-
-	if got, want := withIngestCreatedAt("body", now, time.RFC3339), "---\ncreated_at: \"2026-07-11T08:30:00Z\"\n---\n\nbody"; got != want {
-		t.Fatalf("plain content = %q, want %q", got, want)
-	}
-	if got, want := withIngestCreatedAt("---\ntitle: Existing\ncreated_at: old\n---\n\nbody", now, time.DateOnly), "---\ntitle: Existing\ncreated_at: \"2026-07-11\"\n---\n\nbody"; got != want {
-		t.Fatalf("frontmatter content = %q, want %q", got, want)
-	}
-}
-
 func TestIngestUsesBoardCreatedAtFormat(t *testing.T) {
 	isolateConfig(t)
 	root := makeIngestBoard(t, "todo")

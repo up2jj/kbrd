@@ -326,10 +326,22 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 - (void)capture:(id)sender {
     NSDictionary *item = self.selectedBoard;
     if (!item || !self.titleField.stringValue.length) { self.message.stringValue = @"Choose a board and enter a title"; return; }
+    NSDictionary *payload = @{
+        @"board": item[@"path"] ?: @"",
+        @"column": self.column.titleOfSelectedItem ?: @"1",
+        @"name": self.titleField.stringValue,
+        @"content": self.body.string ?: @"",
+        @"source_app": @"kbrd Companion"
+    };
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    NSString *input = [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding];
     NSString *error = nil;
-    NSArray *args = @[@"ingest", @"--board", item[@"path"], @"--column", self.column.titleOfSelectedItem ?: @"1", @"--name", self.titleField.stringValue, @"--source", @"companion"];
-    if (![self run:args input:self.body.string ?: @"" error:&error]) { self.message.stringValue = error ?: @"Capture failed"; return; }
-    self.titleField.stringValue = @""; [self.body setString:@""]; self.message.stringValue = @"Captured"; [self.panel orderOut:nil];
+    NSDictionary *result = [self run:@[@"companion", @"capture"] input:input error:&error];
+    if (!result) { self.message.stringValue = error ?: @"Capture failed"; return; }
+    NSArray *warnings = result[@"warnings"] ?: @[];
+    self.titleField.stringValue = @""; [self.body setString:@""];
+    self.message.stringValue = warnings.count ? [NSString stringWithFormat:@"Captured · warning: %@", warnings.firstObject[@"message"] ?: @"hook failed"] : @"Captured";
+    if (!warnings.count) [self.panel orderOut:nil];
 }
 
 - (void)saveScratchpad:(id)sender {

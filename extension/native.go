@@ -14,10 +14,8 @@ import (
 	"strings"
 
 	"kbrd/board"
-	"kbrd/config"
-	"kbrd/events"
 	kbrdfs "kbrd/fs"
-	"kbrd/hook"
+	"kbrd/ingest"
 )
 
 const (
@@ -32,11 +30,15 @@ const (
 )
 
 type nativeRequest struct {
-	Action  string `json:"action"`
-	Board   string `json:"board,omitempty"`
-	Folder  string `json:"folder,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Content string `json:"content,omitempty"`
+	Action    string `json:"action"`
+	Board     string `json:"board,omitempty"`
+	Folder    string `json:"folder,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Source    string `json:"source,omitempty"`
+	SourceApp string `json:"source_app,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Capture   bool   `json:"capture,omitempty"`
 }
 
 type nativeResponse struct {
@@ -61,10 +63,11 @@ type nativeFolderList struct {
 }
 
 type nativeCreatedCard struct {
-	Path   string `json:"path"`
-	Name   string `json:"name"`
-	Board  string `json:"board"`
-	Folder string `json:"folder"`
+	Path     string           `json:"path"`
+	Name     string           `json:"name"`
+	Board    string           `json:"board"`
+	Folder   string           `json:"folder"`
+	Warnings []ingest.Warning `json:"warnings,omitempty"`
 }
 
 // IsNativeHostInvocation reports whether Chrome launched kbrd as the native
@@ -145,49 +148,21 @@ func listNativeFolders(name string) (nativeFolderList, error) {
 }
 
 func createNativeCard(req nativeRequest) (nativeCreatedCard, error) {
-	ref, err := board.ResolveExisting(req.Board)
-	if err != nil {
-		return nativeCreatedCard{}, err
+	var capture *ingest.CaptureMetadata
+	if req.Capture {
+		capture = &ingest.CaptureMetadata{SourceApp: req.SourceApp, URL: req.URL}
 	}
-	cfg, err := config.Load(ref.Path)
-	if err != nil {
-		return nativeCreatedCard{}, err
-	}
-	column, err := board.ResolveColumn(ref.Path, req.Folder, false)
-	if err != nil {
-		return nativeCreatedCard{}, err
-	}
-	name, err := board.SanitizeGeneratedName(req.Name)
-	if err != nil {
-		return nativeCreatedCard{}, fmt.Errorf("sanitize card name: %w", err)
-	}
-	path, err := board.CreateItem(column, name, req.Content)
-	if err != nil {
-		return nativeCreatedCard{}, err
-	}
-	runNativeItemCreatedHooks(cfg, filepath.Base(column), name)
-	return nativeCreatedCard{
-		Path:   path,
-		Name:   name,
-		Board:  ref.Label(),
-		Folder: filepath.Base(column),
-	}, nil
-}
-
-// runNativeItemCreatedHooks gives browser captures the same declarative-hook
-// behavior as `kbrd ingest`. Hook definition and execution failures are
-// non-fatal: the card has already been created, and later hooks still run.
-func runNativeItemCreatedHooks(cfg config.Config, column, name string) {
-	if !cfg.Hooks.Enabled {
-		return
-	}
-	dispatcher, _, err := hook.Load(cfg)
-	if err != nil || dispatcher == nil {
-		return
-	}
-	dispatcher.Dispatch(context.Background(), events.ItemCreated{
-		Item: events.ItemRef{Column: column, Name: name},
+	result, err := ingest.Create(context.Background(), ingest.Request{
+		Board: req.Board, Column: req.Folder, Name: req.Name,
+		Content: req.Content, Source: req.Source, Capture: capture,
 	})
+	if err != nil {
+		return nativeCreatedCard{}, err
+	}
+	return nativeCreatedCard{
+		Path: result.Path, Name: result.Name, Board: result.Board,
+		Folder: result.Column, Warnings: result.Warnings,
+	}, nil
 }
 
 func readNativeMessage(r io.Reader, limit uint32) ([]byte, error) {

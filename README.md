@@ -128,7 +128,7 @@ A quick, scannable rundown of everything kbrd does:
   searches kbrd's clipboard history, shows Git and Apple Reminders state, and
   starts automatically when you log in. Set `companion.shortcut` in the global
   config created by `kbrd init --global`, then restart the companion.
-- **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; it ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
+- **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; the CLI, companion, and browser share one ingestion workflow for metadata, destination resolution, durable creation, and hooks. It ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
 - **Terminal multiplexer integration** — inside [Zellij](https://zellij.dev) or [tmux](https://github.com/tmux/tmux), open a card in an editor pane/window or a shell scoped to the board (`z`); the current tab/window is named after the board.
