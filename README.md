@@ -404,11 +404,13 @@ back to a plain textarea editor.
 
 ### Journal entries (`b`)
 
-Press `b` on a card to open the editor for a one-shot journal entry. Saving appends a
-line like `2026-06-24 19:09:00 - called client` to the card.
+Press `b` on a card to open a new journal editor. Each non-empty editor line is a
+separate entry; saving appends timestamped lines such as
+`2026-06-24 19:09:00 - called client` to the card.
 
-By default, `[journal] detect_date = true` treats a leading natural-language date as
-the entry timestamp and drops that date phrase from the saved text:
+By default, `[journal] detect_date = true` treats a leading natural-language date on
+each editor line as that entry's timestamp and drops the date phrase from the saved
+text:
 
 | Entry text | Saved timestamp | Saved body |
 | --- | --- | --- |

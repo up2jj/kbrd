@@ -1204,7 +1204,7 @@ func (e *Editor) vimLabel() string {
 	case editorPrepend:
 		return "Prepend to: " + e.FileName
 	case editorJournal:
-		return "Journal entry for: " + e.FileName
+		return "Journal entries for: " + e.FileName
 	case editorScratchpad:
 		return "Scratchpad"
 	}
@@ -1326,7 +1326,7 @@ func (e *Editor) view() string {
 		label = "Prepend to: " + e.FileName
 		hints = textareaHints
 	case editorJournal:
-		label = "Journal entry for: " + e.FileName
+		label = "Journal entries for: " + e.FileName
 		hints = textareaHints
 	case editorScratchpad:
 		label = "Scratchpad"

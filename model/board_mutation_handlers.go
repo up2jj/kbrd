@@ -48,11 +48,14 @@ func (h boardMutationHandlers) handlePrepend(msg editorPrependMsg) (tea.Model, t
 
 func (h boardMutationHandlers) handleJournal(msg editorJournalMsg) (tea.Model, tea.Cmd) {
 	b := h.board
-	at, body := b.journalStamp(msg.Text)
+	entries := journalEntriesWith(b.cfg.Journal.DetectDate, msg.Text)
 	return h.writeExistingItem(msg.Target, msg.FileName, "journal", "failed to journal: ", func(item *Item) error {
-		return board.JournalLine(item.FullPath, at, body)
+		return board.JournalLines(item.FullPath, entries)
 	}, func(name string) string {
-		return "journal entry added to " + name
+		if len(entries) == 1 {
+			return "journal entry added to " + name
+		}
+		return "journal entries added to " + name
 	})
 }
 

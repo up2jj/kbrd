@@ -112,12 +112,39 @@ func PrependLine(path, text string) error {
 	return kbrdfs.WriteExistingFileAtomicDurable(path, append([]byte(text+"\n"), content...))
 }
 
-// JournalLine appends text prefixed with an "at" timestamp formatted as
-// "2006-01-02 15:04:05" — the journal entry format shared by all frontends. The
-// caller supplies the time so the stamp can reflect a date detected in the entry
-// (see DetectDate), not just time.Now().
+// JournalEntry is one timestamped line to append to a card.
+type JournalEntry struct {
+	At   time.Time
+	Text string
+}
+
+// JournalLine appends one timestamped journal entry to a card.
 func JournalLine(path string, at time.Time, text string) error {
-	return AppendLine(path, at.Format("2006-01-02 15:04:05")+" - "+text)
+	return JournalLines(path, []JournalEntry{{At: at, Text: text}})
+}
+
+// JournalLines appends timestamped journal entries in one durable write. The
+// caller supplies each timestamp so entries can use independently detected
+// natural-language dates (see DetectDate).
+func JournalLines(path string, entries []JournalEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var added strings.Builder
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		added.WriteByte('\n')
+	}
+	for _, entry := range entries {
+		added.WriteString(entry.At.Format("2006-01-02 15:04:05"))
+		added.WriteString(" - ")
+		added.WriteString(entry.Text)
+		added.WriteByte('\n')
+	}
+	return kbrdfs.WriteExistingFileAtomicDurable(path, append(content, []byte(added.String())...))
 }
 
 // DetectDate splits a leading natural-language date phrase off text, returning the

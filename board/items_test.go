@@ -154,6 +154,30 @@ func TestJournalLine(t *testing.T) {
 	}
 }
 
+func TestJournalLines(t *testing.T) {
+	root := makeBoard(t, map[string][]string{"todo": nil})
+	path := filepath.Join(root, "todo", "a.md")
+	if err := os.WriteFile(path, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []JournalEntry{
+		{At: time.Date(2026, 6, 24, 9, 15, 0, 0, time.UTC), Text: "called client"},
+		{At: time.Date(2026, 6, 25, 10, 30, 0, 0, time.UTC), Text: "sent proposal"},
+	}
+	if err := JournalLines(path, entries); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "body\n2026-06-24 09:15:00 - called client\n2026-06-25 10:30:00 - sent proposal\n"
+	if string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+}
+
 func TestDetectDate(t *testing.T) {
 	// Fixed reference: Friday 2026-06-19, 14:30. Date-only phrases inherit this
 	// wall clock, so detected dates keep 14:30:00.

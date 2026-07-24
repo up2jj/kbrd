@@ -4,9 +4,9 @@ kbrd's card editor is a **modal, vim-like** editor. It opens when you edit (`e`)
 append (`a`), prepend (`p`), or journal (`b`) a card. Press **`:help`** inside the
 editor at any time for an in-app cheatsheet.
 
-Journal mode uses the same editor, but saving appends one timestamped line to the
-card and then closes. Leading natural-date phrases such as `yesterday ...` or
-`next monday ...` can set the journal timestamp; see
+Journal mode opens a new empty editor. Saving appends every non-empty editor line
+as a separate timestamped entry, then closes. Leading natural-date phrases such
+as `yesterday ...` or `next monday ...` can set each entry's timestamp; see
 **[README.md](./README.md#journal-entries-b)**.
 
 It is on by default; set it off in `kbrd.toml`:

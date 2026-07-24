@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,4 +28,50 @@ func TestJournalStampWith(t *testing.T) {
 			t.Fatalf("body = %q, want the date stripped", body)
 		}
 	})
+}
+
+func TestJournalEntriesWith(t *testing.T) {
+	entries := journalEntriesWith(true, "yesterday shipped it\n\nnext monday call client\r\nreview notes")
+	if len(entries) != 3 {
+		t.Fatalf("len(entries) = %d, want 3", len(entries))
+	}
+	wantBodies := []string{"shipped it", "call client", "review notes"}
+	for i, want := range wantBodies {
+		if entries[i].Text != want {
+			t.Errorf("entry %d body = %q, want %q", i, entries[i].Text, want)
+		}
+	}
+	if !entries[0].At.Before(entries[2].At) {
+		t.Errorf("yesterday timestamp %s is not before undated timestamp %s", entries[0].At, entries[2].At)
+	}
+	if !entries[1].At.After(entries[2].At) {
+		t.Errorf("next Monday timestamp %s is not after undated timestamp %s", entries[1].At, entries[2].At)
+	}
+}
+
+func TestHandleJournalWritesEachEditorLineAsAnEntry(t *testing.T) {
+	col := newTestColumn(t, map[string]string{"note": "body"})
+	b := &Board{columns: []*Column{col}}
+	item := col.ItemByName("note")
+
+	b.mutationHandlers().handleJournal(editorJournalMsg{
+		Target:   refForItem(col, item),
+		FileName: "note",
+		Text:     "first update\nsecond update",
+	})
+
+	content, err := os.ReadFile(item.FullPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines = %q, want body plus two journal entries", lines)
+	}
+	if !strings.HasSuffix(lines[1], " - first update") {
+		t.Errorf("first entry = %q", lines[1])
+	}
+	if !strings.HasSuffix(lines[2], " - second update") {
+		t.Errorf("second entry = %q", lines[2])
+	}
 }
