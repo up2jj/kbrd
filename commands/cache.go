@@ -42,7 +42,7 @@ func newCacheScriptPurgeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("removed %d cached script(s)\n", n)
+			fmt.Fprintf(cmd.OutOrStdout(), "removed %d cached script(s)\n", n)
 			return nil
 		},
 	}
@@ -59,11 +59,11 @@ func newCacheScriptListCmd() *cobra.Command {
 				return err
 			}
 			if len(entries) == 0 {
-				fmt.Println("no cached remote scripts")
+				fmt.Fprintln(cmd.OutOrStdout(), "no cached remote scripts")
 				return nil
 			}
 			for _, e := range entries {
-				fmt.Printf("%-8d %s\n", e.Bytes, e.URL)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-8d %s\n", e.Bytes, e.URL)
 			}
 			return nil
 		},
