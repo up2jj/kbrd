@@ -18,8 +18,24 @@ func newCompanionCmd() *cobra.Command {
 		Use:   "companion",
 		Short: "Manage the macOS menu-bar quick capture app",
 	}
-	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionSnapshotCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
+	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
 	return cmd
+}
+
+func newCompanionHotKeyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "hotkey",
+		Short:  "Print the native companion hot-key configuration",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			hotKey, err := companion.LoadHotKey()
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(hotKey)
+		},
+	}
 }
 
 func newCompanionNotificationActionCmd() *cobra.Command {
@@ -80,7 +96,11 @@ func newCompanionInstallCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "installed kbrd Companion in %s\n", path)
 			fmt.Fprintln(cmd.OutOrStdout(), "enabled kbrd Companion at login")
 			if !noLaunch {
-				fmt.Fprintln(cmd.OutOrStdout(), "started kbrd Companion · quick capture: Command-Shift-K")
+				label := "Command-Shift-K"
+				if hotKey, hotKeyErr := companion.LoadHotKey(); hotKeyErr == nil {
+					label = hotKey.Label
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "started kbrd Companion · quick capture: %s\n", label)
 			}
 			return nil
 		},

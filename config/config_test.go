@@ -269,6 +269,23 @@ theme = "dark"
 	}
 }
 
+func TestLoad_CompanionShortcut(t *testing.T) {
+	t.Setenv("KBRD_NOTIFY", "")
+	globalDir := t.TempDir()
+	writeFile(t, filepath.Join(globalDir, "config.toml"), `
+[companion]
+shortcut = "control+option+space"
+`)
+
+	cfg, err := loadFrom(globalDir, "")
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	if cfg.Companion.Shortcut != "control+option+space" {
+		t.Fatalf("companion shortcut = %q", cfg.Companion.Shortcut)
+	}
+}
+
 func TestLoad_ThemeLightOverride(t *testing.T) {
 	t.Setenv("KBRD_NOTIFY", "")
 	folder := t.TempDir()

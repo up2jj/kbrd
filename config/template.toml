@@ -11,6 +11,9 @@
 [notify]
 # backend = "auto"          # auto | osc99 / kitty | osc777 | osc9 | notification-center | none
 
+[companion]
+# shortcut = "command+shift+k" # global macOS quick-capture shortcut; restart the companion after changing
+
 [board]
 # name = ""                 # optional label shown in the board switcher
 # item_double_click = "peek" # "peek" opens reader; "edit" opens editor

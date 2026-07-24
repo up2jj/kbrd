@@ -1,11 +1,27 @@
 package commands
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"kbrd/scratchpad"
 )
+
+func TestCompanionHotKeyPrintsNativeSettings(t *testing.T) {
+	isolateConfig(t)
+	var output bytes.Buffer
+	cmd := newCompanionHotKeyCmd()
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"key_code":40`, `"modifiers":768`, `"label":"Command-Shift-K"`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+}
 
 func TestCompanionScratchpadReadsTextFromStdin(t *testing.T) {
 	isolateConfig(t)

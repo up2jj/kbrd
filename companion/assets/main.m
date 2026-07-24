@@ -69,11 +69,26 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     self.statusItem.button.target = self;
     self.statusItem.button.action = @selector(toggleCapture);
     [self buildPanel];
+    [self installHotKey];
+}
+
+- (void)installHotKey {
+    UInt32 keyCode = kVK_ANSI_K, modifiers = cmdKey | shiftKey;
+    NSString *label = @"Command-Shift-K", *error = nil;
+    NSDictionary *settings = [self run:@[@"companion", @"hotkey"] input:nil error:&error];
+    if (settings) {
+        keyCode = [settings[@"key_code"] unsignedIntValue];
+        modifiers = [settings[@"modifiers"] unsignedIntValue];
+        if ([settings[@"label"] length]) label = settings[@"label"];
+    }
 
     EventHotKeyID keyID = {'KBRD', 1};
     EventTypeSpec spec = {kEventClassKeyboard, kEventHotKeyPressed};
     InstallApplicationEventHandler(&HotKeyHandler, 1, &spec, (__bridge void *)self, NULL);
-    RegisterEventHotKey(kVK_ANSI_K, cmdKey | shiftKey, keyID, GetApplicationEventTarget(), 0, &_hotKey);
+    OSStatus status = RegisterEventHotKey(keyCode, modifiers, keyID, GetApplicationEventTarget(), 0, &_hotKey);
+    if (status != noErr) self.message.stringValue = [NSString stringWithFormat:@"%@ is unavailable", label];
+    else if (!settings) self.message.stringValue = [NSString stringWithFormat:@"Invalid shortcut; %@ is active", label];
+    else self.message.stringValue = [NSString stringWithFormat:@"%@ opens this window", label];
 }
 
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
@@ -203,7 +218,7 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 
     self.gitStatus = Label(@"Git: —", NSMakeRect(20, 105, 205, 18)); [v addSubview:self.gitStatus];
     self.remindersStatus = Label(@"Reminders: —", NSMakeRect(235, 105, 205, 18)); [v addSubview:self.remindersStatus];
-    self.message = Label(@"⌘⇧K opens this window", NSMakeRect(20, 70, 250, 18)); [v addSubview:self.message];
+    self.message = Label(@"Command-Shift-K opens this window", NSMakeRect(20, 70, 300, 18)); [v addSubview:self.message];
 
     NSButton *scratch = [[NSButton alloc] initWithFrame:NSMakeRect(236, 24, 98, 34)];
     scratch.title = @"Scratchpad"; scratch.bezelStyle = NSBezelStyleRounded;

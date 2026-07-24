@@ -71,6 +71,7 @@ type Config struct {
 	Journal   JournalConfig
 	Ingest    IngestConfig
 	Editor    EditorConfig
+	Companion CompanionConfig
 	Reminders RemindersConfig
 
 	// InstanceName is this process's machine-local name, used to route
@@ -182,6 +183,13 @@ type EditorConfig struct {
 	Vim bool
 }
 
+// CompanionConfig controls the machine-local macOS menu-bar companion. The
+// companion loads it without a board path, so its system-wide hot key comes
+// only from the global config.
+type CompanionConfig struct {
+	Shortcut string
+}
+
 // ResolveInstanceName picks this process's machine-local instance name from
 // the precedence flag > KBRD_INSTANCE env > hostname. It never consults TOML:
 // the name must differ per machine, but kbrd.toml travels with the board over
@@ -254,6 +262,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("journal.detect_date", true)
 	v.SetDefault("ingest.created_at_format", time.RFC3339)
 	v.SetDefault("editor.vim", true)
+	v.SetDefault("companion.shortcut", "command+shift+k")
 	v.SetDefault("template.exec", false)
 	v.SetDefault("template.command_timeout_ms", 20000)
 	v.SetDefault("serve.addr", "")
@@ -365,6 +374,9 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		},
 		Editor: EditorConfig{
 			Vim: v.GetBool("editor.vim"),
+		},
+		Companion: CompanionConfig{
+			Shortcut: strings.TrimSpace(v.GetString("companion.shortcut")),
 		},
 		Reminders: RemindersConfig{
 			Enabled:                  v.GetBool("reminders.enabled"),
