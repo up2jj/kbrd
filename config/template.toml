@@ -9,7 +9,7 @@
 # theme         = "auto"    # "auto" follows terminal background; "light" | "dark" force a palette
 
 [notify]
-# backend = "auto"          # auto | osc99 / kitty | osc777 | osc9 | osascript | none
+# backend = "auto"          # auto | osc99 / kitty | osc777 | osc9 | notification-center | none
 
 [board]
 # name = ""                 # optional label shown in the board switcher

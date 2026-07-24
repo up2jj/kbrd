@@ -94,7 +94,7 @@ func (b *Board) handleRemindersSyncFinished(msg remindersSyncFinishedMsg) (tea.M
 	b.remindersSyncing = false
 	b.remindersStatus = ""
 	if msg.Err != nil {
-		return b, b.notifier.ErrorCause("Reminders sync failed", msg.Err)
+		return b, b.notifier.SyncError("Reminders sync failed: "+msg.Err.Error(), "reminders")
 	}
 	message := "Reminders: " + msg.Report.Summary()
 	if msg.Report.Conflicts > 0 || msg.Report.Orphans > 0 || msg.Report.Unmanaged > 0 {

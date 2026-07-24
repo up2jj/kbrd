@@ -8,6 +8,7 @@ CLANG_MODULE_CACHE_PATH="$module_cache" /usr/bin/clang \
   -fobjc-arc \
   -framework AppKit \
   -framework Carbon \
+  -framework UserNotifications \
   -mmacosx-version-min=11.0 \
   -arch arm64 \
   -arch x86_64 \

@@ -126,6 +126,10 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	}
 
 	b.cfg = newCfg
+	b.notifier.contextMu.RLock()
+	routePath := b.notifier.routePath
+	b.notifier.contextMu.RUnlock()
+	b.notifier.SetContext(newCfg.Path, routePath)
 	b.theme = newCfg.Theme
 	// Refresh board-scoped slots immediately so cards from the new board do not
 	// inherit indicators from the previous one.

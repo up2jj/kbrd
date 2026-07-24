@@ -3,10 +3,12 @@ package model
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,7 +32,7 @@ const (
 	notifyOSC99
 	notifyOSC777
 	notifyOSC9
-	notifyOsascript
+	notifyCenter
 )
 
 const maxNotificationBytes = 2000
@@ -43,9 +45,17 @@ type notifyDeps struct {
 }
 
 type Notifier struct {
-	kind    notifyKind
-	openTTY func() (io.WriteCloser, error)
-	start   func(string, ...string) error
+	kind      notifyKind
+	openTTY   func() (io.WriteCloser, error)
+	start     func(string, ...string) error
+	boardPath string
+	routePath string
+	contextMu sync.RWMutex
+}
+
+type notificationContext struct {
+	cardPath string
+	syncKind string
 }
 
 type notifyMsg struct {
@@ -93,8 +103,8 @@ func detectNotifyKindWith(backend string, getenv func(string) string, goos strin
 		return notifyOSC777
 	case "osc9":
 		return notifyOSC9
-	case "osascript":
-		return notifyOsascript
+	case "notification-center", "notificationcenter", "osascript":
+		return notifyCenter
 	case "none", "off":
 		return notifyNone
 	}
@@ -111,7 +121,7 @@ func detectNotifyKindWith(backend string, getenv func(string) string, goos strin
 		return notifyOSC9
 	}
 	if goos == "darwin" {
-		return notifyOsascript
+		return notifyCenter
 	}
 	return notifyNone
 }
@@ -128,6 +138,33 @@ func (n *Notifier) Success(message string) tea.Cmd { return n.Send(message, noti
 func (n *Notifier) Warning(message string) tea.Cmd { return n.Send(message, notifyWarning) }
 func (n *Notifier) Error(message string) tea.Cmd   { return n.Send(message, notifyError) }
 
+// SetContext connects macOS Notification Center actions to this board's live
+// TUI. The route changes only when the process starts; the board changes when
+// the user switches boards in-app.
+func (n *Notifier) SetContext(boardPath, routePath string) {
+	n.contextMu.Lock()
+	defer n.contextMu.Unlock()
+	n.boardPath = boardPath
+	n.routePath = routePath
+}
+
+// Card sends a card notification with Open, Mark done, and Snooze actions.
+func (n *Notifier) Card(message string, sev notifySeverity, cardPath string) tea.Cmd {
+	return n.sendContext(message, sev, notificationContext{cardPath: cardPath})
+}
+
+// SyncError sends an error notification with a Retry sync action.
+func (n *Notifier) SyncError(message, syncKind string) tea.Cmd {
+	return n.sendContext(message, notifyError, notificationContext{syncKind: syncKind})
+}
+
+func (n *Notifier) sendContext(message string, sev notifySeverity, ctx notificationContext) tea.Cmd {
+	return func() tea.Msg {
+		n.fireContext(message, sev, ctx)
+		return nil
+	}
+}
+
 func (n *Notifier) ErrorCause(prefix string, err error) tea.Cmd {
 	if err == nil {
 		return nil
@@ -139,6 +176,10 @@ func (n *Notifier) ErrorCause(prefix string, err error) tea.Cmd {
 }
 
 func (n *Notifier) fire(message string, sev notifySeverity) {
+	n.fireContext(message, sev, notificationContext{})
+}
+
+func (n *Notifier) fireContext(message string, sev notifySeverity, ctx notificationContext) {
 	message = sanitizeNotificationText(message)
 	if message == "" {
 		return
@@ -152,9 +193,20 @@ func (n *Notifier) fire(message string, sev notifySeverity) {
 		n.writeTerminal(fmt.Sprintf("\x1b]777;notify;%s;%s\x1b\\", title, message))
 	case notifyOSC9:
 		n.writeTerminal(fmt.Sprintf("\x1b]9;%s: %s\x1b\\", title, message))
-	case notifyOsascript:
-		script := fmt.Sprintf("display notification %s with title %s", appleScriptString(message), appleScriptString(title))
-		_ = n.start("osascript", "-e", script)
+	case notifyCenter:
+		values := url.Values{"title": {title}, "message": {message}}
+		n.contextMu.RLock()
+		boardPath, routePath := n.boardPath, n.routePath
+		n.contextMu.RUnlock()
+		if boardPath != "" && routePath != "" {
+			values.Set("board", boardPath)
+			values.Set("route", routePath)
+			values.Set("terminal", os.Getenv("TERM_PROGRAM"))
+			values.Set("card", ctx.cardPath)
+			values.Set("sync", ctx.syncKind)
+		}
+		notificationURL := "kbrd-notify://deliver?" + values.Encode()
+		_ = n.start("/usr/bin/open", "-b", "dev.kbrd.companion", notificationURL)
 	}
 }
 
@@ -239,18 +291,4 @@ func truncateUTF8(s string, maxBytes int) string {
 		end = i
 	}
 	return s[:end]
-}
-
-func appleScriptString(s string) string {
-	out := make([]byte, 0, len(s)+2)
-	out = append(out, '"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\\' || c == '"' {
-			out = append(out, '\\')
-		}
-		out = append(out, c)
-	}
-	out = append(out, '"')
-	return string(out)
 }

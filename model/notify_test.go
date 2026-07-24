@@ -3,10 +3,12 @@ package model
 import (
 	"bytes"
 	"io"
-	"slices"
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"kbrd/config"
 )
 
 type testTTY struct {
@@ -35,7 +37,7 @@ func TestDetectNotifyKind(t *testing.T) {
 		{name: "wezterm", backend: "auto", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: notifyOSC777},
 		{name: "iterm", backend: "auto", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: notifyOSC9},
 		{name: "ghostty", backend: "auto", env: map[string]string{"TERM": "xterm-ghostty"}, want: notifyOSC9},
-		{name: "mac fallback", backend: "auto", goos: "darwin", want: notifyOsascript},
+		{name: "mac fallback", backend: "auto", goos: "darwin", want: notifyCenter},
 		{name: "unsupported terminal", backend: "auto", goos: "linux", want: notifyNone},
 		{name: "unknown backend retains auto behavior", backend: "future", env: map[string]string{"TERM_PROGRAM": "Ghostty"}, want: notifyOSC9},
 	}
@@ -123,10 +125,10 @@ func TestNotifierDisabledDoesNotOpenTTY(t *testing.T) {
 	}
 }
 
-func TestNotifierOsascriptFallback(t *testing.T) {
+func TestNotifierNotificationCenterFallback(t *testing.T) {
 	var gotName string
 	var gotArgs []string
-	n := newNotifier("osascript", notifyDeps{
+	n := newNotifier("notification-center", notifyDeps{
 		start: func(name string, args ...string) error {
 			gotName = name
 			gotArgs = args
@@ -134,12 +136,81 @@ func TestNotifierOsascriptFallback(t *testing.T) {
 		},
 	})
 	n.fire("hello\nworld", notifyError)
-	if gotName != "osascript" {
-		t.Fatalf("command = %q, want osascript", gotName)
+	if gotName != "/usr/bin/open" {
+		t.Fatalf("command = %q, want /usr/bin/open", gotName)
 	}
-	want := []string{"-e", `display notification "hello world" with title "kbrd · Error"`}
-	if !slices.Equal(gotArgs, want) {
-		t.Fatalf("arguments = %q, want %q", gotArgs, want)
+	if len(gotArgs) != 3 || gotArgs[0] != "-b" || gotArgs[1] != "dev.kbrd.companion" {
+		t.Fatalf("arguments = %q", gotArgs)
+	}
+	if !strings.Contains(gotArgs[2], "kbrd-notify://deliver?") || !strings.Contains(gotArgs[2], "message=hello+world") {
+		t.Fatalf("notification URL = %q", gotArgs[2])
+	}
+}
+
+func TestNotifierNotificationCenterCardActionsCarryRoute(t *testing.T) {
+	var gotArgs []string
+	n := newNotifier("notification-center", notifyDeps{start: func(_ string, args ...string) error {
+		gotArgs = args
+		return nil
+	}})
+	n.SetContext("/board", "/tmp/kbrd.sock")
+	cmd := n.Card("due now", notifyWarning, "/board/Todo/card.md")
+	_ = cmd()
+	if len(gotArgs) != 3 {
+		t.Fatalf("arguments = %q", gotArgs)
+	}
+	for _, want := range []string{"board=%2Fboard", "card=%2Fboard%2FTodo%2Fcard.md", "route=%2Ftmp%2Fkbrd.sock"} {
+		if !strings.Contains(gotArgs[2], want) {
+			t.Errorf("notification URL %q does not contain %q", gotArgs[2], want)
+		}
+	}
+}
+
+func TestNotifierRouteSurvivesBackendReload(t *testing.T) {
+	b := NewBoardWithOptions(config.Config{
+		Path:          "/board",
+		NotifyBackend: "osc9",
+	}, BoardOptions{NotificationRoute: "/tmp/kbrd.sock"})
+
+	b.lifecycle().applyReloadedConfig(config.Config{
+		Path:          "/board",
+		NotifyBackend: "notification-center",
+	})
+
+	b.notifier.contextMu.RLock()
+	boardPath, routePath := b.notifier.boardPath, b.notifier.routePath
+	b.notifier.contextMu.RUnlock()
+	if boardPath != "/board" || routePath != "/tmp/kbrd.sock" {
+		t.Fatalf("notification context = (%q, %q)", boardPath, routePath)
+	}
+}
+
+func TestScriptNotificationDoesNotInferCardActionsFromSelection(t *testing.T) {
+	var gotArgs []string
+	n := newNotifier("notification-center", notifyDeps{start: func(_ string, args ...string) error {
+		gotArgs = args
+		return nil
+	}})
+	n.SetContext("/board", "/tmp/kbrd.sock")
+	col := NewColumn("Todo", "/board/Todo", ItemOptions{})
+	col.SetItems([]Item{{
+		Name:     "task",
+		FullPath: "/board/Todo/task.md",
+		Data:     map[string]any{"due": "tomorrow"},
+	}})
+	b := &Board{notifier: n, columns: []*Column{col}}
+
+	(boardScriptAPI{b: b}).Notify("timer completed", "success")
+
+	if len(gotArgs) != 3 {
+		t.Fatalf("arguments = %q", gotArgs)
+	}
+	notificationURL, err := url.Parse(gotArgs[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cardPath := notificationURL.Query().Get("card"); cardPath != "" {
+		t.Fatalf("generic script notification unexpectedly carries card actions: %q", gotArgs[2])
 	}
 }
 

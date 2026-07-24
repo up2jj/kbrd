@@ -515,7 +515,8 @@ Show a desktop notification. `level` is one of `"info"`, `"success"`,
 `"warning"`, `"error"` (defaults to `"info"`; unknown values also become
 `"info"`). Uses your configured `notify.backend`: Kitty OSC 99 for structured
 title/body notifications, WezTerm OSC 777, OSC 9 for iTerm/Ghostty-compatible
-terminals, or the macOS `osascript` fallback.
+terminals, or the native macOS Notification Center companion. Install the
+macOS fallback once with `kbrd companion install`.
 
 ```lua
 kbrd.notify("hello", "success")

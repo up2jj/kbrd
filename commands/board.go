@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"kbrd/boardenv"
 	"kbrd/config"
 	"kbrd/mcp"
 	"kbrd/model"
+	"kbrd/notifyroute"
 	"kbrd/recents"
 	"kbrd/reminders"
 
@@ -66,14 +68,34 @@ func runBoard(cwd string, flags cliFlags) error {
 		defer mcpCloser.Close()
 	}
 
+	var notificationRoute *notifyroute.Server
+	if runtime.GOOS == "darwin" && cfg.NotifyBackend != "none" && cfg.NotifyBackend != "off" {
+		notificationRoute, _ = notifyroute.Listen()
+		if notificationRoute != nil {
+			defer notificationRoute.Close()
+		}
+	}
+	routePath := ""
+	if notificationRoute != nil {
+		routePath = notificationRoute.Path()
+	}
+
 	m := model.NewBoardWithOptions(cfg, model.BoardOptions{
-		Safe:        flags.safe,
-		Reminders:   reminders.NewService(),
-		Environment: environment,
+		Safe:              flags.safe,
+		Reminders:         reminders.NewService(),
+		Environment:       environment,
+		NotificationRoute: routePath,
 	})
 	m.SetMCPStatus(mcpStatus)
 
 	p := tea.NewProgram(m)
+	if notificationRoute != nil {
+		go func() {
+			for command := range notificationRoute.Commands() {
+				p.Send(command)
+			}
+		}()
+	}
 	finalModel, runErr := p.Run()
 	if bd, ok := finalModel.(*model.Board); ok {
 		bd.Close()

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"kbrd/companion"
+	"kbrd/notifyroute"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +18,32 @@ func newCompanionCmd() *cobra.Command {
 		Use:   "companion",
 		Short: "Manage the macOS menu-bar quick capture app",
 	}
-	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionSnapshotCmd(), newCompanionScratchpadCmd())
+	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionSnapshotCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
+	return cmd
+}
+
+func newCompanionNotificationActionCmd() *cobra.Command {
+	var route, action, boardPath, cardPath, syncKind string
+	cmd := &cobra.Command{
+		Use:    "notification-action",
+		Short:  "Route a Notification Center action to a running board",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return notifyroute.Send(route, notifyroute.Command{
+				Action: notifyroute.Action(action), BoardPath: boardPath,
+				CardPath: cardPath, SyncKind: syncKind,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&route, "route", "", "notification route socket")
+	cmd.Flags().StringVar(&action, "action", "", "action identifier")
+	cmd.Flags().StringVar(&boardPath, "board", "", "board path")
+	cmd.Flags().StringVar(&cardPath, "card", "", "card path")
+	cmd.Flags().StringVar(&syncKind, "sync", "", "sync kind")
+	_ = cmd.MarkFlagRequired("route")
+	_ = cmd.MarkFlagRequired("action")
+	_ = cmd.MarkFlagRequired("board")
 	return cmd
 }
 

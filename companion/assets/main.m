@@ -1,8 +1,16 @@
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
 #import <dispatch/dispatch.h>
+#import <UserNotifications/UserNotifications.h>
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSSearchFieldDelegate>
+static NSString * const CardCategory = @"KBRD_CARD";
+static NSString * const SyncCategory = @"KBRD_SYNC";
+static NSString * const OpenAction = @"open-card";
+static NSString * const DoneAction = @"mark-done";
+static NSString * const SnoozeAction = @"snooze-due";
+static NSString * const RetryAction = @"retry-sync";
+
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSSearchFieldDelegate, UNUserNotificationCenterDelegate>
 @property NSStatusItem *statusItem;
 @property NSPanel *panel;
 @property NSPopUpButton *board;
@@ -39,6 +47,19 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 
 @implementation AppDelegate
 
+- (void)applicationWillFinishLaunching:(NSNotification *)note {
+    UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+    center.delegate = self;
+    UNNotificationAction *open = [UNNotificationAction actionWithIdentifier:OpenAction title:@"Open card" options:UNNotificationActionOptionForeground];
+    UNNotificationAction *done = [UNNotificationAction actionWithIdentifier:DoneAction title:@"Mark done" options:UNNotificationActionOptionNone];
+    UNNotificationAction *snooze = [UNNotificationAction actionWithIdentifier:SnoozeAction title:@"Snooze due date" options:UNNotificationActionOptionNone];
+    UNNotificationAction *retry = [UNNotificationAction actionWithIdentifier:RetryAction title:@"Retry sync" options:UNNotificationActionOptionNone];
+    UNNotificationCategory *card = [UNNotificationCategory categoryWithIdentifier:CardCategory actions:@[open, done, snooze] intentIdentifiers:@[] options:UNNotificationCategoryOptionCustomDismissAction];
+    UNNotificationCategory *sync = [UNNotificationCategory categoryWithIdentifier:SyncCategory actions:@[retry] intentIdentifiers:@[] options:UNNotificationCategoryOptionCustomDismissAction];
+    [center setNotificationCategories:[NSSet setWithObjects:card, sync, nil]];
+    [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert completionHandler:^(BOOL granted, NSError *error) {}];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     [self installMenus];
@@ -53,6 +74,70 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     EventTypeSpec spec = {kEventClassKeyboard, kEventHotKeyPressed};
     InstallApplicationEventHandler(&HotKeyHandler, 1, &spec, (__bridge void *)self, NULL);
     RegisterEventHotKey(kVK_ANSI_K, cmdKey | shiftKey, keyID, GetApplicationEventTarget(), 0, &_hotKey);
+}
+
+- (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
+    for (NSURL *url in urls) [self deliverNotificationURL:url];
+}
+
+- (void)deliverNotificationURL:(NSURL *)url {
+    if (![url.scheme isEqualToString:@"kbrd-notify"] || ![url.host isEqualToString:@"deliver"]) return;
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    for (NSURLQueryItem *item in parts.queryItems) if (item.value) values[item.name] = item.value;
+    NSString *message = values[@"message"];
+    if (!message.length) return;
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = values[@"title"] ?: @"kbrd";
+    content.body = message;
+    content.userInfo = values;
+    if ([values[@"card"] length] && [values[@"route"] length]) content.categoryIdentifier = CardCategory;
+    else if ([values[@"sync"] length] && [values[@"route"] length]) content.categoryIdentifier = SyncCategory;
+    NSString *identifier = [NSString stringWithFormat:@"kbrd-%@", NSUUID.UUID.UUIDString];
+    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
+    [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request withCompletionHandler:nil];
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+ didReceiveNotificationResponse:(UNNotificationResponse *)response
+          withCompletionHandler:(void (^)(void))completionHandler {
+    NSString *action = response.actionIdentifier;
+    NSDictionary *info = response.notification.request.content.userInfo;
+    if ([action isEqualToString:UNNotificationDefaultActionIdentifier] && [info[@"card"] length]) action = OpenAction;
+    if ([action isEqualToString:UNNotificationDismissActionIdentifier]) { completionHandler(); return; }
+    if (![action isEqualToString:OpenAction] && ![action isEqualToString:DoneAction] &&
+        ![action isEqualToString:SnoozeAction] && ![action isEqualToString:RetryAction]) {
+        completionHandler(); return;
+    }
+    NSMutableArray *arguments = [NSMutableArray arrayWithArray:@[@"companion", @"notification-action",
+        @"--route", info[@"route"] ?: @"", @"--action", action,
+        @"--board", info[@"board"] ?: @""]];
+    if ([info[@"card"] length]) [arguments addObjectsFromArray:@[@"--card", info[@"card"]]];
+    if ([info[@"sync"] length]) [arguments addObjectsFromArray:@[@"--sync", info[@"sync"]]];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *error = nil;
+        [self run:arguments input:nil error:&error];
+        if ([action isEqualToString:OpenAction]) [self activateTerminal:info[@"terminal"]];
+        completionHandler();
+    });
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
+    completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
+}
+
+- (void)activateTerminal:(NSString *)program {
+    NSDictionary *bundles = @{
+        @"Apple_Terminal": @"com.apple.Terminal", @"iTerm.app": @"com.googlecode.iterm2",
+        @"WezTerm": @"com.github.wez.wezterm", @"ghostty": @"com.mitchellh.ghostty",
+        @"Ghostty": @"com.mitchellh.ghostty", @"kitty": @"net.kovidgoyal.kitty"
+    };
+    NSString *bundle = bundles[program];
+    if (!bundle.length) return;
+    NSRunningApplication *app = [NSRunningApplication runningApplicationsWithBundleIdentifier:bundle].firstObject;
+    [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
 }
 
 - (void)installMenus {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +16,7 @@ import (
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
 	"kbrd/git"
+	"kbrd/notifyroute"
 	"kbrd/scratchpad"
 	"kbrd/script"
 	"kbrd/theme"
@@ -150,10 +152,11 @@ func NewBoard(cfg config.Config) *Board {
 }
 
 type BoardOptions struct {
-	Safe        bool
-	Reminders   ReminderSyncer
-	Environment *boardenv.Manager
-	Scratchpad  *scratchpad.Store
+	Safe              bool
+	Reminders         ReminderSyncer
+	Environment       *boardenv.Manager
+	Scratchpad        *scratchpad.Store
+	NotificationRoute string
 }
 
 func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
@@ -177,6 +180,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		remindersSyncer: opts.Reminders,
 		scratchpads:     opts.Scratchpad,
 	}
+	b.notifier.SetContext(cfg.Path, opts.NotificationRoute)
 	b.cells = CellBar{cells: make(map[int]*Cell), palette: &b.palette}
 	b.templateExec.notifier = b.notifier
 	// Harpoon is optional machine-local state. A bad store must not prevent the
@@ -239,7 +243,13 @@ func (b *Board) initGit() {
 type gitNotifier struct{ n *Notifier }
 
 func (g gitNotifier) Success(msg string) tea.Cmd { return g.n.Success(msg) }
-func (g gitNotifier) Error(msg string) tea.Cmd   { return g.n.Error(msg) }
+func (g gitNotifier) Error(msg string) tea.Cmd {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "sync") || strings.HasPrefix(lower, "git pull failed") || strings.HasPrefix(lower, "git push failed") {
+		return g.n.SyncError(msg, "git")
+	}
+	return g.n.Error(msg)
+}
 
 // applyPalette propagates the effective palette to all sub-models and restyles
 // any pre-built input widgets. Call after b.theme or b.terminalDark changes.
@@ -557,6 +567,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case notifyMsg:
 		return b, b.notifier.Send(msg.Message, msg.Type)
+
+	case notifyroute.Command:
+		return b.handleNotificationAction(msg)
 
 	case releaseCheckMsg:
 		return b, b.handleReleaseCheck(msg)

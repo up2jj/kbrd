@@ -111,7 +111,11 @@ func (l boardLifecycle) applyReloadedConfig(cfg config.Config) {
 	b.cfg = cfg
 	b.theme = cfg.Theme
 	if old.NotifyBackend != cfg.NotifyBackend {
+		b.notifier.contextMu.RLock()
+		routePath := b.notifier.routePath
+		b.notifier.contextMu.RUnlock()
 		b.notifier = NewNotifier(cfg.NotifyBackend)
+		b.notifier.SetContext(cfg.Path, routePath)
 		b.templateExec.notifier = b.notifier
 	}
 	b.git.SetConfig(cfg)

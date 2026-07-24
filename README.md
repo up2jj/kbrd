@@ -266,7 +266,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
 | `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column; `--source` records an integration identifier in frontmatter. |
 | `kbrd reminders sync [--dry-run]` | Synchronize due-bearing cards with the board's configured Apple Reminders list (macOS only). Use `--create-list` to create a missing list and `--import-existing` to adopt unmarked reminders on the first sync. |
-| `kbrd companion install` | Install and start the macOS menu-bar quick-capture companion (`Command-Shift-K`). Use `--no-launch` to install without starting it. |
+| `kbrd companion install` | Install and start the macOS menu-bar quick-capture and Notification Center companion (`Command-Shift-K`). Use `--no-launch` to install without starting it. |
 | `kbrd companion run` | Start the already-installed menu-bar companion without reinstalling it. |
 | `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
@@ -555,7 +555,7 @@ title_from_heading = false  # use the first "# " heading as the card title
 theme         = "auto"      # auto follows terminal background; light | dark force a palette
 
 [notify]
-backend = "auto"            # auto | osc99 / kitty | osc777 | osc9 | osascript | none
+backend = "auto"            # auto | osc99 / kitty | osc777 | osc9 | notification-center | none
 
 [board]
 name = ""                    # optional label shown in the board switcher
@@ -609,6 +609,12 @@ addr             = "127.0.0.1:7777"  # Streamable HTTP listen address; loopback 
 allow_commands   = false      # allow run_custom_command shell execution (disabled by --safe)
 allow_card_reads = false      # expose complete card Markdown through MCP tools and resources
 ```
+
+On macOS, the `notification-center` backend (and the macOS fallback selected by
+`auto`) is delivered by the native companion. Install it once with
+`kbrd companion install`. Card notifications can offer **Open card**, **Mark
+done**, and **Snooze due date**; sync failures offer **Retry sync**. Actions are
+routed back to the running board, which can switch boards and select the card.
 
 ### Apple Reminders sync
 
