@@ -796,4 +796,3 @@ allowlisted, crash-recoverable architecture.
 - [`getWebhookInfo`](https://core.telegram.org/bots/api#getwebhookinfo)
 - [`deleteWebhook`](https://core.telegram.org/bots/api#deletewebhook)
 - [Telegram Bots FAQ](https://core.telegram.org/bots/faq)
-
