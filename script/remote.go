@@ -74,13 +74,13 @@ func resolveRemoteURL(name string) (string, error) {
 			ref = spec[at+1:]
 			spec = spec[:at]
 			if ref == "" {
-				return "", fmt.Errorf("github require %q: empty ref after @", name)
+				return "", errors.New("github remote require has an empty ref after @")
 			}
 		}
 		// spec is now owner/repo/path/to/file.lua
 		parts := strings.SplitN(spec, "/", 3)
 		if len(parts) < 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-			return "", fmt.Errorf("github require %q: want github:owner/repo/path@ref", name)
+			return "", errors.New("github remote require must match github:owner/repo/path@ref")
 		}
 		return fmt.Sprintf("%s/%s/%s/%s/%s", rawGitHubBase, parts[0], parts[1], ref, parts[2]), nil
 	}
@@ -90,7 +90,7 @@ func resolveRemoteURL(name string) (string, error) {
 	if strings.HasPrefix(name, "http://") && isLoopbackHTTPURL(name) {
 		return name, nil
 	}
-	return "", fmt.Errorf("unsupported remote require %q: expected https://, loopback http://, or github:owner/repo/path@ref", name)
+	return "", errors.New("unsupported remote require: expected https://, loopback http://, or github:owner/repo/path@ref")
 }
 
 func isLoopbackHTTPURL(raw string) bool {
@@ -114,10 +114,10 @@ func checkRemoteRedirect(req *http.Request, via []*http.Request) error {
 		return nil
 	}
 	if req.URL.Scheme != "http" || !isLoopbackHTTPURL(req.URL.String()) {
-		return fmt.Errorf("redirect target %q must use HTTPS or loopback HTTP", req.URL.Redacted())
+		return fmt.Errorf("redirect target %q must use HTTPS or loopback HTTP", redactRemoteName(req.URL.String()))
 	}
 	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" {
-		return fmt.Errorf("refusing HTTPS downgrade redirect to %q", req.URL.Redacted())
+		return fmt.Errorf("refusing HTTPS downgrade redirect to %q", redactRemoteName(req.URL.String()))
 	}
 	return nil
 }
@@ -126,6 +126,28 @@ func checkRemoteRedirect(req *http.Request, via []*http.Request) error {
 func cacheKey(resolvedURL string) string {
 	sum := sha256.Sum256([]byte(resolvedURL))
 	return hex.EncodeToString(sum[:])
+}
+
+func redactRemoteName(name string) string {
+	if strings.HasPrefix(name, "github:") {
+		if i := strings.IndexAny(name, "?#"); i >= 0 {
+			return name[:i]
+		}
+		return name
+	}
+	u, err := url.Parse(name)
+	if err != nil {
+		return "(invalid remote URL)"
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	return u.String()
+}
+
+func writeRemoteMetadata(path, name string) error {
+	return writeFileAtomic(path, []byte(redactRemoteName(name)), 0o600)
 }
 
 // fetchRemote resolves a require name, returns the cached source if present, and
@@ -148,8 +170,15 @@ func (h *Host) fetchRemote(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("locate cache dir: %w", err)
 	}
 	srcPath := filepath.Join(dir, cacheKey(url)+".lua")
+	metadataPath := filepath.Join(dir, cacheKey(url)+".url")
 
 	if data, err := os.ReadFile(srcPath); err == nil {
+		_ = os.Chmod(srcPath, 0o600)
+		if saved, readErr := os.ReadFile(metadataPath); readErr == nil {
+			_ = writeRemoteMetadata(metadataPath, strings.TrimSpace(string(saved)))
+		} else {
+			_ = writeRemoteMetadata(metadataPath, name)
+		}
 		return string(data), nil
 	}
 
@@ -160,9 +189,10 @@ func (h *Host) fetchRemote(ctx context.Context, name string) (string, error) {
 
 	// Cache best-effort: a write failure shouldn't fail the require, since we
 	// already have the source in hand. Next load just re-fetches.
-	if mkErr := os.MkdirAll(dir, 0o755); mkErr == nil {
-		_ = writeFileAtomic(srcPath, []byte(body), 0o644)
-		_ = writeFileAtomic(filepath.Join(dir, cacheKey(url)+".url"), []byte(name), 0o644)
+	if mkErr := os.MkdirAll(dir, 0o700); mkErr == nil {
+		_ = os.Chmod(dir, 0o700)
+		_ = writeFileAtomic(srcPath, []byte(body), 0o600)
+		_ = writeRemoteMetadata(metadataPath, name)
 	}
 	return body, nil
 }
@@ -191,28 +221,29 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // httpGet fetches url with a bounded timeout and a size cap, returning the body
 // only on a 2xx response.
 func httpGet(ctx context.Context, url string) (string, error) {
+	displayURL := redactRemoteName(url)
 	client := &http.Client{
 		Timeout:       remoteFetchTimeout,
 		CheckRedirect: checkRemoteRedirect,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", fmt.Errorf("build request for %s: %w", url, err)
+		return "", fmt.Errorf("build request for %s: %w", displayURL, err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetch %s: %w", url, err)
+		return "", fmt.Errorf("fetch %s: %w", displayURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("fetch %s: status %s", url, resp.Status)
+		return "", fmt.Errorf("fetch %s: status %s", displayURL, resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, remoteMaxBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read %s: %w", url, err)
+		return "", fmt.Errorf("read %s: %w", displayURL, err)
 	}
 	if int64(len(data)) > remoteMaxBytes {
-		return "", fmt.Errorf("fetch %s: exceeds %d-byte limit", url, remoteMaxBytes)
+		return "", fmt.Errorf("fetch %s: exceeds %d-byte limit", displayURL, remoteMaxBytes)
 	}
 	return string(data), nil
 }
@@ -231,6 +262,11 @@ func (h *Host) luaRemoteFetch(L *lua.LState) int {
 		return errResult(L, err)
 	}
 	L.Push(lua.LString(src))
+	return 1
+}
+
+func luaRemoteDisplayName(L *lua.LState) int {
+	L.Push(lua.LString(redactRemoteName(L.CheckString(1))))
 	return 1
 }
 
@@ -275,6 +311,7 @@ func ListRemoteCache() ([]CachedScript, error) {
 		}
 		return nil, err
 	}
+	_ = os.Chmod(dir, 0o700)
 	var out []CachedScript
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".lua") {
@@ -282,12 +319,15 @@ func ListRemoteCache() ([]CachedScript, error) {
 		}
 		key := strings.TrimSuffix(e.Name(), ".lua")
 		srcPath := filepath.Join(dir, e.Name())
+		_ = os.Chmod(srcPath, 0o600)
 		cs := CachedScript{URL: "(unknown)", Path: srcPath}
 		if info, err := e.Info(); err == nil {
 			cs.Bytes = info.Size()
 		}
-		if url, err := os.ReadFile(filepath.Join(dir, key+".url")); err == nil {
-			cs.URL = strings.TrimSpace(string(url))
+		metadataPath := filepath.Join(dir, key+".url")
+		if saved, err := os.ReadFile(metadataPath); err == nil {
+			cs.URL = redactRemoteName(strings.TrimSpace(string(saved)))
+			_ = writeRemoteMetadata(metadataPath, cs.URL)
 		}
 		out = append(out, cs)
 	}

@@ -353,6 +353,8 @@ Fetched modules are cached on disk (under your OS cache dir, or `$KBRD_CACHE_DIR
 if set) and reused on every later start, so only the first load touches the
 network. The cache is **purge-only**: a pinned tag/SHA never changes, but a
 branch ref like `@main` won't pick up upstream changes until you clear the cache.
+Cached source and metadata are user-readable only; URL userinfo, query strings,
+and fragments are removed from stored display metadata and diagnostics.
 
 ```sh
 kbrd cache script list    # show cached modules and their original URLs

@@ -34,6 +34,7 @@ func (h *Host) installAPI() {
 	kbrd.RawSetString("emit", L.NewFunction(h.luaEmit))
 	kbrd.RawSetString("_uiGuard", L.NewFunction(h.luaUIGuard))
 	kbrd.RawSetString("_remoteFetch", L.NewFunction(h.luaRemoteFetch))
+	kbrd.RawSetString("_remoteDisplayName", L.NewFunction(luaRemoteDisplayName))
 
 	// kbrd.instance.name is this process's machine-local name, used to route
 	// instance-scoped timers (kbrd.timer.every(.., { instance = "..." })) and
@@ -146,13 +147,14 @@ local function kbrd_remote_searcher(name)
   if not (name:match("^https?://") or name:match("^github:")) then
     return nil
   end
+  local display = kbrd._remoteDisplayName(name)
   local src, err = kbrd._remoteFetch(name)
   if not src then
-    return "\n\t[kbrd remote] " .. tostring(err)
+    error("[kbrd remote] " .. tostring(err), 2)
   end
-  local chunk, lerr = loadstring(src, "@" .. name)
+  local chunk, lerr = loadstring(src, "@" .. display)
   if not chunk then
-    error("kbrd: compiling remote module '" .. name .. "': " .. tostring(lerr))
+    error("kbrd: compiling remote module '" .. display .. "': " .. tostring(lerr))
   end
   return chunk
 end

@@ -103,6 +103,72 @@ same = a == b
 	}
 }
 
+func TestRemoteCacheRedactsMetadataAndUsesPrivatePermissions(t *testing.T) {
+	serverURL, _ := remoteServer(t, `return {}`)
+	cacheRoot := t.TempDir()
+	t.Setenv("KBRD_CACHE_DIR", cacheRoot)
+	secretURL := serverURL + "/mod.lua?token=super-secret#fragment"
+	dir := writeInit(t, fmt.Sprintf("require(%q)", secretURL))
+	h, err := New(remoteCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	h.Close()
+
+	entries, err := ListRemoteCache()
+	if err != nil {
+		t.Fatalf("list cache: %v", err)
+	}
+	if len(entries) != 1 || strings.Contains(entries[0].URL, "super-secret") || strings.Contains(entries[0].URL, "?") {
+		t.Fatalf("cached display URLs = %+v, want redacted URL", entries)
+	}
+	cacheEntries, err := os.ReadDir(filepath.Join(cacheRoot, remoteCacheSubdir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheInfo, err := os.Stat(filepath.Join(cacheRoot, remoteCacheSubdir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cacheInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("cache directory permissions = %o, want 700", got)
+	}
+	for _, entry := range cacheEntries {
+		info, err := entry.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s permissions = %o, want 600", entry.Name(), got)
+		}
+		if strings.HasSuffix(entry.Name(), ".url") {
+			body, err := os.ReadFile(filepath.Join(cacheRoot, remoteCacheSubdir, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(body), "super-secret") {
+				t.Fatal("cache metadata retained URL credentials")
+			}
+		}
+	}
+}
+
+func TestRemoteErrorsRedactURLCredentials(t *testing.T) {
+	ts := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(ts.Close)
+	secretURL := ts.URL + "/missing.lua?token=super-secret"
+	h, err := loadRemote(t, remoteCfg(), fmt.Sprintf("require(%q)", secretURL))
+	if h != nil {
+		defer h.Close()
+	}
+	if err == nil {
+		t.Fatal("expected remote fetch error")
+	}
+	if strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("error disclosed URL credentials: %v", err)
+	}
+}
+
 // TestRemoteRequirePurgeRefetches confirms purge empties the cache and forces a
 // fresh fetch on the next (fresh-VM) load.
 func TestRemoteRequirePurgeRefetches(t *testing.T) {
