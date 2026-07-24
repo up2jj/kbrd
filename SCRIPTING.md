@@ -344,8 +344,80 @@ kbrd.command("rc", "Remote command", function() kbrd.status("hello from a remote
 require("https://example.com/my-module.lua")
 ```
 
+### Registering commands from a remote module
+
+A remote module can register a persistent base command as soon as it loads:
+
+```lua
+-- commands.lua (remote)
+kbrd.command("review", "Review card", function(ctx)
+  kbrd.status("reviewing " .. ctx.fileName)
+end)
+```
+
+```lua
+-- your .kbrd.lua
+require("github:owner/repo/commands.lua@v1.0.0")
+```
+
+For explicit control, return a registration function instead:
+
+```lua
+-- commands.lua (remote)
+local M = {}
+
+function M.register()
+  kbrd.command("review", "Review card", function(ctx)
+    kbrd.status("reviewing " .. ctx.fileName)
+  end)
+end
+
+return M
+```
+
+```lua
+local commands = require("github:owner/repo/commands.lua@v1.0.0")
+commands.register()
+```
+
+Commands registered at module load are base resources and remain available for
+the life of the board. To make a command layer-scoped, call the module's
+registration function from that layer's `setup` callback.
+
+### Returning layers from a remote module
+
+A remote module can return a layer definition. `require` does not register the
+returned table automatically, so pass it to `kbrd.layer` from `.kbrd.lua`:
+
+```lua
+-- work-layer.lua (remote)
+return {
+  id = "work",
+  name = "Work",
+  description = "Remote work workflow",
+  default = true,
+  setup = function()
+    kbrd.command("focus", "Focus work", function()
+      kbrd.status("work layer active")
+    end)
+  end,
+}
+```
+
+```lua
+-- your .kbrd.lua
+local work = require("github:owner/repo/work-layer.lua@v1.0.0")
+kbrd.layer(work)
+```
+
+A remote module may also call `kbrd.layer{...}` directly as a side effect.
+Either form works only while the folder-local `.kbrd.lua` is loading; a module
+required by global `init.lua`, a command, hook, or timer cannot declare layers.
+Across all local and remote declarations, layer IDs must be unique and exactly
+one layer must set `default = true`.
+
 Because `require` uses Lua's `package.loaded` memoization, requiring the same URL
-twice returns the **same** table — it's fetched, compiled, and run once.
+twice returns the same cached module value — it's fetched, compiled, and run once.
 
 ### Caching and purging
 
