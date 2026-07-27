@@ -43,6 +43,50 @@ If locked content is missing when the board opens, kbrd stops before executing
 to open the board with Lua disabled for that session. `kbrd --safe` never loads
 or synchronizes plugins.
 
+### Updating a marketplace
+
+Refresh one marketplace catalog from its configured Git ref:
+
+```bash
+kbrd plugin marketplace update acme
+```
+
+Omit the name to refresh every registered marketplace:
+
+```bash
+kbrd plugin marketplace update
+```
+
+This updates only the machine-local marketplace checkout and catalog metadata.
+It does not change `kbrd.plugins.lock` or the plugin versions used by any board.
+Use it when you want newly published plugins to appear in `plugin search`, or
+before inspecting what a marketplace currently offers.
+
+### Updating a board plugin
+
+Update one plugin used by the current board:
+
+```bash
+kbrd plugin update acme/date-tools
+git add kbrd.plugins.lock
+git commit -m "chore: update date-tools plugin"
+```
+
+Omit the plugin ID to update every plugin in the board lock:
+
+```bash
+kbrd plugin update
+```
+
+Plugin update refreshes the relevant marketplace, resolves the plugin at its
+new marketplace commit, verifies and caches its content, and atomically rewrites
+`kbrd.plugins.lock`. Review and commit the lock-file diff so other board clones
+receive the same revisions.
+
+`kbrd plugin sync` is deliberately different: it installs exactly what the
+current lock specifies and never selects a newer revision. After pulling an
+updated lock on another machine, run `kbrd plugin sync` to populate its cache.
+
 ## Marketplace layout
 
 ```text
