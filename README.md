@@ -273,6 +273,10 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd companion uninstall` | Stop and remove the macOS companion and its login item. Boards, global configuration, and the main `kbrd` executable are preserved; macOS may cache the **Capture in kbrd** Service until applications refresh or the next login. |
 | `kbrd companion run` | Start the already-installed menu-bar companion without reinstalling it. |
 | `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
+| `kbrd plugin marketplace add <git-url>` | Register a Git-backed Lua plugin marketplace. Use `--ref` to track a branch or tag; see [PLUGINS.md](./PLUGINS.md). |
+| `kbrd plugin search [query]` | Search the locally registered marketplace catalogs. |
+| `kbrd plugin add <marketplace/plugin>` | Resolve a plugin into the current board's `kbrd.plugins.lock` and cache its verified content. |
+| `kbrd plugin sync` | Download and verify the exact plugin revisions in the current board's lock. |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
 
 **Flags**
@@ -931,8 +935,15 @@ itself rather than have the shell expand it).
 kbrd embeds a Lua 5.1 VM ([gopher-lua](https://github.com/yuin/gopher-lua)). Scripts are
 loaded at startup from:
 
+- **Board lock:** plugins pinned by `<board>/kbrd.plugins.lock`
 - **Global:** `~/.config/kbrd/init.lua`
 - **Folder-local:** `<board>/.kbrd.lua`
+
+Locked plugins load first, followed by global and folder-local Lua. A missing or
+tampered cache entry blocks folder Lua and opens the startup recovery screen;
+press `i` to synchronize the lock or `s` to continue without Lua. Plugin modules
+use qualified names such as `require("acme.date-tools.util")`. See
+**[PLUGINS.md](./PLUGINS.md)**.
 
 The API surface includes:
 

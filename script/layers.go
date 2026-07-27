@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -96,6 +97,16 @@ func (v *virtualColumns) clear(id string) {
 func (v *virtualColumns) clearAll() {
 	v.order = nil
 	v.byID = make(map[string]virtualColumnState)
+}
+
+func (v *virtualColumns) clearPrefix(prefix string) {
+	v.order = slices.DeleteFunc(v.order, func(id string) bool {
+		if !strings.HasPrefix(id, prefix) {
+			return false
+		}
+		delete(v.byID, id)
+		return true
+	})
 }
 
 // Layers returns a copy of the valid layer catalog in declaration order.
@@ -300,11 +311,20 @@ func (h *Host) effectiveCommands() []luaCommand {
 		}
 	}
 	for _, command := range h.commands {
-		if command.owner == "" && !activeIDs[command.ID] {
+		if (command.owner == "" || isPluginOwner(command.owner)) && !activeIDs[command.ID] {
 			base = append(base, command)
 		}
 	}
 	return append(base, active...)
+}
+
+func isPluginOwner(owner string) bool { return strings.HasPrefix(owner, "plugin:") }
+
+func (h *Host) scopedPluginID(id string) string {
+	if !isPluginOwner(h.activeOwner) {
+		return id
+	}
+	return strings.TrimPrefix(h.activeOwner, "plugin:") + ":" + id
 }
 
 func (h *Host) reconcileVirtualColumns() {

@@ -585,6 +585,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scriptEditorDoneMsg:
 		return b.scriptStartupFlow().handleEditorDone(msg)
 
+	case scriptPluginSyncDoneMsg:
+		return b.scriptStartupFlow().handlePluginSyncDone(msg)
+
 	case watchStartMsg:
 		return b.lifecycle().HandleWatchStart()
 

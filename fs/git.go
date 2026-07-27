@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -54,14 +55,52 @@ func GitInit(dir string) error {
 // GitClone clones url into dir, surfacing git's combined output (redacted) on
 // failure.
 func GitClone(url, dir string) error {
+	return GitCloneContext(context.Background(), url, dir)
+}
+
+// GitCloneContext clones url into dir without initializing submodules or
+// allowing repository-provided hooks. The caller owns cancellation.
+func GitCloneContext(ctx context.Context, url, dir string) error {
 	if !GitAvailable() {
 		return fmt.Errorf("git not found on PATH")
 	}
-	out, err := exec.Command("git", "clone", url, dir).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "git", "-c", "core.hooksPath=/dev/null", "clone", "--no-recurse-submodules", "--", url, dir).CombinedOutput()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return gitError([]string{"clone"}, out, err)
 	}
 	return nil
+}
+
+// GitFetchRefContext fetches ref from origin and returns the exact fetched
+// commit. An empty ref follows the remote's default branch.
+func GitFetchRefContext(ctx context.Context, repoRoot, ref string) (string, error) {
+	args := []string{"-c", "core.hooksPath=/dev/null", "fetch", "--prune", "origin"}
+	if ref != "" {
+		args = append(args, ref)
+	} else {
+		args = append(args, "HEAD")
+	}
+	if err := gitRunContext(ctx, repoRoot, args...); err != nil {
+		return "", err
+	}
+	return GitResolveRevision(repoRoot, "FETCH_HEAD")
+}
+
+// GitCheckoutDetachedContext force-checks out revision without running hooks.
+func GitCheckoutDetachedContext(ctx context.Context, repoRoot, revision string) error {
+	return gitRunContext(ctx, repoRoot, "-c", "core.hooksPath=/dev/null", "checkout", "--detach", "--force", revision)
+}
+
+// GitResolveRevision resolves revision to a full commit hash.
+func GitResolveRevision(repoRoot, revision string) (string, error) {
+	out, err := gitOutput(repoRoot, "rev-parse", "--verify", revision+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 func GitHasRemote(repoRoot string) bool {

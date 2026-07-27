@@ -46,6 +46,11 @@ Create one of these files and kbrd will load it at boot:
 | `~/.config/kbrd/init.lua`           | Global (all boards) |
 | `<board>/.kbrd.lua`                 | Folder-local        |
 
+Plugins pinned by `<board>/kbrd.plugins.lock` load before both files. Their
+content is copied into a verified machine-local cache and is never executed from
+the marketplace checkout. See [PLUGINS.md](./PLUGINS.md) for marketplace and
+lock-file authoring.
+
 > **⚠️ Security & trust:** A folder-local `.kbrd.lua` is **executed automatically when
 > you open that board** — no prompt. It runs with the full Lua stdlib, can shell out via
 > `kbrd.async.run`, and `kbrd.fs.*` is **not** sandboxed to the board root. Opening a

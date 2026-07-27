@@ -1,9 +1,9 @@
 // Package script embeds a Lua VM (via gopher-lua) to let users extend kbrd
 // beyond shell-only custom commands.
 //
-// The package depends only on kbrd/events and kbrd/config — never on model/ —
-// so scripting can be removed by deleting its wire-up in main.go without
-// touching the rest of the codebase.
+// The package depends only on lower-level runtime/configuration packages —
+// never on model/ — so scripting can be removed by deleting its wire-up in
+// main.go without touching the rest of the codebase.
 package script
 
 import (
@@ -21,6 +21,7 @@ import (
 
 	"kbrd/config"
 	"kbrd/events"
+	"kbrd/plugin"
 )
 
 const (
@@ -159,10 +160,11 @@ type EvalCompletion struct {
 	Usage string
 }
 
-// InitError separates failures in the personal global init.lua from failures
-// in the board's .kbrd.lua. The TUI blocks startup only for Folder errors.
+// InitError separates failures in personal global Lua, board-locked plugins,
+// and the board's .kbrd.lua. Plugin and folder failures block board startup.
 type InitError struct {
 	Global error
+	Plugin error
 	Folder error
 }
 
@@ -170,12 +172,18 @@ func (e *InitError) Error() string {
 	switch {
 	case e == nil:
 		return ""
-	case e.Global != nil && e.Folder != nil:
-		return e.Global.Error() + "\n" + e.Folder.Error()
+	case e.Global != nil && (e.Plugin != nil || e.Folder != nil):
+		return errors.Join(e.Global, e.Plugin, e.Folder).Error()
+	case e.Plugin != nil && e.Folder != nil:
+		return errors.Join(e.Plugin, e.Folder).Error()
 	case e.Folder != nil:
 		return e.Folder.Error()
-	default:
+	case e.Plugin != nil:
+		return e.Plugin.Error()
+	case e.Global != nil:
 		return e.Global.Error()
+	default:
+		return ""
 	}
 }
 
@@ -184,7 +192,7 @@ func (e *InitError) Error() string {
 func InitErrors(err error) (global, folder error) {
 	var initErr *InitError
 	if errors.As(err, &initErr) {
-		return initErr.Global, initErr.Folder
+		return initErr.Global, errors.Join(initErr.Plugin, initErr.Folder)
 	}
 	return nil, err
 }
@@ -298,6 +306,10 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 	if !cfg.Enabled {
 		return nil, nil
 	}
+	runtimePlugins, err := plugin.RuntimePlugins(folderPath)
+	if err != nil {
+		return nil, &InitError{Plugin: fmt.Errorf("%s: %w", plugin.LockFile, err)}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -332,6 +344,7 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 		workCancel:     workCancel,
 	}
 	h.installAPI()
+	h.installPluginModulePaths(runtimePlugins)
 
 	// evalEnv backs kbrd.register / Host.Eval. Its __index falls back to the real
 	// globals so registered functions and evaled expressions still see string,
@@ -340,6 +353,24 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 	envMeta := L.NewTable()
 	envMeta.RawSetString("__index", L.Get(lua.GlobalsIndex))
 	L.SetMetatable(h.evalEnv, envMeta)
+	initCtx := ctx
+	var initCancel context.CancelFunc
+	if cfg.InitTimeoutMs > 0 {
+		initCtx, initCancel = context.WithTimeout(ctx, time.Duration(cfg.InitTimeoutMs)*time.Millisecond)
+		defer initCancel()
+	}
+
+	var pluginErr error
+	for _, runtimePlugin := range runtimePlugins {
+		previousOwner := h.activeOwner
+		h.activeOwner = "plugin:" + runtimePlugin.ID
+		err := h.doFile(initCtx, runtimePlugin.Entrypoint)
+		h.activeOwner = previousOwner
+		if err != nil {
+			h.logger.Log("error", runtimePlugin.Entrypoint, err.Error())
+			pluginErr = errors.Join(pluginErr, fmt.Errorf("plugin %s: %w", runtimePlugin.ID, err))
+		}
+	}
 
 	globalDir, _ := os.UserConfigDir()
 	candidates := []string{
@@ -350,16 +381,14 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 	}
 
 	var globalErr, folderErr error
-	any := false
+	any := len(runtimePlugins) > 0
 	localOK := true
-	initCtx := ctx
-	var initCancel context.CancelFunc
-	if cfg.InitTimeoutMs > 0 {
-		initCtx, initCancel = context.WithTimeout(ctx, time.Duration(cfg.InitTimeoutMs)*time.Millisecond)
-		defer initCancel()
-	}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		if filepath.Base(p) == FolderInitFile && pluginErr != nil {
+			localOK = false
 			continue
 		}
 		any = true
@@ -402,10 +431,29 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 		L.Close()
 		return nil, nil
 	}
-	if globalErr != nil || folderErr != nil {
-		return h, &InitError{Global: globalErr, Folder: folderErr}
+	if globalErr != nil || pluginErr != nil || folderErr != nil {
+		return h, &InitError{Global: globalErr, Plugin: pluginErr, Folder: folderErr}
 	}
 	return h, nil
+}
+
+func (h *Host) installPluginModulePaths(plugins []plugin.RuntimePlugin) {
+	if len(plugins) == 0 || h == nil || h.L == nil {
+		return
+	}
+	packageTable, ok := h.L.GetGlobal("package").(*lua.LTable)
+	if !ok {
+		return
+	}
+	paths := make([]string, 0, len(plugins)*2+1)
+	for _, runtimePlugin := range plugins {
+		paths = append(paths,
+			filepath.Join(runtimePlugin.ModuleRoot, "?.lua"),
+			filepath.Join(runtimePlugin.ModuleRoot, "?", "init.lua"),
+		)
+	}
+	paths = append(paths, lua.LVAsString(packageTable.RawGetString("path")))
+	packageTable.RawSetString("path", lua.LString(strings.Join(paths, ";")))
 }
 
 // Close releases the underlying Lua VM and drops all registered callbacks.

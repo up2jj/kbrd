@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"kbrd/plugin"
 	"kbrd/script"
 )
 
@@ -30,9 +31,11 @@ type scriptStartupState struct {
 	traceback string
 	output    []script.LogRecord
 	editError string
+	source    string
 }
 
 type scriptEditorDoneMsg struct{ err error }
+type scriptPluginSyncDoneMsg struct{ err error }
 
 // boardScriptStartup owns the startup preflight and recovery screen. Keeping
 // this flow here leaves Board responsible only for routing Bubble Tea messages.
@@ -77,6 +80,16 @@ func (s boardScriptStartup) handleEditorDone(msg scriptEditorDoneMsg) (tea.Model
 	return b, nil
 }
 
+func (s boardScriptStartup) handlePluginSyncDone(msg scriptPluginSyncDoneMsg) (tea.Model, tea.Cmd) {
+	b := s.board
+	if msg.err != nil {
+		b.scriptStartup.editError = "plugin sync: " + msg.err.Error()
+		return b, nil
+	}
+	b.scriptStartup.editError = ""
+	return b, func() tea.Msg { return scriptInitRunMsg{} }
+}
+
 func (s boardScriptStartup) view() tea.View {
 	view := tea.NewView(s.board.renderScriptStartup())
 	view.AltScreen = true
@@ -85,6 +98,14 @@ func (s boardScriptStartup) view() tea.View {
 
 func (b *Board) openScriptStartupFailure(err error, switching bool) {
 	path := filepath.Join(b.cfg.Path, script.FolderInitFile)
+	source := script.FolderInitFile
+	if strings.Contains(err.Error(), plugin.LockFile) {
+		path = filepath.Join(b.cfg.Path, plugin.LockFile)
+		source = plugin.LockFile
+	} else if strings.Contains(err.Error(), "plugin ") {
+		path = ""
+		source = "Lua plugin"
+	}
 	message, line := scriptErrorSummary(err, path)
 	b.scriptStartup = scriptStartupState{
 		active:    true,
@@ -93,6 +114,7 @@ func (b *Board) openScriptStartupFailure(err error, switching bool) {
 		line:      line,
 		message:   message,
 		traceback: err.Error(),
+		source:    source,
 	}
 	if b.scriptLogger != nil {
 		for _, record := range b.scriptLogger.Records() {
@@ -136,12 +158,39 @@ func (s boardScriptStartup) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case "r":
 		b.scriptStartup.editError = ""
 		return b, func() tea.Msg { return scriptInitRunMsg{} }
+	case "i":
+		if b.scriptStartup.source != plugin.LockFile {
+			return b, nil
+		}
+		cmd, err := pluginSyncCommand(b.cfg.Path)
+		if err != nil {
+			b.scriptStartup.editError = err.Error()
+			return b, nil
+		}
+		return b, tea.ExecProcess(cmd, func(err error) tea.Msg { return scriptPluginSyncDoneMsg{err: err} })
+	case "s":
+		b.cfg.Scripting.Enabled = false
+		b.scriptStartup.editError = ""
+		return b, func() tea.Msg { return scriptInitRunMsg{} }
 	case "e":
+		if b.scriptStartup.path == "" {
+			return b, nil
+		}
 		path := b.scriptStartup.path
 		cmd := scriptEditorCommand(b.cfg.Path, path)
 		return b, tea.ExecProcess(cmd, func(err error) tea.Msg { return scriptEditorDoneMsg{err: err} })
 	}
 	return b, nil
+}
+
+func pluginSyncCommand(boardDir string) (*exec.Cmd, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("locate kbrd executable: %w", err)
+	}
+	cmd := exec.Command(executable, "plugin", "--board", boardDir, "sync")
+	cmd.Dir = boardDir
+	return cmd, nil
 }
 
 func scriptEditorCommand(boardDir, path string) *exec.Cmd {
@@ -163,7 +212,10 @@ func (b *Board) renderScriptStartup() string {
 	highlight := lipgloss.NewStyle().Foreground(b.palette.Danger).Bold(true)
 
 	var lines []string
-	location := script.FolderInitFile
+	location := s.source
+	if location == "" {
+		location = script.FolderInitFile
+	}
 	if s.line > 0 {
 		location += ":" + strconv.Itoa(s.line)
 	}
@@ -187,13 +239,20 @@ func (b *Board) renderScriptStartup() string {
 		lines = append(lines, muted.Render("Traceback"), s.traceback, "")
 	}
 	if s.editError != "" {
-		lines = append(lines, danger.Render("editor: "+s.editError), "")
+		lines = append(lines, danger.Render(s.editError), "")
 	}
-	lines = append(lines, muted.Render("e edit in $EDITOR   r retry   enter traceback   q quit"))
+	actions := "r retry   s open without Lua   enter traceback   q quit"
+	if s.path != "" {
+		actions = "e edit in $EDITOR   " + actions
+	}
+	if s.source == plugin.LockFile {
+		actions = "i install locked plugins   r retry   s open without Lua   enter traceback   q quit"
+	}
+	lines = append(lines, muted.Render(actions))
 
 	body := lipgloss.NewStyle().Width(bodyWidth).Render(strings.Join(lines, "\n"))
 	frame := OverlayFrame{
-		Title:   ".kbrd.lua startup failed",
+		Title:   s.source + " startup failed",
 		Body:    body,
 		Palette: b.palette,
 	}.Render()

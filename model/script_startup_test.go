@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
+	"kbrd/plugin"
 )
 
 func startupTestBoard(t *testing.T, body string) *Board {
@@ -106,6 +107,46 @@ func TestScriptEditorCommandUsesShellEditorFallback(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(cmd.Args, " "), "VISUAL") || !strings.Contains(strings.Join(cmd.Args, " "), "EDITOR") {
 		t.Fatalf("editor fallback missing: %#v", cmd.Args)
+	}
+}
+
+func TestPluginSyncCommandTargetsBoard(t *testing.T) {
+	cmd, err := pluginSyncCommand("/board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Dir != "/board" || !strings.Contains(strings.Join(cmd.Args, " "), "plugin --board /board sync") {
+		t.Fatalf("plugin sync command = dir %q args %#v", cmd.Dir, cmd.Args)
+	}
+}
+
+func TestMissingLockedPluginOffersSyncOrLuaDisabledStartup(t *testing.T) {
+	t.Setenv("KBRD_PLUGIN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("KBRD_PLUGIN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	b := startupTestBoard(t, `error("folder Lua must not run")`)
+	lock := plugin.BoardLock{Plugins: []plugin.LockedPlugin{{
+		ID: "acme/date-tools", Marketplace: "acme",
+		MarketplaceURL:    "https://example.com/acme/plugins.git",
+		MarketplaceCommit: strings.Repeat("a", 40),
+		Source:            "plugins/date-tools", Entrypoint: "init.lua",
+		ContentSHA256: "sha256:" + strings.Repeat("0", 64),
+	}}}
+	if err := plugin.SaveBoardLock(b.cfg.Path, lock); err != nil {
+		t.Fatal(err)
+	}
+	_, cmd := b.Update(scriptInitRunMsg{})
+	if cmd != nil || !b.scriptStartup.active {
+		t.Fatalf("startup = active %v cmd %v", b.scriptStartup.active, cmd)
+	}
+	view := ansi.Strip(b.View().Content)
+	for _, want := range []string{plugin.LockFile + " startup failed", "i install locked plugins", "s open without Lua", "kbrd plugin sync"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	_, cmd = b.Update(tea.KeyPressMsg{Code: 's'})
+	if cmd == nil || b.cfg.Scripting.Enabled {
+		t.Fatalf("open without Lua = enabled %v cmd %v", b.cfg.Scripting.Enabled, cmd)
 	}
 }
 

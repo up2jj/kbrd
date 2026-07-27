@@ -26,6 +26,7 @@ When a board is opened (at startup, and again on every board switch), kbrd loads
 | `~/.config/kbrd/init.lua` | Global (yours) | Lua script, executed at boot |
 | `~/.config/kbrd/commands.yml` | Global (yours) | Shell commands registered in the `x` menu |
 | `<board>/.kbrd.lua` | **Folder-local (travels with the folder)** | Lua script, executed on open |
+| `<board>/kbrd.plugins.lock` | **Folder-local (travels with the folder)** | Pins Git-hosted Lua plugins; already-cached verified plugins execute before `.kbrd.lua`, while missing content requires an explicit sync |
 | `<board>/.kbrd_commands.yml` | **Folder-local (travels with the folder)** | Shell commands registered in the `x` menu |
 | `<board>/.kbrd_hooks.yml` | **Folder-local (travels with the folder)** | Shell commands run automatically on board events |
 | `<board>/.kbrd_templates/*.md` | **Folder-local (travels with the folder)** | Card templates; with `[template] exec = true`, a `{{shell}}` directive runs a command on card creation |
@@ -90,7 +91,7 @@ defaults off.
   bundled extension's fixed origin and supports board/folder listing plus card creation; it cannot
   read existing card contents or run custom commands.
 - **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
-  `.kbrd_templates/`, and `.mcp.json` in any board you didn't author before opening it.
+  `.kbrd_templates/`, `kbrd.plugins.lock`, and `.mcp.json` in any board you didn't author before opening it.
 - **Delete** folder-local config you don't need or trust.
 
 ## Reporting a vulnerability

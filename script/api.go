@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -577,6 +578,7 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
 	id := L.CheckString(1)
+	rawID := id
 	spec := L.CheckTable(2)
 	if id == "" {
 		L.RaiseError("kbrd.column.set: id is required")
@@ -589,8 +591,9 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		Width: int(lua.LVAsNumber(spec.RawGetString("width"))),
 	}
 	if out.Name == "" {
-		out.Name = id
+		out.Name = rawID
 	}
+	id = h.scopedPluginID(id)
 	if h, ok := spec.RawGetString("header").(*lua.LTable); ok {
 		out.HeaderFG = lua.LVAsString(h.RawGetString("fg"))
 		out.HeaderBG = lua.LVAsString(h.RawGetString("bg"))
@@ -656,6 +659,9 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 	switch {
 	case h.stage != nil:
 		h.stage.vcols.set(id, state)
+	case isPluginOwner(h.activeOwner):
+		h.baseVCols.set(id, state)
+		h.reconcileVirtualColumns()
 	case h.activeOwner != "":
 		h.layerVCols.set(id, state)
 		h.reconcileVirtualColumns()
@@ -672,9 +678,13 @@ func (h *Host) luaColumnClear(L *lua.LState) int {
 		return errResult(L, fmt.Errorf("presentation is not available in this host"))
 	}
 	id := L.CheckString(1)
+	id = h.scopedPluginID(id)
 	switch {
 	case h.stage != nil:
 		h.stage.vcols.clear(id)
+	case isPluginOwner(h.activeOwner):
+		h.baseVCols.clear(id)
+		h.reconcileVirtualColumns()
 	case h.activeOwner != "":
 		h.layerVCols.clear(id)
 		h.reconcileVirtualColumns()
@@ -693,6 +703,9 @@ func (h *Host) luaColumnClearAll(L *lua.LState) int {
 	switch {
 	case h.stage != nil:
 		h.stage.vcols.clearAll()
+	case isPluginOwner(h.activeOwner):
+		h.baseVCols.clearPrefix(strings.TrimPrefix(h.activeOwner, "plugin:") + ":")
+		h.reconcileVirtualColumns()
 	case h.activeOwner != "":
 		h.layerVCols.clearAll()
 		h.reconcileVirtualColumns()
@@ -1047,6 +1060,7 @@ func (h *Host) luaCommand(L *lua.LState) int {
 	}
 	scope = normalizeScope(scope)
 
+	id = h.scopedPluginID(id)
 	ref := fmt.Sprintf("lua:%s", id)
 	target := &h.commands
 	if h.stage != nil {
@@ -1106,6 +1120,10 @@ func (h *Host) luaRegister(L *lua.LState) int {
 	switch {
 	case h.stage != nil:
 		h.stage.eval.set(name, registration)
+	case isPluginOwner(h.activeOwner):
+		name = strings.ReplaceAll(strings.TrimPrefix(h.activeOwner, "plugin:"), "/", ".") + "." + name
+		h.baseEval.set(name, registration)
+		h.reconcileEvalRegistrations()
 	case h.activeOwner != "":
 		h.layerEval.set(name, registration)
 		h.reconcileEvalRegistrations()
@@ -1133,7 +1151,7 @@ func normalizeScope(s string) string {
 // Returns true if a Lua command with this id is currently registered.
 // Useful in init.lua for guarded re-registration or feature-detection.
 func (h *Host) luaHasCommand(L *lua.LState) int {
-	id := L.CheckString(1)
+	id := h.scopedPluginID(L.CheckString(1))
 	if h.stage != nil {
 		for _, command := range h.commands {
 			if command.owner == "" && command.ID == id {
