@@ -126,8 +126,10 @@ A quick, scannable rundown of everything kbrd does:
   `kbrd companion install`, then press `Command-Shift-K` anywhere to capture a
   card or append to a board scratchpad. It remembers recent board/column choices,
   searches kbrd's clipboard history, shows Git and Apple Reminders state, and
-  starts automatically when you log in. Set `companion.shortcut` in the global
-  config created by `kbrd init --global`, then restart the companion.
+  starts automatically when you log in. The same installation adds **Capture in
+  kbrd** to macOS Services, converting an explicitly shared URL or rich-text
+  selection to editable Markdown. Set `companion.shortcut` in the global config
+  created by `kbrd init --global`, then restart the companion.
 - **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; the CLI, companion, and browser share one ingestion workflow for metadata, destination resolution, durable creation, and hooks. It ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
@@ -267,7 +269,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd clone <repo-url> [dir]` | Clone a board repository and open it. `dir` defaults to the repo name; pass `--no-open` to clone without launching the TUI. |
 | `kbrd ingest --board <name-or-path> --name <name>` | Create a card from stdin, `--content`, or `--file`; sets `created_at` to the current UTC timestamp using `[ingest].created_at_format` (RFC 3339 by default). `--column` accepts a column name or 1-based position and defaults to the first column; `--source` records an integration identifier in frontmatter. |
 | `kbrd reminders sync [--dry-run]` | Synchronize due-bearing cards with the board's configured Apple Reminders list (macOS only). Use `--create-list` to create a missing list and `--import-existing` to adopt unmarked reminders on the first sync. |
-| `kbrd companion install` | Install and start the macOS menu-bar quick-capture and Notification Center companion (`Command-Shift-K` by default; configurable as `companion.shortcut`). Use `--no-launch` to install without starting it. |
+| `kbrd companion install` | Install and start the macOS menu-bar quick-capture, Notification Center companion, and **Capture in kbrd** Service (`Command-Shift-K` by default; configurable as `companion.shortcut`). Use `--no-launch` to install without starting it; launch once later to refresh Services registration. |
 | `kbrd companion run` | Start the already-installed menu-bar companion without reinstalling it. |
 | `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |
@@ -379,6 +381,22 @@ an embedded universal AppKit helper into the user cache on first use, signs it
 locally, and passes the Markdown card as a file. There is no Shortcut to install,
 and the Go application remains cgo-free. The helper supports both Apple silicon
 and Intel Macs.
+
+### macOS capture Service
+
+Run `kbrd companion install`, select text or a URL in a macOS application, then
+choose **Services → Capture in kbrd** from that application's menu or contextual
+menu. The companion opens with the selection converted to editable Markdown;
+choose the remembered board and column, adjust the title or body, and capture it.
+
+The Service prefers HTML, then RTF, then plain text, and uses a URL-only fallback.
+Conversion is local and never fetches the page or downloads images. Cards receive
+canonical `created_at`, `captured_at`, `source`, `source_app`, and optional `url`
+frontmatter through the same ingestion path as companion and browser captures.
+The Service receives only the content explicitly sent to it—not the general
+clipboard. Enable it or assign a keyboard shortcut under **System Settings →
+Keyboard → Keyboard Shortcuts → Services**. If it does not appear after an
+upgrade, launch the companion once to refresh macOS service registration.
 
 ### Inline editor (vim-like)
 

@@ -17,14 +17,20 @@ static NSString * const RetryAction = @"retry-sync";
 @property NSPopUpButton *column;
 @property NSTextField *titleField;
 @property NSTextView *body;
+@property NSButton *captureButton;
 @property NSSearchField *clipboardSearch;
 @property NSPopUpButton *clipboard;
 @property NSTextField *gitStatus;
 @property NSTextField *remindersStatus;
+@property NSTextField *provenance;
 @property NSTextField *message;
 @property NSArray *boards;
 @property NSArray *clipboardEntries;
 @property NSString *kbrdPath;
+@property NSString *captureSourceApp;
+@property NSString *captureURL;
+@property NSString *captureRequestID;
+@property BOOL serviceCapture;
 @property EventHotKeyRef hotKey;
 - (void)toggleCapture;
 @end
@@ -70,6 +76,8 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     self.statusItem.button.action = @selector(toggleCapture);
     [self buildPanel];
     [self installHotKey];
+    NSApp.servicesProvider = self;
+    NSUpdateDynamicServices();
 }
 
 - (void)installHotKey {
@@ -202,8 +210,10 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     [v addSubview:Label(@"TITLE", NSMakeRect(20, 418, 90, 16))];
     self.titleField = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 387, 420, 26)];
     self.titleField.placeholderString = @"Card title"; [v addSubview:self.titleField];
-    [v addSubview:Label(@"NOTES", NSMakeRect(20, 360, 90, 16))];
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 195, 420, 160)];
+    self.provenance = Label(@"", NSMakeRect(20, 363, 420, 18));
+    self.provenance.hidden = YES; [v addSubview:self.provenance];
+    [v addSubview:Label(@"NOTES", NSMakeRect(20, 342, 90, 16))];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 195, 420, 142)];
     scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.body = [[NSTextView alloc] initWithFrame:scroll.bounds];
     self.body.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
@@ -223,9 +233,9 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     NSButton *scratch = [[NSButton alloc] initWithFrame:NSMakeRect(236, 24, 98, 34)];
     scratch.title = @"Scratchpad"; scratch.bezelStyle = NSBezelStyleRounded;
     scratch.target = self; scratch.action = @selector(saveScratchpad:); [v addSubview:scratch];
-    NSButton *capture = [[NSButton alloc] initWithFrame:NSMakeRect(340, 24, 100, 34)];
-    capture.title = @"Capture"; capture.bezelStyle = NSBezelStyleRounded;
-    capture.keyEquivalent = @"\r"; capture.target = self; capture.action = @selector(capture:); [v addSubview:capture];
+    self.captureButton = [[NSButton alloc] initWithFrame:NSMakeRect(340, 24, 100, 34)];
+    self.captureButton.title = @"Capture"; self.captureButton.bezelStyle = NSBezelStyleRounded;
+    self.captureButton.keyEquivalent = @"\r"; self.captureButton.target = self; self.captureButton.action = @selector(capture:); [v addSubview:self.captureButton];
     NSButton *quit = [[NSButton alloc] initWithFrame:NSMakeRect(20, 24, 60, 34)];
     quit.title = @"Quit"; quit.bezelStyle = NSBezelStyleRounded;
     quit.target = NSApp; quit.action = @selector(terminate:); [v addSubview:quit];
@@ -286,8 +296,103 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 
 - (void)toggleCapture {
     if (self.panel.visible) { [self.panel orderOut:nil]; return; }
-    [self reload]; [self.panel center]; [self.panel makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
+    [self resetCaptureContext];
+    [self showCapturePanel];
     [self.panel makeFirstResponder:self.titleField];
+}
+
+- (void)showCapturePanel {
+    [self reload]; [self.panel center]; [self.panel makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)resetCaptureContext {
+    self.serviceCapture = NO;
+    self.captureSourceApp = @"kbrd Companion";
+    self.captureURL = @"";
+    self.captureRequestID = nil;
+    self.provenance.stringValue = @"";
+    self.provenance.hidden = YES;
+    self.captureButton.enabled = YES;
+}
+
+- (void)captureInKbrd:(NSPasteboard *)pasteboard userData:(NSString *)userData error:(NSString **)error {
+    NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
+    NSString *sourceApp = front.localizedName;
+    if (!sourceApp.length || [front.bundleIdentifier isEqualToString:NSBundle.mainBundle.bundleIdentifier]) sourceApp = @"macOS Service";
+
+    NSString *html = [pasteboard stringForType:NSPasteboardTypeHTML] ?: @"";
+    NSString *plain = [pasteboard stringForType:NSPasteboardTypeString] ?: @"";
+    NSString *sharedURL = [pasteboard stringForType:NSPasteboardTypeURL] ?: @"";
+    NSString *title = @"";
+
+    id webURLs = [pasteboard propertyListForType:@"WebURLsWithTitlesPboardType"];
+    if ([webURLs isKindOfClass:NSArray.class] && [webURLs count] >= 2) {
+        id urls = webURLs[0], titles = webURLs[1];
+        if (!sharedURL.length && [urls isKindOfClass:NSArray.class] && [urls count] && [urls[0] isKindOfClass:NSString.class]) sharedURL = urls[0];
+        if ([titles isKindOfClass:NSArray.class] && [titles count] && [titles[0] isKindOfClass:NSString.class]) title = titles[0];
+    }
+
+    if (!html.length) {
+        NSData *rtf = [pasteboard dataForType:NSPasteboardTypeRTF];
+        if (rtf.length) {
+            NSAttributedString *attributed = [[NSAttributedString alloc] initWithRTF:rtf documentAttributes:nil];
+            NSError *conversionError = nil;
+            NSData *htmlData = [attributed dataFromRange:NSMakeRange(0, attributed.length)
+                                      documentAttributes:@{NSDocumentTypeDocumentAttribute: NSHTMLTextDocumentType}
+                                                   error:&conversionError];
+            if (htmlData.length) html = [[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding] ?: @"";
+        }
+    }
+    if (!html.length && !plain.length && !sharedURL.length) {
+        if (error) *error = @"The selection contains no supported text or URL.";
+        return;
+    }
+
+    NSDictionary *input = @{
+        @"title": title ?: @"", @"html": html ?: @"", @"plain_text": plain ?: @"",
+        @"url": sharedURL ?: @"", @"source_app": sourceApp ?: @"macOS Service"
+    };
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:input options:0 error:nil];
+    NSString *json = [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding];
+    NSString *requestID = NSUUID.UUID.UUIDString;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.captureRequestID = requestID;
+        self.serviceCapture = YES;
+        self.captureSourceApp = sourceApp ?: @"macOS Service";
+        self.captureURL = sharedURL ?: @"";
+        self.titleField.stringValue = title ?: @"";
+        [self.body setString:@""];
+        self.provenance.hidden = NO;
+        self.captureButton.enabled = NO;
+        self.provenance.stringValue = self.captureURL.length
+            ? [NSString stringWithFormat:@"From %@ · %@", self.captureSourceApp, [NSURL URLWithString:self.captureURL].host ?: self.captureURL]
+            : [NSString stringWithFormat:@"From %@", self.captureSourceApp];
+        self.message.stringValue = @"Converting selection…";
+        [self showCapturePanel];
+    });
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *prepareError = nil;
+        NSDictionary *prepared = [self run:@[@"companion", @"prepare-capture"] input:json error:&prepareError];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (![self.captureRequestID isEqualToString:requestID]) return;
+            if (!prepared) {
+                self.message.stringValue = prepareError.length ? prepareError : @"Could not convert selection";
+                return;
+            }
+            self.captureSourceApp = prepared[@"source_app"] ?: self.captureSourceApp;
+            self.captureURL = prepared[@"url"] ?: self.captureURL;
+            self.titleField.stringValue = prepared[@"title"] ?: @"Captured item";
+            [self.body setString:prepared[@"markdown"] ?: @""];
+            self.provenance.stringValue = self.captureURL.length
+                ? [NSString stringWithFormat:@"From %@ · %@", self.captureSourceApp, [NSURL URLWithString:self.captureURL].host ?: self.captureURL]
+                : [NSString stringWithFormat:@"From %@", self.captureSourceApp];
+            self.message.stringValue = @"Selection ready to capture";
+            self.captureButton.enabled = YES;
+            [self.panel makeFirstResponder:self.titleField];
+        });
+    });
 }
 
 - (NSDictionary *)selectedBoard { NSInteger i = self.board.indexOfSelectedItem; return i >= 0 && i < self.boards.count ? self.boards[i] : nil; }
@@ -326,13 +431,15 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 - (void)capture:(id)sender {
     NSDictionary *item = self.selectedBoard;
     if (!item || !self.titleField.stringValue.length) { self.message.stringValue = @"Choose a board and enter a title"; return; }
-    NSDictionary *payload = @{
+    NSMutableDictionary *payload = [@{
         @"board": item[@"path"] ?: @"",
         @"column": self.column.titleOfSelectedItem ?: @"1",
         @"name": self.titleField.stringValue,
         @"content": self.body.string ?: @"",
-        @"source_app": @"kbrd Companion"
-    };
+        @"source": self.serviceCapture ? @"macos-service" : @"companion",
+        @"source_app": self.captureSourceApp ?: @"kbrd Companion"
+    } mutableCopy];
+    if (self.captureURL.length) payload[@"url"] = self.captureURL;
     NSData *encoded = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
     NSString *input = [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding];
     NSString *error = nil;
@@ -341,7 +448,7 @@ static NSTextField *Label(NSString *text, NSRect frame) {
     NSArray *warnings = result[@"warnings"] ?: @[];
     self.titleField.stringValue = @""; [self.body setString:@""];
     self.message.stringValue = warnings.count ? [NSString stringWithFormat:@"Captured · warning: %@", warnings.firstObject[@"message"] ?: @"hook failed"] : @"Captured";
-    if (!warnings.count) [self.panel orderOut:nil];
+    if (!warnings.count) { [self.panel orderOut:nil]; [self resetCaptureContext]; }
 }
 
 - (void)saveScratchpad:(id)sender {
@@ -360,6 +467,7 @@ static NSTextField *Label(NSString *text, NSRect frame) {
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return NO; }
+- (void)windowWillClose:(NSNotification *)notification { if (notification.object == self.panel) [self resetCaptureContext]; }
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)visible {
     if (!visible) [self toggleCapture];
     return YES;

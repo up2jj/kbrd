@@ -8,6 +8,21 @@
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSServices</key>
+  <array><dict>
+    <key>NSMenuItem</key><dict><key>default</key><string>Capture in kbrd</string></dict>
+    <key>NSMessage</key><string>captureInKbrd</string>
+    <key>NSPortName</key><string>kbrd Companion</string>
+    <key>NSServiceDescription</key><string>Capture selected text or a URL as Markdown in a kbrd board.</string>
+    <key>NSSendTypes</key>
+    <array>
+      <string>public.html</string>
+      <string>public.rtf</string>
+      <string>public.utf8-plain-text</string>
+      <string>public.url</string>
+    </array>
+    <key>NSTimeout</key><string>10000</string>
+  </dict></array>
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>kbrd notifications</string>

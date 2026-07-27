@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"kbrd/capture"
 	"kbrd/companion"
 	"kbrd/ingest"
 	"kbrd/notifyroute"
@@ -19,8 +20,33 @@ func newCompanionCmd() *cobra.Command {
 		Use:   "companion",
 		Short: "Manage the macOS menu-bar quick capture app",
 	}
-	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionCaptureCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
+	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionPrepareCaptureCmd(), newCompanionCaptureCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
 	return cmd
+}
+
+func newCompanionPrepareCaptureCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "prepare-capture",
+		Short:  "Convert a companion service selection to Markdown",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if isTerminal(cmd.InOrStdin()) {
+				return fmt.Errorf("pipe a JSON capture input on stdin")
+			}
+			var input capture.Input
+			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&input); err != nil {
+				return fmt.Errorf("decode capture input: %w", err)
+			}
+			prepared, err := capture.Prepare(input)
+			if err != nil {
+				return err
+			}
+			encoder := json.NewEncoder(cmd.OutOrStdout())
+			encoder.SetEscapeHTML(false)
+			return encoder.Encode(prepared)
+		},
+	}
 }
 
 type companionCaptureInput struct {
@@ -28,6 +54,7 @@ type companionCaptureInput struct {
 	Column    string `json:"column"`
 	Name      string `json:"name"`
 	Content   string `json:"content"`
+	Source    string `json:"source,omitempty"`
 	SourceApp string `json:"source_app,omitempty"`
 	URL       string `json:"url,omitempty"`
 }
@@ -49,9 +76,12 @@ func newCompanionCaptureCmd() *cobra.Command {
 			if strings.TrimSpace(input.SourceApp) == "" {
 				input.SourceApp = "kbrd Companion"
 			}
+			if strings.TrimSpace(input.Source) == "" {
+				input.Source = "companion"
+			}
 			result, err := ingest.Create(cmd.Context(), ingest.Request{
 				Board: input.Board, Column: input.Column, Name: input.Name,
-				Content: input.Content, Source: "companion",
+				Content: input.Content, Source: input.Source,
 				Capture: &ingest.CaptureMetadata{SourceApp: input.SourceApp, URL: input.URL},
 			})
 			if err != nil {
@@ -137,12 +167,15 @@ func newCompanionInstallCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "installed kbrd Companion in %s\n", path)
 			fmt.Fprintln(cmd.OutOrStdout(), "enabled kbrd Companion at login")
+			fmt.Fprintln(cmd.OutOrStdout(), "installed macOS Service: Capture in kbrd")
 			if !noLaunch {
 				label := "Command-Shift-K"
 				if hotKey, hotKeyErr := companion.LoadHotKey(); hotKeyErr == nil {
 					label = hotKey.Label
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "started kbrd Companion · quick capture: %s\n", label)
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "launch the companion once to refresh macOS Services registration")
 			}
 			return nil
 		},
