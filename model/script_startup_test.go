@@ -100,6 +100,47 @@ error("broken")`)
 	}
 }
 
+func TestRuntimeReloadClearsStateCreatedByBeforeDeactivate(t *testing.T) {
+	b := startupTestBoard(t, `
+kbrd.layer{
+  id = "active",
+  default = true,
+  setup = function() end,
+  before_deactivate = function()
+    local wrote, write_err = kbrd.fs.write("deactivated", "yes")
+    if not wrote then error(write_err) end
+    kbrd.cell.set(7, { text = "stale cell" })
+    kbrd.column.indicator("Todo", "stale indicator")
+    kbrd.column.set("stale", { name = "Stale virtual" })
+    local ok, err = kbrd.column.hide("Todo")
+    if not ok then error(err) end
+  end,
+}`)
+	if err := os.Mkdir(filepath.Join(b.cfg.Path, "Todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.initRuntime(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(b.cfg.Path, ".kbrd.lua"), []byte(`kbrd.command("ok", "OK", function() end)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.initRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(filepath.Join(b.cfg.Path, "deactivated")); err != nil || string(body) != "yes" {
+		t.Fatalf("before_deactivate marker = %q, %v", body, err)
+	}
+
+	if len(b.virtualCols) != 0 || b.columnHidden("Todo") || b.virtualHidden {
+		t.Fatalf("deactivation state survived reload: virtual=%d hidden=%v virtualHidden=%v", len(b.virtualCols), b.columnHidden("Todo"), b.virtualHidden)
+	}
+	if b.cells.cells[7] != nil || b.indicators.get("Todo").Text != "" {
+		t.Fatalf("deactivation presentation survived reload: cell=%v indicator=%q", b.cells.cells[7], b.indicators.get("Todo").Text)
+	}
+}
+
 func TestScriptEditorCommandUsesShellEditorFallback(t *testing.T) {
 	cmd := scriptEditorCommand("/board", "/board/.kbrd.lua")
 	if cmd.Dir != "/board" || len(cmd.Args) < 5 || cmd.Args[len(cmd.Args)-1] != "/board/.kbrd.lua" {

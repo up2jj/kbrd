@@ -23,8 +23,10 @@ type LayerInfo struct {
 
 type layerDef struct {
 	LayerInfo
-	setup    *lua.LFunction
-	pluginID string
+	beforeActivate   *lua.LFunction
+	setup            *lua.LFunction
+	beforeDeactivate *lua.LFunction
+	pluginID         string
 }
 
 type layerStage struct {
@@ -169,8 +171,10 @@ func (h *Host) layerValidationOwnedByPlugin() bool {
 	return pluginDefaults > 1 || folderLayers == 0
 }
 
-// ActivateLayer stages the target setup and commits it only after the setup
-// succeeds. The previous layer therefore remains intact on errors.
+// ActivateLayer runs the outgoing layer's before_deactivate callback, stages
+// the target's before_activate and setup callbacks, and commits the staged
+// resources only after both target callbacks succeed. The previous layer's
+// managed resources therefore remain intact on errors.
 func (h *Host) ActivateLayer(id string) error {
 	if h == nil || h.L == nil {
 		return nil
@@ -180,6 +184,14 @@ func (h *Host) ActivateLayer(id string) error {
 		return fmt.Errorf("unknown layer %q", id)
 	}
 	layer := h.layers[i]
+	wasRunning := h.running
+	if err := h.callActiveLayerBeforeDeactivate(); err != nil {
+		h.drainDeferredIfIdle(wasRunning)
+		return fmt.Errorf("activate layer %q: %w", id, err)
+	}
+	// Events produced by before_deactivate still belong to the outgoing layer,
+	// so deliver them before staging and committing the target.
+	h.drainDeferredIfIdle(wasRunning)
 	stage := &layerStage{
 		timers:         make(map[string]*timerEntry),
 		cancelTimers:   make(map[string]struct{}),
@@ -191,9 +203,14 @@ func (h *Host) ActivateLayer(id string) error {
 		vcols:          newVirtualColumns(),
 	}
 
-	prevOwner, prevStage, wasRunning := h.activeOwner, h.stage, h.running
+	prevOwner, prevStage := h.activeOwner, h.stage
 	h.activeOwner, h.stage, h.running = id, stage, true
-	err := h.callLayerSetup(layer)
+	err := h.callLayerCallback(layer.beforeActivate)
+	if err != nil {
+		err = fmt.Errorf("before_activate: %w", err)
+	} else {
+		err = h.callLayerCallback(layer.setup)
+	}
 	h.activeOwner, h.stage, h.running = prevOwner, prevStage, wasRunning
 	if err != nil {
 		h.drainDeferredIfIdle(wasRunning)
@@ -259,7 +276,30 @@ func (h *Host) prunePendingWork() {
 	})
 }
 
-func (h *Host) callLayerSetup(layer layerDef) (err error) {
+func (h *Host) callActiveLayerBeforeDeactivate() error {
+	if h == nil || h.L == nil || h.activeLayerID == "" {
+		return nil
+	}
+	i, ok := h.layerByID[h.activeLayerID]
+	if !ok || h.layers[i].beforeDeactivate == nil {
+		return nil
+	}
+
+	layer := h.layers[i]
+	prevOwner, prevStage, wasRunning := h.activeOwner, h.stage, h.running
+	h.activeOwner, h.stage, h.running = layer.ID, nil, true
+	err := h.callLayerCallback(layer.beforeDeactivate)
+	h.activeOwner, h.stage, h.running = prevOwner, prevStage, wasRunning
+	if err != nil {
+		return fmt.Errorf("before_deactivate layer %q: %w", layer.ID, err)
+	}
+	return nil
+}
+
+func (h *Host) callLayerCallback(fn *lua.LFunction) (err error) {
+	if fn == nil {
+		return nil
+	}
 	timeout := time.Duration(h.cfg.CommandTimeoutMs) * time.Millisecond
 	ctx := context.Background()
 	var cancel context.CancelFunc
@@ -274,7 +314,7 @@ func (h *Host) callLayerSetup(layer layerDef) (err error) {
 			err = fmt.Errorf("lua panic: %v", recovered)
 		}
 	}()
-	return h.L.CallByParam(lua.P{Fn: layer.setup, NRet: 0, Protect: true})
+	return h.L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true})
 }
 
 func (h *Host) unloadActiveLayer() {

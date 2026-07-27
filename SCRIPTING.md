@@ -94,6 +94,9 @@ kbrd.layer{
   name = "Work",
   description = "Work queues and automation",
   default = true,
+  before_activate = function()
+    kbrd.status("entering work layer")
+  end,
   setup = function()
     kbrd.command("focus", "Focus work", function()
       kbrd.status("work layer")
@@ -107,6 +110,9 @@ kbrd.layer{
         items = { { id = "review", title = result.out } },
       })
     end)
+  end,
+  before_deactivate = function()
+    kbrd.status("leaving work layer")
   end,
 }
 
@@ -123,9 +129,12 @@ kbrd.layer{
 }
 ```
 
-Switching reruns the target `setup` and unloads the previous layer's managed
-resources. Commands, hooks, `kbrd.register` functions, timers, async and HTTP
-callbacks, and virtual columns registered by the setup belong to that layer.
+Switching runs the outgoing layer's optional `before_deactivate`, then the
+target layer's optional `before_activate` and required `setup`, and finally
+unloads the previous layer's managed resources. `before_deactivate` also runs
+when the scripting host closes, including a board switch. Commands, hooks,
+`kbrd.register` functions, timers, async and HTTP callbacks, and virtual columns
+registered by `before_activate` or `setup` belong to the target layer.
 Commands, registered functions, or virtual columns with the same id/name
 temporarily shadow a base resource; the base version returns when the layer is
 left. Timer ticks and async/HTTP results that arrive after their layer was
@@ -135,20 +144,24 @@ killed by a layer switch.
 Layer selection is session-only. Lua globals, required modules, and closure
 upvalues remain alive while the board is open. Cells, indicators, visibility
 changes, filesystem/board mutations, notifications, and other immediate side
-effects keep their normal global lifetime, even if called by a layer setup. A
-failing setup leaves the previously active layer selected, although those
-immediate side effects cannot be rolled back. Managed registrations and
-cancellations are committed only after setup succeeds.
+effects keep their normal global lifetime, even if called by a layer callback.
+A failing lifecycle callback or setup leaves the previously active layer
+selected, although completed callbacks and other immediate side effects cannot
+be rolled back. Managed target registrations and cancellations are committed
+only after `before_activate` and `setup` both succeed. A `before_deactivate`
+failure stops a switch; during host shutdown it is logged and shutdown
+continues.
 
-The layer picker reopens with the setup error so the failure cannot look like a
-successful switch. Script-load, default-layer, and interactive switch failures
-also keep a red `✕ lua` indicator in the header; open the custom-command menu
-with `x` to inspect the full warning after dismissing the picker.
+The layer picker reopens with the lifecycle or setup error so the failure cannot
+look like a successful switch. Script-load, default-layer, and interactive
+switch failures also keep a red `✕ lua` indicator in the header; open the
+custom-command menu with `x` to inspect the full warning after dismissing the
+picker.
 
 `kbrd.layer` may only be declared while a board plugin or the folder-local
 `.kbrd.lua` is loading (modules required by either are included). Plugin layer
 IDs are namespaced as `<marketplace>/<plugin>:<id>`, as are resources registered
-by their setup callbacks. Global `init.lua` can still declare persistent base
+by their activation callbacks. Global `init.lua` can still declare persistent base
 resources, but it cannot declare layers. Under
 `kbrd serve --scripting`, the default layer activates so timers and async jobs
 run; virtual-column updates are accepted but have no headless presentation.
@@ -161,8 +174,16 @@ Fields:
 - `name` — switcher label; defaults to `id`.
 - `description` — optional searchable detail.
 - `default` — exactly one layer must set this to `true`.
+- `before_activate` — optional callback run before `setup` when the layer is
+  about to activate.
 - `setup` — required callback run on activation under the normal command timeout
   and instruction limit.
+- `before_deactivate` — optional callback run before the layer is unloaded or
+  the scripting host closes.
+
+Lifecycle callbacks use the normal command timeout and instruction limit. An
+activation switch stops on the first callback error and reports it in the layer
+picker.
 
 ---
 

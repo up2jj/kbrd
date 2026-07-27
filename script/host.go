@@ -472,9 +472,14 @@ func (h *Host) installPluginModulePaths(plugins []plugin.RuntimePlugin) {
 // After Close, the host returns nil/no-op for all operations. Safe to call
 // twice. Called by initScripting before re-creating the host on board switch.
 func (h *Host) Close() {
-	if h == nil {
+	if h == nil || h.L == nil {
 		return
 	}
+	wasRunning := h.running
+	if err := h.callActiveLayerBeforeDeactivate(); err != nil && h.logger != nil {
+		h.logger.Log("error", "layer", err.Error())
+	}
+	h.drainDeferredIfIdle(wasRunning)
 	h.CancelPending()
 	if h.workCancel != nil {
 		h.workCancel()

@@ -25,11 +25,7 @@ import (
 func (b *Board) initScripting() error {
 	b.scriptInitError = ""
 	b.scriptLayerError = ""
-	if b.scripts != nil {
-		b.cancelScriptUI()
-		b.scripts.Close()
-		b.scripts = nil
-	}
+	b.closeScripting()
 	b.bus = events.Bus{}
 
 	if !b.cfg.Scripting.Enabled {
@@ -67,6 +63,9 @@ func (b *Board) initScripting() error {
 // watchers are loaded. A successful Lua host is retained for normal startup.
 func (b *Board) initRuntime() error {
 	b.commandWarnings = nil
+	// before_deactivate may recreate immediate presentation state while the old
+	// host closes, so tear it down before clearing that state for the new host.
+	b.closeScripting()
 	b.resetScriptRuntimeState()
 	if err := b.initScripting(); err != nil {
 		return err
@@ -76,6 +75,15 @@ func (b *Board) initRuntime() error {
 	b.commandWarnings = append(scriptWarnings, b.commandWarnings...)
 	boardHooks{board: b}.init()
 	return nil
+}
+
+func (b *Board) closeScripting() {
+	if b.scripts == nil {
+		return
+	}
+	b.cancelScriptUI()
+	b.scripts.Close()
+	b.scripts = nil
 }
 
 // resetScriptRuntimeState removes presentation and visibility state owned by

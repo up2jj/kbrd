@@ -3,6 +3,7 @@ package script
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -127,6 +128,137 @@ end }`)
 	}
 	if pending := h.PendingTimers(); len(pending) != 0 {
 		t.Fatalf("failed setup leaked %d timers", len(pending))
+	}
+}
+
+func TestLayerLifecycleCallbacksRunInOrderAndOwnResources(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.layer{
+  id="one", default=true,
+  before_activate=function() kbrd.notify("activate-one") end,
+  setup=function()
+    kbrd.notify("setup-one")
+    kbrd.on("leaving", function() kbrd.notify("outgoing-hook") end)
+  end,
+  before_deactivate=function()
+    kbrd.notify("deactivate-one")
+    kbrd.emit("leaving")
+  end,
+}
+kbrd.layer{
+  id="two",
+  before_activate=function()
+    kbrd.notify("activate-two")
+    kbrd.command("early", "Early", function() end)
+  end,
+  setup=function() kbrd.notify("setup-two") end,
+  before_deactivate=function() kbrd.notify("deactivate-two") end,
+}`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.ActivateLayer("two"); err != nil {
+		t.Fatal(err)
+	}
+	if got := notificationMessages(api.notifies); !reflect.DeepEqual(got, []string{
+		"activate-one", "setup-one", "deactivate-one", "outgoing-hook", "activate-two", "setup-two",
+	}) {
+		t.Fatalf("lifecycle order = %v", got)
+	}
+	if got := commandNames(h.Commands()); got != "Early" {
+		t.Fatalf("before_activate command = %q", got)
+	}
+
+	if err := h.ActivateLayer("one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := commandNames(h.Commands()); got != "" {
+		t.Fatalf("before_activate command survived unload: %q", got)
+	}
+
+	h.Close()
+	h.Close()
+	if got := notificationMessages(api.notifies); !reflect.DeepEqual(got, []string{
+		"activate-one", "setup-one", "deactivate-one", "outgoing-hook", "activate-two", "setup-two",
+		"deactivate-two", "activate-one", "setup-one", "deactivate-one", "outgoing-hook",
+	}) {
+		t.Fatalf("lifecycle order after close = %v", got)
+	}
+}
+
+func TestLayerLifecycleCallbackFailuresStopSwitch(t *testing.T) {
+	t.Run("before deactivate", func(t *testing.T) {
+		dir := writeInit(t, `
+kbrd.layer{ id="one", default=true, setup=function()
+  kbrd.command("current", "Current", function() end)
+end, before_deactivate=function() error("stay put") end }
+kbrd.layer{ id="two", before_activate=function() kbrd.notify("target ran") end, setup=function() end }`)
+		api := &fakeAPI{}
+		h, err := New(defaultCfg(), api, nil, dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = h.ActivateLayer("two")
+		if err == nil || !strings.Contains(err.Error(), `before_deactivate layer "one"`) || !strings.Contains(err.Error(), "stay put") {
+			t.Fatalf("switch error = %v", err)
+		}
+		active, _ := h.ActiveLayer()
+		if active.ID != "one" || commandNames(h.Commands()) != "Current" {
+			t.Fatalf("active after failure = %q, commands = %q", active.ID, commandNames(h.Commands()))
+		}
+		if contains(api.notifies, "target ran") {
+			t.Fatal("target callback ran after before_deactivate failed")
+		}
+		h.Close()
+	})
+
+	t.Run("before activate", func(t *testing.T) {
+		dir := writeInit(t, `
+kbrd.layer{ id="one", default=true, setup=function()
+  kbrd.command("current", "Current", function() end)
+end, before_deactivate=function() kbrd.notify("outgoing ran") end }
+kbrd.layer{ id="two", before_activate=function()
+  kbrd.command("leak", "Leak", function() end)
+  error("not ready")
+end, setup=function() kbrd.notify("setup ran") end }`)
+		api := &fakeAPI{}
+		h, err := New(defaultCfg(), api, nil, dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer h.Close()
+
+		err = h.ActivateLayer("two")
+		if err == nil || !strings.Contains(err.Error(), "before_activate") || !strings.Contains(err.Error(), "not ready") {
+			t.Fatalf("switch error = %v", err)
+		}
+		active, _ := h.ActiveLayer()
+		if active.ID != "one" || commandNames(h.Commands()) != "Current" {
+			t.Fatalf("active after failure = %q, commands = %q", active.ID, commandNames(h.Commands()))
+		}
+		if !contains(api.notifies, "outgoing ran") || contains(api.notifies, "setup ran") {
+			t.Fatalf("notifications after failure = %v", api.notifies)
+		}
+	})
+}
+
+func TestLayerLifecycleCallbacksMustBeFunctions(t *testing.T) {
+	for _, field := range []string{"before_activate", "before_deactivate"} {
+		t.Run(field, func(t *testing.T) {
+			dir := writeInit(t, `kbrd.layer{ id="one", default=true, setup=function() end, `+field+`="no" }`)
+			h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+			if h == nil {
+				t.Fatal("partial host is nil")
+			}
+			defer h.Close()
+			if err == nil || !strings.Contains(err.Error(), field+" must be a function") {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
@@ -483,4 +615,13 @@ func commandNames(commands []config.Command) string {
 		names = append(names, command.Name)
 	}
 	return strings.Join(names, ",")
+}
+
+func notificationMessages(notifications []string) []string {
+	messages := make([]string, 0, len(notifications))
+	for _, notification := range notifications {
+		_, message, _ := strings.Cut(notification, ":")
+		messages = append(messages, message)
+	}
+	return messages
 }

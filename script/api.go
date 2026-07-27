@@ -989,9 +989,9 @@ func luaDuration(v lua.LValue) (time.Duration, error) {
 	}
 }
 
-// kbrd.layer{ id=, name=, description=, default=, setup= } declares one
-// board or plugin runtime layer. The setup callback is stored now and executed
-// only when the layer becomes active.
+// kbrd.layer{ id=, name=, description=, default=, before_activate=, setup=,
+// before_deactivate= } declares one board or plugin runtime layer. The
+// callbacks are stored now and executed during layer transitions.
 func (h *Host) luaLayer(L *lua.LState) int {
 	pluginID := h.activePluginID()
 	if !h.loadingFolder && !h.loadingPlugin {
@@ -1003,6 +1003,16 @@ func (h *Host) luaLayer(L *lua.LState) int {
 	name := lua.LVAsString(t.RawGetString("name"))
 	description := lua.LVAsString(t.RawGetString("description"))
 	setup, _ := t.RawGetString("setup").(*lua.LFunction)
+	beforeActivate, err := optionalLayerCallback(t, "before_activate")
+	if err != nil {
+		L.RaiseError("kbrd.layer: %v", err)
+		return 0
+	}
+	beforeDeactivate, err := optionalLayerCallback(t, "before_deactivate")
+	if err != nil {
+		L.RaiseError("kbrd.layer: %v", err)
+		return 0
+	}
 	if rawID == "" || setup == nil {
 		L.RaiseError("kbrd.layer: id and setup are required")
 		return 0
@@ -1021,10 +1031,24 @@ func (h *Host) luaLayer(L *lua.LState) int {
 			ID: id, Name: name, Description: description,
 			Default: lua.LVAsBool(t.RawGetString("default")),
 		},
-		setup:    setup,
-		pluginID: pluginID,
+		beforeActivate:   beforeActivate,
+		setup:            setup,
+		beforeDeactivate: beforeDeactivate,
+		pluginID:         pluginID,
 	})
 	return 0
+}
+
+func optionalLayerCallback(t *lua.LTable, name string) (*lua.LFunction, error) {
+	v := t.RawGetString(name)
+	if v == lua.LNil {
+		return nil, nil
+	}
+	fn, ok := v.(*lua.LFunction)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a function", name)
+	}
+	return fn, nil
 }
 
 // kbrd.command(id, name, fn) — short form
