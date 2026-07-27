@@ -90,6 +90,7 @@ func (b *Board) resetScriptRuntimeState() {
 	b.virtualHidden = false
 	b.scriptStatus = ""
 	b.scriptStatusSeq++
+	b.asyncInflight = 0
 }
 
 // boardScriptAPI is the TUI capability implementation handed to the Lua host.
@@ -323,13 +324,14 @@ func (b *Board) collectAsyncCmds() tea.Cmd {
 	b.asyncInflight += len(pending)
 	dir := b.cfg.Path
 	timeoutMs := b.cfg.Scripting.CommandTimeoutMs
+	workCtx := b.scripts.WorkContext()
 	cmds := make([]tea.Cmd, 0, len(pending))
 	for _, a := range pending {
 		token := a.Token
 		shellCmd := a.Shell
 		cmds = append(cmds, func() tea.Msg {
 			scriptDebugf("async-cmd start token=%s shell=%q", token, shellCmd)
-			ctx := context.Background()
+			ctx := workCtx
 			if timeoutMs > 0 {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
@@ -377,12 +379,12 @@ func (b *Board) collectHTTPRequests() tea.Cmd {
 // handleScriptAsyncDone routes the async result back into the Lua callback.
 func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cmd) {
 	scriptDebugf("handleScriptAsyncDone token=%s exit=%d err=%q outLen=%d", msg.Token, msg.ExitCode, msg.Err, len(msg.Out))
-	if b.asyncInflight > 0 {
-		b.asyncInflight--
-	}
-	if b.scripts == nil {
+	if b.scripts == nil || !b.scripts.OwnsToken(msg.Token) {
 		scriptDebugf("handleScriptAsyncDone: scripts is nil!")
 		return b, nil
+	}
+	if b.asyncInflight > 0 {
+		b.asyncInflight--
 	}
 	if err := b.scripts.FireAsync(msg.Token, msg.Out, msg.ExitCode, msg.Err); err != nil {
 		scriptDebugf("FireAsync returned err: %v", err)
@@ -403,11 +405,11 @@ func (b *Board) handleScriptAsyncDone(msg scriptAsyncDoneMsg) (tea.Model, tea.Cm
 }
 
 func (b *Board) handleScriptHTTPDone(msg scriptHTTPDoneMsg) (tea.Model, tea.Cmd) {
+	if b.scripts == nil || !b.scripts.OwnsToken(msg.Token) {
+		return b, nil
+	}
 	if b.asyncInflight > 0 {
 		b.asyncInflight--
-	}
-	if b.scripts == nil {
-		return b, nil
 	}
 	if err := b.scripts.FireHTTP(msg.Token, msg.Result); err != nil {
 		scriptDebugf("FireHTTP returned err: %v", err)

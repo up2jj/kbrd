@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -73,6 +74,9 @@ type Host struct {
 	vcolFns    map[string]ownedFn
 	baseVCols  virtualColumns
 	layerVCols virtualColumns
+	// publishedVCols is the last effective projection sent to PresentationAPI.
+	// Keeping it lets reconciliation update surviving columns in place.
+	publishedVCols virtualColumns
 
 	pending  map[string]*pendingCoro
 	hostID   uint64
@@ -144,6 +148,8 @@ type Host struct {
 	// evalUsage holds the optional usage/signature hint for a registered name,
 	// supplied via kbrd.register(name, fn, usage). Used for command-line hints.
 	evalUsage map[string]string
+	baseEval  evalRegistrations
+	layerEval evalRegistrations
 }
 
 // EvalCompletion is one autocomplete candidate for the editor's :lua line: a
@@ -215,6 +221,7 @@ type timerEntry struct {
 type hookEntry struct {
 	fn                *lua.LFunction
 	consecutiveErrors int
+	owner             string
 }
 
 // TimerSchedule is returned by PendingTimers and tells the model how long
@@ -318,6 +325,9 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 		vcolFns:        make(map[string]ownedFn),
 		baseVCols:      newVirtualColumns(),
 		layerVCols:     newVirtualColumns(),
+		publishedVCols: newVirtualColumns(),
+		baseEval:       newEvalRegistrations(),
+		layerEval:      newEvalRegistrations(),
 		workCtx:        workCtx,
 		workCancel:     workCancel,
 	}
@@ -440,8 +450,21 @@ func (h *Host) Close() {
 	h.vcolFns = nil
 	h.baseVCols = virtualColumns{}
 	h.layerVCols = virtualColumns{}
+	h.publishedVCols = virtualColumns{}
 	h.evalEnv = nil
 	h.evalNames = nil
+	h.evalUsage = nil
+	h.baseEval = evalRegistrations{}
+	h.layerEval = evalRegistrations{}
+}
+
+// OwnsToken reports whether token was allocated by this host instance.
+func (h *Host) OwnsToken(token string) bool {
+	if h == nil {
+		return false
+	}
+	prefix := "co-" + strconv.FormatUint(h.hostID, 10) + "-"
+	return strings.HasPrefix(token, prefix)
 }
 
 // WorkContext is cancelled when the host closes, allowing schedulers to stop
@@ -1084,7 +1107,7 @@ func (h *Host) fireHook(name string, payload map[string]any) {
 	// slice mid-loop and keep behavior obvious). Indices are into entries.
 	var disable []int
 	for i, e := range entries {
-		err := h.invokeHook(e.fn, payload)
+		err := h.invokeOwnedHook(e, payload)
 		if err != nil {
 			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+name, err.Error())
@@ -1130,11 +1153,25 @@ func (h *Host) invokeHook(fn *lua.LFunction, arg any) error {
 	return err
 }
 
+func (h *Host) invokeOwnedHook(entry *hookEntry, arg any) error {
+	prevOwner := h.activeOwner
+	h.activeOwner = entry.owner
+	defer func() { h.activeOwner = prevOwner }()
+	return h.invokeHook(entry.fn, arg)
+}
+
 // invokeHookValue runs a hook function via PCall and returns its single return
 // value. Used by transform hooks (column_items) where the script's return is
 // the result, not just a side effect.
 func (h *Host) invokeHookValue(fn *lua.LFunction, arg any) (lua.LValue, error) {
 	return h.callHook(fn, arg, 1)
+}
+
+func (h *Host) invokeOwnedHookValue(entry *hookEntry, arg any) (lua.LValue, error) {
+	prevOwner := h.activeOwner
+	h.activeOwner = entry.owner
+	defer func() { h.activeOwner = prevOwner }()
+	return h.invokeHookValue(entry.fn, arg)
 }
 
 // callHook is the shared PCall core behind invokeHook/invokeHookValue. nret is

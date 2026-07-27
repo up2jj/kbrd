@@ -1,5 +1,7 @@
 package model
 
+import "fmt"
+
 // This file is the model-side glue for the Lua column_items transform hook.
 // The hook lets a script reorder, filter, or group (via separators) the items
 // of a filesystem column. Two invariants are enforced here, not in Lua:
@@ -21,6 +23,20 @@ func (b *Board) applyColumnTransforms() {
 	for _, col := range b.allFilesystemColumns() {
 		b.applyColumnTransform(col)
 	}
+}
+
+// reloadAndApplyColumnTransforms restores each filesystem column's complete
+// disk-backed item set before applying the newly active layer's hooks. A prior
+// layer may have filtered items out, so transforming the current projection
+// directly would make those items impossible for the new layer to restore.
+func (b *Board) reloadAndApplyColumnTransforms() error {
+	for _, col := range b.allFilesystemColumns() {
+		if err := col.LoadItems(); err != nil {
+			return fmt.Errorf("reload column %q: %w", col.Name, err)
+		}
+	}
+	b.applyColumnTransforms()
+	return nil
 }
 
 // applyColumnTransform fires the column_items hook for one column and rewrites

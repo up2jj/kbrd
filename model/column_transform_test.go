@@ -110,6 +110,25 @@ func TestColumnTransform_PinnedImmuneToHiding(t *testing.T) {
 	}
 }
 
+func TestLayerSwitchReloadsItemsBeforeApplyingNewTransform(t *testing.T) {
+	b := newTransformBoard(t, `
+kbrd.layer{ id="filtered", default=true, setup=function()
+  kbrd.on("column_items", function(ev) return { ev.items[1] } end)
+end }
+kbrd.layer{ id="all", setup=function()
+  kbrd.on("column_items", function(ev) return ev.items end)
+end }`)
+	b.applyColumnTransforms()
+	if got := itemNames(b.columns[0].Items); len(got) != 2 {
+		t.Fatalf("filtered layer items = %v", got)
+	}
+
+	_, _ = b.handleSwitchLayer(switchLayerMsg{ID: "all"})
+	if got := itemNames(b.columns[0].Items); len(got) != 4 {
+		t.Fatalf("all layer did not restore disk items: %v", got)
+	}
+}
+
 func TestColumnTransform_UnknownEntriesIgnored(t *testing.T) {
 	b := newTransformBoard(t, `
 		kbrd.on("column_items", function(ev)

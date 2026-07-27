@@ -71,11 +71,12 @@ menu alongside your shell commands.
 ## Runtime layers
 
 Folder-local `.kbrd.lua` files can declare exclusive runtime layers. A layer is
-a named setup callback that creates a related set of commands, timers, async
-jobs, and virtual columns. Exactly one declared layer must set `default = true`;
-it activates when the board opens. Press `l` in the TUI to search and switch.
-The header shows `◆ layer <name>` for the active layer, or `◇ layer none` when
-the declarations are valid but no layer setup has activated successfully.
+a named setup callback that creates a related set of commands, hooks, eval
+functions, timers, async/HTTP jobs, and virtual columns. Exactly one declared
+layer must set `default = true`; it activates when the board opens. Press `l` in
+the TUI to search and switch. The header shows `◆ layer <name>` for the active
+layer, or `◇ layer none` when the declarations are valid but no layer setup has
+activated successfully.
 
 ```lua
 -- Persistent base resources stay loaded in every layer.
@@ -118,17 +119,22 @@ kbrd.layer{
 ```
 
 Switching reruns the target `setup` and unloads the previous layer's managed
-resources. Commands or virtual columns with the same id temporarily shadow a
-base resource; the base version returns when the layer is left. Timer ticks and
-async results that arrive after their layer was unloaded are ignored. An
-already-running async shell process is not forcibly killed.
+resources. Commands, hooks, `kbrd.register` functions, timers, async and HTTP
+callbacks, and virtual columns registered by the setup belong to that layer.
+Commands, registered functions, or virtual columns with the same id/name
+temporarily shadow a base resource; the base version returns when the layer is
+left. Timer ticks and async/HTTP results that arrive after their layer was
+unloaded are ignored. An already-running async shell process is not forcibly
+killed by a layer switch.
 
 Layer selection is session-only. Lua globals, required modules, and closure
-upvalues remain alive while the board is open; only the four managed resource
-types are unloaded. Hooks, `kbrd.register` functions, cells, indicators, and
-other side effects keep their normal global lifetime, even if called by a layer
-setup. A failing setup leaves the previously active layer selected, although
-unmanaged side effects that ran before the error cannot be rolled back.
+upvalues remain alive while the board is open. Cells, indicators, visibility
+changes, filesystem/board mutations, notifications, and other immediate side
+effects keep their normal global lifetime, even if called by a layer setup. A
+failing setup leaves the previously active layer selected, although those
+immediate side effects cannot be rolled back. Managed registrations and
+cancellations are committed only after setup succeeds.
+
 The layer picker reopens with the setup error so the failure cannot look like a
 successful switch. Script-load, default-layer, and interactive switch failures
 also keep a red `✕ lua` indicator in the header; open the custom-command menu
@@ -741,7 +747,9 @@ commands:
 
 Returns `true` if a Lua command with this id is currently registered, `false`
 otherwise. Useful for guarded re-registration or feature-detection. Only sees
-Lua-registered commands — YAML/shell entries are not visible here.
+Lua-registered commands — YAML/shell entries are not visible here. During a
+layer setup it sees persistent base commands plus commands already staged by
+that target setup, never commands from the outgoing layer.
 
 ```lua
 if not kbrd.has_command("archive") then
@@ -796,6 +804,8 @@ functions and use `kbrd.fs`, `kbrd.status`, etc. Re-registering the same name
 The first return value (a string) **replaces the operand** — the current line, or
 the selected range. A `nil`/absent return leaves the buffer unchanged.
 Registration is rejected from inside a timer callback, like `kbrd.command`.
+Registrations made by a layer setup or one of that layer's callbacks unload
+with the layer; a same-named base registration is restored automatically.
 
 > Evaluation is driven from kbrd itself — there is no `kbrd.eval` you call from
 > Lua. `kbrd.register` only makes a function *available* to be evaled.
@@ -818,7 +828,9 @@ after the script finishes (it is queued like `kbrd.status`).
 ### `kbrd.on(event, fn)`
 
 Subscribe to an event. See the table above for available events. The
-callback receives an event-specific payload table.
+callback receives an event-specific payload table. Hooks registered by a layer
+setup or one of that layer's callbacks unload with the layer, so revisiting a
+layer does not accumulate duplicate listeners.
 
 ### `kbrd.on("column_items", fn)` — column transform hook
 

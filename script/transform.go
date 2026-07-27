@@ -72,7 +72,7 @@ func (h *Host) FireColumnItems(column string, pinned, unpinned []map[string]any)
 	var res ColumnItemsResult
 	var disable []int
 	for i, e := range entries {
-		ret, err := h.invokeHookValue(e.fn, payload)
+		ret, err := h.invokeOwnedHookValue(e, payload)
 		if err != nil {
 			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+events.NameColumnItems, err.Error())

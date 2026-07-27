@@ -520,6 +520,36 @@ func TestScriptUIStaleResumeCannotReachReloadedHost(t *testing.T) {
 	}
 }
 
+func TestStaleAsyncCompletionDoesNotChangeReloadedHostActivity(t *testing.T) {
+	b, _ := makeBoard(t, `kbrd.async.run("printf ok", function() end)`)
+	oldPending := b.scripts.PendingAsync()
+	if len(oldPending) != 1 {
+		t.Fatalf("old pending async = %d", len(oldPending))
+	}
+	b.asyncInflight = 1
+
+	if err := b.initRuntime(); err != nil {
+		t.Fatalf("reload runtime: %v", err)
+	}
+	if b.asyncInflight != 0 {
+		t.Fatalf("activity survived runtime reload: %d", b.asyncInflight)
+	}
+	newPending := b.scripts.PendingAsync()
+	if len(newPending) != 1 {
+		t.Fatalf("new pending async = %d", len(newPending))
+	}
+	b.asyncInflight = 1
+
+	_, _ = b.handleScriptAsyncDone(scriptAsyncDoneMsg{Token: oldPending[0].Token})
+	if b.asyncInflight != 1 {
+		t.Fatalf("stale completion changed current activity: %d", b.asyncInflight)
+	}
+	_, _ = b.handleScriptAsyncDone(scriptAsyncDoneMsg{Token: newPending[0].Token})
+	if b.asyncInflight != 0 {
+		t.Fatalf("current completion did not clear activity: %d", b.asyncInflight)
+	}
+}
+
 func TestScriptUIBoardSwitchDiscardsPendingCoroutine(t *testing.T) {
 	b, oldBoard := makeBoard(t, `
 kbrd.command("p", "Prompt", function()

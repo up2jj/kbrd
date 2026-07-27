@@ -221,11 +221,15 @@ func (b *Board) handleSwitchLayer(msg switchLayerMsg) (tea.Model, tea.Cmd) {
 	b.scriptLayerError = ""
 	b.clearLayerWarning()
 	b.loadCommands()
+	transformErr := b.reloadAndApplyColumnTransforms()
 	if selectedVID != "" && b.virtualColumn(selectedVID) == nil {
 		b.zoom.Off()
 		b.clampSelectedCol()
 	}
 	active, _ := b.scripts.ActiveLayer()
+	if transformErr != nil {
+		return b, b.notifier.ErrorCause("switched to layer "+active.Name+", but failed to refresh items", transformErr)
+	}
 	return b, b.notifier.Success("switched to layer " + active.Name)
 }
 

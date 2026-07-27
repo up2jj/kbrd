@@ -119,7 +119,7 @@ func (h *Host) FireHTTPRequest(data HTTPRequestData) HTTPRequestVerdict {
 	var res HTTPRequestVerdict
 	var disable []int
 	for i, e := range entries {
-		ret, err := h.invokeHookValue(e.fn, payload)
+		ret, err := h.invokeOwnedHookValue(e, payload)
 		if err != nil {
 			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+events.NameHTTPRequest, err.Error())
@@ -181,7 +181,7 @@ func (h *Host) FireHTTPResponse(data HTTPResponseData) HTTPResponseVerdict {
 	var res HTTPResponseVerdict
 	var disable []int
 	for i, e := range entries {
-		ret, err := h.invokeHookValue(e.fn, payload)
+		ret, err := h.invokeOwnedHookValue(e, payload)
 		if err != nil {
 			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+events.NameHTTPResponse, err.Error())

@@ -94,6 +94,9 @@ kbrd.layer{
 	if got := api.vcolSets[len(api.vcolSets)-1].Spec.Name; got != "Home column" {
 		t.Fatalf("home column = %q", got)
 	}
+	if api.vcolWipes != 0 {
+		t.Fatalf("layer reconciliation cleared every virtual column %d times", api.vcolWipes)
+	}
 }
 
 func TestLayerSwitchFailureKeepsCurrentResources(t *testing.T) {
@@ -254,6 +257,179 @@ kbrd.layer{ id="two", setup=function() end }`)
 	}
 	if len(h.layerVCols.byID) != 0 || strings.Contains(commandNames(h.Commands()), "Late command") {
 		t.Fatal("callback-created resources survived their layer")
+	}
+}
+
+func TestLayerSetupHasCommandExcludesOutgoingLayer(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.layer{ id="one", default=true, setup=function()
+  kbrd.command("mode", "One", function() end)
+end }
+kbrd.layer{ id="two", setup=function()
+  if not kbrd.has_command("mode") then
+    kbrd.command("mode", "Two", function() end)
+  end
+end }`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+
+	if err := h.ActivateLayer("two"); err != nil {
+		t.Fatal(err)
+	}
+	if got := commandNames(h.Commands()); got != "Two" {
+		t.Fatalf("commands after switch = %q, want Two", got)
+	}
+}
+
+func TestLayerSwitchFailureDoesNotCommitCancellations(t *testing.T) {
+	dir := writeInit(t, `
+timer_handle = kbrd.timer.after("1h", function() end)
+async_handle = kbrd.async.run("printf ok", function() end)
+kbrd.layer{ id="ok", default=true, setup=function() end }
+kbrd.layer{ id="broken", setup=function()
+  kbrd.timer.cancel(timer_handle)
+  kbrd.async.cancel(async_handle)
+  kbrd.on("leak", function() end)
+  kbrd.register("leak", function() return "leaked" end)
+  error("boom")
+end }
+kbrd.layer{ id="off", setup=function()
+  kbrd.timer.cancel(timer_handle)
+  kbrd.async.cancel(async_handle)
+end }`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	timerToken := h.PendingTimers()[0].Token
+	asyncToken := h.PendingAsync()[0].Token
+
+	if err := h.ActivateLayer("broken"); err == nil {
+		t.Fatal("broken layer activated")
+	}
+	if _, ok := h.timers[timerToken]; !ok {
+		t.Fatal("failed setup cancelled the active timer")
+	}
+	if _, ok := h.asyncCallbacks[asyncToken]; !ok {
+		t.Fatal("failed setup cancelled the active async callback")
+	}
+	if h.HasHook("leak") {
+		t.Fatal("failed setup leaked a hook")
+	}
+	for _, completion := range h.EvalCompletions() {
+		if completion.Name == "leak" {
+			t.Fatal("failed setup leaked an eval registration")
+		}
+	}
+
+	if err := h.ActivateLayer("off"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.timers[timerToken]; ok {
+		t.Fatal("successful setup did not commit timer cancellation")
+	}
+	if _, ok := h.asyncCallbacks[asyncToken]; ok {
+		t.Fatal("successful setup did not commit async cancellation")
+	}
+}
+
+func TestLayerHooksAndEvalRegistrationsUnloadCleanly(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.layer{ id="one", default=true, setup=function()
+  kbrd.on("ping", function() kbrd.notify("one") end)
+  kbrd.register("mode", function() return "one" end)
+end }
+kbrd.layer{ id="two", setup=function()
+  kbrd.on("ping", function() kbrd.notify("two") end)
+  kbrd.register("mode", function() return "two" end)
+end }`)
+	api := &fakeAPI{}
+	h, err := New(defaultCfg(), api, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+
+	assertLayerState := func(want string) {
+		t.Helper()
+		before := len(api.notifies)
+		if err := h.Emit("ping", nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := api.notifies[before:]; len(got) != 1 || !strings.HasSuffix(got[0], ":"+want) {
+			t.Fatalf("hook notifications = %v, want one %q notification", got, want)
+		}
+		got, ok, err := h.Eval("mode()")
+		if err != nil || !ok || got != want {
+			t.Fatalf("mode() = %q, %v, %v; want %q", got, ok, err, want)
+		}
+	}
+
+	assertLayerState("one")
+	if err := h.ActivateLayer("two"); err != nil {
+		t.Fatal(err)
+	}
+	assertLayerState("two")
+	if err := h.ActivateLayer("one"); err != nil {
+		t.Fatal(err)
+	}
+	assertLayerState("one")
+}
+
+func TestLayerEvalRegistrationShadowsAndRestoresBase(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.register("mode", function() return "base" end)
+kbrd.layer{ id="one", default=true, setup=function()
+  kbrd.register("mode", function() return "one" end)
+end }
+kbrd.layer{ id="two", setup=function() end }`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+
+	if got, _, err := h.Eval("mode()"); err != nil || got != "one" {
+		t.Fatalf("layer mode = %q, %v", got, err)
+	}
+	if err := h.ActivateLayer("two"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := h.Eval("mode()"); err != nil || got != "base" {
+		t.Fatalf("restored mode = %q, %v", got, err)
+	}
+}
+
+func TestLayerSetupEventsDrainAfterTargetCommit(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.layer{ id="one", default=true, setup=function() end }
+kbrd.layer{ id="two", setup=function()
+  kbrd.on("ping", function()
+    kbrd.command("from-hook", "From target hook", function() end)
+  end)
+  kbrd.emit("ping")
+end }`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+
+	if err := h.ActivateLayer("two"); err != nil {
+		t.Fatal(err)
+	}
+	if got := commandNames(h.Commands()); got != "From target hook" {
+		t.Fatalf("target event commands = %q", got)
+	}
+	if err := h.ActivateLayer("one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := commandNames(h.Commands()); got != "" {
+		t.Fatalf("target hook command survived unload: %q", got)
 	}
 }
 

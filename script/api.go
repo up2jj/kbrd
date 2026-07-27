@@ -502,8 +502,13 @@ func (h *Host) luaAsyncRun(L *lua.LState) int {
 func (h *Host) luaAsyncCancel(L *lua.LState) int {
 	token := L.CheckString(1)
 	if h.stage != nil {
-		delete(h.stage.asyncCallbacks, token)
-		h.stage.pendingAsync = slices.DeleteFunc(h.stage.pendingAsync, func(cmd AsyncCmd) bool { return cmd.Token == token })
+		if _, staged := h.stage.asyncCallbacks[token]; staged {
+			delete(h.stage.asyncCallbacks, token)
+			h.stage.pendingAsync = slices.DeleteFunc(h.stage.pendingAsync, func(cmd AsyncCmd) bool { return cmd.Token == token })
+		} else {
+			h.stage.cancelAsync[token] = struct{}{}
+		}
+		return 0
 	}
 	delete(h.asyncCallbacks, token)
 	return 0
@@ -653,14 +658,10 @@ func (h *Host) luaColumnSet(L *lua.LState) int {
 		h.stage.vcols.set(id, state)
 	case h.activeOwner != "":
 		h.layerVCols.set(id, state)
-		h.clearVcolFns(id)
-		h.publishVirtualColumn(id, state)
+		h.reconcileVirtualColumns()
 	default:
 		h.baseVCols.set(id, state)
-		if _, shadowed := h.layerVCols.byID[id]; !shadowed {
-			h.clearVcolFns(id)
-			h.publishVirtualColumn(id, state)
-		}
+		h.reconcileVirtualColumns()
 	}
 	return 0
 }
@@ -676,20 +677,10 @@ func (h *Host) luaColumnClear(L *lua.LState) int {
 		h.stage.vcols.clear(id)
 	case h.activeOwner != "":
 		h.layerVCols.clear(id)
-		h.clearVcolFns(id)
-		if base, ok := h.baseVCols.byID[id]; ok {
-			h.publishVirtualColumn(id, base)
-		} else if h.pres != nil {
-			h.pres.VirtualColumnClear(id)
-		}
+		h.reconcileVirtualColumns()
 	default:
 		h.baseVCols.clear(id)
-		if _, shadowed := h.layerVCols.byID[id]; !shadowed {
-			h.clearVcolFns(id)
-			if h.pres != nil {
-				h.pres.VirtualColumnClear(id)
-			}
-		}
+		h.reconcileVirtualColumns()
 	}
 	return 0
 }
@@ -884,10 +875,15 @@ func (h *Host) luaUIGuard(L *lua.LState) int {
 func (h *Host) luaTimerCancel(L *lua.LState) int {
 	token := L.CheckString(1)
 	if h.stage != nil {
-		delete(h.stage.timers, token)
-		h.stage.pendingTimers = slices.DeleteFunc(h.stage.pendingTimers, func(schedule TimerSchedule) bool {
-			return schedule.Token == token
-		})
+		if _, staged := h.stage.timers[token]; staged {
+			delete(h.stage.timers, token)
+			h.stage.pendingTimers = slices.DeleteFunc(h.stage.pendingTimers, func(schedule TimerSchedule) bool {
+				return schedule.Token == token
+			})
+		} else {
+			h.stage.cancelTimers[token] = struct{}{}
+		}
+		return 0
 	}
 	delete(h.timers, token)
 	return 0
@@ -1106,15 +1102,16 @@ func (h *Host) luaRegister(L *lua.LState) int {
 		return 0
 	}
 
-	if h.evalEnv.RawGetString(name) == lua.LNil {
-		h.evalNames = append(h.evalNames, name)
-	}
-	h.evalEnv.RawSetString(name, fn)
-	if usage != "" {
-		if h.evalUsage == nil {
-			h.evalUsage = map[string]string{}
-		}
-		h.evalUsage[name] = usage
+	registration := evalRegistration{fn: fn, usage: usage}
+	switch {
+	case h.stage != nil:
+		h.stage.eval.set(name, registration)
+	case h.activeOwner != "":
+		h.layerEval.set(name, registration)
+		h.reconcileEvalRegistrations()
+	default:
+		h.baseEval.set(name, registration)
+		h.reconcileEvalRegistrations()
 	}
 	return 0
 }
@@ -1137,11 +1134,23 @@ func normalizeScope(s string) string {
 // Useful in init.lua for guarded re-registration or feature-detection.
 func (h *Host) luaHasCommand(L *lua.LState) int {
 	id := L.CheckString(1)
-	commands := h.effectiveCommands()
 	if h.stage != nil {
-		commands = append(commands, h.stage.commands...)
+		for _, command := range h.commands {
+			if command.owner == "" && command.ID == id {
+				L.Push(lua.LTrue)
+				return 1
+			}
+		}
+		for _, command := range h.stage.commands {
+			if command.ID == id {
+				L.Push(lua.LTrue)
+				return 1
+			}
+		}
+		L.Push(lua.LFalse)
+		return 1
 	}
-	for _, c := range commands {
+	for _, c := range h.effectiveCommands() {
 		if c.ID == id {
 			L.Push(lua.LTrue)
 			return 1
@@ -1181,7 +1190,12 @@ func (h *Host) luaOn(L *lua.LState) int {
 	}
 	event := L.CheckString(1)
 	fn := L.CheckFunction(2)
-	h.hooks[event] = append(h.hooks[event], &hookEntry{fn: fn})
+	entry := &hookEntry{fn: fn, owner: h.activeOwner}
+	if h.stage != nil {
+		h.stage.hooks[event] = append(h.stage.hooks[event], entry)
+	} else {
+		h.hooks[event] = append(h.hooks[event], entry)
+	}
 	return 0
 }
 

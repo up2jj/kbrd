@@ -286,6 +286,39 @@ end }`), 0o644); err != nil {
 	}
 }
 
+func TestLayerSwitcherPreservesSurvivingVirtualColumnState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.column.set("shared", { name="Shared", items={
+  {id="first", title="First"}, {id="second", title="Second"},
+} })
+kbrd.layer{ id="one", default=true, setup=function() end }
+kbrd.layer{ id="two", setup=function() end }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := newLayerTestBoard(t, dir)
+	shared := b.virtualColumn("shared")
+	if shared == nil {
+		t.Fatal("shared virtual column missing")
+	}
+	b.selectedCol = 1
+	shared.SelectByName("second")
+
+	_, _ = b.handleSwitchLayer(switchLayerMsg{ID: "two"})
+	if got := b.virtualColumn("shared"); got != shared {
+		t.Fatal("surviving virtual column was recreated")
+	}
+	if b.selectedCol != 1 || b.columns[b.selectedCol] != shared {
+		t.Fatalf("virtual focus after switch = index %d, column %v", b.selectedCol, b.columns[b.selectedCol].Name)
+	}
+	if selected := shared.SelectedItem(); selected == nil || selected.Name != "second" {
+		t.Fatalf("virtual selection after switch = %+v", selected)
+	}
+}
+
 func TestLayerSwitcherIsConditional(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "todo"), 0o755); err != nil {

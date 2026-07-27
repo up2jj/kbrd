@@ -29,11 +29,39 @@ type layerStage struct {
 	commands       []luaCommand
 	timers         map[string]*timerEntry
 	pendingTimers  []TimerSchedule
+	cancelTimers   map[string]struct{}
 	asyncCallbacks map[string]ownedFn
 	pendingAsync   []AsyncCmd
+	cancelAsync    map[string]struct{}
 	httpCallbacks  map[string]ownedFn
 	pendingHTTP    []HTTPClientRequest
+	hooks          map[string][]*hookEntry
+	eval           evalRegistrations
 	vcols          virtualColumns
+}
+
+type evalRegistration struct {
+	fn    *lua.LFunction
+	usage string
+}
+
+type evalRegistrations struct {
+	order  []string
+	byName map[string]evalRegistration
+}
+
+func newEvalRegistrations() evalRegistrations {
+	return evalRegistrations{byName: make(map[string]evalRegistration)}
+}
+
+func (r *evalRegistrations) set(name string, registration evalRegistration) {
+	if r.byName == nil {
+		r.byName = make(map[string]evalRegistration)
+	}
+	if _, exists := r.byName[name]; !exists {
+		r.order = append(r.order, name)
+	}
+	r.byName[name] = registration
 }
 
 type virtualColumnState struct {
@@ -123,8 +151,12 @@ func (h *Host) ActivateLayer(id string) error {
 	layer := h.layers[i]
 	stage := &layerStage{
 		timers:         make(map[string]*timerEntry),
+		cancelTimers:   make(map[string]struct{}),
 		asyncCallbacks: make(map[string]ownedFn),
+		cancelAsync:    make(map[string]struct{}),
 		httpCallbacks:  make(map[string]ownedFn),
+		hooks:          make(map[string][]*hookEntry),
+		eval:           newEvalRegistrations(),
 		vcols:          newVirtualColumns(),
 	}
 
@@ -132,18 +164,19 @@ func (h *Host) ActivateLayer(id string) error {
 	h.activeOwner, h.stage, h.running = id, stage, true
 	err := h.callLayerSetup(layer)
 	h.activeOwner, h.stage, h.running = prevOwner, prevStage, wasRunning
-	if !wasRunning {
-		pending := h.deferred
-		h.deferred = nil
-		for _, ev := range pending {
-			h.OnEvent(ev)
-		}
-	}
 	if err != nil {
+		h.drainDeferredIfIdle(wasRunning)
 		return fmt.Errorf("activate layer %q: %w", id, err)
 	}
 
 	h.unloadActiveLayer()
+	for token := range stage.cancelTimers {
+		delete(h.timers, token)
+	}
+	for token := range stage.cancelAsync {
+		delete(h.asyncCallbacks, token)
+	}
+	h.prunePendingWork()
 	h.commands = append(h.commands, stage.commands...)
 	for token, entry := range stage.timers {
 		h.timers[token] = entry
@@ -157,10 +190,42 @@ func (h *Host) ActivateLayer(id string) error {
 		h.httpCallbacks[token] = callback
 	}
 	h.pendingHTTPRequests = append(h.pendingHTTPRequests, stage.pendingHTTP...)
+	for event, entries := range stage.hooks {
+		h.hooks[event] = append(h.hooks[event], entries...)
+	}
+	h.layerEval = stage.eval
 	h.layerVCols = stage.vcols
 	h.activeLayerID = id
+	h.reconcileEvalRegistrations()
 	h.reconcileVirtualColumns()
+	h.drainDeferredIfIdle(wasRunning)
 	return nil
+}
+
+func (h *Host) drainDeferredIfIdle(wasRunning bool) {
+	if wasRunning {
+		return
+	}
+	pending := h.deferred
+	h.deferred = nil
+	for _, ev := range pending {
+		h.OnEvent(ev)
+	}
+}
+
+func (h *Host) prunePendingWork() {
+	h.pendingTimers = slices.DeleteFunc(h.pendingTimers, func(schedule TimerSchedule) bool {
+		_, exists := h.timers[schedule.Token]
+		return !exists
+	})
+	h.pendingAsyncCmds = slices.DeleteFunc(h.pendingAsyncCmds, func(cmd AsyncCmd) bool {
+		_, exists := h.asyncCallbacks[cmd.Token]
+		return !exists
+	})
+	h.pendingHTTPRequests = slices.DeleteFunc(h.pendingHTTPRequests, func(req HTTPClientRequest) bool {
+		_, exists := h.httpCallbacks[req.Token]
+		return !exists
+	})
 }
 
 func (h *Host) callLayerSetup(layer layerDef) (err error) {
@@ -192,34 +257,32 @@ func (h *Host) unloadActiveLayer() {
 			delete(h.timers, token)
 		}
 	}
-	h.pendingTimers = slices.DeleteFunc(h.pendingTimers, func(schedule TimerSchedule) bool {
-		_, exists := h.timers[schedule.Token]
-		return !exists
-	})
 	for token, callback := range h.asyncCallbacks {
 		if callback.owner == old {
 			delete(h.asyncCallbacks, token)
 		}
 	}
-	h.pendingAsyncCmds = slices.DeleteFunc(h.pendingAsyncCmds, func(cmd AsyncCmd) bool {
-		_, exists := h.asyncCallbacks[cmd.Token]
-		return !exists
-	})
 	for token, callback := range h.httpCallbacks {
 		if callback.owner == old {
 			delete(h.httpCallbacks, token)
 		}
 	}
-	h.pendingHTTPRequests = slices.DeleteFunc(h.pendingHTTPRequests, func(req HTTPClientRequest) bool {
-		_, exists := h.httpCallbacks[req.Token]
-		return !exists
-	})
+	for event, entries := range h.hooks {
+		entries = slices.DeleteFunc(entries, func(entry *hookEntry) bool { return entry.owner == old })
+		if len(entries) == 0 {
+			delete(h.hooks, event)
+		} else {
+			h.hooks[event] = entries
+		}
+	}
 	for token, pending := range h.pending {
 		if pending.owner == old {
 			delete(h.pending, token)
 		}
 	}
 	h.layerVCols.clearAll()
+	h.layerEval = newEvalRegistrations()
+	h.prunePendingWork()
 	h.activeLayerID = ""
 }
 
@@ -246,17 +309,52 @@ func (h *Host) effectiveCommands() []luaCommand {
 
 func (h *Host) reconcileVirtualColumns() {
 	h.vcolFns = make(map[string]ownedFn)
-	if h.pres != nil {
-		h.pres.VirtualColumnClearAll()
-	}
+	desired := newVirtualColumns()
 	for _, id := range h.baseVCols.order {
 		if _, shadowed := h.layerVCols.byID[id]; shadowed {
 			continue
 		}
-		h.publishVirtualColumn(id, h.baseVCols.byID[id])
+		desired.set(id, h.baseVCols.byID[id])
 	}
 	for _, id := range h.layerVCols.order {
-		h.publishVirtualColumn(id, h.layerVCols.byID[id])
+		desired.set(id, h.layerVCols.byID[id])
+	}
+	for _, id := range h.publishedVCols.order {
+		if _, keep := desired.byID[id]; !keep && h.pres != nil {
+			h.pres.VirtualColumnClear(id)
+		}
+	}
+	for _, id := range desired.order {
+		h.publishVirtualColumn(id, desired.byID[id])
+	}
+	h.publishedVCols = desired
+}
+
+func (h *Host) reconcileEvalRegistrations() {
+	if h.evalEnv == nil {
+		return
+	}
+	for _, name := range h.evalNames {
+		h.evalEnv.RawSetString(name, lua.LNil)
+	}
+	h.evalNames = nil
+	h.evalUsage = make(map[string]string)
+	for _, name := range h.baseEval.order {
+		if _, shadowed := h.layerEval.byName[name]; shadowed {
+			continue
+		}
+		h.publishEvalRegistration(name, h.baseEval.byName[name])
+	}
+	for _, name := range h.layerEval.order {
+		h.publishEvalRegistration(name, h.layerEval.byName[name])
+	}
+}
+
+func (h *Host) publishEvalRegistration(name string, registration evalRegistration) {
+	h.evalEnv.RawSetString(name, registration.fn)
+	h.evalNames = append(h.evalNames, name)
+	if registration.usage != "" {
+		h.evalUsage[name] = registration.usage
 	}
 }
 

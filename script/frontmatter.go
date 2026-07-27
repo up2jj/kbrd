@@ -62,7 +62,7 @@ func (h *Host) FireFrontmatterSuggestions(column, item string) FrontmatterSugges
 	var res FrontmatterSuggestionsResult
 	var disable []int
 	for i, e := range entries {
-		ret, err := h.invokeHookValue(e.fn, payload)
+		ret, err := h.invokeOwnedHookValue(e, payload)
 		if err != nil {
 			e.consecutiveErrors++
 			h.logger.Log("error", "hook "+events.NameFrontmatterSuggestions, err.Error())
