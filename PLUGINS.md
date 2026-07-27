@@ -158,12 +158,26 @@ local util = require("acme.date-tools.util")
 kbrd.command("set-due-date", "Set due date", function(ctx)
   util.set_due(ctx.path)
 end)
+
+kbrd.layer{
+  id = "planning",
+  name = "Planning",
+  default = true,
+  setup = function()
+    kbrd.command("plan-day", "Plan day", util.plan_day)
+  end,
+}
 ```
 
 kbrd namespaces plugin command IDs automatically. The example is exposed as
 `acme/date-tools:set-due-date`, preventing another marketplace plugin from
-silently replacing it. Registered editor functions and virtual-column IDs are
-also namespaced.
+silently replacing it. Virtual-column IDs receive the same namespace. Registered
+editor functions use a Lua-safe `plugin__<marketplace>__<plugin>__<name>` prefix,
+with hyphens converted to underscores; for example, `layer_value` from this
+plugin is called as `plugin__acme__date_tools__layer_value()`. Plugins may
+declare layers directly; layer IDs and resources registered by their setup
+callbacks receive the same plugin namespace. Across the plugin and board
+declarations, exactly one layer must set `default = true`.
 
 ## Lock and cache behavior
 

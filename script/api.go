@@ -990,28 +990,30 @@ func luaDuration(v lua.LValue) (time.Duration, error) {
 }
 
 // kbrd.layer{ id=, name=, description=, default=, setup= } declares one
-// folder-local runtime layer. The setup callback is stored now and executed
+// board or plugin runtime layer. The setup callback is stored now and executed
 // only when the layer becomes active.
 func (h *Host) luaLayer(L *lua.LState) int {
-	if !h.loadingFolder {
-		L.RaiseError("kbrd.layer: declarations are only allowed while loading .kbrd.lua")
+	pluginID := h.activePluginID()
+	if !h.loadingFolder && !h.loadingPlugin {
+		L.RaiseError("kbrd.layer: declarations are only allowed while loading .kbrd.lua or a plugin")
 		return 0
 	}
 	t := L.CheckTable(1)
-	id := lua.LVAsString(t.RawGetString("id"))
+	rawID := lua.LVAsString(t.RawGetString("id"))
 	name := lua.LVAsString(t.RawGetString("name"))
 	description := lua.LVAsString(t.RawGetString("description"))
 	setup, _ := t.RawGetString("setup").(*lua.LFunction)
-	if id == "" || setup == nil {
+	if rawID == "" || setup == nil {
 		L.RaiseError("kbrd.layer: id and setup are required")
 		return 0
 	}
+	id := h.scopedPluginID(rawID)
 	if _, exists := h.layerByID[id]; exists {
 		L.RaiseError("kbrd.layer: duplicate id %q", id)
 		return 0
 	}
 	if name == "" {
-		name = id
+		name = rawID
 	}
 	h.layerByID[id] = len(h.layers)
 	h.layers = append(h.layers, layerDef{
@@ -1019,7 +1021,8 @@ func (h *Host) luaLayer(L *lua.LState) int {
 			ID: id, Name: name, Description: description,
 			Default: lua.LVAsBool(t.RawGetString("default")),
 		},
-		setup: setup,
+		setup:    setup,
+		pluginID: pluginID,
 	})
 	return 0
 }
@@ -1116,12 +1119,14 @@ func (h *Host) luaRegister(L *lua.LState) int {
 		return 0
 	}
 
+	if pluginID := h.activePluginID(); pluginID != "" {
+		name = pluginEvalName(pluginID, name)
+	}
 	registration := evalRegistration{fn: fn, usage: usage}
 	switch {
 	case h.stage != nil:
 		h.stage.eval.set(name, registration)
 	case isPluginOwner(h.activeOwner):
-		name = strings.ReplaceAll(strings.TrimPrefix(h.activeOwner, "plugin:"), "/", ".") + "." + name
 		h.baseEval.set(name, registration)
 		h.reconcileEvalRegistrations()
 	case h.activeOwner != "":
@@ -1154,7 +1159,7 @@ func (h *Host) luaHasCommand(L *lua.LState) int {
 	id := h.scopedPluginID(L.CheckString(1))
 	if h.stage != nil {
 		for _, command := range h.commands {
-			if command.owner == "" && command.ID == id {
+			if (command.owner == "" || isPluginOwner(command.owner)) && command.ID == id {
 				L.Push(lua.LTrue)
 				return 1
 			}

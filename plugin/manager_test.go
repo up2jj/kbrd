@@ -71,11 +71,25 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 	defer host.Close()
 	commands := host.Commands()
-	if len(commands) != 2 {
+	if len(commands) != 3 {
 		t.Fatalf("commands = %+v", commands)
 	}
-	if commands[0].ID != "acme/date-tools:plugin-date" || commands[1].ID != "board-date" {
-		t.Fatalf("command ids = %q, %q", commands[0].ID, commands[1].ID)
+	if commands[0].ID != "acme/date-tools:plugin-date" || commands[1].ID != "board-date" || commands[2].ID != "acme/date-tools:layer-date" {
+		t.Fatalf("command ids = %q, %q, %q", commands[0].ID, commands[1].ID, commands[2].ID)
+	}
+	layers := host.Layers()
+	if len(layers) != 1 || layers[0].ID != "acme/date-tools:focus" || layers[0].Name != "focus" {
+		t.Fatalf("layers = %+v", layers)
+	}
+	if active, ok := host.ActiveLayer(); !ok || active.ID != "acme/date-tools:focus" {
+		t.Fatalf("active layer = %+v, %v", active, ok)
+	}
+	completions := host.EvalCompletions()
+	if len(completions) != 1 || completions[0].Name != "plugin__acme__date_tools__layer_value" {
+		t.Fatalf("eval completions = %+v", completions)
+	}
+	if got, ok, err := host.Eval("plugin__acme__date_tools__layer_value()"); err != nil || !ok || got != "ok" {
+		t.Fatalf("plugin layer eval = %q, %v, %v", got, ok, err)
 	}
 }
 
@@ -130,6 +144,14 @@ func createMarketplaceRepo(t *testing.T) string {
 	writeFile(t, filepath.Join(pluginRoot, "init.lua"), `
 local util = require("acme.date-tools.util")
 kbrd.command("plugin-date", "Plugin date", function() return util.value end)
+kbrd.layer{
+  id = "focus", default = true,
+  setup = function()
+    if not kbrd.has_command("plugin-date") then error("plugin base command missing") end
+    kbrd.command("layer-date", "Layer date", function() return util.value end)
+    kbrd.register("layer_value", function() return util.value end)
+  end,
+}
 `)
 	writeFile(t, filepath.Join(pluginRoot, "util.lua"), `return {value="ok"}`)
 	runGit(t, repo, "init")

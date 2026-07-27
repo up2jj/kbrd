@@ -186,6 +186,50 @@ kbrd.layer{ id="global", default=true, setup=function() end }`), 0o644); err != 
 	})
 }
 
+func TestLayerValidationErrorOwnership(t *testing.T) {
+	tests := []struct {
+		name   string
+		layers []layerDef
+		want   bool
+	}{
+		{
+			name: "two plugin defaults with a folder layer",
+			layers: []layerDef{
+				{LayerInfo: LayerInfo{Default: true}, pluginID: "acme/one"},
+				{LayerInfo: LayerInfo{Default: true}, pluginID: "acme/two"},
+				{},
+			},
+			want: true,
+		},
+		{
+			name: "plugin and folder defaults",
+			layers: []layerDef{
+				{LayerInfo: LayerInfo{Default: true}, pluginID: "acme/one"},
+				{LayerInfo: LayerInfo{Default: true}},
+			},
+			want: false,
+		},
+		{
+			name:   "missing default can be fixed by folder",
+			layers: []layerDef{{pluginID: "acme/one"}, {}},
+			want:   false,
+		},
+		{
+			name:   "missing default in plugin-only catalog",
+			layers: []layerDef{{pluginID: "acme/one"}},
+			want:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Host{layers: tt.layers}
+			if got := h.layerValidationOwnedByPlugin(); got != tt.want {
+				t.Fatalf("layerValidationOwnedByPlugin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLayerCommandShadowsAndRestoresBase(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("same", "Base", function() kbrd.notify("base") end)

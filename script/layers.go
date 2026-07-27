@@ -23,7 +23,8 @@ type LayerInfo struct {
 
 type layerDef struct {
 	LayerInfo
-	setup *lua.LFunction
+	setup    *lua.LFunction
+	pluginID string
 }
 
 type layerStage struct {
@@ -147,6 +148,25 @@ func (h *Host) defaultLayerID() (string, error) {
 		return "", fmt.Errorf("kbrd.layer: exactly one layer must set default=true (found %d)", defaults)
 	}
 	return defaultID, nil
+}
+
+// layerValidationOwnedByPlugin reports whether an invalid default selection
+// can only be fixed by changing a plugin. A board layer can resolve a missing
+// default or remove its own conflicting default, but it cannot fix two plugins
+// that both declare themselves as default.
+func (h *Host) layerValidationOwnedByPlugin() bool {
+	pluginDefaults := 0
+	folderLayers := 0
+	for _, layer := range h.layers {
+		if layer.pluginID == "" {
+			folderLayers++
+			continue
+		}
+		if layer.Default {
+			pluginDefaults++
+		}
+	}
+	return pluginDefaults > 1 || folderLayers == 0
 }
 
 // ActivateLayer stages the target setup and commits it only after the setup
@@ -320,11 +340,30 @@ func (h *Host) effectiveCommands() []luaCommand {
 
 func isPluginOwner(owner string) bool { return strings.HasPrefix(owner, "plugin:") }
 
+func pluginEvalName(pluginID, name string) string {
+	parts := strings.Split(pluginID, "/")
+	for i := range parts {
+		parts[i] = strings.ReplaceAll(parts[i], "-", "_")
+	}
+	return "plugin__" + strings.Join(parts, "__") + "__" + name
+}
+
 func (h *Host) scopedPluginID(id string) string {
-	if !isPluginOwner(h.activeOwner) {
+	pluginID := h.activePluginID()
+	if pluginID == "" {
 		return id
 	}
-	return strings.TrimPrefix(h.activeOwner, "plugin:") + ":" + id
+	return pluginID + ":" + id
+}
+
+func (h *Host) activePluginID() string {
+	if isPluginOwner(h.activeOwner) {
+		return strings.TrimPrefix(h.activeOwner, "plugin:")
+	}
+	if i, ok := h.layerByID[h.activeOwner]; ok {
+		return h.layers[i].pluginID
+	}
+	return ""
 }
 
 func (h *Host) reconcileVirtualColumns() {

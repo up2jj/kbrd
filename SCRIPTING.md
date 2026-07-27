@@ -75,7 +75,7 @@ menu alongside your shell commands.
 
 ## Runtime layers
 
-Folder-local `.kbrd.lua` files can declare exclusive runtime layers. A layer is
+Board plugins and folder-local `.kbrd.lua` files can declare exclusive runtime layers. A layer is
 a named setup callback that creates a related set of commands, hooks, eval
 functions, timers, async/HTTP jobs, and virtual columns. Exactly one declared
 layer must set `default = true`; it activates when the board opens. Press `l` in
@@ -145,9 +145,11 @@ successful switch. Script-load, default-layer, and interactive switch failures
 also keep a red `✕ lua` indicator in the header; open the custom-command menu
 with `x` to inspect the full warning after dismissing the picker.
 
-`kbrd.layer` may only be declared while the folder-local `.kbrd.lua` is loading
-(modules required by that file are included). Global `init.lua` can still
-declare persistent base resources, but it cannot declare layers. Under
+`kbrd.layer` may only be declared while a board plugin or the folder-local
+`.kbrd.lua` is loading (modules required by either are included). Plugin layer
+IDs are namespaced as `<marketplace>/<plugin>:<id>`, as are resources registered
+by their setup callbacks. Global `init.lua` can still declare persistent base
+resources, but it cannot declare layers. Under
 `kbrd serve --scripting`, the default layer activates so timers and async jobs
 run; virtual-column updates are accepted but have no headless presentation.
 
@@ -422,10 +424,11 @@ kbrd.layer(work)
 ```
 
 A remote module may also call `kbrd.layer{...}` directly as a side effect.
-Either form works only while the folder-local `.kbrd.lua` is loading; a module
-required by global `init.lua`, a command, hook, or timer cannot declare layers.
-Across all local and remote declarations, layer IDs must be unique and exactly
-one layer must set `default = true`.
+Either form works only while a plugin entrypoint or the folder-local `.kbrd.lua`
+is loading; a module required by global `init.lua`, a command, hook, or timer
+cannot declare layers.
+Across all plugin, local, and remote declarations, effective layer IDs must be
+unique and exactly one layer must set `default = true`.
 
 Because `require` uses Lua's `package.loaded` memoization, requiring the same URL
 twice returns the same cached module value — it's fetched, compiled, and run once.

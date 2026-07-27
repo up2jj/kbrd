@@ -57,14 +57,15 @@ type Host struct {
 	commands []luaCommand
 	hooks    map[string][]*hookEntry
 
-	// layers are declared by the folder-local .kbrd.lua. Calls made outside an
-	// active layer remain base resources; activeOwner is set while a layer setup,
-	// command, timer, or async callback is running so newly-created resources
-	// inherit the correct lifecycle.
+	// layers are declared by board plugins or the folder-local .kbrd.lua. Calls
+	// made outside an active layer remain base resources; activeOwner is set while
+	// a layer setup, command, timer, or async callback is running so newly-created
+	// resources inherit the correct lifecycle.
 	layers        []layerDef
 	layerByID     map[string]int
 	activeLayerID string
 	activeOwner   string
+	loadingPlugin bool
 	loadingFolder bool
 	stage         *layerStage
 
@@ -364,7 +365,9 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 	for _, runtimePlugin := range runtimePlugins {
 		previousOwner := h.activeOwner
 		h.activeOwner = "plugin:" + runtimePlugin.ID
+		h.loadingPlugin = true
 		err := h.doFile(initCtx, runtimePlugin.Entrypoint)
+		h.loadingPlugin = false
 		h.activeOwner = previousOwner
 		if err != nil {
 			h.logger.Log("error", runtimePlugin.Entrypoint, err.Error())
@@ -382,7 +385,7 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 
 	var globalErr, folderErr error
 	any := len(runtimePlugins) > 0
-	localOK := true
+	localOK := pluginErr == nil
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err != nil {
 			continue
@@ -413,17 +416,26 @@ func NewWithCapabilitiesContext(ctx context.Context, cfg config.ScriptingConfig,
 		h.layerByID = make(map[string]int)
 	} else if len(h.layers) > 0 {
 		defaultID, validationErr := h.defaultLayerID()
-		if validationErr != nil {
-			h.layers = nil
-			h.layerByID = make(map[string]int)
+		pluginLayerError := h.layerValidationOwnedByPlugin()
+		if validationErr == nil {
+			pluginLayerError = h.layers[h.layerByID[defaultID]].pluginID != ""
 		}
 		activationErr := validationErr
 		if activationErr == nil {
 			activationErr = h.ActivateLayer(defaultID)
 		}
+		if validationErr != nil {
+			h.layers = nil
+			h.layerByID = make(map[string]int)
+		}
 		if activationErr != nil {
-			h.logger.Log("error", FolderInitFile, activationErr.Error())
-			folderErr = fmt.Errorf("%s: %w", FolderInitFile, activationErr)
+			if pluginLayerError {
+				h.logger.Log("error", "plugin layer", activationErr.Error())
+				pluginErr = errors.Join(pluginErr, fmt.Errorf("plugin layer: %w", activationErr))
+			} else {
+				h.logger.Log("error", FolderInitFile, activationErr.Error())
+				folderErr = fmt.Errorf("%s: %w", FolderInitFile, activationErr)
+			}
 		}
 	}
 	if !any {
