@@ -60,6 +60,7 @@ type Board struct {
 	dialog              Dialog
 	helpMenu            HelpMenu
 	pasteMenu           PasteMenu
+	copyMenu            CopyMenu
 	clipboardMenu       ClipboardMenu
 	clipboardRing       *clipboardring.Store
 	clipboardReturn     bool
@@ -259,6 +260,7 @@ func (b *Board) applyPalette() {
 	theme.ApplyTextInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette
 	b.pasteMenu.palette = b.palette
+	b.copyMenu.palette = b.palette
 	b.clipboardMenu.palette = b.palette
 	b.peek.palette = b.palette
 	b.timeline.SetPalette(b.palette)

@@ -51,6 +51,11 @@ func (b *Board) modalLayers() []modalLayer {
 			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b, b.clipboardActions().updateBrowser(msg) },
 		},
 		{
+			active: b.copyMenu.Active,
+			view:   func(w, h, _ int) string { return b.copyMenu.View(w, h) },
+			key:    func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return b.copyMenuActions().update(msg) },
+		},
+		{
 			active: b.pasteMenu.Active,
 			view:   func(w, h, _ int) string { return b.pasteMenu.View(w, h) },
 			key: func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -240,14 +240,11 @@ func itemActionSpecs() []itemActionSpec {
 			ID:          actionCopy,
 			Binding:     Keys.Copy,
 			Label:       "copy",
-			Description: "Copy the selected card to the clipboard.",
+			Description: "Choose which part of the selected card to copy.",
 			Cardinality: actionMultiBatch,
 			NeedsItem:   true,
 			Run: func(ctx itemActionContext) tea.Cmd {
-				if len(ctx.Targets) > 1 || ctx.Column.MarkedCount() > 0 {
-					return ctx.Board.itemActions().copyTargets(ctx.Column, ctx.Targets)
-				}
-				return ctx.Board.itemActions().copy(ctx.Column, ctx.Item)
+				return ctx.Board.copyMenuActions().open(ctx)
 			},
 		},
 		{
