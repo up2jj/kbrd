@@ -6,10 +6,12 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	kbrdfs "kbrd/fs"
@@ -30,6 +32,10 @@ var companionInfoPlist []byte
 
 var launchCompanion = func(appPath string) ([]byte, error) {
 	return exec.Command("/usr/bin/open", appPath).CombinedOutput()
+}
+
+var runUninstallCommand = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
 }
 
 func Install(launch bool) (string, error) {
@@ -128,6 +134,81 @@ func Run() (string, error) {
 		return "", fmt.Errorf("launch companion: %s", strings.TrimSpace(string(out)))
 	}
 	return appPath, nil
+}
+
+// Uninstall stops the companion and removes its app bundle and login item.
+// The returned boolean reports whether either installed artifact existed.
+func Uninstall() (bool, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, fmt.Errorf("locate home directory: %w", err)
+	}
+	appPath := filepath.Join(home, "Applications", appName)
+	launchAgentPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+
+	appExists, err := pathExists(appPath)
+	if err != nil {
+		return false, fmt.Errorf("inspect companion installation: %w", err)
+	}
+	launchAgentExists, err := pathExists(launchAgentPath)
+	if err != nil {
+		return false, fmt.Errorf("inspect companion login item: %w", err)
+	}
+	if !appExists && !launchAgentExists {
+		return false, nil
+	}
+
+	var uninstallErrors []error
+	if launchAgentExists {
+		domain := "gui/" + strconv.Itoa(os.Getuid())
+		out, commandErr := runUninstallCommand("/bin/launchctl", "bootout", domain, launchAgentPath)
+		if commandErr != nil && !launchAgentNotLoaded(out) {
+			uninstallErrors = append(uninstallErrors, commandError("disable companion login item", out, commandErr))
+		}
+	}
+	out, commandErr := runUninstallCommand("/usr/bin/pkill", "-u", strconv.Itoa(os.Getuid()), "-x", "kbrd-companion")
+	if commandErr != nil && !processNotRunning(commandErr) {
+		uninstallErrors = append(uninstallErrors, commandError("stop companion", out, commandErr))
+	}
+	if err := os.Remove(launchAgentPath); err != nil && !os.IsNotExist(err) {
+		uninstallErrors = append(uninstallErrors, fmt.Errorf("remove companion login item: %w", err))
+	}
+	if err := os.RemoveAll(appPath); err != nil {
+		uninstallErrors = append(uninstallErrors, fmt.Errorf("remove companion app: %w", err))
+	}
+	return true, errors.Join(uninstallErrors...)
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func launchAgentNotLoaded(output []byte) bool {
+	message := strings.ToLower(string(output))
+	return strings.Contains(message, "no such process") ||
+		strings.Contains(message, "could not find specified service") ||
+		strings.Contains(message, "service is not loaded") ||
+		strings.Contains(message, "input/output error")
+}
+
+func processNotRunning(err error) bool {
+	var exitErr interface{ ExitCode() int }
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
+}
+
+func commandError(action string, output []byte, err error) error {
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	return fmt.Errorf("%s: %s: %w", action, message, err)
 }
 
 func installLaunchAgent(home, appPath string) error {

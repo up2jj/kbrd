@@ -11,3 +11,7 @@ func Install(bool) (string, error) {
 func Run() (string, error) {
 	return "", fmt.Errorf("the menu-bar companion is only available on macOS")
 }
+
+func Uninstall() (bool, error) {
+	return false, fmt.Errorf("the menu-bar companion is only available on macOS")
+}

@@ -20,7 +20,7 @@ func newCompanionCmd() *cobra.Command {
 		Use:   "companion",
 		Short: "Manage the macOS menu-bar quick capture app",
 	}
-	cmd.AddCommand(newCompanionInstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionPrepareCaptureCmd(), newCompanionCaptureCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
+	cmd.AddCommand(newCompanionInstallCmd(), newCompanionUninstallCmd(), newCompanionRunCmd(), newCompanionHotKeyCmd(), newCompanionSnapshotCmd(), newCompanionPrepareCaptureCmd(), newCompanionCaptureCmd(), newCompanionScratchpadCmd(), newCompanionNotificationActionCmd())
 	return cmd
 }
 
@@ -182,6 +182,30 @@ func newCompanionInstallCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&noLaunch, "no-launch", false, "install without starting the companion")
 	return cmd
+}
+
+func newCompanionUninstallCmd() *cobra.Command {
+	return newCompanionUninstallCmdWith(companion.Uninstall)
+}
+
+func newCompanionUninstallCmdWith(uninstall func() (bool, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove the menu-bar companion and its login item",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			removed, err := uninstall()
+			if err != nil {
+				return err
+			}
+			if !removed {
+				fmt.Fprintln(cmd.OutOrStdout(), "kbrd Companion is not installed")
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "uninstalled kbrd Companion")
+			return nil
+		},
+	}
 }
 
 func newCompanionSnapshotCmd() *cobra.Command {

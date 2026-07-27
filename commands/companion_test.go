@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,53 @@ func TestCompanionHotKeyPrintsNativeSettings(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output = %q, want %q", output.String(), want)
 		}
+	}
+}
+
+func TestCompanionUninstallReportsRemoval(t *testing.T) {
+	cmd := newCompanionUninstallCmdWith(func() (bool, error) { return true, nil })
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), "uninstalled kbrd Companion\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestCompanionUninstallReportsMissingInstallation(t *testing.T) {
+	cmd := newCompanionUninstallCmdWith(func() (bool, error) { return false, nil })
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), "kbrd Companion is not installed\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestCompanionUninstallPropagatesErrors(t *testing.T) {
+	wantErr := errors.New("uninstall failed")
+	cmd := newCompanionUninstallCmdWith(func() (bool, error) { return true, wantErr })
+	if err := cmd.Execute(); !errors.Is(err, wantErr) {
+		t.Fatalf("Execute() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestCompanionUninstallRejectsArguments(t *testing.T) {
+	called := false
+	cmd := newCompanionUninstallCmdWith(func() (bool, error) {
+		called = true
+		return true, nil
+	})
+	cmd.SetArgs([]string{"unexpected"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want argument validation error")
+	}
+	if called {
+		t.Fatal("uninstall called after argument validation failure")
 	}
 }
 
