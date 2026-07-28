@@ -289,7 +289,7 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 				}
 			}
 			for _, id := range ids {
-				locked, err := manager.AddPlugin(cmd.Context(), *boardDir, id)
+				locked, err := manager.UpdatePlugin(cmd.Context(), *boardDir, id)
 				if err != nil {
 					return err
 				}

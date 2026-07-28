@@ -56,11 +56,37 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	if err := os.RemoveAll(paths.ContentCache); err != nil {
 		t.Fatal(err)
 	}
+	if err := manager.RemoveMarketplace("acme"); err != nil {
+		t.Fatalf("RemoveMarketplace: %v", err)
+	}
 	if _, err := manager.RuntimePlugins(board); err == nil {
 		t.Fatal("RuntimePlugins succeeded with missing cache")
 	}
 	if synced, err := manager.Sync(t.Context(), board); err != nil || len(synced) != 1 {
-		t.Fatalf("Sync = %+v, %v", synced, err)
+		t.Fatalf("Sync without registered marketplace = %+v, %v", synced, err)
+	}
+	writeFile(t, filepath.Join(repo, "plugins", "date-tools", "plugin.json"), `{
+  "apiVersion": 1,
+  "name": "date-tools",
+  "version": "2.0.0",
+  "description": "Date helpers",
+  "entrypoint": "init.lua"
+}`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "update plugin")
+	updated, err := manager.UpdatePlugin(t.Context(), board, "acme/date-tools")
+	if err != nil {
+		t.Fatalf("UpdatePlugin without registered marketplace: %v", err)
+	}
+	if updated.ID != "acme/date-tools" || updated.Version != "2.0.0" {
+		t.Fatalf("UpdatePlugin = %+v", updated)
+	}
+	marketplaces, err := manager.Marketplaces()
+	if err != nil {
+		t.Fatalf("Marketplaces: %v", err)
+	}
+	if len(marketplaces) != 1 || marketplaces[0].Name != "acme" {
+		t.Fatalf("marketplaces after UpdatePlugin = %+v", marketplaces)
 	}
 
 	t.Setenv("KBRD_PLUGIN_CONFIG_DIR", configRoot)

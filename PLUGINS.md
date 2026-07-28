@@ -81,7 +81,9 @@ kbrd plugin update
 Plugin update refreshes the relevant marketplace, resolves the plugin at its
 new marketplace commit, verifies and caches its content, and atomically rewrites
 `kbrd.plugins.lock`. Review and commit the lock-file diff so other board clones
-receive the same revisions.
+receive the same revisions. If the marketplace is not registered on the current
+machine, update restores its registration from the URL and ref recorded in the
+board lock before resolving the new revision.
 
 `kbrd plugin sync` is deliberately different: it installs exactly what the
 current lock specifies and never selects a newer revision. After pulling an

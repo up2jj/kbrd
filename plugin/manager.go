@@ -67,6 +67,10 @@ func (m *Manager) Search(query string) ([]AvailablePlugin, error) {
 }
 
 func (m *Manager) AddMarketplace(ctx context.Context, rawURL, ref string) (Marketplace, error) {
+	return m.addMarketplace(ctx, rawURL, ref, "")
+}
+
+func (m *Manager) addMarketplace(ctx context.Context, rawURL, ref, expectedName string) (Marketplace, error) {
 	normalizedURL, err := normalizeGitURL(rawURL)
 	if err != nil {
 		return Marketplace{}, err
@@ -95,6 +99,9 @@ func (m *Manager) AddMarketplace(ctx context.Context, rawURL, ref string) (Marke
 	manifest, err := LoadMarketplace(repo)
 	if err != nil {
 		return Marketplace{}, err
+	}
+	if expectedName != "" && manifest.Name != expectedName {
+		return Marketplace{}, fmt.Errorf("marketplace lock expects name %q, but repository declares %q", expectedName, manifest.Name)
 	}
 	if slices.ContainsFunc(registry.Marketplaces, func(existing Marketplace) bool { return existing.Name == manifest.Name }) {
 		return Marketplace{}, fmt.Errorf("marketplace %q is already registered", manifest.Name)
@@ -182,12 +189,18 @@ func (m *Manager) RemoveMarketplace(name string) error {
 }
 
 func (m *Manager) AddPlugin(ctx context.Context, boardDir, id string) (LockedPlugin, error) {
+	return m.addPlugin(ctx, boardDir, id, true)
+}
+
+func (m *Manager) addPlugin(ctx context.Context, boardDir, id string, refreshMarketplace bool) (LockedPlugin, error) {
 	marketName, pluginName, ok := splitID(id)
 	if !ok {
 		return LockedPlugin{}, fmt.Errorf("plugin must be qualified as marketplace/plugin")
 	}
-	if _, err := m.UpdateMarketplaces(ctx, marketName); err != nil {
-		return LockedPlugin{}, err
+	if refreshMarketplace {
+		if _, err := m.UpdateMarketplaces(ctx, marketName); err != nil {
+			return LockedPlugin{}, err
+		}
 	}
 	marketplace, repo, err := m.marketplace(marketName)
 	if err != nil {
@@ -238,6 +251,43 @@ func (m *Manager) AddPlugin(ctx context.Context, boardDir, id string) (LockedPlu
 		return LockedPlugin{}, err
 	}
 	return locked, nil
+}
+
+// UpdatePlugin refreshes a locked plugin. If its marketplace is not registered
+// on this machine, the lock's canonical URL and ref restore that discovery
+// state before the plugin is resolved.
+func (m *Manager) UpdatePlugin(ctx context.Context, boardDir, id string) (LockedPlugin, error) {
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return LockedPlugin{}, err
+	}
+	var current LockedPlugin
+	found := false
+	for _, locked := range lock.Plugins {
+		if locked.ID == id {
+			current = locked
+			found = true
+			break
+		}
+	}
+	if !found {
+		return LockedPlugin{}, fmt.Errorf("plugin %q is not in this board's lock", id)
+	}
+
+	registry, err := loadRegistry(m.Paths)
+	if err != nil {
+		return LockedPlugin{}, err
+	}
+	registered := slices.ContainsFunc(registry.Marketplaces, func(marketplace Marketplace) bool {
+		return marketplace.Name == current.Marketplace
+	})
+	if registered {
+		return m.addPlugin(ctx, boardDir, id, true)
+	}
+	if _, err := m.addMarketplace(ctx, current.MarketplaceURL, current.MarketplaceRef, current.Marketplace); err != nil {
+		return LockedPlugin{}, fmt.Errorf("restore marketplace %s from plugin lock: %w", current.Marketplace, err)
+	}
+	return m.addPlugin(ctx, boardDir, id, false)
 }
 
 func (m *Manager) RemovePlugin(boardDir, id string) error {
