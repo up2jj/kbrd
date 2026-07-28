@@ -21,6 +21,34 @@ kbrd plugin marketplace update
 kbrd plugin search date
 ```
 
+### Using a local marketplace
+
+For local plugin development, register a marketplace from a filesystem path:
+
+```bash
+kbrd plugin marketplace add ../kbrd-plugins
+kbrd plugin add acme/date-tools
+```
+
+The path must point to a Git repository with the [marketplace layout](#marketplace-layout),
+including `marketplace.json` and a `plugin.json` for each listed plugin. Relative
+paths are accepted and stored as absolute paths. A standalone plugin directory
+cannot be registered directly; place it in a marketplace repository first.
+
+kbrd clones and verifies the repository rather than loading files directly from
+the supplied path. Changes therefore do not become active immediately. Commit
+them in the local marketplace, then update the board's locked copy:
+
+```bash
+git -C ../kbrd-plugins add .
+git -C ../kbrd-plugins commit -m "feat: update date tools"
+kbrd plugin update acme/date-tools
+```
+
+The update refreshes the marketplace checkout, copies the verified plugin into
+kbrd's cache, and rewrites `kbrd.plugins.lock`. Review and commit the lock-file
+change with the board.
+
 Add plugins to the current board:
 
 ```bash

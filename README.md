@@ -273,7 +273,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd companion uninstall` | Stop and remove the macOS companion and its login item. Boards, global configuration, and the main `kbrd` executable are preserved; macOS may cache the **Capture in kbrd** Service until applications refresh or the next login. |
 | `kbrd companion run` | Start the already-installed menu-bar companion without reinstalling it. |
 | `kbrd extension install [--dir]` | Install or update the bundled unpacked browser extension and its Native Messaging host; see [EXTENSION.md](./EXTENSION.md). |
-| `kbrd plugin marketplace add <git-url>` | Register a Git-backed Lua plugin marketplace. Use `--ref` to track a branch or tag; see [PLUGINS.md](./PLUGINS.md). |
+| `kbrd plugin marketplace add <git-url-or-path>` | Register a remote or local Git-backed Lua plugin marketplace. Use `--ref` to track a branch or tag; see [PLUGINS.md](./PLUGINS.md#using-a-local-marketplace). |
 | `kbrd plugin marketplace update [name]` | Refresh one or all machine-local marketplace catalogs without changing any board lock. |
 | `kbrd plugin search [query]` | Search the locally registered marketplace catalogs. |
 | `kbrd plugin add <marketplace/plugin>` | Resolve a plugin into the current board's `kbrd.plugins.lock` and cache its verified content. |
