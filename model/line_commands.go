@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"kbrd/config"
+	"kbrd/script"
 	"kbrd/shellcmd"
 )
 
@@ -21,6 +22,7 @@ type runLineCommandMsg struct {
 	Line string
 	Row  int
 	Vars map[string]string
+	VCtx map[string]any
 }
 
 // lineShellDoneMsg carries the captured stdout of a shell line filter back so
@@ -52,13 +54,14 @@ func (b *Board) lineCommands() boardLineCommands {
 func (l boardLineCommands) open(msg openLineCommandsMsg) tea.Cmd {
 	b := l.board
 	b.loadCommands()
+	vars, predicateCtx := l.context(msg)
 	cmds := make([]config.Command, 0, len(b.commands))
 	for _, c := range b.commands {
-		if c.IsLine() {
+		if c.IsLine() && l.visible(c, predicateCtx) {
 			cmds = append(cmds, c)
 		}
 	}
-	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, msg.Row, l.vars(msg))
+	b.customCmds.OpenLine(cmds, b.commandWarnings, msg.Line, msg.Row, vars, predicateCtx)
 	return nil
 }
 
@@ -68,8 +71,14 @@ func (l boardLineCommands) open(msg openLineCommandsMsg) tea.Cmd {
 // selection — a script/timer/hook may have moved selection while the editor
 // stayed open, and the command must bind to the card actually being edited.
 func (l boardLineCommands) vars(msg openLineCommandsMsg) map[string]string {
+	vars, _ := l.context(msg)
+	return vars
+}
+
+func (l boardLineCommands) context(msg openLineCommandsMsg) (map[string]string, map[string]any) {
 	b := l.board
 	vars := map[string]string{}
+	ctx := map[string]any{}
 	target := msg.Target
 	if target.FileName == "" {
 		target.FileName = msg.FileName
@@ -77,10 +86,20 @@ func (l boardLineCommands) vars(msg openLineCommandsMsg) map[string]string {
 	if col, item, err := b.resolveDelayedItemRef(target); err == nil {
 		if colIdx := b.indexOfColumn(col); colIdx >= 0 {
 			vars = b.commandContext().vars(colIdx, item)
+			ctx = b.commandContext().filesystemCtx(colIdx, item)
 		}
 	}
 	vars["line"] = msg.Line
-	return vars
+	ctx["line"] = msg.Line
+	return vars, ctx
+}
+
+func (l boardLineCommands) visible(cmd config.Command, ctx map[string]any) bool {
+	if !cmd.HasVisiblePredicate || l.board.scripts == nil {
+		return true
+	}
+	visible, err := l.board.scripts.CommandVisible(cmd.LuaRef, ctx)
+	return err == nil && visible
 }
 
 // handleRun dispatches a chosen line command. Lua commands run on the
@@ -95,7 +114,13 @@ func (l boardLineCommands) handleRun(msg runLineCommandMsg) (tea.Model, tea.Cmd)
 		// kbrd.ui.* yields, by which point the cursor may have moved.
 		b.lineApplyPending = true
 		b.lineApplyRow = msg.Row
-		req, err := b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
+		var req *script.UIRequest
+		var err error
+		if msg.VCtx != nil {
+			req, err = b.scripts.RunVirtualCommand(msg.Cmd.LuaRef, msg.VCtx)
+		} else {
+			req, err = b.scripts.RunCommand(msg.Cmd.LuaRef, msg.Vars)
+		}
 		return b, b.handleScriptResult(msg.Cmd.Name, req, err)
 	}
 

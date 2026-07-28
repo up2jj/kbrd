@@ -264,6 +264,7 @@ type luaCommand struct {
 	Scope       string // "files" (default) | "virtual" | "all"
 	Ref         string
 	fn          *lua.LFunction
+	visible     *lua.LFunction
 	owner       string
 }
 
@@ -551,15 +552,67 @@ func (h *Host) Commands() []config.Command {
 	out := make([]config.Command, 0, len(effective))
 	for _, c := range effective {
 		out = append(out, config.Command{
-			Name:        c.Name,
-			ID:          c.ID,
-			Description: c.Description,
-			Scope:       c.Scope,
-			Source:      config.SourceLua,
-			LuaRef:      c.Ref,
+			Name:                c.Name,
+			ID:                  c.ID,
+			Description:         c.Description,
+			Scope:               c.Scope,
+			Source:              config.SourceLua,
+			LuaRef:              c.Ref,
+			HasVisiblePredicate: c.visible != nil,
 		})
 	}
 	return out
+}
+
+// CommandVisible evaluates a Lua command's optional per-context visibility
+// predicate. Commands without a predicate are visible. Predicates run inline on
+// the host VM with the hook timeout and must return a boolean.
+func (h *Host) CommandVisible(ref string, ctx map[string]any) (bool, error) {
+	if h == nil {
+		return true, nil
+	}
+	if h.L == nil {
+		return false, fmt.Errorf("lua VM closed")
+	}
+	for _, command := range h.effectiveCommands() {
+		if command.Ref != ref {
+			continue
+		}
+		if command.visible == nil {
+			return true, nil
+		}
+		if h.running {
+			return false, fmt.Errorf("lua VM is busy")
+		}
+
+		prevOwner := h.activeOwner
+		prevUIAllowed := h.uiAllowed
+		h.activeOwner = command.owner
+		h.uiAllowed = false
+		h.running = true
+		ret, err := h.callHookLValue(command.visible, toLValue(h.L, ctx), 1)
+		h.running = false
+		h.activeOwner = prevOwner
+		h.uiAllowed = prevUIAllowed
+		pending := h.deferred
+		h.deferred = nil
+		for _, event := range pending {
+			h.OnEvent(event)
+		}
+		if err != nil {
+			err = fmt.Errorf("visible predicate for command %q: %w", command.ID, err)
+			h.logger.Log("error", "command visible "+command.ID, err.Error())
+			return false, err
+		}
+		visible, ok := ret.(lua.LBool)
+		if !ok {
+			err := fmt.Errorf("visible predicate for command %q returned %s, want boolean", command.ID, ret.Type())
+			h.logger.Log("error", "command visible "+command.ID, err.Error())
+			return false, err
+		}
+		return bool(visible), nil
+	}
+	return false, fmt.Errorf("unknown lua command %q", ref)
 }
 
 // RunCommand starts a Lua-registered command's coroutine. Returns:

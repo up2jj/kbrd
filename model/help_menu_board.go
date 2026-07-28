@@ -207,6 +207,13 @@ func (h boardHelpActions) groups() []HelpGroup {
 			if !avail || (c.NeedsItem() && !hasItem && markedCount == 0) {
 				continue
 			}
+			item := col.SelectedItem()
+			if item != nil && item.Separator {
+				item = nil
+			}
+			if !b.commandContext().visible(c, col, item) {
+				continue
+			}
 			desc := c.Description
 			if desc == "" {
 				desc = "Run the custom command \"" + c.Name + "\"."

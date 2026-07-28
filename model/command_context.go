@@ -77,6 +77,30 @@ func (c boardCommandContext) filesystemCtx(colIdx int, item *Item) map[string]an
 	return ctx
 }
 
+// visible reports whether cmd's optional Lua predicate accepts the current
+// item context. Predicate failures are treated as hidden so a broken extension
+// cannot leave an unusable menu entry behind.
+func (c boardCommandContext) visible(cmd config.Command, col *Column, item *Item) bool {
+	if !cmd.HasVisiblePredicate || c.board.scripts == nil {
+		return true
+	}
+	colIdx := c.board.indexOfColumn(col)
+	if colIdx < 0 {
+		return false
+	}
+	var ctx map[string]any
+	if col.Virtual {
+		ctx = c.virtualVars(col, item)
+	} else {
+		ctx = c.filesystemCtx(colIdx, item)
+	}
+	visible, err := c.board.scripts.CommandVisible(cmd.LuaRef, ctx)
+	if err != nil {
+		return false
+	}
+	return visible
+}
+
 // commandsForColumn returns the menu command list for the focused column,
 // applying scope: filesystem columns show files/all globals; virtual columns
 // show their own column-scoped commands first, then virtual/all globals. When
@@ -84,8 +108,13 @@ func (c boardCommandContext) filesystemCtx(colIdx int, item *Item) map[string]an
 // requiresItem: false commands remain (possibly none).
 func (c boardCommandContext) commandsForColumn(col *Column) []config.Command {
 	b := c.board
-	hasItem := col.HasSelectedItem()
-	keep := func(cmd config.Command) bool { return hasItem || !cmd.NeedsItem() }
+	item := col.SelectedItem()
+	if item != nil && item.Separator {
+		item = nil
+	}
+	keep := func(cmd config.Command) bool {
+		return (item != nil || !cmd.NeedsItem()) && c.visible(cmd, col, item)
+	}
 	if col.Virtual {
 		out := make([]config.Command, 0, len(col.colCmds)+len(b.commands))
 		for _, vc := range col.colCmds {

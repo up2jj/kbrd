@@ -157,7 +157,7 @@ type CustomCommandMenu struct {
 	commands []config.Command
 	warnings []config.CommandLoadWarning
 	vars     map[string]string
-	vctx     map[string]any // rich Lua ctx for virtual-column dispatch; nil otherwise
+	vctx     map[string]any // structured Lua ctx for frontmatter/virtual dispatch; nil otherwise
 	batch    []customCommandRunContext
 	mru      []string // command ids in MRU order (index 0 = most recent); session-only
 	palette  Palette
@@ -197,8 +197,8 @@ func (m *CustomCommandMenu) OpenWithBatch(commands []config.Command, warnings []
 // OpenLine opens the menu as the in-editor line-command picker. line is the
 // current editor line, handed to the command as ctx.line / vars["line"]; the
 // command's return value replaces that line.
-func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []config.CommandLoadWarning, line string, row int, vars map[string]string) {
-	m.Open(commands, warnings, vars, nil)
+func (m *CustomCommandMenu) OpenLine(commands []config.Command, warnings []config.CommandLoadWarning, line string, row int, vars map[string]string, vctx map[string]any) {
+	m.Open(commands, warnings, vars, vctx)
 	m.lineMode = true
 	m.line = line
 	m.lineRow = row
@@ -291,7 +291,7 @@ func (m *CustomCommandMenu) run(c config.Command) tea.Cmd {
 	m.Close()
 	if lineMode {
 		return func() tea.Msg {
-			return runLineCommandMsg{Cmd: c, Line: line, Row: lineRow, Vars: vars}
+			return runLineCommandMsg{Cmd: c, Line: line, Row: lineRow, Vars: vars, VCtx: vctx}
 		}
 	}
 	if c.NeedsItem() && len(batch) > 0 {

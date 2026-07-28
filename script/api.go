@@ -1052,7 +1052,7 @@ func optionalLayerCallback(t *lua.LTable, name string) (*lua.LFunction, error) {
 }
 
 // kbrd.command(id, name, fn) — short form
-// kbrd.command{ id=, name=, description=, run= } — table form
+// kbrd.command{ id=, name=, description=, visible=, run= } — table form
 func (h *Host) luaCommand(L *lua.LState) int {
 	if h.inTimer {
 		L.RaiseError("kbrd.command: cannot register commands from inside a timer callback (register from init.lua or a command body)")
@@ -1064,6 +1064,7 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		description string
 		scope       string
 		fn          *lua.LFunction
+		visible     *lua.LFunction
 	)
 
 	if L.GetTop() == 1 && L.Get(1).Type() == lua.LTTable {
@@ -1072,6 +1073,14 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		name = lua.LVAsString(t.RawGetString("name"))
 		description = lua.LVAsString(t.RawGetString("description"))
 		scope = lua.LVAsString(t.RawGetString("scope"))
+		if value := t.RawGetString("visible"); value != lua.LNil {
+			var ok bool
+			visible, ok = value.(*lua.LFunction)
+			if !ok {
+				L.RaiseError("kbrd.command: visible must be a function")
+				return 0
+			}
+		}
 		if v, ok := t.RawGetString("run").(*lua.LFunction); ok {
 			fn = v
 		}
@@ -1098,14 +1107,14 @@ func (h *Host) luaCommand(L *lua.LState) int {
 		if c.ID == id && c.owner == h.activeOwner {
 			(*target)[i] = luaCommand{
 				Name: name, ID: id, Description: description, Scope: scope,
-				Ref: ref, fn: fn, owner: h.activeOwner,
+				Ref: ref, fn: fn, visible: visible, owner: h.activeOwner,
 			}
 			return 0
 		}
 	}
 	*target = append(*target, luaCommand{
 		Name: name, ID: id, Description: description, Scope: scope,
-		Ref: ref, fn: fn, owner: h.activeOwner,
+		Ref: ref, fn: fn, visible: visible, owner: h.activeOwner,
 	})
 	return 0
 }

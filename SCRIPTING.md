@@ -665,7 +665,7 @@ end
 ```
 
 ### `kbrd.command(id, name, fn)` — short form
-### `kbrd.command{id=, name=, description=, run=}` — table form
+### `kbrd.command{id=, name=, description=, visible=, run=}` — table form
 
 Register a menu entry. `id` is a unique identifier (any non-empty string —
 e.g. `"archive"` or `"word-count"`). `name` is what shows in the menu, and
@@ -704,6 +704,28 @@ kbrd.command{ id="reveal", name="Reveal", scope="all",
 
 The same `scope:` key works in YAML command files (`commands.yml` /
 `.kbrd_commands.yml`).
+
+**`visible`** (optional, Lua table form only) is a per-item predicate evaluated
+when KBRD builds a command menu. It receives the same `ctx` as `run`, including
+the selected filesystem card's full frontmatter in `ctx.data`, and must return a
+boolean. This complements `scope`: scope chooses the kinds of columns where a
+command can appear, while `visible` decides whether it appears for the current
+item.
+
+```lua
+kbrd.command{
+  id = "not-for-tasks",
+  name = "Convert to note",
+  visible = function(ctx)
+    return not ctx.data or ctx.data.type ~= "task"
+  end,
+  run = function(ctx) ... end,
+}
+```
+
+Visibility predicates run synchronously with the scripting hook timeout. Keep
+them fast and side-effect free; a predicate error or non-boolean result hides
+the command for that context and is written to the script log.
 
 ### Line commands — `scope = "line"`
 

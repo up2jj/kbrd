@@ -52,6 +52,10 @@ type Command struct {
 	// LuaRef is opaque to non-script code; the script subsystem uses it to
 	// dispatch back to the registered callback. Empty for shell commands.
 	LuaRef string `yaml:"-"`
+	// HasVisiblePredicate reports whether a Lua command registered a per-context
+	// visibility predicate. The predicate itself remains owned by the script VM;
+	// non-script code uses LuaRef to ask the host to evaluate it.
+	HasVisiblePredicate bool `yaml:"-"`
 }
 
 // EffectiveScope returns the command's scope with the empty/unknown value

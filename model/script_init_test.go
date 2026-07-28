@@ -52,6 +52,54 @@ func TestScriptInitActivityAndCommandMerge(t *testing.T) {
 	}
 }
 
+func TestLuaCommandVisibilityUsesSelectedCardFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	columnDir := filepath.Join(dir, "todo")
+	if err := os.Mkdir(columnDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(columnDir, name+".md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("note", "---\ntype: note\n---\n# Note\n")
+	write("task", "---\ntype: task\n---\n# Task\n")
+	if err := os.WriteFile(filepath.Join(dir, ".kbrd.lua"), []byte(`
+kbrd.command{
+  id = "not-task",
+  name = "Not task",
+  visible = function(ctx) return not ctx.data or ctx.data.type ~= "task" end,
+  run = function() end,
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Path: dir, NotifyBackend: "none"}
+	cfg.Scripting = config.ScriptingConfig{Enabled: true, CommandTimeoutMs: 2000, HookTimeoutMs: 500}
+	b := NewBoard(cfg)
+	if err := b.initRuntime(); err != nil {
+		t.Fatalf("initRuntime: %v", err)
+	}
+	defer b.closeScripting()
+	if err := b.loadColumns(); err != nil {
+		t.Fatalf("loadColumns: %v", err)
+	}
+	col := b.columns[0]
+
+	col.SelectByName("note")
+	noteCommands := b.commandContext().commandsForColumn(col)
+	if got := names(noteCommands); !has(noteCommands, "Not task") {
+		t.Fatalf("commands for note = %v, want Not task", got)
+	}
+	col.SelectByName("task")
+	taskCommands := b.commandContext().commandsForColumn(col)
+	if got := names(taskCommands); has(taskCommands, "Not task") {
+		t.Fatalf("commands for task = %v, want predicate-hidden command", got)
+	}
+}
+
 func TestSwitchBoardShowsScriptActivityBeforeLoad(t *testing.T) {
 	b := NewBoard(config.Config{Path: t.TempDir(), NotifyBackend: "none",
 		Scripting: config.ScriptingConfig{Enabled: true}})

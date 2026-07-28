@@ -399,6 +399,71 @@ func TestCommandRegistration(t *testing.T) {
 	}
 }
 
+func TestCommandVisiblePredicate(t *testing.T) {
+	dir := writeInit(t, `
+kbrd.command{
+  id = "hide-tasks",
+  name = "Hide tasks",
+  visible = function(ctx)
+    return not ctx.data or ctx.data.type ~= "task"
+  end,
+  run = function() end,
+}`)
+	h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer h.Close()
+
+	cmd := h.Commands()[0]
+	if !cmd.HasVisiblePredicate {
+		t.Fatal("registered command did not retain its visible predicate")
+	}
+	tests := []struct {
+		name string
+		ctx  map[string]any
+		want bool
+	}{
+		{name: "no frontmatter", ctx: map[string]any{"fileName": "plain"}, want: true},
+		{name: "non-task", ctx: map[string]any{"data": map[string]any{"type": "note"}}, want: true},
+		{name: "task", ctx: map[string]any{"data": map[string]any{"type": "task"}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := h.CommandVisible(cmd.LuaRef, tt.ctx)
+			if err != nil {
+				t.Fatalf("CommandVisible: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("CommandVisible = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCommandVisiblePredicateValidation(t *testing.T) {
+	t.Run("registration requires function", func(t *testing.T) {
+		dir := writeInit(t, `kbrd.command{id="x", name="X", visible=true, run=function() end}`)
+		_, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+		if err == nil || !strings.Contains(err.Error(), "visible must be a function") {
+			t.Fatalf("New error = %v, want visible function validation", err)
+		}
+	})
+
+	t.Run("predicate requires boolean return", func(t *testing.T) {
+		dir := writeInit(t, `kbrd.command{id="x", name="X", visible=function() return "yes" end, run=function() end}`)
+		h, err := New(defaultCfg(), &fakeAPI{}, nil, dir, "")
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		defer h.Close()
+		_, err = h.CommandVisible(h.Commands()[0].LuaRef, nil)
+		if err == nil || !strings.Contains(err.Error(), "want boolean") {
+			t.Fatalf("CommandVisible error = %v, want boolean return validation", err)
+		}
+	})
+}
+
 func TestLuaNotifyForwardsAllLevels(t *testing.T) {
 	dir := writeInit(t, `
 kbrd.command("n", "Notify", function()

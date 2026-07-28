@@ -222,7 +222,8 @@ func TestCustomCommandMenu_OpenLineRoutesRunLineCommand(t *testing.T) {
 	var m CustomCommandMenu
 	cmds := []config.Command{{Name: "Upper", ID: "upper", Scope: "line", Template: "tr a-z A-Z"}}
 	vars := map[string]string{"line": "hello"}
-	m.OpenLine(cmds, nil, "hello", 7, vars)
+	vctx := map[string]any{"line": "hello", "data": map[string]any{"type": "task"}}
+	m.OpenLine(cmds, nil, "hello", 7, vars, vctx)
 
 	cmd := m.Update(keySpecial(tea.KeyEnter))
 	if cmd == nil {
@@ -237,6 +238,9 @@ func TestCustomCommandMenu_OpenLineRoutesRunLineCommand(t *testing.T) {
 	}
 	if msg.Vars["line"] != "hello" {
 		t.Fatalf("line vars not forwarded: %+v", msg.Vars)
+	}
+	if msg.VCtx["line"] != "hello" {
+		t.Fatalf("structured line ctx not forwarded: %+v", msg.VCtx)
 	}
 }
 

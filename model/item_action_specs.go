@@ -109,6 +109,9 @@ func (a boardItemActions) InvokeCustomCommand(id string, source itemActionSource
 	if !ok {
 		return nil, false
 	}
+	if !b.commandContext().visible(cmd, ctx.Column, ctx.Item) {
+		return nil, false
+	}
 	if cmd.NeedsItem() && len(ctx.Targets) > 0 && ctx.Column.MarkedCount() > 0 {
 		runs := customCommandRunsForTargets(b, ctx, ctx.Targets)
 		if len(runs) > 0 {
