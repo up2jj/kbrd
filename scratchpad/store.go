@@ -81,6 +81,18 @@ func (s *Store) Save(boardPath, text string) error {
 	return nil
 }
 
+// Clear removes a board's note. Clearing a missing note succeeds.
+func (s *Store) Clear(boardPath string) error {
+	path, err := s.Path(boardPath)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("clear scratchpad: %w", err)
+	}
+	return nil
+}
+
 // Append adds text after a blank-line separator and returns the resulting note.
 func (s *Store) Append(boardPath, text string) (string, error) {
 	current, err := s.Load(boardPath)

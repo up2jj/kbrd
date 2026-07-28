@@ -1253,7 +1253,7 @@ func (e *Editor) vimFooter() string {
 	}
 	hintItems := []Shortcut{{":w", "save"}, {":q", "quit"}, {"ctrl+t", "task"}, {"ctrl+l", "line cmd"}, {":help", "keys"}}
 	if e.state == editorScratchpad {
-		hintItems = []Shortcut{{"ctrl+v", "paste"}, {"C/ctrl+g", "history"}, {"ctrl+c", "copy"}, {"ctrl+n", "promote"}, {":q", "close"}}
+		hintItems = []Shortcut{{"ctrl+v", "paste"}, {"C/ctrl+g", "history"}, {"ctrl+c", "copy"}, {"ctrl+n", "promote"}, {"ctrl+d", "clear"}, {":q", "close"}}
 	}
 	hints := RenderInlineHints(hintItems)
 	return status + "\n" + hints
@@ -1330,7 +1330,7 @@ func (e *Editor) view() string {
 		hints = textareaHints
 	case editorScratchpad:
 		label = "Scratchpad"
-		hints = []Shortcut{{"ctrl+v", "paste"}, {"ctrl+g", "history"}, {"ctrl+c", "copy all"}, {"ctrl+n", "promote all"}, {"esc", "close"}}
+		hints = []Shortcut{{"ctrl+v", "paste"}, {"ctrl+g", "history"}, {"ctrl+c", "copy all"}, {"ctrl+n", "promote all"}, {"ctrl+d", "clear"}, {"esc", "close"}}
 	case editorNew:
 		if e.NewContent != "" {
 			label = "Paste as new item in: " + e.ColName

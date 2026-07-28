@@ -94,3 +94,62 @@ func TestStoreUsesPrivatePermissions(t *testing.T) {
 		t.Fatalf("directory mode = %o, want 700", got)
 	}
 }
+
+func TestStoreClearRemovesBoardNote(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardPath := t.TempDir()
+	if err := store.Save(boardPath, "temporary note"); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := store.Path(boardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Clear(boardPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Stat after Clear = %v, want not exist", err)
+	}
+	got, err := store.Load(boardPath)
+	if err != nil || got != "" {
+		t.Fatalf("Load after Clear = %q, %v", got, err)
+	}
+}
+
+func TestStoreClearMissingNoteSucceeds(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Clear(t.TempDir()); err != nil {
+		t.Fatalf("Clear missing note: %v", err)
+	}
+}
+
+func TestStoreClearOnlyRemovesRequestedBoardNote(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardA := t.TempDir()
+	boardB := t.TempDir()
+	if err := store.Save(boardA, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(boardB, "bravo"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Clear(boardA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load(boardB)
+	if err != nil || got != "bravo" {
+		t.Fatalf("Load uncleared board = %q, %v", got, err)
+	}
+}

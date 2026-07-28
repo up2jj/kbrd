@@ -376,10 +376,11 @@ never appear in Git. Press `Q` on a card to append its contents and open the not
 
 Inside the scratchpad, `ctrl+v` pastes the system clipboard, `C` in Vim Normal or
 Visual mode (`ctrl+g` everywhere) opens clipboard history, and `ctrl+c` copies the
-visual selection or whole note into both clipboard surfaces. Press `ctrl+n` to
-promote the visual selection—or the entire note when there is no selection—into
-a new card in the focused column. Promoted text is removed only after the card is
-created successfully; cancelling or failing creation leaves the note unchanged.
+visual selection or whole note into both clipboard surfaces. Press `ctrl+d` to
+clear the note after confirmation. Press `ctrl+n` to promote the visual
+selection—or the entire note when there is no selection—into a new card in the
+focused column. Promoted text is removed only after the card is created successfully;
+cancelling or failing creation leaves the note unchanged.
 
 ### macOS card sharing (`y`)
 

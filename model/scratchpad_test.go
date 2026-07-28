@@ -168,6 +168,57 @@ func TestScratchpadBracketedPasteAutosaves(t *testing.T) {
 	}
 }
 
+func TestScratchpadClearRequiresConfirmation(t *testing.T) {
+	b, store, root := newScratchpadBoard(t, false)
+	if err := store.Save(root, "keep me"); err != nil {
+		t.Fatal(err)
+	}
+	b.scratchpadActions().open()
+
+	b.scratchpadActions().handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if !b.dialog.active {
+		t.Fatal("ctrl+d did not open the clear confirmation")
+	}
+	if got, _ := store.Load(root); got != "keep me" {
+		t.Fatalf("scratchpad changed before confirmation: %q", got)
+	}
+
+	_, cmd := b.inputRouter().HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("safe-default cancellation emitted a command")
+	}
+	if got, _ := store.Load(root); got != "keep me" {
+		t.Fatalf("cancelled clear changed scratchpad: %q", got)
+	}
+}
+
+func TestScratchpadClearRemovesNoteAndResetsEditor(t *testing.T) {
+	b, store, root := newScratchpadBoard(t, true)
+	if err := store.Save(root, "delete me"); err != nil {
+		t.Fatal(err)
+	}
+	b.scratchpadActions().open()
+
+	b.scratchpadActions().handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	b.inputRouter().HandleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	_, cmd := b.inputRouter().HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("confirming clear did not emit a command")
+	}
+	b.Update(cmd())
+
+	path, err := store.Path(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("scratchpad file after clear: %v, want not exist", err)
+	}
+	if !b.editor.IsScratchpad() || b.editor.ScratchpadContent() != "" {
+		t.Fatalf("editor after clear: state=%v content=%q", b.editor.state, b.editor.ScratchpadContent())
+	}
+}
+
 func TestScratchpadPromotionClearsOnlyAfterCardCreation(t *testing.T) {
 	b, store, root := newScratchpadBoard(t, false)
 	if err := store.Save(root, "an unformed idea"); err != nil {

@@ -17,6 +17,8 @@ type scratchpadPromotion struct {
 	remainder string
 }
 
+type scratchpadClearConfirmMsg struct{}
+
 type boardScratchpadActions struct {
 	board *Board
 }
@@ -89,6 +91,14 @@ func (a boardScratchpadActions) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.C
 		return a.promote()
 	case key == "ctrl+c":
 		return b, a.copy()
+	case key == "ctrl+d":
+		b.dialog.OpenConfirmDestructive(
+			"Clear scratchpad?",
+			"This machine-local note will be permanently deleted.",
+			"Clear",
+			scratchpadClearConfirmMsg{},
+		)
+		return b, nil
 	case key == "ctrl+g" || (key == "C" && b.editor.vim && b.editor.buf != nil && b.editor.buf.Mode() != vimbuf.ModeInsert && b.editor.buf.Mode() != vimbuf.ModeCommand):
 		return b, b.clipboardActions().openScratchpadBrowser()
 	}
@@ -133,6 +143,18 @@ func (a boardScratchpadActions) handleSave(msg scratchpadSaveMsg) (tea.Model, te
 		b.resetEditor()
 	}
 	return b, cmd
+}
+
+func (a boardScratchpadActions) clear() (tea.Model, tea.Cmd) {
+	b := a.board
+	store, err := a.store()
+	if err != nil {
+		return b, b.notifier.ErrorCause("clear scratchpad", err)
+	}
+	if err := store.Clear(b.cfg.Path); err != nil {
+		return b, b.notifier.ErrorCause("clear scratchpad", err)
+	}
+	return b, tea.Batch(b.editor.OpenScratchpad(""), b.notifier.Success("scratchpad cleared"))
 }
 
 func (a boardScratchpadActions) insertClipboard(text string) tea.Cmd {

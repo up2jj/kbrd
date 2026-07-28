@@ -638,6 +638,9 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scratchpadSaveMsg:
 		return b.scratchpadActions().handleSave(msg)
 
+	case scratchpadClearConfirmMsg:
+		return b.scratchpadActions().clear()
+
 	case editorSaveMsg:
 		return b.mutationHandlers().handleSave(msg)
 
