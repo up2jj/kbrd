@@ -100,3 +100,32 @@ type PluginInfo struct {
 	Marketplace Marketplace
 	Installed   *LockedPlugin
 }
+
+// UpdatePreview describes a newer marketplace resolution without changing the
+// board lock or activating plugin content.
+type UpdatePreview struct {
+	ID              string
+	Current         LockedPlugin
+	Candidate       LockedPlugin
+	ManifestChanges []ManifestChange
+	Files           []PluginFileChange
+	Patch           string
+}
+
+// Outdated reports whether applying a preview would change the board lock.
+func (p UpdatePreview) Outdated() bool {
+	return p.Current != p.Candidate
+}
+
+// ManifestChange describes one changed declarative plugin.json field.
+type ManifestChange struct {
+	Field  string
+	Before string
+	After  string
+}
+
+// PluginFileChange identifies one changed path in a candidate plugin tree.
+type PluginFileChange struct {
+	Path   string
+	Status string
+}

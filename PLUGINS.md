@@ -92,6 +92,21 @@ before inspecting what a marketplace currently offers.
 
 ### Updating a board plugin
 
+Check updates before allowing new Lua code to become active:
+
+```bash
+kbrd plugin outdated
+kbrd plugin update --dry-run
+kbrd plugin diff acme/date-tools
+```
+
+These commands fetch and validate the tracked marketplace revision, then show
+version changes, changed manifest fields, and added, modified, or removed
+plugin files. `plugin diff` also prints unified content diffs. They do not
+rewrite `kbrd.plugins.lock`, refresh the registered marketplace checkout, or
+activate/cache the candidate plugin. A missing locked cache may be fetched to a
+temporary staging directory for comparison and is removed afterward.
+
 Update one plugin used by the current board:
 
 ```bash

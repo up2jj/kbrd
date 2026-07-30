@@ -41,7 +41,9 @@ func newPluginCmd() *cobra.Command {
 		newPluginListCmd(&boardDir),
 		newPluginRemoveCmd(&boardDir),
 		newPluginSyncCmd(&boardDir),
+		newPluginOutdatedCmd(&boardDir),
 		newPluginUpdateCmd(&boardDir),
+		newPluginDiffCmd(&boardDir),
 		newPluginValidateCmd(),
 	)
 	return cmd
@@ -337,7 +339,8 @@ func newPluginSyncCmd(boardDir *string) *cobra.Command {
 }
 
 func newPluginUpdateCmd(boardDir *string) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "update [marketplace/plugin]",
 		Short: "Resolve newer marketplace revisions into the board lock",
 		Args:  cobra.MaximumNArgs(1),
@@ -346,19 +349,22 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var ids []string
-			if len(args) == 1 {
-				ids = args
-			} else {
-				lock, err := plugin.LoadBoardLock(*boardDir)
+			ids, err := pluginUpdateIDs(*boardDir, args)
+			if err != nil {
+				return err
+			}
+			var previews []plugin.UpdatePreview
+			if dryRun {
+				previews, err = manager.PreviewUpdates(cmd.Context(), *boardDir, ids)
 				if err != nil {
 					return err
 				}
-				for _, locked := range lock.Plugins {
-					ids = append(ids, locked.ID)
-				}
 			}
-			for _, id := range ids {
+			for i, id := range ids {
+				if dryRun {
+					printUpdatePreview(cmd, previews[i], false)
+					continue
+				}
 				locked, err := manager.UpdatePlugin(cmd.Context(), *boardDir, id)
 				if err != nil {
 					return err
@@ -367,6 +373,117 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 			}
 			return nil
 		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show available changes without updating the lock or activating content")
+	return cmd
+}
+
+func newPluginOutdatedCmd(boardDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "outdated",
+		Short: "Check locked plugins for available updates",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := pluginManager()
+			if err != nil {
+				return err
+			}
+			ids, err := pluginUpdateIDs(*boardDir, nil)
+			if err != nil {
+				return err
+			}
+			previews, err := manager.PreviewUpdates(cmd.Context(), *boardDir, ids)
+			if err != nil {
+				return err
+			}
+			outdated := 0
+			for _, preview := range previews {
+				if !preview.Outdated() {
+					continue
+				}
+				outdated++
+				printUpdatePreview(cmd, preview, false)
+			}
+			if outdated == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "all plugins are up to date")
+			}
+			return nil
+		},
+	}
+}
+
+func newPluginDiffCmd(boardDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "diff <marketplace/plugin>",
+		Short: "Show the available plugin update and its content diff",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := pluginManager()
+			if err != nil {
+				return err
+			}
+			preview, err := manager.PreviewUpdate(cmd.Context(), *boardDir, args[0])
+			if err != nil {
+				return err
+			}
+			printUpdatePreview(cmd, preview, true)
+			return nil
+		},
+	}
+}
+
+func pluginUpdateIDs(boardDir string, args []string) ([]string, error) {
+	if len(args) == 1 {
+		return args, nil
+	}
+	lock, err := plugin.LoadBoardLock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(lock.Plugins))
+	for _, locked := range lock.Plugins {
+		ids = append(ids, locked.ID)
+	}
+	return ids, nil
+}
+
+func printUpdatePreview(cmd *cobra.Command, preview plugin.UpdatePreview, includePatch bool) {
+	currentVersion := valueOr(preview.Current.Version, "unspecified")
+	candidateVersion := valueOr(preview.Candidate.Version, "unspecified")
+	state := "update available"
+	if !preview.Outdated() {
+		state = "up to date"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s -> %s (%s)\n", preview.ID, currentVersion, candidateVersion, state)
+	if preview.Current.MarketplaceCommit != preview.Candidate.MarketplaceCommit {
+		fmt.Fprintf(cmd.OutOrStdout(), "  marketplace: %s -> %s\n", shortCommit(preview.Current.MarketplaceCommit), shortCommit(preview.Candidate.MarketplaceCommit))
+	}
+	if len(preview.ManifestChanges) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  manifest:")
+		for _, change := range preview.ManifestChanges {
+			fmt.Fprintf(cmd.OutOrStdout(), "    %s: %s -> %s\n", change.Field, change.Before, change.After)
+		}
+	}
+	if len(preview.Files) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "  files:")
+		for _, file := range preview.Files {
+			fmt.Fprintf(cmd.OutOrStdout(), "    %s %s\n", fileStatus(file.Status), file.Path)
+		}
+	}
+	if includePatch && preview.Patch != "" {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), preview.Patch)
+	}
+}
+
+func fileStatus(status string) string {
+	switch status {
+	case "added":
+		return "A"
+	case "removed":
+		return "D"
+	default:
+		return "M"
 	}
 }
 

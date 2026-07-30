@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,174 @@ import (
 	"kbrd/plugin"
 	"kbrd/script"
 )
+
+func TestPreviewUpdateShowsChangesWithoutMutatingActivation(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo := createMarketplaceRepo(t)
+	root := t.TempDir()
+	paths := plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	}
+	manager := plugin.NewManager(paths)
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	board := t.TempDir()
+	locked, err := manager.AddPlugin(t.Context(), board, "acme/date-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(board, plugin.LockFile)
+	lockBefore, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryBefore, err := os.ReadFile(paths.RegistryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pluginRoot := filepath.Join(repo, "plugins", "date-tools")
+	writeFile(t, filepath.Join(pluginRoot, "plugin.json"), `{
+  "apiVersion": 1,
+  "name": "date-tools",
+  "version": "2.0.0",
+  "description": "Safer date helpers",
+  "entrypoint": "init.lua",
+  "commands": ["plugin-date", "tomorrow"],
+  "shellAccess": true
+}`)
+	writeFile(t, filepath.Join(pluginRoot, "init.lua"), `kbrd.command("tomorrow", "Tomorrow", function() return "tomorrow" end)`)
+	writeFile(t, filepath.Join(pluginRoot, "new.lua"), `return "new"`)
+	if err := os.Remove(filepath.Join(pluginRoot, "util.lua")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "preview candidate")
+
+	preview, err := manager.PreviewUpdate(t.Context(), board, "acme/date-tools")
+	if err != nil {
+		t.Fatalf("PreviewUpdate: %v", err)
+	}
+	if !preview.Outdated() || preview.Current.Version != "1.0.0" || preview.Candidate.Version != "2.0.0" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	manifestFields := make(map[string]bool)
+	for _, change := range preview.ManifestChanges {
+		manifestFields[change.Field] = true
+	}
+	for _, field := range []string{"version", "description", "commands", "shellAccess"} {
+		if !manifestFields[field] {
+			t.Errorf("manifest changes missing %q: %+v", field, preview.ManifestChanges)
+		}
+	}
+	fileStatuses := make(map[string]string)
+	for _, file := range preview.Files {
+		fileStatuses[file.Path] = file.Status
+	}
+	for path, status := range map[string]string{
+		"init.lua": "modified", "new.lua": "added", "util.lua": "removed", "plugin.json": "modified",
+	} {
+		if fileStatuses[path] != status {
+			t.Errorf("file %s status = %q, want %q; files: %+v", path, fileStatuses[path], status, preview.Files)
+		}
+	}
+	for _, want := range []string{"diff --git", "+return \"new\"", "-return {value=\"ok\"}"} {
+		if !strings.Contains(preview.Patch, want) {
+			t.Errorf("patch missing %q:\n%s", want, preview.Patch)
+		}
+	}
+	if strings.Contains(preview.Patch, root) {
+		t.Errorf("patch exposes cache staging path:\n%s", preview.Patch)
+	}
+	lockAfter, _ := os.ReadFile(lockPath)
+	registryAfter, _ := os.ReadFile(paths.RegistryFile)
+	if !bytes.Equal(lockBefore, lockAfter) {
+		t.Fatal("PreviewUpdate changed the board lock")
+	}
+	if !bytes.Equal(registryBefore, registryAfter) {
+		t.Fatal("PreviewUpdate changed the marketplace registry")
+	}
+	stillLocked, err := plugin.LoadBoardLock(board)
+	if err != nil || len(stillLocked.Plugins) != 1 || stillLocked.Plugins[0].ContentSHA256 != locked.ContentSHA256 {
+		t.Fatalf("lock after preview = %+v, %v", stillLocked, err)
+	}
+}
+
+func TestPreviewUpdatesHandlesMultiplePluginsFromOneMarketplace(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo := createMarketplaceRepo(t)
+	writeFile(t, filepath.Join(repo, "marketplace.json"), `{
+  "apiVersion": 1,
+  "name": "acme",
+  "description": "Test plugins",
+  "plugins": [
+    {"name":"date-tools","source":"plugins/date-tools"},
+    {"name":"text-tools","source":"plugins/text-tools"}
+  ]
+}`)
+	textRoot := filepath.Join(repo, "plugins", "text-tools")
+	writeFile(t, filepath.Join(textRoot, "plugin.json"), `{
+  "apiVersion": 1,
+  "name": "text-tools",
+  "version": "1.0.0",
+  "description": "Text helpers",
+  "entrypoint": "init.lua"
+}`)
+	writeFile(t, filepath.Join(textRoot, "init.lua"), `return "text"`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "add text plugin")
+
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	board := t.TempDir()
+	for _, id := range []string{"acme/date-tools", "acme/text-tools"} {
+		if _, err := manager.AddPlugin(t.Context(), board, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, name := range []string{"date-tools", "text-tools"} {
+		manifestPath := filepath.Join(repo, "plugins", name, "plugin.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, manifestPath, strings.Replace(string(data), `"version": "1.0.0"`, `"version": "2.0.0"`, 1))
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "update both plugins")
+
+	previews, err := manager.PreviewUpdates(t.Context(), board, []string{"acme/date-tools", "acme/text-tools"})
+	if err != nil {
+		t.Fatalf("PreviewUpdates: %v", err)
+	}
+	if len(previews) != 2 {
+		t.Fatalf("got %d previews, want 2", len(previews))
+	}
+	for _, preview := range previews {
+		if !preview.Outdated() || preview.Candidate.Version != "2.0.0" {
+			t.Errorf("preview = %+v", preview)
+		}
+	}
+}
 
 func TestManagerLocksSyncsAndLoadsBoardPlugin(t *testing.T) {
 	if !kbrdfs.GitAvailable() {
