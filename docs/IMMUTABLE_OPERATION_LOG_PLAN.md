@@ -2,71 +2,295 @@
 
 ## Goal
 
-Replace snapshot-oriented Git conflict handling with an immutable operation log
-that converges automatically across machines. Git becomes the transport,
-durability, and history layer; kbrd owns card semantics and deterministic
-resolution.
+Replace snapshot-oriented Git conflict handling with an append-only operation
+log that converges automatically across compatible kbrd clients. Git remains the
+transport, durability, and commit-history layer; kbrd owns board semantics,
+validation, and deterministic reduction.
 
-The user should continue working with ordinary Markdown cards and retain useful
-`+N/-N`, new, deleted, renamed, moved, and pending-sync indicators. Concurrent
-changes must never create conflict sidecars or require a review inbox.
+Users continue working with ordinary Markdown cards and retain useful `+N/-N`,
+new, deleted, renamed, moved, and pending-sync indicators. A filesystem edit is
+imported into the operation log before kbrd commits or synchronizes it. Normal
+concurrent card changes do not create conflict sidecars or require a review
+inbox.
 
-This is a breaking storage rewrite. There is no production migration,
-dual-write compatibility period, legacy format reader, or rollback command.
-Development boards and fixtures will be recreated in the new format.
+This is a breaking storage rewrite. There is no in-place production migration,
+dual-write period, legacy reader, or automatic rollback. Development boards and
+fixtures will be recreated. Before release, kbrd must provide a clean export
+path so a damaged or secret-bearing log can be replaced by a new repository
+without copying immutable history.
 
 ## Product decisions
 
-1. A card has a stable UUID independent of its filename and column.
-2. Immutable operations and content-addressed blobs are the source of truth.
-3. Markdown card files remain normal, editable, tracked projections.
-4. Projection conflicts are disposable: after merging operations, kbrd
-   deterministically regenerates the affected Markdown files.
-5. The same operation set must always produce a byte-identical board.
-6. Concurrent changes are resolved automatically using card-aware rules.
-7. Body text inserted or supplied as a replacement by a concurrent operation
-   must remain present in the current materialized card. It may disappear only
-   after a causally later operation observes and explicitly deletes it.
-8. Git uses one shared branch with ordinary commits, fetches, merges, pushes,
-   and bounded non-fast-forward retries. It never rebases or force-pushes.
-9. TUI, web, MCP, scripts, and filesystem edits use the same mutation and sync
-   engine.
-10. Wall-clock timestamps are informational. They are not the sole ordering or
-    conflict-resolution mechanism.
+1. Cards and columns have stable UUIDs independent of presentation paths.
+2. Immutable operations and content-addressed blobs are authoritative.
+3. Markdown cards and column directories remain editable, tracked projections.
+4. Working-tree drift is imported before a kbrd-managed commit. A committed
+   projection change without corresponding operations is invalid input: sync
+   must diagnose it and stop, never silently overwrite it.
+5. Projection conflicts are disposable inside a kbrd-owned candidate merge.
+   After operation union and validation, kbrd regenerates every affected
+   projection before it creates the candidate commit.
+6. The same valid operation set, format version, reducer version, and diff
+   version must produce a byte-identical board. A reducer upgrade is an explicit
+   repository-format transition, not an implicit local choice.
+7. Concurrent changes are resolved automatically using card-aware rules.
+8. Body text inserted by a concurrent operation remains visible until a
+   causally later delete explicitly names its element IDs. Concurrent identical
+   insertions remain distinct operations.
+9. Git uses one shared branch with ordinary commits, fetches, merge commits,
+   fast-forwards, and bounded non-fast-forward retries. Normal sync never
+   rebases or force-pushes.
+10. TUI, web, MCP, scripts, reminders, ingest, notifications, and filesystem
+    drift use one mutation and synchronization engine.
+11. Wall-clock time is informational. It never decides causal order, winners,
+    element placement, or filenames.
+12. Reduction is pure: it never writes operations, invokes hooks, runs Lua, or
+    accesses Git. Version 1 has no synthetic merge operations.
+13. Integrity is not authenticity. A configured Git remote is a trust boundary,
+    and safe mode continues to govern whether synchronized executable content
+    may run.
+14. The first end-to-end implementation covers cards and columns. Arbitrary
+    resources are enabled only after the card protocol and Git transaction pass
+    their release gates.
 
-## Repository layout
+## Format and compatibility
+
+Tracked `.kbrd/format.json` pins every behavior that can change output:
+
+```json
+{
+  "protocol": 1,
+  "canonical_encoding": "kbrd-json-v1",
+  "reducer": "kbrd-sequence-v1",
+  "snapshot_diff": "kbrd-rune-diff-v1"
+}
+```
+
+Clients must reject an unknown value before importing drift, reducing records,
+or changing the worktree. Two branches with different format values cannot be
+merged by normal sync.
+
+A format upgrade is an explicit command that requires a clean, synchronized
+branch and the repository lock. It writes the new format, regenerates
+projections, commits, and pushes as one transition. Older clients then fail
+closed with an upgrade-required error. Any reducer needed to interpret a
+retained revision remains available until no supported external-editor base can
+refer to that revision. Format changes are the only allowed exception to the
+append-only metadata rule described below.
+
+## Repository and local-state layout
 
 ```text
 .kbrd/
   format.json
   log/
-    <operation-id>.json
+    ab/
+      <remaining-operation-hash>.json
   blobs/
-    <content-hash>
+    cd/
+      <remaining-content-hash>
   revisions/
-    <revision-id>.json
-  checkpoints/
-    <reducer-version>/
-      <frontier-hash>.json
+    ef/
+      <remaining-revision-hash>.json
 
 Todo/
+  .kbrd-column
   task.md
 Doing/
+  .kbrd-column
   other.md
 ```
 
-Machine-local manifests, journals, locks, temporary indexes, and displaced-file
-backups live in a private state path resolved through Git rather than in the
-tracked `.kbrd/` tree. They are never staged or used as convergence inputs.
+Two hexadecimal fan-out characters keep large histories out of a single
+directory. Hashes use lower-case hexadecimal SHA-256 without a `sha256:` prefix
+in paths. The prefix may appear in user-facing or JSON values.
 
-Files below `.kbrd/log/`, `.kbrd/blobs/`, and `.kbrd/revisions/` are immutable.
-Their names derive from canonical content, so independent machines that produce
-the same logical record also produce the same path and bytes. Checkpoint paths
-include the reducer version because the same operation frontier may materialize
-differently after a reducer upgrade. Checkpoints are disposable caches and are
-never authoritative.
+`.kbrd-column` is generated projection metadata containing the stable column ID
+and revision. It makes empty-column moves observable. It is reserved and hidden
+from normal UI and user-facing diffs.
 
-Markdown projections carry stable identity metadata:
+Machine-local checkpoints, verified-commit caches, journals, indexes, locks,
+actor identity, path history, and displaced-file backups are not tracked:
+
+- the repository-wide advisory lock lives below `git rev-parse
+  --git-common-dir` so linked worktrees and separate kbrd processes serialize;
+- each worktree's actor, completed manifest, journal, temporary index, and path
+  history live below `git rev-parse --git-path kbrd`; and
+- state directories and files are created with private permissions.
+
+Use an OS advisory lock, not a PID lockfile requiring stale-owner guesses. Every
+mutation, drift import, materialization, format upgrade, and sync transaction
+holds the same repository lock. External editors and raw Git commands do not
+honor it, so all worktree writes still use compare-and-preserve semantics and
+all ref changes still use compare-and-swap.
+
+### Append-only Git invariant
+
+Files under `.kbrd/log/`, `.kbrd/blobs/`, and `.kbrd/revisions/` are immutable
+and append-only across Git history:
+
+- for a one-parent commit, every immutable path in the parent must exist with
+  identical bytes in the child;
+- for a merge commit, the child must contain the byte-identical union of the
+  immutable paths from every parent; and
+- a path collision with different bytes is corruption, even if both files are
+  otherwise valid.
+
+This rule catches deletion of an unreferenced leaf operation, which graph
+closure validation alone cannot detect. Candidate construction unions immutable
+trees explicitly; it does not delegate deletion semantics to Git's textual
+merge.
+
+On first open, kbrd verifies append-only edges in reachable history and caches
+verified commit IDs locally. Later opens verify only unseen edges. Sync always
+verifies the local and fetched histories from their merge base through both
+tips. A rewritten or shallow history that cannot establish the invariant is a
+diagnostic error until the user deepens, repairs, or explicitly re-adopts it.
+
+Extra unreferenced immutable blobs are allowed but reported by `kbrd doctor`.
+They never influence reduction. Normal synchronization never deletes them.
+
+### Projection consistency invariant
+
+Every local or fetched tip used as a sync parent must have tracked projections
+equal to the byte-identical materialization of that tip's operation set and
+pinned format. Every commit created by kbrd has the same property and carries
+recomputed `Kbrd-Format` and `Kbrd-Frontier` trailers; the frontier trailer is
+the hash of the sorted global target-head set and is an optimization, not a
+trusted assertion.
+
+A raw commit that changes a card or column projection without adding the
+corresponding operation therefore becomes an inconsistent tip and is rejected
+before merge. This prevents regeneration from silently discarding its Markdown
+edit. Unlike immutable-path validation, projection consistency need not hold at
+every historical raw commit: an explicit repair child may import that commit's
+projection delta, restore a consistent tip, and record a
+`Kbrd-Imported-Commit` trailer. The original raw commit remains visible in Git
+history.
+
+Ordinary filesystem editing remains supported: `kbrd sync`, the running app,
+and kbrd's commit path inventory the worktree and import drift first. A
+diagnostic repair command may translate an unambiguous local, single-parent raw
+commit into operations in a new child commit. Remote or ambiguous committed
+drift is never guessed during automatic sync; the error names the offending
+commit and paths.
+
+## Operation model
+
+The wire envelope is deliberately small. Kind-specific payloads have concrete
+schemas; arbitrary maps are not part of the canonical protocol.
+
+```go
+type Operation struct {
+	Protocol   int
+	ActorID    string
+	Nonce      string
+	OccurredAt string // optional RFC 3339; informational only
+	Source     string // tui, web, mcp, lua, filesystem, repair, ...
+	BatchID    string // optional correlation for one multi-target user action
+	Target     Target
+	Parents    []string
+	Kind       Kind
+	Payload    json.RawMessage // decoded immediately into the Kind's concrete type
+}
+
+type Target struct {
+	Type TargetType // card, column, or resource
+	ID   string     // stable UUID
+}
+
+// Record is an in-memory value. ID is not part of the hashed bytes.
+type Record struct {
+	ID string
+	Operation
+}
+```
+
+- An operation ID is the SHA-256 hash of the canonical operation bytes. Its
+  filename contains the hash; the ID is never included in the bytes it hashes.
+- `ActorID` is a random per-worktree identity stored privately. It is not a
+  hostname, user identity, trust credential, or ordering source.
+- `Nonce` is fresh 128-bit randomness for every locally requested operation.
+  It ensures two identical requests by the same actor against the same parents
+  remain distinct. Deterministic maintenance operations, if introduced by a
+  later protocol, must specify a deterministic nonce derivation.
+- `OccurredAt`, `Source`, and `BatchID` support history and event grouping. They
+  do not participate in conflict-resolution comparisons except that they are
+  ordinary hashed payload bytes.
+- `Parents` is the sorted set of operation heads for the same target visible
+  when the operation was created. It supplies causal order.
+- Paths, blobs, modes, fields, inserts, and deletes live only in payloads for
+  kinds that use them. A body edit cannot accidentally act as a path write.
+
+Initial kinds include card create, body edit, scalar-field set/delete, tag
+add/remove, checklist-state set, card path set, card delete/restore, column
+create, column path set, and column delete/restore. One operation may contain
+the related changes to a single target needed for an atomic edit. `BatchID`
+groups bulk actions across targets without pretending that Git provides an
+atomic distributed transaction.
+
+Writers durably create referenced blobs before operations and create operation
+files with no-clobber semantics. Reusing an existing hash is valid only when the
+existing bytes match exactly.
+
+### Canonical encoding
+
+`kbrd-json-v1` must have a standalone specification and golden vectors before
+implementation. It defines:
+
+- valid UTF-8 and exact string escaping;
+- lexicographic object-key order;
+- integers only, with no floats or alternate number spellings;
+- required, omitted, and null fields;
+- sorted set fields such as parents and deleted element ranges;
+- exact payload schema for every operation kind;
+- rejection of unknown or duplicate object fields; and
+- one trailing newline for JSON record files.
+
+User Markdown is not Unicode-normalized: visually identical scalar sequences
+remain distinct bytes. Card text converts CRLF and bare CR to LF on import and
+materializes with LF. Invalid UTF-8 is preserved in a displaced backup/blob and
+reported as an import error rather than replaced or partially decoded.
+
+## Card semantic model
+
+Generated `kbrd_id`, `kbrd_revision`, checklist IDs, and column markers are
+projection metadata. They are excluded from semantic blobs, user-facing diffs,
+and CRDT text.
+
+### Body sequence protocol
+
+The body uses a span-oriented, YATA-style sequence CRDT. The protocol is not
+defined merely by the summary below: before reducer implementation, Phase 0
+must add a normative integration algorithm with pseudocode, tie-breaking rules,
+worked examples, and language-neutral conformance fixtures. The algorithm name
+and fixture digest become part of `kbrd-sequence-v1`.
+
+The normative design must provide these properties:
+
+- the sequence operates on Unicode scalar values grouped into immutable insert
+  spans;
+- an insert records its original visible left and right origins plus inserted
+  UTF-8 text;
+- each element has identity `(operation ID, scalar offset)`;
+- integration uses both origins and a specified recursive ordering rule, so
+  nested concurrent insertions and non-adjacent or tombstoned origins have one
+  result;
+- a delete names observed element IDs or canonical contiguous ranges and is
+  valid only when those elements are visible from the operation's parents;
+- replacement is observed deletion plus insertion in one body-edit payload;
+- tombstones retain origin identity; and
+- arrival order, map iteration, local/remote role, wall time, and Git commit
+  order never affect output.
+
+`kbrd-rune-diff-v1` likewise specifies its exact algorithm, tie-breaking, and
+normalization. An external save is compared with the exact embedded revision,
+then translated into insert/delete spans over that revision's element IDs.
+Concurrent equal text is never deduplicated.
+
+### Revision manifests
+
+Markdown cards carry:
 
 ```yaml
 ---
@@ -75,519 +299,563 @@ kbrd_revision: sha256:8f17...
 ---
 ```
 
-The revision token is the content hash of an immutable revision manifest. A
-manifest contains the target identity, reducer version, sorted operation heads,
-semantic Markdown blob hash, and rendered path. The semantic blob excludes the
-generated `kbrd_revision` token and other projection-only metadata, avoiding a
-self-referential hash. The materializer injects those values only after hashing
-the revision manifest; exact final projection-byte hashes live in the local
-materialization manifest. The revision therefore identifies the exact causal and
-textual base of a stale external-editor save even when the card had multiple
-concurrent heads. Revision manifests are retained with history and must not rely
-on an optional checkpoint for reconstruction. Generated kbrd metadata must not
-participate in user-facing diffs or user-content blobs.
+A card revision manifest contains:
 
-## Operation model
+- protocol and reducer version;
+- target ID;
+- sorted heads for that target only;
+- semantic Markdown blob hash; and
+- a sequence-index blob mapping semantic scalar ranges to element IDs and
+  recording tombstoned origins required by stale editors.
 
-The canonical operation payload should contain:
+The revision does not contain the rendered path or global board frontier.
+Unrelated card changes therefore do not churn every card's revision token. Path
+and exact final projection-byte hashes live in the local completed-generation
+manifest.
 
-```go
-type Operation struct {
-	Version int
-	ActorID string
-	Target  Target
-	Parents []string
-	Kind    Kind
-	Blob    string
-	Path    string
-	Data    map[string]json.RawMessage
-}
+Revision IDs hash canonical manifest bytes. Revision files and their referenced
+blobs are retained append-only so a stale external editor does not depend solely
+on an optional checkpoint or on reconstructing an old element map. The importer
+still checks that its binary supports the manifest's reducer and diff versions.
 
-type Target struct {
-	Type TargetType // card or resource
-	ID   string     // stable UUID
-}
+If a buffer saves to a card's former path after a move, path history resolves it
+as a stale save when that path, target ID, and embedded revision match a
+previously materialized generation. Its content is applied to the existing
+target while the current winning path is retained. Otherwise a duplicate card
+ID is a copy: the manifest path keeps the ID and other occurrences receive new
+IDs in deterministic path order. This unavoidable ambiguity intentionally
+prefers preservation of an identifiable stale edit; `kbrd copy` is the
+unambiguous copy operation.
 
-// Record is an in-memory value. It is not itself canonically hashed.
-type Record struct {
-	ID string
-	Operation
-}
-```
+Removing or changing generated identity metadata at a currently managed path is
+an import error, not an implicit delete-and-create. A new unmanaged Markdown
+file without an ID receives a new card ID.
 
-- An operation ID is the SHA-256 hash of the canonical encoding of `Operation`.
-  It is stored in the filename and supplied separately as `Record.ID`; the ID is
-  never included in the bytes from which it is derived.
-- `ActorID` is machine-local and is never inferred from hostname or wall time.
-- `Target` distinguishes cards from other mutable board resources. Both have a
-  stable identity independent of presentation path.
-- `Parents` contains operation IDs for the same target that were visible when
-  the operation was created and supplies causal ordering.
-- `Blob` references a complete derived Markdown revision or opaque file content
-  when required; body-edit authority remains in CRDT operations.
-- `Path` is presentation state, not card identity.
-- `Data` carries kind-specific structured values, including resource media type
-  and executable-bit state where applicable.
+### Frontmatter and checklists
 
-Canonical JSON must define UTF-8 handling, object-key ordering, number encoding,
-newline normalization, omitted versus null fields, and set ordering. Writers
-write a blob durably before any operation that references it, then write the
-operation with create-only semantics.
+Version 1 treats supported top-level frontmatter semantically:
 
-Card bodies use a sequence CRDT stored as immutable operations. Complete
-semantic Markdown revisions remain useful for external-editor merge bases,
-history, checkpoints, and inspection, but they are derived views rather than the
-authoritative representation of body edits. Opaque resources continue to use
-complete content blobs and deterministic three-way or whole-file resolution.
+- `kbrd_*` keys are reserved generated metadata;
+- tags are an observed-remove set;
+- each other valid top-level key is an independent register whose value is a
+  canonical YAML node; causal descendants win and concurrent writes use
+  operation-ID order;
+- deleting a key writes a tombstone rather than an absent snapshot; and
+- duplicate keys, aliases that escape supported value limits, and malformed
+  frontmatter fail import while preserving the edited bytes.
 
-### Body sequence model
+Comments, quoting style, key order, and other YAML presentation choices are not
+authoritative and may be canonicalized by materialization. This breaking
+behavior must be documented rather than implying formatting preservation.
 
-The body CRDT covers user-authored Markdown body text after frontmatter and
-generated projection metadata are separated. Checklist completion markers are
-structured entry state, while checklist labels use the same CRDT text semantics
-as the rest of the body. The sequence operates on Unicode scalar values grouped
-into immutable insertion spans:
+Checklist recognition uses one pinned Markdown subset. Generated invisible HTML
+comments carry stable entry UUIDs. Import removes the generated comment and
+completion marker from CRDT label text, records completion as structured state,
+and leaves indentation, label text, line position, and surrounding Markdown in
+the body sequence. Removing an existing ID means remove-old plus add-new; the
+importer never guesses identity from label text. Duplicate IDs are resolved in
+deterministic path and sequence order.
 
-- a body-insert operation names the visible left and right element anchors at
-  its base revision and carries the inserted UTF-8 text;
-- each inserted element has the stable identity `(operation ID, element offset)`;
-- a body-delete operation names observed element IDs or compact contiguous ID
-  ranges and cannot delete elements that were not visible at its base revision;
-- replacement is represented as deletion of the observed elements plus an
-  insertion span, so two concurrent replacements preserve both inserted values;
-- concurrent insertions at the same anchors are ordered by operation ID and
-  element offset, never arrival order; and
-- tombstoned elements remain addressable so later operations with old anchors
-  still reduce deterministically.
+### Columns
 
-External saves are compared with the exact `kbrd_revision` base. A versioned,
-deterministic diff translates the saved snapshot into insert and delete
-operations over that base's element IDs. Concurrent inserted spans are never
-text-deduplicated, even when their bytes are identical: two independently added
-lines remain two distinct lines. A later save that has observed both lines may
-explicitly delete either or both.
+Columns are first-class targets. Their operations define create, path/name set,
+delete, and restore. `.kbrd-column` carries identity for external moves and
+empty directories. Concurrent column paths use the same deterministic winner
+and collision-suffix rules as cards. Moving a card between columns remains a
+card path operation; deleting a column does not implicitly delete its cards.
+The reducer deterministically moves surviving cards to the configured fallback
+column or a generated recovery column.
 
-Resource targets cover configuration, Lua, hooks, templates, and other text or
-binary files. The materialized-generation manifest maps each resource ID to its
-last path, blob, and mode so external moves and copies can be distinguished even
-when the file format cannot carry inline metadata. A copied resource receives a
-new ID; a rename preserves it. Resource operations define create, replace,
-rename/move, mode change, and delete semantics using the same parent rules as
-cards. This avoids leaving non-card mutations on a separate Git-conflict path.
+## Resource model and staged scope
 
-### Validation and trust boundary
+Resources eventually cover an explicit allowlist of board configuration,
+templates, Lua, hooks, and attachments. They use complete content blobs and
+create, replace, path set, mode set, delete, and restore operations.
 
-Every local or fetched record must be validated before graph construction or
-materialization:
+Resource projection formats generally cannot carry identity. Therefore:
 
-- the log filename must equal the hash of the canonical operation bytes;
-- every referenced blob and revision must exist and match its content hash;
-- versions, kinds, target types, UUIDs, required fields, and size limits must be
-  valid;
-- parents must exist, address the same target, and form a valid causal graph;
-- body anchors and element ranges must exist on the same card with valid scalar
-  offsets, and every deleted element must be causally visible from the
-  operation's declared parents;
-- projection paths must be normalized relative paths contained by the board,
-  must not address `.git`, `.kbrd`, or another reserved path, and must not
-  traverse symlinked parent components; and
-- resource modes must be limited to supported portable values.
+- a kbrd API rename preserves resource identity;
+- an external rename is inferred only when the old path disappears and the new
+  path has identical bytes and supported mode;
+- an external rename combined with an edit is deterministically represented as
+  delete plus create because identity cannot be proven; and
+- copies receive new IDs.
 
-Validation is fail-closed for the entire synchronization transaction. Unknown
-protocol versions or invalid remote records discard the candidate merge before
-the live branch or projection generation advances; kbrd never partially reduces
-or materializes an invalid operation set. This is a sync error, not a content
-conflict requiring a review inbox.
+The plan does not claim perfect external resource rename inference. Resource
+history may split across an ambiguous rename, but content remains preserved.
+
+Until the resource phase is enabled, automatic sync refuses divergent changes
+to security-sensitive or otherwise managed non-card files rather than creating
+sidecars or guessing. Ordinary non-board files are merged by Git outside kbrd's
+managed tree and may still require normal Git handling.
+
+## Validation and trust boundary
+
+Every local or fetched candidate is validated before graph construction,
+reduction, ref advancement, index installation, or worktree materialization:
+
+- format values are known and identical across merge parents;
+- every unseen Git edge satisfies the append-only invariant;
+- filenames equal canonical-content hashes;
+- referenced blobs and revisions exist and match their hashes;
+- versions, kinds, payload schemas, target types, UUIDs, nonces, required
+  fields, UTF-8, and configured size/count/depth limits are valid;
+- parents exist, address the same target, are sorted and unique, and form a
+  valid causal graph;
+- body origins and element ranges exist on the same card, and deleted elements
+  are causally visible from the declared parents;
+- local and fetched tip projections exactly match reduction, all kbrd-created
+  commit trailers recompute correctly, and any claimed raw-commit repair names
+  its imported ancestor;
+- paths are normalized relative slash paths within configured length limits,
+  avoid reserved names and case-fold collisions, and do not address `.git`,
+  `.kbrd`, generated metadata, `.gitmodules`, or another protected path; and
+- resource kinds, media types, sizes, and modes are allowlisted.
+
+Filesystem containment must use Go's root-relative filesystem APIs and
+descriptor-relative operations, not a check-then-open symlink scan. Low-level
+Git commands run with repository hooks disabled and never initialize or update
+submodules.
+
+Validation is fail-closed for the complete transaction. An error identifies the
+commit, record, and path and leaves local committed operations publishable after
+repair. No invalid subset is partially reduced.
+
+Hash validation proves integrity, not authorship. Normal mode treats configured
+remote content like a checkout from that remote. Safe mode never executes Lua,
+hooks, template commands, or newly synchronized executable content. Even in
+normal mode, sync and materialization themselves never execute content; changed
+executable resources take effect only on a later explicit reload/open and must
+produce a visible warning.
+
+Because deleted text and blobs remain in immutable history, documentation and
+the UI warn against storing secrets. `kbrd export --clean` writes only the
+current semantic board to a new directory without `.git` or immutable history;
+repository replacement and remote rotation remain explicit operator actions,
+outside normal sync.
 
 ## Deterministic resolution policy
 
 | Concurrent change | Resolution |
 | --- | --- |
-| Different card fields | Apply both |
-| Move or rename plus content edit | Apply both |
+| Different scalar fields | Apply both |
+| Same scalar field set/delete | Causal descendant, else operation-ID winner |
 | Tags | Observed-remove set |
-| Checklist entries | Merge by stable entry ID carried in projection metadata |
-| Concurrent body insertions | Preserve all in deterministic CRDT order |
-| Concurrent body replacements | Preserve every replacement's inserted text |
+| Checklist completion | Stable entry-ID register |
+| Move or rename plus content edit | Apply both |
+| Concurrent body insertions | Preserve all using the pinned sequence protocol |
+| Concurrent body replacements | Preserve every inserted span |
 | Body delete concurrent with insertion | Delete observed elements; keep insertion |
-| Two moves or renames | Deterministic winning operation |
-| Delete concurrent with edit | Edit wins |
+| Two card or column paths | Causal descendant, else operation-ID winner |
+| Delete concurrent with edit | Edit/restore wins |
 | Delete that causally observed the edit | Delete wins |
-| Opaque text resource conflict | Three-way merge, then deterministic whole-file winner |
-| Binary resource conflict | Deterministic whole-file winner |
+| Same requested projection path | Deterministic ID-derived collision suffixes |
+| Opaque text resource conflict | Pinned deterministic three-way merge, then whole-file winner |
+| Binary resource conflict | Causal descendant, else operation-ID winner |
 
-Causal descendants win over their ancestors. Truly concurrent choices use a
-stable total order derived from operation identity, never the local/remote role
-or merge direction. That ensures two machines make the same choice.
+The path collision suffix includes a stable short target-ID component and obeys
+portable length, reserved-name, Unicode, and case-fold rules. The protocol
+defines comparison on normalized slash paths even when the host filesystem is
+case-sensitive. Unsupported host filesystems fail capability checks rather than
+materializing a different tree.
 
-When useful, the reducer may emit a synthetic merge operation referencing all
-competing heads. Its ID must derive from the reducer version, sorted parent IDs,
-and canonical result so independent machines generate exactly the same record.
-Synthetic operations use a reserved deterministic actor value and contain no
-machine-local or wall-clock fields.
+Causal descendants win over ancestors. Truly concurrent register choices use
+the lexicographic operation ID. The reducer emits no operations, so repeated
+reduction is a pure no-op over the same input set.
 
-Checklist projections carry an invisible HTML comment containing a stable entry
-UUID. New checklist lines without an ID receive one during drift import. If an
-editor removes an existing ID, the importer treats the old entry as removed and
-the unmarked line as a newly added entry; it does not guess identity from text or
-position. Duplicate entry IDs are resolved like copied card IDs, with one
-deterministically selected occurrence retaining the ID. Checklist metadata is
-excluded from user-facing diffs.
+## Mutation, projection, and recovery
 
-## User experience
+### Local mutation transaction
 
-### Editing files
+Every frontend calls one concrete engine while holding the repository lock:
 
-Users continue editing files such as `Todo/task.md`. A genuine filesystem
-change is converted into an operation before synchronization. Materializer
-writes are atomic and tagged/suppressed so the watcher does not interpret them
-as user edits.
+1. Recover an interrupted transaction.
+2. Inventory affected projections and import pre-existing drift.
+3. Read current target heads and validate the requested mutation.
+4. Write referenced blobs and one or more immutable operations durably.
+5. Reduce the new local frontier and write deterministic revision manifests.
+6. Materialize affected projections with compare-and-preserve writes.
+7. Atomically advance the completed-generation manifest.
+8. Release the lock, then publish semantic events and trigger the coalescing
+   commit/sync worker.
 
-The built-in editor supplies the exact parent revision directly. For an
-external editor, `kbrd_revision` identifies the base even when synchronization
-updated the projection while the editor buffer was open.
+If the process dies before Git commit, the immutable records remain untracked or
+unstaged and are recovered as local pending operations. kbrd stages only its
+verified immutable records and managed projections through a private index; it
+does not reuse the existing `git add -A` behavior or capture unrelated user
+files.
 
-### Projection generations and crash recovery
+### Projection generations
 
-kbrd keeps a machine-local, untracked materialization manifest and transaction
-journal in a Git-resolved private state directory. The completed manifest names
-the last fully materialized frontier and records every managed path's target ID,
-revision ID, and byte hash. The journal records the previous generation, desired
-generation, expected input hashes, and transaction-owned backup paths.
+The per-worktree completed manifest contains the operation frontier, format,
+and every managed path's target ID, target revision, byte hash, and supported
+mode. Path history retains enough previous path/revision pairs to recognize an
+open editor saving after a move.
 
-Recovery always runs while holding the repository lock and before ordinary drift
-import. If a transaction was interrupted, bytes matching either the completed or
-desired manifest are recognized as kbrd output. Any other bytes are preserved as
-blobs and imported against their embedded revision before materialization
-resumes. This prevents a partial create, move, rename, or delete from becoming a
-spurious inverse user operation. After all projection files and containing
-directories are durable, kbrd atomically advances the completed manifest and
-then removes the journal.
+The journal records the previous generation, desired generation, expected live
+HEAD and index checksum, prepared commit/tree when applicable, expected input
+path hashes, and transaction-owned backup paths.
 
-Materialization never blindly replaces a path. Drift import records the exact
-hash or absence observed at every affected path. Each replacement or deletion
-uses a no-clobber/exchange-and-backup primitive that preserves the displaced
-bytes, verifies them against the expected hash, and retains unexpected bytes
-until they have been stored as a user operation. If a path changed after the
-scan, the transaction stops, imports the preserved edit, reduces again, and
-retries. This compare-and-preserve rule covers editors that do not participate
-in the repository lock and is required for file creation and deletion as well as
-replacement.
+Recovery runs under the lock before drift import. Bytes matching the completed
+or journaled desired manifest are recognized as generated output. Other bytes
+are preserved and imported against their embedded revision before recovery
+continues. Transaction backups are removed only after their bytes are either
+known generated output or durably represented by an operation; retention and
+manual cleanup are exposed through `kbrd doctor`.
 
-### Moves, renames, copies, and deletes
+Materialization never blindly overwrites or deletes a path. It uses a supported
+atomic exchange or backup-first rename primitive, verifies the displaced bytes
+against the inventory hash, and retains unexpected bytes. Creation uses
+no-clobber semantics. Deletion first renames the old path to a private backup.
+If an editor races any step, the transaction imports the preserved edit,
+reduces again, and retries.
 
-- The same card UUID appearing at a different path becomes a move/rename.
-- A content edit on another machine commutes with that move.
-- A duplicate UUID at two paths is treated as a copy; one projection receives a
-  fresh card UUID.
-- Watcher events are only rescan triggers, never authoritative mutations. A
-  missing projection becomes a delete only after a debounced full inventory is
-  compared with the completed materialization manifest and no projection with
-  the same UUID exists at another path.
-- Concurrent create operations that want the same path receive deterministic
-  collision suffixes so both cards remain visible.
+The filesystem primitive set is capability-tested on each supported operating
+system before automatic sync is enabled. A platform without safe no-clobber,
+rename, directory-sync, and root-contained operations fails closed instead of
+falling back to a racy check-then-write implementation.
 
-### Change markers
+Watcher events are rescan triggers only. Generated writes need no correctness-
+critical event suppression; hashes and manifests distinguish output from drift.
 
-Markers compare two materialized operation frontiers instead of only comparing
-the worktree to `HEAD`:
+## Synchronization transaction
+
+One cross-process transaction is shared by all frontends:
+
+1. Acquire the repository-wide advisory lock.
+2. Recover any journaled local mutation, prepared commit, index installation,
+   or projection generation. Refuse unexplained `MERGE_HEAD`, index changes, or
+   user-created Git state; kbrd never aborts a merge it cannot prove it owns.
+3. Inventory and import working-tree drift, reduce it, install its projection,
+   and create a local commit through a private index. Record the resulting local
+   tip. Unrelated index/worktree entries remain untouched.
+4. Fetch the configured upstream with Git hooks disabled and record the exact
+   fetched tip.
+5. Find the merge base and validate unseen append-only history edges, format,
+   immutable records, commit trailers, and projection consistency at both tips.
+6. If either side contains invalid committed projection drift, stop with a
+   repair diagnostic. Never regenerate over it.
+7. Create a transaction-owned temporary index from the merge base. Populate its
+   immutable paths with the byte-identical union of both tips. Merge unmanaged
+   paths according to their declared policy; managed projections are omitted at
+   this point because they are disposable.
+8. Validate and reduce the complete candidate operation set. Write deterministic
+   revision manifests and add them to the temporary index.
+9. Materialize every managed projection into a private staging tree and add its
+   exact bytes and modes to the temporary index.
+10. Write the candidate Git tree. If histories diverged, create an ordinary
+    two-parent commit with `git commit-tree`; if the local tip is an ancestor and
+    the fetched commit already has an exact valid generated tree, use that
+    commit as a fast-forward. No commit is created before its final tree exists.
+11. Write and durably sync a journal containing old tip, candidate commit/tree,
+    prepared index checksum, and desired projection manifest.
+12. Acquire Git's canonical index lock, then verify that the live index checksum
+    and branch tip still match the journal. While retaining the index lock,
+    compare-and-swap the branch to the candidate and atomically promote the
+    prepared index. A failed check or ref CAS changes neither live index nor
+    worktree; discard the candidate and restart from fetch. A crash between ref
+    CAS and index promotion leaves the prepared lockfile and journal for recovery.
+13. Verify the branch still names the candidate, then materialize its projection
+    generation into the live worktree with compare-and-preserve writes. If an
+    external raw ref update raced after the CAS, do not overwrite projections;
+    retain the journal and restart reconciliation from the new tip. A crash after
+    ref advancement is recovered by completing or superseding these steps.
+14. Atomically advance the completed-generation manifest and remove the journal.
+15. Push normally. On non-fast-forward, repeat from fetch with bounded retries
+    and jitter. Transport failure leaves the candidate commit and operations
+    local and pending.
+
+Cancellation stops at defined safe points. Cleanup uses a fresh bounded context
+after caller cancellation. Once the branch CAS succeeds, recovery completes the
+journaled generation rather than attempting to roll the branch backward.
+
+## Status, history, and hooks
+
+Status compares materialized frontiers rather than only worktree versus `HEAD`:
 
 ```text
-base     = upstream operation frontier
-current  = local operation frontier plus pending filesystem edits
+base     = operation frontier at the configured upstream tip
+current  = local committed and pending operations plus imported filesystem drift
 ```
 
-For each card UUID, the semantic differ reports:
-
-- new or deleted;
-- exact rendered Markdown additions and deletions;
-- previous and current column/path;
-- renamed or moved;
-- committed locally but not yet published.
-
-For example:
+For each stable target, the semantic differ reports new/deleted state, exact
+rendered additions and deletions, old/new path, move/rename, and committed but
+unpublished state. Internal `.kbrd` paths and generated metadata are hidden.
 
 ```text
 deploy API   Todo -> Doing   +5 -2   pending sync
 ```
 
-Markers clear only when the corresponding operations reach upstream, not when
-the automatic local commit is created. The Git panel should group internal log
-records into these semantic card/resource changes and hide `.kbrd/log` noise.
+Markers clear only when the operation is reachable from upstream. History uses
+operation causal order, informational occurrence time, source, and batch ID.
+Concurrent register values not selected for the current projection remain
+inspectable as recovery history. Body tombstones and replaced spans remain
+inspectable without being rendered.
 
-### History
+The reducer, validator, candidate builder, and materializer never invoke Lua or
+hooks. After a local mutation and projection are durable and the lock is
+released, the engine emits one semantic event per `BatchID`. Hook-requested
+mutations queue a new transaction rather than entering recursively. Replaying
+remote operations, recovery, and generated writes do not fire local mutation
+hooks. Event delivery is at-most-once in version 1; durable exactly-once hook
+delivery is not implied.
 
-The existing card timeline should render operation history. Body inserts and
-replacements remain in the current document unless causally deleted. Concurrent
-values discarded by non-body policies, such as competing paths or opaque
-resources, remain inspectable as recovery history, but there is no conflict
-notification or required review action.
+## Diagnostics and recovery commands
 
-### Scripts and hooks
+The storage rewrite is not releasable without operator tooling:
 
-The reducer and materializer never invoke Lua or hooks. Semantic events for a
-local mutation are delivered only after its operation and projection generation
-are durable and the repository transaction lock has been released. A mutation
-requested by a Lua callback or hook starts or queues a new transaction rather
-than recursively entering the active one. Direct filesystem writes made by a
-script are imported by the normal inventory pass. Replaying remote operations or
-materializer writes does not re-fire local mutation hooks, preventing feedback
-loops.
+- `kbrd doctor` verifies format compatibility, append-only Git edges, hashes,
+  graph closure, projections, local journal state, filesystem capabilities, and
+  unreachable immutable objects;
+- `kbrd doctor --repair-local-commit <commit>` imports an unambiguous local
+  single-parent projection-only commit into a new child operation commit;
+- `kbrd rebuild` regenerates projections and the local manifest from a validated
+  operation frontier without changing semantics;
+- `kbrd inspect-op <id>` and `kbrd inspect-card <id>` explain parents, source,
+  batches, losing register values, and blob reachability;
+- `kbrd backups` lists, restores, or removes transaction-owned displaced bytes;
+  and
+- `kbrd export --clean <dir>` writes the current semantic board without Git or
+  immutable history for emergency repository rotation.
+
+Automatic repair never rewrites published history, force-pushes, deletes
+immutable objects, or guesses an ambiguous identity.
 
 ## Package boundaries
 
 ### `boardlog/`
 
-Owns the storage format and board semantics:
+Owns the pure protocol and board semantics:
 
-- atomic operation and blob storage;
-- canonical encoding and hashing;
-- validation of local and fetched records;
-- causal graph construction;
-- deterministic reduction;
-- immutable revision manifests;
-- Markdown materialization;
-- projection-generation recovery;
-- semantic comparison between frontiers; and
-- optional checkpoints for faster startup.
+- concrete operation and revision types;
+- canonical encoding, hashing, and protocol validation;
+- causal graph and append-only set validation over supplied commit metadata;
+- the pinned body-sequence integration and snapshot-diff algorithms;
+- deterministic reduction and semantic rendering; and
+- semantic comparison between frontiers.
 
-It must not import Bubble Tea, Cobra, Viper, web, or Git orchestration packages.
-Start with concrete types and introduce narrow consumer-owned interfaces only
-where tests or multiple implementations require them.
+It receives bytes and records from callers and returns concrete results. It does
+not access the host filesystem, spawn Git, hold locks, manage journals, invoke
+hooks, or import Bubble Tea, Cobra, Viper, web, or scripting packages.
 
 ### `boardsync/`
 
-Owns one synchronization transaction shared by every frontend:
+Owns the concrete stateful `Engine` used by every frontend:
 
-1. Acquire a repository-wide local lock.
-2. Recover or roll forward any interrupted materialization and discard any
-   transaction-owned temporary Git state. Abort a live Git merge only when the
-   journal proves kbrd created it; refuse to touch an unexplained user merge.
-3. Inventory projections against the completed-generation manifest, import
-   genuine drift as immutable operations, and retain the observed path hashes.
-4. Validate and reduce the local operation closure, write immutable revision
-   manifests, and install the local projection generation with the
-   compare-and-preserve protocol. If a path raced the inventory, preserve and
-   import it and repeat from step 3.
-5. Commit the new records and the verified installed projection generation.
-6. Fetch the configured upstream and record the local and upstream tips in the
-   transaction journal.
-7. Construct the candidate Git merge in a transaction-owned temporary index or
-   worktree. Git must never write merge results or conflict markers into the live
-   projection tree. The candidate produces an ordinary two-parent merge commit
-   when histories diverge and a fast-forward when they do not.
-8. Validate the complete candidate operation closure. Invalid or unsupported
-   records discard the candidate without changing the live branch or completed
-   projection generation.
-9. Reduce the candidate operation set, write immutable revision manifests, and
-   replace all managed entries in the candidate index with the generated tree.
-10. Install that tree in the live worktree using compare-and-preserve writes. If
-    an editor raced the transaction, preserve and import its bytes, commit the
-    resulting local operation, discard the candidate, and repeat from fetch.
-11. After verifying that the recorded local branch tip has not changed, install
-    the prepared index/commit and advance the branch with compare-and-swap. Then
-    atomically advance the completed-generation manifest and remove the journal.
-12. Push normally. On non-fast-forward, repeat from fetch with bounded retries
-    and jitter.
+- immutable file storage;
+- repository/worktree state resolution and advisory locking;
+- inventories and external-drift translation;
+- revision and projection storage;
+- generation journals, recovery, and compare-and-preserve materialization;
+- temporary Git indexes, append-only union, commit construction, ref CAS, and
+  bounded push retry;
+- the coalescing worker; and
+- diagnostics, rebuild, and clean export.
 
-A transport failure leaves local operations committed and pending. The
-background worker retries them later. Ordinary cancellation or failure cleans
-up temporary Git state and releases the application lock. Process death may
-leave a journaled candidate or partial projection generation, but the next lock
-holder must recover it before accepting mutations or importing drift; it must
-never continue with an unexplained `MERGE_HEAD`, stale index, branch-tip change,
-or projection state.
+`Engine` is the primary resource object. Its methods perform mutations and
+return concrete semantic results. Start with concrete dependencies; introduce
+small consumer-owned interfaces only when a real second implementation or test
+fake requires one.
 
 ### Adapters
 
-- `board/` and `boardops/` call `boardlog` mutations rather than treating direct
-  file writes as authoritative.
-- `git/` retains the TUI panel/controller but delegates synchronization and
-  semantic change calculation.
-- `web/` delegates mutation persistence and synchronization to the same engine.
-- `commands/` contains only Cobra argument/flag routing for any new diagnostic
-  or explicit retry command.
-- `fs/` retains low-level Git execution and durable filesystem primitives.
+- `board/` retains focused Markdown/card helpers that do not own persistence.
+- `boardops/` resolves frontend intent and calls `boardsync.Engine`; direct file
+  writes stop being authoritative.
+- `git/` retains TUI presentation but delegates synchronization and semantic
+  status.
+- `web/`, MCP, Lua, reminders, ingest, and notifications use the same engine.
+- `commands/` contains Cobra routing for sync, doctor, rebuild, inspect, backup,
+  export, and explicit format-upgrade commands.
+- `fs/` contains only low-level durable filesystem and Git subprocess
+  primitives, including mandatory credential redaction and hook disabling.
 
 ## Implementation phases
 
-### Phase 1: Protocol and pure reducer
+### Phase 0: Protocol and feasibility gates
 
-1. Specify canonical JSON, content normalization, operation and revision
-   hashing, target/resource identity, body-element IDs and anchors, operation
-   kinds, validation limits, and reducer versioning.
-2. Implement the immutable `Store`, body sequence CRDT, `Validator`, `Reducer`,
-   `Materializer`, and semantic `Differ` in `boardlog/`.
-3. Implement automatic merge policies for card fields, paths, body insertion
-   spans and tombstones, checklist IDs, deletion, modes, and opaque resources.
-4. Prove permutation invariance: every ordering of the same valid operation set
-   must produce the same tree and revision manifests.
+1. Write the canonical encoding, operation payload, revision, sequence-CRDT,
+   snapshot-diff, path-normalization, and append-only Git specifications.
+2. Publish language-neutral golden vectors and CRDT conformance scenarios.
+3. Spike the exact Git plumbing: two tips, explicit immutable union, temporary
+   index, final tree, `commit-tree`, ref CAS, prepared-index installation, and
+   push retry.
+4. Spike compare-and-preserve create/replace/delete and crash recovery on every
+   supported operating system.
+5. Establish representative 10k-card/100k-operation benchmark fixtures and
+   record startup, reduction, sync, memory, repository-size, and Git-object
+   baselines. Set release budgets before product integration.
 
-This phase has no TUI or Git integration. It is the highest-risk foundation and
-must be complete before wiring mutations.
+No frontend rewrite begins until these risks have executable proofs.
 
-### Phase 2: Make mutations log-first
+### Phase 1: Card/column CLI vertical slice
 
-1. Replace create, edit, move, rename, delete, frontmatter, paste, and template
-   workflows with log-first operations.
-2. Route web, MCP, Lua, reminders, ingest, and notification actions through the
-   same mutation API.
-3. Add stable UUIDs to generated projections.
-4. Convert external filesystem edits, moves, copies, and deletes into
-   operations, including deterministic snapshot-to-CRDT translation against the
-   exact revision base.
-5. Add the completed-generation manifest, transaction journal, and
-   compare-and-preserve materialization primitives.
-6. Ensure materializer writes do not feed back into the watcher and that
-   watcher events trigger inventory rather than directly implying operations.
+1. Implement pure `boardlog` types, validation, sequence integration, reduction,
+   rendering, and semantic diff for cards and columns only.
+2. Implement `boardsync.Engine` immutable storage and local transaction lock.
+3. Support create, edit, move, rename, delete, and restore through a minimal
+   `kbrd sync`/diagnostic CLI path.
+4. Synchronize three independent clones through the complete candidate commit
+   algorithm, including concurrent body and path changes.
+5. Keep the old application path behind a development-only format gate; do not
+   run the new log through the old sidecar synchronizer.
 
-### Phase 3: Semantic status and history
+### Phase 2: Filesystem drift and crash safety
 
-1. Materialize local and upstream frontiers.
-2. Calculate card-aware additions, deletions, moves, and publication state.
-3. Replace the existing `GitDiffStats`-driven card badges.
-4. Replace raw file entries in the Git panel with semantic card/resource
-   changes.
-5. Drive the timeline from immutable revision history.
+1. Add IDs and revisions to projections and column markers.
+2. Add deterministic snapshot-to-CRDT translation and stale-editor path history.
+3. Add completed manifests, journals, backups, safe filesystem primitives, and
+   fault injection at every durable boundary.
+4. Implement doctor, rebuild, backup inspection, and clean export.
+5. Prove local pending operations survive process death before Git commit.
 
-### Phase 4: Shared synchronization engine
+### Phase 3: Structured card semantics
 
-1. Implement the repository transaction lock, interrupted-candidate recovery,
-   temporary Git index/worktree, branch compare-and-swap, and bounded retry loop.
-2. Merge and validate immutable operations outside the live worktree, then
-   regenerate projections with generation journaling and compare-and-preserve
-   writes.
-3. Replace TUI manual/startup/periodic sync orchestration.
-4. Replace the web syncer's separate commit/pull/push implementation.
-5. Add an explicit `kbrd sync` command as "retry now," not as a separate merge
-   policy.
+1. Add scalar frontmatter registers, tag sets, and checklist entry state.
+2. Specify and test malformed metadata, generated-key edits, duplicate IDs,
+   arbitrary YAML values, and canonical rendering.
+3. Add column deletion fallback behavior and portable collision rules.
 
-### Phase 5: Event-driven automatic sync
+### Phase 4: Frontend integration and semantic UX
 
-Run one coalescing worker triggered by:
+1. Route TUI, web, MCP, Lua, reminders, ingest, and notification mutations
+   through the engine.
+2. Replace `GitDiffStats` badges and raw Git panel entries with semantic status.
+3. Drive the timeline and recovery inspection from operation history.
+4. Replace TUI and web synchronization orchestration with the shared engine.
+5. Add explicit format-upgrade UX and actionable validation errors.
 
-- startup;
-- every local operation append;
-- external edit, move, rename, copy, or delete;
-- network recovery; and
-- a low-frequency fallback timer.
+### Phase 5: Resource protocol
 
-Multiple triggers during an in-flight transaction collapse into one subsequent
-pass. Shutdown waits for or safely cancels the active transaction.
+1. Define the resource allowlist, identity limitations, deterministic text and
+   binary policies, modes, security warnings, and safe-mode behavior.
+2. Add configuration and non-executable templates first.
+3. Add Lua, hooks, and executable templates only after explicit trust-boundary
+   tests pass.
+4. Add attachment and binary-resource size/performance tests.
 
-### Phase 6: Remove the old model
+### Phase 6: Event-driven automatic sync and old-model removal
 
-Delete:
+Run one coalescing worker triggered by startup, local append, imported drift,
+network recovery, and a low-frequency fallback timer. Multiple triggers during
+an active transaction collapse into one next pass. Shutdown either completes a
+safe point or leaves a recoverable journal.
 
-- merge-with-sidecar resolution;
-- conflict-copy parsing and filesystem actions;
-- conflict review UI and status;
-- attended/manual sync mode;
-- auto-commit configuration;
-- duplicate web Git orchestration;
-- old behavior tests and documentation; and
-- demo fixtures based on the snapshot-only format.
+Only after all release gates pass, delete sidecar resolution, conflict-review
+UI, attended/manual merge policy, auto-commit configuration, duplicate web Git
+orchestration, snapshot-only fixtures, and obsolete tests/documentation.
 
 ## Verification and release gates
 
+### Protocol conformance
+
+- Go encoding matches every language-neutral operation/revision golden vector.
+- Unknown, duplicate, noncanonical, or reordered set data is rejected.
+- Every CRDT fixture produces exact element order, tombstones, revision index,
+  and Markdown bytes.
+- Historical supported revisions translate the same external snapshot into the
+  same operations.
+- Mixed reducer/diff/format versions fail before mutation.
+
+### Append-only and Git properties
+
+- A deleted leaf operation is rejected even when no child references it.
+- Every candidate contains the byte-identical union of both parents' immutable
+  trees.
+- A same-path/different-byte immutable collision is rejected.
+- Raw committed projection drift is reported and never overwritten.
+- The candidate commit is created only after its final generated tree exists.
+- Ref CAS failure leaves the live index/worktree unchanged.
+- A crash after ref CAS recovers by completing the journaled index and
+  projection generation.
+- Repeating successful sync creates no commit.
+- Another clone advancing upstream during every push attempt eventually
+  converges within bounded retries or leaves clear pending state.
+
 ### Reducer properties
 
-- Same operation set produces a byte-identical tree regardless of load order.
-- Applying an operation more than once has no effect.
-- Repeated reduction creates no additional operations.
-- Every submitted content blob remains reachable from history.
-- Every submitted body insertion remains represented by its immutable operation,
-  including after a causally later deletion tombstones it.
-- Synthetic merges are byte-identical on independent machines.
-- Body insert/delete reduction is associative, commutative, and idempotent for
-  every valid operation set.
-- Every inserted body element remains visible until a causally later delete
-  explicitly names that element; a concurrent delete can never remove it.
-- Concurrent identical insertions remain distinct CRDT spans and materialize
-  twice in deterministic order.
-- Operation and revision IDs round-trip through canonical encoding and reject
-  any filename/content mismatch.
-- Every emitted `kbrd_revision` resolves to the exact reducer version, sorted
-  heads, rendered blob, and path used as its merge base.
+- Same valid operation set and pinned format produces a byte-identical tree for
+  every load order.
+- Duplicate record loading has no effect.
+- Reduction never creates operations.
+- Body integration is associative, commutative, and idempotent over every valid
+  operation set.
+- Every inserted element remains visible until a causally later delete names it.
+- Concurrent identical insertions from the same or different actors remain
+  distinct spans.
+- Revision manifests round-trip to exact target heads, semantic blob, and
+  element index.
+- Unrelated target operations do not change a card revision.
 
 ### Concurrent scenarios
 
-Exercise at least three independent clones for:
+Exercise at least three clones for insert/insert, nested origins,
+replace/replace, delete/insert, move/edit, stale-save-after-move, move/move,
+delete/edit in both causal directions, create/create path collisions, copied and
+duplicated IDs, column rename/delete, scalar/tag/checklist conflicts, and later
+resource conflicts. Every compatible clone must converge without sidecars or a
+content-review inbox.
 
-- insert/insert at different and identical anchors;
-- replace/replace of the same body range, preserving both replacement texts;
-- delete/insert and replace/insert at the same body range, preserving every
-  concurrently inserted span;
-- move/edit and rename/edit;
-- move/move and rename/rename;
-- delete/edit in both causal directions;
-- create/create with the same requested filename;
-- duplicate/copy detection;
-- frontmatter, checklist, and tag conflicts;
-- checklist edits with removed, duplicated, and reordered entry-ID metadata;
-- config, Lua, template, and binary resource conflicts; and
-- repeated push races where another clone advances the remote between fetch and
-  push.
+### Crash, cancellation, and containment
 
-All clones must eventually produce the same board without conflict files or
-manual intervention.
+- Fault injection covers every blob/operation/revision write, backup/exchange,
+  projection create/replace/delete, manifest advance, fetch, tree write, commit
+  creation, ref CAS, index install, and push boundary.
+- An editor racing every materialization boundary is preserved and imported.
+- Unexplained Git state is never aborted or overwritten.
+- Absolute, traversal, reserved, symlink, case-fold, mode, and size violations
+  cannot write outside the root or private transaction state.
+- Cancellation never reuses its canceled context for mandatory cleanup.
 
-### Crash and cancellation safety
+### Security
 
-- Partial operation or blob files are never observable.
-- Fault injection at every operation-write, projection-write, rename/delete,
-  manifest-advance, Git-merge, and commit boundary recovers to the authoritative
-  operation frontier without generating inverse drift operations.
-- A partially installed projection generation contains only bytes described by
-  the completed or journaled desired manifest; recovery finishes it before
-  normal drift import.
-- Interrupted Git commands are either cleaned up immediately or identified by
-  the journal and recovered by the next lock holder.
-- An external editor save racing every materialization boundary is either left
-  at its path or preserved as a blob and imported; it is never overwritten
-  without preservation.
-- Network failures preserve local operations and retry automatically.
-- Repeating a successful sync is a no-op and creates no commits.
+- Every Git mutation disables repository hooks; clone/fetch does not initialize
+  submodules.
+- Safe mode never executes synchronized content.
+- Normal sync does not execute newly fetched content as a side effect.
+- Executable-resource changes are visible before an explicit reload/open.
+- Clean export contains current semantic content but no tombstones, losing
+  values, deleted blobs, Git metadata, or local state.
 
-### Validation and containment
+### Performance
 
-- Reject altered operation filenames or bytes, altered blobs, missing parents,
-  cross-target parents, invalid or causally invisible body element references,
-  unknown versions or kinds, oversized records, and malformed revision
-  manifests before reduction.
-- Reject absolute paths, traversal, reserved `.git`/`.kbrd` paths, symlink-parent
-  escapes, and unsupported file modes without writing outside the transaction
-  journal.
-- An invalid candidate is discarded without advancing the live branch or
-  completed projection generation and leaves locally committed operations
-  publishable after the remote is repaired.
+- The Phase 0 benchmark corpus stays within the agreed startup, incremental
+  reduction, sync, memory, and repository-growth budgets.
+- Checkpoints are local, versioned caches and never convergence inputs.
+- Cache deletion changes performance only, never results.
+- Fan-out directories stay bounded for the benchmark corpus.
+- Benchmarks include cold clone, cold validation, cached validation, one-card
+  edit, large paste, and three-way sync.
 
 ### User-visible behavior
 
 - Built-in and external editing remain file-oriented.
-- `+N/-N`, new, deleted, moved, and renamed markers remain correct before and
-  after the automatic local commit.
-- Pending markers clear only after publication.
-- Card selection survives materialization and sync reloads.
-- The Git panel and timeline contain no internal operation-file noise.
-- Every concurrent body insertion or replacement is visible on every converged
-  clone until a later edit that observed it explicitly deletes it.
-- No normal concurrent change opens a conflict review workflow.
+- `+N/-N`, new, deleted, moved, renamed, and pending markers remain correct
+  before and after automatic local commit.
+- Selection survives materialization and reload.
+- Generated metadata and immutable files do not pollute normal diffs/history.
+- Validation errors identify a repair action rather than exposing a partial
+  board.
+- No valid concurrent card change creates a sidecar or mandatory review flow.
 
 ## Non-goals
 
 The first implementation will not:
 
-- migrate or read existing production boards;
+- migrate or read an existing production board in place;
 - provide real-time cursor or presence synchronization;
-- implement a Markdown-AST CRDT or semantic merge for arbitrary Markdown
-  constructs beyond structured frontmatter and checklist state;
+- implement a Markdown-AST CRDT beyond structured frontmatter and checklist
+  state;
+- infer identity for an external resource rename that also changes bytes;
 - coordinate through a central always-online service;
-- use per-device branches, Git notes, remote locks, force pushes, or rebases;
-- garbage-collect immutable history; or
-- guarantee conflict-free behavior for raw `git pull` before kbrd has configured
-  or executed its projection-aware synchronization.
+- authenticate operation authors independently of Git remote trust;
+- use per-device branches, Git notes, remote locks, force pushes, or rebases in
+  normal synchronization;
+- garbage-collect or compact published immutable history; or
+- guarantee safe behavior for raw `git pull`, raw merge commits, or committed
+  projection edits that bypass kbrd's importer.
 
-History/tombstone compaction and a separately published snapshot branch can be
-considered after the immutable-log implementation has proven convergence and
-acceptable performance.
+History compaction or snapshot branches may be considered only after the
+append-only implementation has proven convergence and acceptable performance.
+Emergency secret removal uses clean export and repository rotation rather than
+being disguised as normal garbage collection.
