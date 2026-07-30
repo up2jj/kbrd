@@ -45,6 +45,31 @@ func TestLoadMarketplaceRejectsEscapingSource(t *testing.T) {
 	}
 }
 
+func TestLoadPluginRejectsInvalidDeclarativeMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata string
+		want     string
+	}{
+		{name: "empty command", metadata: `,"commands":[""]`, want: "commands: declarations must not be empty"},
+		{name: "duplicate hook", metadata: `,"hooks":["item_saved","item_saved"]`, want: `hooks: duplicate declaration "item_saved"`},
+		{name: "escaping readme", metadata: `,"readme":"../README.md"`, want: "readme: path escapes its root"},
+		{name: "missing changelog", metadata: `,"changelog":"CHANGELOG.md"`, want: "changelog:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, filepath.Join(root, PluginFile), `{
+  "apiVersion":1,"name":"date-tools","description":"Date helpers","entrypoint":"init.lua"`+tt.metadata+`}`)
+			writeTestFile(t, filepath.Join(root, "init.lua"), `return {}`)
+			_, err := LoadPlugin(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestContentDigestRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "target.lua"), `return {}`)

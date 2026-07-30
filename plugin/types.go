@@ -29,14 +29,22 @@ type MarketplaceEntry struct {
 }
 
 type PluginManifest struct {
-	APIVersion  int    `json:"apiVersion"`
-	Name        string `json:"name"`
-	Version     string `json:"version,omitempty"`
-	Description string `json:"description"`
-	Entrypoint  string `json:"entrypoint"`
-	Author      Owner  `json:"author,omitempty"`
-	License     string `json:"license,omitempty"`
-	Homepage    string `json:"homepage,omitempty"`
+	APIVersion    int      `json:"apiVersion"`
+	Name          string   `json:"name"`
+	Version       string   `json:"version,omitempty"`
+	Description   string   `json:"description"`
+	Entrypoint    string   `json:"entrypoint"`
+	Author        Owner    `json:"author,omitempty"`
+	License       string   `json:"license,omitempty"`
+	Homepage      string   `json:"homepage,omitempty"`
+	Commands      []string `json:"commands,omitempty"`
+	Hooks         []string `json:"hooks,omitempty"`
+	Layers        []string `json:"layers,omitempty"`
+	Timers        []string `json:"timers,omitempty"`
+	NetworkAccess bool     `json:"networkAccess,omitempty"`
+	ShellAccess   bool     `json:"shellAccess,omitempty"`
+	README        string   `json:"readme,omitempty"`
+	Changelog     string   `json:"changelog,omitempty"`
 }
 
 type Marketplace struct {
@@ -82,4 +90,13 @@ type AvailablePlugin struct {
 	ID          string
 	Version     string
 	Description string
+}
+
+// PluginInfo is declarative marketplace and board-lock metadata. Constructing
+// it never loads or executes a plugin entrypoint.
+type PluginInfo struct {
+	ID          string
+	Manifest    PluginManifest
+	Marketplace Marketplace
+	Installed   *LockedPlugin
 }

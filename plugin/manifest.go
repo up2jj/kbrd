@@ -117,7 +117,58 @@ func LoadPlugin(root string) (PluginManifest, error) {
 	if !info.Mode().IsRegular() {
 		return manifest, fmt.Errorf("%s: entrypoint must be a regular file", path)
 	}
+	declarationGroups := []struct {
+		name   string
+		values []string
+	}{
+		{name: "commands", values: manifest.Commands},
+		{name: "hooks", values: manifest.Hooks},
+		{name: "layers", values: manifest.Layers},
+		{name: "timers", values: manifest.Timers},
+	}
+	for _, group := range declarationGroups {
+		if err := validateDeclarations(group.values); err != nil {
+			return manifest, fmt.Errorf("%s: %s: %w", path, group.name, err)
+		}
+	}
+	documentFiles := []struct {
+		name string
+		rel  string
+	}{
+		{name: "readme", rel: manifest.README},
+		{name: "changelog", rel: manifest.Changelog},
+	}
+	for _, document := range documentFiles {
+		if document.rel == "" {
+			continue
+		}
+		file, err := safeRelativePath(root, document.rel)
+		if err != nil {
+			return manifest, fmt.Errorf("%s: %s: %w", path, document.name, err)
+		}
+		info, err := os.Stat(file)
+		if err != nil {
+			return manifest, fmt.Errorf("%s: %s: %w", path, document.name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return manifest, fmt.Errorf("%s: %s must be a regular file", path, document.name)
+		}
+	}
 	return manifest, nil
+}
+
+func validateDeclarations(values []string) error {
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("declarations must not be empty")
+		}
+		if seen[value] {
+			return fmt.Errorf("duplicate declaration %q", value)
+		}
+		seen[value] = true
+	}
+	return nil
 }
 
 func safeRelativePath(root, rel string) (string, error) {

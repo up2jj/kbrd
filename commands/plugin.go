@@ -36,6 +36,7 @@ func newPluginCmd() *cobra.Command {
 	cmd.AddCommand(
 		newPluginMarketplaceCmd(),
 		newPluginSearchCmd(),
+		newPluginInfoCmd(&boardDir),
 		newPluginAddCmd(&boardDir),
 		newPluginListCmd(&boardDir),
 		newPluginRemoveCmd(&boardDir),
@@ -44,6 +45,75 @@ func newPluginCmd() *cobra.Command {
 		newPluginValidateCmd(),
 	)
 	return cmd
+}
+
+func newPluginInfoCmd(boardDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "info <marketplace/plugin>",
+		Short: "Show declarative plugin metadata without executing it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := pluginManager()
+			if err != nil {
+				return err
+			}
+			info, err := manager.Info(*boardDir, args[0])
+			if err != nil {
+				return err
+			}
+			printPluginInfo(cmd, info)
+			return nil
+		},
+	}
+}
+
+func printPluginInfo(cmd *cobra.Command, info plugin.PluginInfo) {
+	manifest := info.Manifest
+	fmt.Fprintf(cmd.OutOrStdout(), "Plugin: %s\n", info.ID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", manifest.Description)
+	fmt.Fprintf(cmd.OutOrStdout(), "Author: %s\n", formatOwner(manifest.Author))
+	fmt.Fprintf(cmd.OutOrStdout(), "License: %s\n", valueOr(manifest.License, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Homepage: %s\n", valueOr(manifest.Homepage, "not declared"))
+	installedVersion := "not installed"
+	if info.Installed != nil {
+		installedVersion = valueOr(info.Installed.Version, "unspecified")
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Installed version: %s\n", installedVersion)
+	fmt.Fprintf(cmd.OutOrStdout(), "Available version: %s\n", valueOr(manifest.Version, "unspecified"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Marketplace URL: %s\n", info.Marketplace.URL)
+	fmt.Fprintf(cmd.OutOrStdout(), "Marketplace commit: %s\n", info.Marketplace.Commit)
+	fmt.Fprintf(cmd.OutOrStdout(), "Commands: %s\n", formatDeclarations(manifest.Commands))
+	fmt.Fprintf(cmd.OutOrStdout(), "Hooks: %s\n", formatDeclarations(manifest.Hooks))
+	fmt.Fprintf(cmd.OutOrStdout(), "Layers: %s\n", formatDeclarations(manifest.Layers))
+	fmt.Fprintf(cmd.OutOrStdout(), "Timers: %s\n", formatDeclarations(manifest.Timers))
+	fmt.Fprintf(cmd.OutOrStdout(), "Network access: %t\n", manifest.NetworkAccess)
+	fmt.Fprintf(cmd.OutOrStdout(), "Shell access: %t\n", manifest.ShellAccess)
+	fmt.Fprintf(cmd.OutOrStdout(), "README: %s\n", valueOr(manifest.README, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Changelog: %s\n", valueOr(manifest.Changelog, "not declared"))
+}
+
+func formatOwner(owner plugin.Owner) string {
+	if owner.Name == "" {
+		return "not declared"
+	}
+	if owner.URL == "" {
+		return owner.Name
+	}
+	return owner.Name + " (" + owner.URL + ")"
+}
+
+func formatDeclarations(values []string) string {
+	if len(values) == 0 {
+		return "none declared"
+	}
+	return strings.Join(values, ", ")
+}
+
+func valueOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func pluginManager() (*plugin.Manager, error) { return plugin.DefaultManager() }

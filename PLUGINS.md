@@ -126,7 +126,9 @@ marketplace-repository/
     └── date-tools/
         ├── plugin.json
         ├── init.lua
-        └── util.lua
+        ├── util.lua
+        ├── README.md
+        └── CHANGELOG.md
 ```
 
 `marketplace.json` is the catalog:
@@ -159,17 +161,40 @@ Each catalog directory has its own `plugin.json`:
   "description": "Date parsing and due-date commands",
   "entrypoint": "init.lua",
   "author": {
-    "name": "Acme Tools"
+    "name": "Acme Tools",
+    "url": "https://example.com"
   },
   "license": "MIT",
-  "homepage": "https://example.com/date-tools"
+  "homepage": "https://example.com/date-tools",
+  "commands": ["set-due-date", "plan-day"],
+  "hooks": ["item_saved"],
+  "layers": ["planning"],
+  "timers": ["daily rollover"],
+  "networkAccess": false,
+  "shellAccess": false,
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md"
 }
 ```
 
 Names use lowercase kebab-case. Sources and entrypoints must stay within their
-own directories. Symlinks, special files, nested `.git` directories, unknown
-manifest fields, duplicate names, and plugins larger than 64 MiB are rejected.
-Submodules are not initialized.
+own directories. The commands, hooks, layers, and timers arrays describe what
+the entrypoint will register; `networkAccess` and `shellAccess` declare whether
+it uses outbound HTTP or shell execution. These fields are metadata for review,
+not an enforcement sandbox. README and changelog paths are relative to the
+plugin directory and must name regular files. Symlinks, special files, nested
+`.git` directories, unknown manifest fields, duplicate names, and plugins larger
+than 64 MiB are rejected. Submodules are not initialized.
+
+Inspect a registered marketplace plugin before adding it to a board:
+
+```bash
+kbrd plugin info acme/date-tools
+```
+
+The command reads `marketplace.json`, `plugin.json`, and the current board lock;
+it does not load the Lua entrypoint. It reports both the installed board-lock
+version (if any) and the version available in the local marketplace checkout.
 
 Validate a repository before publishing it:
 

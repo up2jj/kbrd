@@ -66,6 +66,46 @@ func (m *Manager) Search(query string) ([]AvailablePlugin, error) {
 	return found, nil
 }
 
+// Info returns the metadata declared by a marketplace plugin and its optional
+// board lock entry. It reads manifests only and never initializes the Lua host.
+func (m *Manager) Info(boardDir, id string) (PluginInfo, error) {
+	marketName, pluginName, ok := splitID(id)
+	if !ok {
+		return PluginInfo{}, fmt.Errorf("plugin must be qualified as marketplace/plugin")
+	}
+	marketplace, repo, err := m.marketplace(marketName)
+	if err != nil {
+		return PluginInfo{}, err
+	}
+	marketplaceManifest, err := LoadMarketplace(repo)
+	if err != nil {
+		return PluginInfo{}, fmt.Errorf("load marketplace %s: %w", marketName, err)
+	}
+	entry, ok := marketplaceEntry(marketplaceManifest, pluginName)
+	if !ok {
+		return PluginInfo{}, fmt.Errorf("marketplace %q has no plugin %q", marketName, pluginName)
+	}
+	source, err := safeRelativePath(repo, entry.Source)
+	if err != nil {
+		return PluginInfo{}, fmt.Errorf("plugin %s source: %w", id, err)
+	}
+	manifest, err := LoadPlugin(source)
+	if err != nil {
+		return PluginInfo{}, fmt.Errorf("load plugin %s: %w", id, err)
+	}
+
+	info := PluginInfo{ID: id, Manifest: manifest, Marketplace: marketplace}
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return PluginInfo{}, err
+	}
+	if i := slices.IndexFunc(lock.Plugins, func(locked LockedPlugin) bool { return locked.ID == id }); i >= 0 {
+		installed := lock.Plugins[i]
+		info.Installed = &installed
+	}
+	return info, nil
+}
+
 func (m *Manager) AddMarketplace(ctx context.Context, rawURL, ref string) (Marketplace, error) {
 	return m.addMarketplace(ctx, rawURL, ref, "")
 }

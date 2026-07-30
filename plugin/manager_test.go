@@ -37,6 +37,13 @@ func TestManagerLocksSyncsAndLoadsBoardPlugin(t *testing.T) {
 	}
 
 	board := t.TempDir()
+	info, err := manager.Info(board, "acme/date-tools")
+	if err != nil {
+		t.Fatalf("Info before installation: %v", err)
+	}
+	if info.Installed != nil || info.Manifest.Version != "1.0.0" || len(info.Manifest.Commands) != 1 {
+		t.Fatalf("Info before installation = %+v", info)
+	}
 	writeFile(t, filepath.Join(board, ".kbrd.lua"), `
 local util = require("acme.date-tools.util")
 kbrd.command("board-date", "Board date", function() return util.value end)
@@ -47,6 +54,10 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 	if !strings.HasPrefix(locked.ContentSHA256, "sha256:") {
 		t.Fatalf("digest = %q", locked.ContentSHA256)
+	}
+	info, err = manager.Info(board, "acme/date-tools")
+	if err != nil || info.Installed == nil || info.Installed.Version != "1.0.0" {
+		t.Fatalf("Info after installation = %+v, %v", info, err)
 	}
 
 	runtimePlugins, err := manager.RuntimePlugins(board)
@@ -150,6 +161,31 @@ func TestRuntimePluginsRejectsTamperedCache(t *testing.T) {
 	}
 }
 
+func TestManagerInfoDoesNotExecutePlugin(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo := createMarketplaceRepo(t)
+	writeFile(t, filepath.Join(repo, "plugins", "date-tools", "init.lua"), `error("info executed plugin")`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "make entrypoint fail if executed")
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatalf("AddMarketplace: %v", err)
+	}
+	info, err := manager.Info(t.TempDir(), "acme/date-tools")
+	if err != nil || info.Manifest.Name != "date-tools" || info.Installed != nil {
+		t.Fatalf("Info = %+v, %v", info, err)
+	}
+}
+
 func createMarketplaceRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -165,8 +201,21 @@ func createMarketplaceRepo(t *testing.T) string {
   "name": "date-tools",
   "version": "1.0.0",
   "description": "Date helpers",
-  "entrypoint": "init.lua"
+  "entrypoint": "init.lua",
+  "author": {"name":"Plugin Test","url":"https://example.invalid/team"},
+  "license": "MIT",
+  "homepage": "https://example.invalid/date-tools",
+  "commands": ["plugin-date"],
+  "hooks": ["item_saved"],
+  "layers": ["focus"],
+  "timers": ["refresh dates"],
+  "networkAccess": true,
+  "shellAccess": false,
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md"
 }`)
+	writeFile(t, filepath.Join(pluginRoot, "README.md"), `# Date tools`)
+	writeFile(t, filepath.Join(pluginRoot, "CHANGELOG.md"), `# Changelog`)
 	writeFile(t, filepath.Join(pluginRoot, "init.lua"), `
 local util = require("acme.date-tools.util")
 kbrd.command("plugin-date", "Plugin date", function() return util.value end)

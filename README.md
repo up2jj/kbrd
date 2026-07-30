@@ -276,6 +276,7 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd plugin marketplace add <git-url-or-path>` | Register a remote or local Git-backed Lua plugin marketplace. Use `--ref` to track a branch or tag; see [PLUGINS.md](./PLUGINS.md#using-a-local-marketplace). |
 | `kbrd plugin marketplace update [name]` | Refresh one or all machine-local marketplace catalogs without changing any board lock. |
 | `kbrd plugin search [query]` | Search the locally registered marketplace catalogs. |
+| `kbrd plugin info <marketplace/plugin>` | Inspect declarative metadata, capabilities, permissions, and versions without installing or executing the plugin. |
 | `kbrd plugin add <marketplace/plugin>` | Resolve a plugin into the current board's `kbrd.plugins.lock` and cache its verified content. |
 | `kbrd plugin update [marketplace/plugin]` | Update one locked plugin, or every plugin when omitted, and rewrite the board lock. |
 | `kbrd plugin sync` | Download and verify the exact plugin revisions in the current board's lock. |
