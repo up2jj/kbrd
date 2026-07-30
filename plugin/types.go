@@ -62,6 +62,7 @@ type Registry struct {
 
 type LockedPlugin struct {
 	ID                string `json:"id"`
+	Disabled          bool   `json:"disabled,omitempty"`
 	Version           string `json:"version,omitempty"`
 	Description       string `json:"description,omitempty"`
 	Marketplace       string `json:"marketplace"`

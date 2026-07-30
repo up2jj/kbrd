@@ -279,6 +279,7 @@ func (m *Manager) addPlugin(ctx context.Context, boardDir, id string, refreshMar
 	replaced := false
 	for i := range lock.Plugins {
 		if lock.Plugins[i].ID == id {
+			locked.Disabled = lock.Plugins[i].Disabled
 			lock.Plugins[i] = locked
 			replaced = true
 			break
@@ -389,6 +390,21 @@ func (m *Manager) RemovePlugin(boardDir, id string) error {
 	return SaveBoardLock(boardDir, lock)
 }
 
+// SetPluginEnabled changes whether a locked plugin is loaded without changing
+// its pinned revision or removing it from the board lock.
+func (m *Manager) SetPluginEnabled(boardDir, id string, enabled bool) error {
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return err
+	}
+	index := slices.IndexFunc(lock.Plugins, func(locked LockedPlugin) bool { return locked.ID == id })
+	if index < 0 {
+		return fmt.Errorf("plugin %q is not in this board's lock", id)
+	}
+	lock.Plugins[index].Disabled = !enabled
+	return SaveBoardLock(boardDir, lock)
+}
+
 func (m *Manager) Sync(ctx context.Context, boardDir string) ([]RuntimePlugin, error) {
 	lock, err := LoadBoardLock(boardDir)
 	if err != nil {
@@ -415,6 +431,9 @@ func (m *Manager) RuntimePlugins(boardDir string) ([]RuntimePlugin, error) {
 	}
 	plugins := make([]RuntimePlugin, 0, len(lock.Plugins))
 	for _, locked := range lock.Plugins {
+		if locked.Disabled {
+			continue
+		}
 		runtime, err := m.runtimePlugin(locked)
 		if err != nil {
 			return nil, fmt.Errorf("plugin %s is not synchronized: %w; run `kbrd plugin sync`", locked.ID, err)

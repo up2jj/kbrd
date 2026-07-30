@@ -278,6 +278,8 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd plugin search [query]` | Search the locally registered marketplace catalogs. |
 | `kbrd plugin info <marketplace/plugin>` | Inspect declarative metadata, capabilities, permissions, and versions without installing or executing the plugin. |
 | `kbrd plugin add <marketplace/plugin>` | Resolve a plugin into the current board's `kbrd.plugins.lock` and cache its verified content. |
+| `kbrd plugin disable <marketplace/plugin>` | Keep a plugin pinned in the board lock but skip it during startup. |
+| `kbrd plugin enable <marketplace/plugin>` | Re-enable a disabled plugin without changing its pinned revision. |
 | `kbrd plugin outdated` | Fetch and show available version, manifest, and file changes without changing activation state. |
 | `kbrd plugin update [marketplace/plugin] [--dry-run]` | Preview and update one locked plugin, or every plugin when omitted; `--dry-run` never changes the lock or activated content. |
 | `kbrd plugin diff <marketplace/plugin>` | Show an available update preview with unified file diffs. |
@@ -941,11 +943,11 @@ itself rather than have the shell expand it).
 kbrd embeds a Lua 5.1 VM ([gopher-lua](https://github.com/yuin/gopher-lua)). Scripts are
 loaded at startup from:
 
-- **Board lock:** plugins pinned by `<board>/kbrd.plugins.lock`
+- **Board lock:** enabled entries from `<board>/kbrd.plugins.lock` (disabled entries stay pinned)
 - **Global:** `~/.config/kbrd/init.lua`
 - **Folder-local:** `<board>/.kbrd.lua`
 
-Locked plugins load first, followed by global and folder-local Lua. A missing or
+Enabled locked plugins load first, followed by global and folder-local Lua. A missing or
 tampered cache entry blocks folder Lua and opens the startup recovery screen;
 press `i` to synchronize the lock or `s` to continue without Lua. Plugin modules
 use qualified names such as `require("acme.date-tools.util")`. See

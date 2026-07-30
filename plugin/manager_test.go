@@ -220,6 +220,9 @@ func TestUpdatePluginsWritesAllCandidatesTogether(t *testing.T) {
 		t.Skip("git unavailable")
 	}
 	repo, manager, board := setupTwoPluginMarketplace(t)
+	if err := manager.SetPluginEnabled(board, "acme/date-tools", false); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"date-tools", "text-tools"} {
 		manifestPath := filepath.Join(repo, "plugins", name, "plugin.json")
 		data, err := os.ReadFile(manifestPath)
@@ -246,8 +249,11 @@ func TestUpdatePluginsWritesAllCandidatesTogether(t *testing.T) {
 		if locked.Version != "2.0.0" {
 			t.Errorf("%s version = %q, want 2.0.0", locked.ID, locked.Version)
 		}
+		if locked.ID == "acme/date-tools" && !locked.Disabled {
+			t.Errorf("update re-enabled %s", locked.ID)
+		}
 	}
-	if _, err := manager.RuntimePlugins(board); err != nil {
+	if runtime, err := manager.RuntimePlugins(board); err != nil || len(runtime) != 1 || runtime[0].ID != "acme/text-tools" {
 		t.Fatalf("updated content is not synchronized: %v", err)
 	}
 }
@@ -368,11 +374,14 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 }`)
 	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-m", "update plugin")
+	if err := manager.SetPluginEnabled(board, "acme/date-tools", false); err != nil {
+		t.Fatalf("Disable plugin: %v", err)
+	}
 	updated, err := manager.UpdatePlugin(t.Context(), board, "acme/date-tools")
 	if err != nil {
 		t.Fatalf("UpdatePlugin without registered marketplace: %v", err)
 	}
-	if updated.ID != "acme/date-tools" || updated.Version != "2.0.0" {
+	if updated.ID != "acme/date-tools" || updated.Version != "2.0.0" || !updated.Disabled {
 		t.Fatalf("UpdatePlugin = %+v", updated)
 	}
 	marketplaces, err := manager.Marketplaces()
@@ -381,6 +390,9 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 	if len(marketplaces) != 1 || marketplaces[0].Name != "acme" {
 		t.Fatalf("marketplaces after UpdatePlugin = %+v", marketplaces)
+	}
+	if err := manager.SetPluginEnabled(board, "acme/date-tools", true); err != nil {
+		t.Fatalf("Enable plugin: %v", err)
 	}
 
 	t.Setenv("KBRD_PLUGIN_CONFIG_DIR", configRoot)
@@ -410,6 +422,36 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 	if got, ok, err := host.Eval("plugin__acme__date_tools__layer_value()"); err != nil || !ok || got != "ok" {
 		t.Fatalf("plugin layer eval = %q, %v, %v", got, ok, err)
+	}
+}
+
+func TestDisabledPluginDoesNotBlockFolderLuaStartup(t *testing.T) {
+	configRoot := t.TempDir()
+	cacheRoot := t.TempDir()
+	t.Setenv("KBRD_PLUGIN_CONFIG_DIR", configRoot)
+	t.Setenv("KBRD_PLUGIN_CACHE_DIR", cacheRoot)
+	board := t.TempDir()
+	writeFile(t, filepath.Join(board, ".kbrd.lua"), `
+kbrd.command("board-command", "Board command", function() return "ok" end)
+`)
+	lock := plugin.BoardLock{Plugins: []plugin.LockedPlugin{{
+		ID: "acme/date-tools", Disabled: true, Marketplace: "acme",
+		MarketplaceURL: "https://example.com/acme.git", MarketplaceCommit: strings.Repeat("a", 40),
+		Source: "plugins/date-tools", Entrypoint: "init.lua",
+		ContentSHA256: "sha256:" + strings.Repeat("0", 64),
+	}}}
+	if err := plugin.SaveBoardLock(board, lock); err != nil {
+		t.Fatal(err)
+	}
+
+	host, err := script.New(config.ScriptingConfig{Enabled: true, InitTimeoutMs: 2000}, nil, nil, board, "")
+	if err != nil {
+		t.Fatalf("script.New with disabled missing plugin cache: %v", err)
+	}
+	defer host.Close()
+	commands := host.Commands()
+	if len(commands) != 1 || commands[0].ID != "board-command" {
+		t.Fatalf("commands = %+v", commands)
 	}
 }
 

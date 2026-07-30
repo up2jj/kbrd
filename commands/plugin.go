@@ -39,6 +39,8 @@ func newPluginCmd() *cobra.Command {
 		newPluginInfoCmd(&boardDir),
 		newPluginAddCmd(&boardDir),
 		newPluginListCmd(&boardDir),
+		newPluginDisableCmd(&boardDir),
+		newPluginEnableCmd(&boardDir),
 		newPluginRemoveCmd(&boardDir),
 		newPluginSyncCmd(&boardDir),
 		newPluginOutdatedCmd(&boardDir),
@@ -81,6 +83,9 @@ func printPluginInfo(cmd *cobra.Command, info plugin.PluginInfo) {
 		installedVersion = valueOr(info.Installed.Version, "unspecified")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Installed version: %s\n", installedVersion)
+	if info.Installed != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", pluginStatus(*info.Installed))
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Available version: %s\n", valueOr(manifest.Version, "unspecified"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Marketplace URL: %s\n", info.Marketplace.URL)
 	fmt.Fprintf(cmd.OutOrStdout(), "Marketplace commit: %s\n", info.Marketplace.Commit)
@@ -291,8 +296,50 @@ func newPluginListCmd(boardDir *string) *cobra.Command {
 				return nil
 			}
 			for _, locked := range lock.Plugins {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-32s %-10s %s\n", locked.ID, locked.Version, shortCommit(locked.MarketplaceCommit))
+				fmt.Fprintf(cmd.OutOrStdout(), "%-32s %-10s %s %s\n", locked.ID, locked.Version, shortCommit(locked.MarketplaceCommit), pluginStatus(locked))
 			}
+			return nil
+		},
+	}
+}
+
+func pluginStatus(locked plugin.LockedPlugin) string {
+	if locked.Disabled {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+func newPluginDisableCmd(boardDir *string) *cobra.Command {
+	return newPluginSetEnabledCmd(boardDir, false)
+}
+
+func newPluginEnableCmd(boardDir *string) *cobra.Command {
+	return newPluginSetEnabledCmd(boardDir, true)
+}
+
+func newPluginSetEnabledCmd(boardDir *string, enabled bool) *cobra.Command {
+	action := "disable"
+	state := "disabled"
+	short := "Disable a locked plugin without changing its pinned revision"
+	if enabled {
+		action = "enable"
+		state = "enabled"
+		short = "Enable a locked plugin without changing its pinned revision"
+	}
+	return &cobra.Command{
+		Use:   action + " <marketplace/plugin>",
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := pluginManager()
+			if err != nil {
+				return err
+			}
+			if err := manager.SetPluginEnabled(*boardDir, args[0], enabled); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s in %s\n", state, args[0], plugin.LockFile)
 			return nil
 		},
 	}
@@ -328,11 +375,14 @@ func newPluginSyncCmd(boardDir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plugins, err := manager.Sync(cmd.Context(), *boardDir)
+			if _, err := manager.Sync(cmd.Context(), *boardDir); err != nil {
+				return err
+			}
+			lock, err := plugin.LoadBoardLock(*boardDir)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "synchronized %d plugin(s)\n", len(plugins))
+			fmt.Fprintf(cmd.OutOrStdout(), "synchronized %d plugin(s)\n", len(lock.Plugins))
 			return nil
 		},
 	}

@@ -54,6 +54,8 @@ Add plugins to the current board:
 ```bash
 kbrd plugin add acme/date-tools
 kbrd plugin list
+kbrd plugin disable acme/date-tools
+kbrd plugin enable acme/date-tools
 kbrd plugin update acme/date-tools
 kbrd plugin remove acme/date-tools
 ```
@@ -65,6 +67,12 @@ cloning the board on another machine, run:
 ```bash
 kbrd plugin sync
 ```
+
+`disable` leaves the plugin and its exact revision in `kbrd.plugins.lock` but
+skips its cache checks and Lua entrypoint during startup. This is useful for
+isolating plugin startup failures without losing the pin. `enable` makes the
+same locked revision active again. Commit either lock-file change so other
+clones use the same enabled state.
 
 If locked content is missing when the board opens, kbrd stops before executing
 `.kbrd.lua`. Press `i` on the recovery screen to run the synchronization, or `s`
@@ -252,9 +260,9 @@ declarations, exactly one layer must set `default = true`.
 ## Lock and cache behavior
 
 The generated lock records the canonical marketplace URL, exact Git commit,
-plugin source path, entrypoint, descriptive version, and SHA-256 content digest.
-Synchronization checks out that exact commit and refuses content that does not
-match the digest.
+plugin source path, entrypoint, descriptive version, enabled state, and SHA-256
+content digest. Synchronization checks out that exact commit and refuses content
+that does not match the digest.
 
 Marketplace URLs containing credentials are rejected; use normal Git credential
 helpers for private repositories. Local marketplace paths are converted to

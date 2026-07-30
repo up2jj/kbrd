@@ -108,7 +108,7 @@ func (m *Manager) previewUpdate(ctx context.Context, current LockedPlugin, marke
 		return UpdatePreview{}, fmt.Errorf("hash plugin %s: %w", current.ID, err)
 	}
 	candidate := LockedPlugin{
-		ID: current.ID, Version: candidateManifest.Version, Description: candidateManifest.Description,
+		ID: current.ID, Disabled: current.Disabled, Version: candidateManifest.Version, Description: candidateManifest.Description,
 		Marketplace: current.Marketplace, MarketplaceURL: marketplace.URL, MarketplaceRef: marketplace.Ref,
 		MarketplaceCommit: commit, Source: entry.Source, Entrypoint: candidateManifest.Entrypoint,
 		ContentSHA256: candidateDigest,
