@@ -330,6 +330,52 @@ func (m *Manager) UpdatePlugin(ctx context.Context, boardDir, id string) (Locked
 	return m.addPlugin(ctx, boardDir, id, false)
 }
 
+// UpdatePlugins resolves and verifies every requested update before replacing
+// their entries with a single atomic board lock write. Candidate content may be
+// cached before the write; that cache is disposable and does not activate it.
+func (m *Manager) UpdatePlugins(ctx context.Context, boardDir string, ids []string) ([]LockedPlugin, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	previews, err := m.PreviewUpdates(ctx, boardDir, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	updated := make([]LockedPlugin, len(previews))
+	for i, preview := range previews {
+		if err := m.fetchLocked(ctx, preview.Candidate); err != nil {
+			return nil, fmt.Errorf("cache update for %s: %w", preview.ID, err)
+		}
+		updated[i] = preview.Candidate
+	}
+
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	indexes := make([]int, len(previews))
+	seen := make(map[string]bool, len(previews))
+	for i, preview := range previews {
+		if seen[preview.ID] {
+			return nil, fmt.Errorf("plugin %q was requested more than once", preview.ID)
+		}
+		seen[preview.ID] = true
+		index := slices.IndexFunc(lock.Plugins, func(locked LockedPlugin) bool { return locked.ID == preview.ID })
+		if index < 0 || lock.Plugins[index] != preview.Current {
+			return nil, fmt.Errorf("plugin %q changed in the board lock while updates were resolving", preview.ID)
+		}
+		indexes[i] = index
+	}
+	for i, index := range indexes {
+		lock.Plugins[index] = updated[i]
+	}
+	if err := SaveBoardLock(boardDir, lock); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
 func (m *Manager) RemovePlugin(boardDir, id string) error {
 	lock, err := LoadBoardLock(boardDir)
 	if err != nil {

@@ -182,6 +182,120 @@ func TestPreviewUpdatesHandlesMultiplePluginsFromOneMarketplace(t *testing.T) {
 	}
 }
 
+func TestUpdatePluginsLeavesLockUnchangedWhenAnyCandidateFails(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo, manager, board := setupTwoPluginMarketplace(t)
+	lockPath := filepath.Join(board, plugin.LockFile)
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dateManifest := filepath.Join(repo, "plugins", "date-tools", "plugin.json")
+	data, err := os.ReadFile(dateManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dateManifest, strings.Replace(string(data), `"version": "1.0.0"`, `"version": "2.0.0"`, 1))
+	writeFile(t, filepath.Join(repo, "plugins", "text-tools", "plugin.json"), `{not valid json`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "one valid and one invalid update")
+
+	if _, err := manager.UpdatePlugins(t.Context(), board, []string{"acme/date-tools", "acme/text-tools"}); err == nil {
+		t.Fatal("UpdatePlugins succeeded with an invalid second candidate")
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("board lock changed after failed update:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestUpdatePluginsWritesAllCandidatesTogether(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo, manager, board := setupTwoPluginMarketplace(t)
+	for _, name := range []string{"date-tools", "text-tools"} {
+		manifestPath := filepath.Join(repo, "plugins", name, "plugin.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, manifestPath, strings.Replace(string(data), `"version": "1.0.0"`, `"version": "2.0.0"`, 1))
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "update both plugins transactionally")
+
+	updated, err := manager.UpdatePlugins(t.Context(), board, []string{"acme/date-tools", "acme/text-tools"})
+	if err != nil {
+		t.Fatalf("UpdatePlugins: %v", err)
+	}
+	if len(updated) != 2 {
+		t.Fatalf("updated %d plugins, want 2", len(updated))
+	}
+	lock, err := plugin.LoadBoardLock(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, locked := range lock.Plugins {
+		if locked.Version != "2.0.0" {
+			t.Errorf("%s version = %q, want 2.0.0", locked.ID, locked.Version)
+		}
+	}
+	if _, err := manager.RuntimePlugins(board); err != nil {
+		t.Fatalf("updated content is not synchronized: %v", err)
+	}
+}
+
+func setupTwoPluginMarketplace(t *testing.T) (string, *plugin.Manager, string) {
+	t.Helper()
+	repo := createMarketplaceRepo(t)
+	writeFile(t, filepath.Join(repo, "marketplace.json"), `{
+  "apiVersion": 1,
+  "name": "acme",
+  "description": "Test plugins",
+  "plugins": [
+    {"name":"date-tools","source":"plugins/date-tools"},
+    {"name":"text-tools","source":"plugins/text-tools"}
+  ]
+}`)
+	textRoot := filepath.Join(repo, "plugins", "text-tools")
+	writeFile(t, filepath.Join(textRoot, "plugin.json"), `{
+  "apiVersion": 1,
+  "name": "text-tools",
+  "version": "1.0.0",
+  "description": "Text helpers",
+  "entrypoint": "init.lua"
+}`)
+	writeFile(t, filepath.Join(textRoot, "init.lua"), `return "text"`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "add text plugin")
+
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	board := t.TempDir()
+	for _, id := range []string{"acme/date-tools", "acme/text-tools"} {
+		if _, err := manager.AddPlugin(t.Context(), board, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo, manager, board
+}
+
 func TestManagerLocksSyncsAndLoadsBoardPlugin(t *testing.T) {
 	if !kbrdfs.GitAvailable() {
 		t.Skip("git unavailable")

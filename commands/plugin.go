@@ -360,15 +360,18 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 					return err
 				}
 			}
-			for i, id := range ids {
-				if dryRun {
+			if dryRun {
+				for i := range ids {
 					printUpdatePreview(cmd, previews[i], false)
-					continue
 				}
-				locked, err := manager.UpdatePlugin(cmd.Context(), *boardDir, id)
-				if err != nil {
-					return err
-				}
+				return nil
+			}
+			updated, err := manager.UpdatePlugins(cmd.Context(), *boardDir, ids)
+			if err != nil {
+				return err
+			}
+			for i, locked := range updated {
+				id := ids[i]
 				fmt.Fprintf(cmd.OutOrStdout(), "updated %s to %s (%s)\n", id, locked.Version, shortCommit(locked.MarketplaceCommit))
 			}
 			return nil
