@@ -228,47 +228,24 @@ func (m *Manager) RemoveMarketplace(name string) error {
 	return nil
 }
 
-func (m *Manager) AddPlugin(ctx context.Context, boardDir, id string) (LockedPlugin, error) {
-	return m.addPlugin(ctx, boardDir, id, true)
-}
-
-func (m *Manager) addPlugin(ctx context.Context, boardDir, id string, refreshMarketplace bool) (LockedPlugin, error) {
-	marketName, pluginName, ok := splitID(id)
-	if !ok {
-		return LockedPlugin{}, fmt.Errorf("plugin must be qualified as marketplace/plugin")
+func (m *Manager) AddPlugin(ctx context.Context, boardDir, request string) (LockedPlugin, error) {
+	id, selection, err := parsePluginRequest(request)
+	if err != nil {
+		return LockedPlugin{}, err
 	}
-	if refreshMarketplace {
-		if _, err := m.UpdateMarketplaces(ctx, marketName); err != nil {
-			return LockedPlugin{}, err
-		}
+	marketName, _, _ := splitID(id)
+	if _, err := m.UpdateMarketplaces(ctx, marketName); err != nil {
+		return LockedPlugin{}, err
 	}
 	marketplace, repo, err := m.marketplace(marketName)
 	if err != nil {
 		return LockedPlugin{}, err
 	}
-	manifest, err := LoadMarketplace(repo)
+	locked, source, cleanup, err := m.resolveCatalogPlugin(ctx, marketplace, repo, marketplace.Commit, id, selection)
 	if err != nil {
 		return LockedPlugin{}, err
 	}
-	entry, ok := marketplaceEntry(manifest, pluginName)
-	if !ok {
-		return LockedPlugin{}, fmt.Errorf("marketplace %q has no plugin %q", marketName, pluginName)
-	}
-	source, _ := safeRelativePath(repo, entry.Source)
-	pluginManifest, err := LoadPlugin(source)
-	if err != nil {
-		return LockedPlugin{}, err
-	}
-	digest, err := contentDigest(source)
-	if err != nil {
-		return LockedPlugin{}, fmt.Errorf("hash plugin %s: %w", id, err)
-	}
-	locked := LockedPlugin{
-		ID: id, Version: pluginManifest.Version, Description: pluginManifest.Description,
-		Marketplace: marketName, MarketplaceURL: marketplace.URL, MarketplaceRef: marketplace.Ref,
-		MarketplaceCommit: marketplace.Commit, Source: entry.Source,
-		Entrypoint: pluginManifest.Entrypoint, ContentSHA256: digest,
-	}
+	defer cleanup()
 	if err := m.cacheFromSource(locked, source); err != nil {
 		return LockedPlugin{}, err
 	}
@@ -280,6 +257,9 @@ func (m *Manager) addPlugin(ctx context.Context, boardDir, id string, refreshMar
 	for i := range lock.Plugins {
 		if lock.Plugins[i].ID == id {
 			locked.Disabled = lock.Plugins[i].Disabled
+			if lock.Plugins[i] != locked {
+				lock.History = append(lock.History, lock.Plugins[i])
+			}
 			lock.Plugins[i] = locked
 			replaced = true
 			break
@@ -297,7 +277,7 @@ func (m *Manager) addPlugin(ctx context.Context, boardDir, id string, refreshMar
 // UpdatePlugin refreshes a locked plugin. If its marketplace is not registered
 // on this machine, the lock's canonical URL and ref restore that discovery
 // state before the plugin is resolved.
-func (m *Manager) UpdatePlugin(ctx context.Context, boardDir, id string) (LockedPlugin, error) {
+func (m *Manager) UpdatePlugin(ctx context.Context, boardDir, id string, options ...UpdateOptions) (LockedPlugin, error) {
 	lock, err := LoadBoardLock(boardDir)
 	if err != nil {
 		return LockedPlugin{}, err
@@ -322,29 +302,36 @@ func (m *Manager) UpdatePlugin(ctx context.Context, boardDir, id string) (Locked
 	registered := slices.ContainsFunc(registry.Marketplaces, func(marketplace Marketplace) bool {
 		return marketplace.Name == current.Marketplace
 	})
-	if registered {
-		return m.addPlugin(ctx, boardDir, id, true)
+	if !registered {
+		if _, err := m.addMarketplace(ctx, current.MarketplaceURL, current.MarketplaceRef, current.Marketplace); err != nil {
+			return LockedPlugin{}, fmt.Errorf("restore marketplace %s from plugin lock: %w", current.Marketplace, err)
+		}
 	}
-	if _, err := m.addMarketplace(ctx, current.MarketplaceURL, current.MarketplaceRef, current.Marketplace); err != nil {
-		return LockedPlugin{}, fmt.Errorf("restore marketplace %s from plugin lock: %w", current.Marketplace, err)
+	updated, err := m.UpdatePlugins(ctx, boardDir, []string{id}, options...)
+	if err != nil {
+		return LockedPlugin{}, err
 	}
-	return m.addPlugin(ctx, boardDir, id, false)
+	return updated[0], nil
 }
 
 // UpdatePlugins resolves and verifies every requested update before replacing
 // their entries with a single atomic board lock write. Candidate content may be
 // cached before the write; that cache is disposable and does not activate it.
-func (m *Manager) UpdatePlugins(ctx context.Context, boardDir string, ids []string) ([]LockedPlugin, error) {
+func (m *Manager) UpdatePlugins(ctx context.Context, boardDir string, ids []string, options ...UpdateOptions) ([]LockedPlugin, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	previews, err := m.PreviewUpdates(ctx, boardDir, ids)
+	previews, err := m.PreviewUpdates(ctx, boardDir, ids, options...)
 	if err != nil {
 		return nil, err
 	}
 
 	updated := make([]LockedPlugin, len(previews))
 	for i, preview := range previews {
+		if preview.Candidate == preview.Current {
+			updated[i] = preview.Candidate
+			continue
+		}
 		if err := m.fetchLocked(ctx, preview.Candidate); err != nil {
 			return nil, fmt.Errorf("cache update for %s: %w", preview.ID, err)
 		}
@@ -368,13 +355,56 @@ func (m *Manager) UpdatePlugins(ctx context.Context, boardDir string, ids []stri
 		}
 		indexes[i] = index
 	}
+	changed := false
 	for i, index := range indexes {
+		if lock.Plugins[index] == updated[i] {
+			continue
+		}
+		lock.History = append(lock.History, lock.Plugins[index])
 		lock.Plugins[index] = updated[i]
+		changed = true
+	}
+	if !changed {
+		return updated, nil
 	}
 	if err := SaveBoardLock(boardDir, lock); err != nil {
 		return nil, err
 	}
 	return updated, nil
+}
+
+// RollbackPlugin restores the most recent exact lock entry for id. Historical
+// entries remain immutable pins and are synchronized before the lock changes.
+func (m *Manager) RollbackPlugin(ctx context.Context, boardDir, id string) (LockedPlugin, error) {
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return LockedPlugin{}, err
+	}
+	currentIndex := slices.IndexFunc(lock.Plugins, func(locked LockedPlugin) bool { return locked.ID == id })
+	if currentIndex < 0 {
+		return LockedPlugin{}, fmt.Errorf("plugin %q is not in this board's lock", id)
+	}
+	historyIndex := -1
+	for i := len(lock.History) - 1; i >= 0; i-- {
+		if lock.History[i].ID == id {
+			historyIndex = i
+			break
+		}
+	}
+	if historyIndex < 0 {
+		return LockedPlugin{}, fmt.Errorf("plugin %q has no previous locked version", id)
+	}
+	previous := lock.History[historyIndex]
+	previous.Disabled = lock.Plugins[currentIndex].Disabled
+	if err := m.fetchLocked(ctx, previous); err != nil {
+		return LockedPlugin{}, fmt.Errorf("cache rollback for %s: %w", id, err)
+	}
+	lock.Plugins[currentIndex] = previous
+	lock.History = slices.Delete(lock.History, historyIndex, historyIndex+1)
+	if err := SaveBoardLock(boardDir, lock); err != nil {
+		return LockedPlugin{}, err
+	}
+	return previous, nil
 }
 
 func (m *Manager) RemovePlugin(boardDir, id string) error {
@@ -387,6 +417,7 @@ func (m *Manager) RemovePlugin(boardDir, id string) error {
 	if len(lock.Plugins) == before {
 		return fmt.Errorf("plugin %q is not in this board's lock", id)
 	}
+	lock.History = slices.DeleteFunc(lock.History, func(locked LockedPlugin) bool { return locked.ID == id })
 	return SaveBoardLock(boardDir, lock)
 }
 
@@ -507,7 +538,7 @@ func (m *Manager) fetchLocked(ctx context.Context, locked LockedPlugin) error {
 		return err
 	}
 	_, name, _ := splitID(locked.ID)
-	if manifest.Name != name || manifest.Entrypoint != locked.Entrypoint {
+	if manifest.Name != name || (locked.Version != "" && manifest.Version != locked.Version) || manifest.Entrypoint != locked.Entrypoint {
 		return fmt.Errorf("plugin %s manifest does not match its lock", locked.ID)
 	}
 	digest, err := contentDigest(source)

@@ -12,11 +12,11 @@ import (
 	kbrdfs "kbrd/fs"
 )
 
-// PreviewUpdate resolves and validates the latest plugin content, then compares
-// it with the locked content. It does not write the board lock, marketplace
-// registry, marketplace checkout, or executable content cache.
-func (m *Manager) PreviewUpdate(ctx context.Context, boardDir, id string) (UpdatePreview, error) {
-	previews, err := m.PreviewUpdates(ctx, boardDir, []string{id})
+// PreviewUpdate resolves and validates the selected plugin content, then
+// compares it with the locked content. It does not write the board lock,
+// marketplace registry, marketplace checkout, or executable content cache.
+func (m *Manager) PreviewUpdate(ctx context.Context, boardDir, id string, options ...UpdateOptions) (UpdatePreview, error) {
+	previews, err := m.PreviewUpdates(ctx, boardDir, []string{id}, options...)
 	if err != nil {
 		return UpdatePreview{}, err
 	}
@@ -25,7 +25,10 @@ func (m *Manager) PreviewUpdate(ctx context.Context, boardDir, id string) (Updat
 
 // PreviewUpdates resolves updates for locked plugins while staging each
 // distinct marketplace revision only once.
-func (m *Manager) PreviewUpdates(ctx context.Context, boardDir string, ids []string) ([]UpdatePreview, error) {
+func (m *Manager) PreviewUpdates(ctx context.Context, boardDir string, ids []string, options ...UpdateOptions) ([]UpdatePreview, error) {
+	if len(options) > 1 {
+		return nil, fmt.Errorf("only one update options value is supported")
+	}
 	lock, err := LoadBoardLock(boardDir)
 	if err != nil {
 		return nil, err
@@ -60,6 +63,16 @@ func (m *Manager) PreviewUpdates(ctx context.Context, boardDir string, ids []str
 		if !ok {
 			return nil, fmt.Errorf("plugin %q is not in this board's lock", id)
 		}
+		selection, err := updateSelection(current, options)
+		if err != nil {
+			return nil, err
+		}
+		// Exact requests are already immutable lock pins. Only an explicit
+		// channel change should cause them to be resolved again.
+		if selection.version != "" {
+			previews = append(previews, UpdatePreview{ID: id, Current: current, Candidate: current})
+			continue
+		}
 		marketplace := Marketplace{
 			Name: current.Marketplace, URL: current.MarketplaceURL, Ref: current.MarketplaceRef,
 		}
@@ -80,7 +93,15 @@ func (m *Manager) PreviewUpdates(ctx context.Context, boardDir string, ids []str
 			candidate = stagedMarketplace{root: root, commit: commit, manifest: manifest}
 			staged[key] = candidate
 		}
-		preview, err := m.previewUpdate(ctx, current, marketplace, candidate.root, candidate.commit, candidate.manifest)
+		resolved, candidateRoot, cleanup, err := m.resolveCatalogPlugin(
+			ctx, marketplace, candidate.root, candidate.commit, current.ID, selection,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("check plugin %s: %w", id, err)
+		}
+		defer cleanup()
+		resolved.Disabled = current.Disabled
+		preview, err := m.previewUpdate(ctx, current, resolved, candidate.root, candidateRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -89,29 +110,10 @@ func (m *Manager) PreviewUpdates(ctx context.Context, boardDir string, ids []str
 	return previews, nil
 }
 
-func (m *Manager) previewUpdate(ctx context.Context, current LockedPlugin, marketplace Marketplace, candidateRepo, commit string, marketplaceManifest MarketplaceManifest) (UpdatePreview, error) {
-	_, pluginName, _ := splitID(current.ID)
-	entry, ok := marketplaceEntry(marketplaceManifest, pluginName)
-	if !ok {
-		return UpdatePreview{}, fmt.Errorf("marketplace %q has no plugin %q", current.Marketplace, pluginName)
-	}
-	candidateRoot, err := safeRelativePath(candidateRepo, entry.Source)
-	if err != nil {
-		return UpdatePreview{}, fmt.Errorf("plugin %s source: %w", current.ID, err)
-	}
+func (m *Manager) previewUpdate(ctx context.Context, current, candidate LockedPlugin, candidateRepo, candidateRoot string) (UpdatePreview, error) {
 	candidateManifest, err := LoadPlugin(candidateRoot)
 	if err != nil {
 		return UpdatePreview{}, fmt.Errorf("load plugin %s: %w", current.ID, err)
-	}
-	candidateDigest, err := contentDigest(candidateRoot)
-	if err != nil {
-		return UpdatePreview{}, fmt.Errorf("hash plugin %s: %w", current.ID, err)
-	}
-	candidate := LockedPlugin{
-		ID: current.ID, Disabled: current.Disabled, Version: candidateManifest.Version, Description: candidateManifest.Description,
-		Marketplace: current.Marketplace, MarketplaceURL: marketplace.URL, MarketplaceRef: marketplace.Ref,
-		MarketplaceCommit: commit, Source: entry.Source, Entrypoint: candidateManifest.Entrypoint,
-		ContentSHA256: candidateDigest,
 	}
 
 	currentRoot, cleanupCurrent, err := m.previewCurrentRoot(ctx, current)

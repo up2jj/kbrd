@@ -277,11 +277,12 @@ kbrd ingest --board ~/boards/work --name "Daily note" --file note.md
 | `kbrd plugin marketplace update [name]` | Refresh one or all machine-local marketplace catalogs without changing any board lock. |
 | `kbrd plugin search [query]` | Search the locally registered marketplace catalogs. |
 | `kbrd plugin info <marketplace/plugin>` | Inspect declarative metadata, capabilities, permissions, and versions without installing or executing the plugin. |
-| `kbrd plugin add <marketplace/plugin>` | Resolve a plugin into the current board's `kbrd.plugins.lock` and cache its verified content. |
+| `kbrd plugin add <marketplace/plugin[@version]>` | Resolve the stable release or an exact version into the current board's `kbrd.plugins.lock` and cache its verified content. |
 | `kbrd plugin disable <marketplace/plugin>` | Keep a plugin pinned in the board lock but skip it during startup. |
 | `kbrd plugin enable <marketplace/plugin>` | Re-enable a disabled plugin without changing its pinned revision. |
 | `kbrd plugin outdated` | Fetch and show available version, manifest, and file changes without changing activation state. |
-| `kbrd plugin update [marketplace/plugin] [--dry-run]` | Preview and update one locked plugin, or every plugin when omitted; `--dry-run` never changes the lock or activated content. |
+| `kbrd plugin update [marketplace/plugin] [--channel stable\|beta] [--dry-run]` | Preview and update one locked plugin, or every plugin when omitted; `--channel` changes its release channel and `--dry-run` never changes the lock or activated content. |
+| `kbrd plugin rollback <marketplace/plugin>` | Restore and verify the plugin's previous exact commit and content digest from lock history. |
 | `kbrd plugin diff <marketplace/plugin>` | Show an available update preview with unified file diffs. |
 | `kbrd plugin sync` | Download and verify the exact plugin revisions in the current board's lock. |
 | `kbrd serve eject [--dir]` | Write the default web templates and static assets into `.kbrd_web_templates/` for customizing (see [Web server](#web-server-headless)). |

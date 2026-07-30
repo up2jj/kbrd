@@ -70,6 +70,11 @@ func LoadBoardLock(boardDir string) (BoardLock, error) {
 		}
 		seen[locked.ID] = true
 	}
+	for _, historical := range lock.History {
+		if err := validateLockedPlugin(historical); err != nil {
+			return BoardLock{}, fmt.Errorf("%s history: %w", path, err)
+		}
+	}
 	slices.SortFunc(lock.Plugins, func(a, b LockedPlugin) int { return cmpString(a.ID, b.ID) })
 	return lock, nil
 }
@@ -111,6 +116,17 @@ func validateLockedPlugin(locked LockedPlugin) error {
 	}
 	if _, err := safeRelativePath(".", locked.Entrypoint); err != nil {
 		return fmt.Errorf("plugin %q entrypoint: %w", locked.ID, err)
+	}
+	if locked.RequestedVersion != "" {
+		if _, err := canonicalVersion(locked.RequestedVersion); err != nil {
+			return fmt.Errorf("plugin %q requested version: %w", locked.ID, err)
+		}
+	}
+	if locked.Channel != "" && !namePattern.MatchString(locked.Channel) {
+		return fmt.Errorf("plugin %q has invalid channel %q", locked.ID, locked.Channel)
+	}
+	if locked.RequestedVersion != "" && locked.Channel != "" {
+		return fmt.Errorf("plugin %q lock selects both a version and a channel", locked.ID)
 	}
 	return nil
 }

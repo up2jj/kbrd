@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 const maxManifestBytes = 1 << 20
@@ -63,6 +65,9 @@ func validateMarketplace(root string, manifest MarketplaceManifest) error {
 			return fmt.Errorf("%s: duplicate plugin %q", MarketplaceFile, entry.Name)
 		}
 		seen[entry.Name] = true
+		if err := validatePublishedVersions(entry); err != nil {
+			return fmt.Errorf("%s: plugin %q: %w", MarketplaceFile, entry.Name, err)
+		}
 		source, err := safeRelativePath(root, entry.Source)
 		if err != nil {
 			return fmt.Errorf("%s: plugin %q source: %w", MarketplaceFile, entry.Name, err)
@@ -84,6 +89,73 @@ func validateMarketplace(root string, manifest MarketplaceManifest) error {
 		if _, err := contentDigest(source); err != nil {
 			return fmt.Errorf("%s: plugin %q: %w", MarketplaceFile, entry.Name, err)
 		}
+	}
+	return nil
+}
+
+func validatePublishedVersions(entry MarketplaceEntry) error {
+	versions := make(map[string]bool, len(entry.Versions))
+	for _, release := range entry.Versions {
+		version, err := canonicalVersion(release.Version)
+		if err != nil {
+			return err
+		}
+		if versions[version] {
+			return fmt.Errorf("duplicate published version %q", release.Version)
+		}
+		versions[version] = true
+		if err := validateGitRef(release.Ref); err != nil {
+			return fmt.Errorf("version %s: %w", release.Version, err)
+		}
+		if release.Source != "" {
+			if _, err := safeRelativePath(".", release.Source); err != nil {
+				return fmt.Errorf("version %s source: %w", release.Version, err)
+			}
+		}
+	}
+	channels := make([]string, 0, len(entry.Channels))
+	for channel := range entry.Channels {
+		channels = append(channels, channel)
+	}
+	slices.Sort(channels)
+	for _, channel := range channels {
+		if !namePattern.MatchString(channel) {
+			return fmt.Errorf("channel %q must be kebab-case", channel)
+		}
+		target, err := canonicalVersion(entry.Channels[channel])
+		if err != nil {
+			return fmt.Errorf("channel %q: %w", channel, err)
+		}
+		if !versions[target] {
+			return fmt.Errorf("channel %q targets unpublished version %q", channel, entry.Channels[channel])
+		}
+	}
+	return nil
+}
+
+func canonicalVersion(version string) (string, error) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "", fmt.Errorf("version is required")
+	}
+	prefixed := version
+	if !strings.HasPrefix(prefixed, "v") {
+		prefixed = "v" + prefixed
+	}
+	if !semver.IsValid(prefixed) {
+		return "", fmt.Errorf("version %q is not valid semantic versioning", version)
+	}
+	return strings.TrimPrefix(semver.Canonical(prefixed), "v"), nil
+}
+
+func validateGitRef(ref string) error {
+	if ref == "" {
+		return fmt.Errorf("Git ref is required")
+	}
+	if strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " ~^:?*[\\\t\r\n") ||
+		strings.Contains(ref, "..") || strings.Contains(ref, "@{") || strings.Contains(ref, "//") ||
+		strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".") || strings.HasSuffix(ref, ".lock") {
+		return fmt.Errorf("Git ref %q is invalid", ref)
 	}
 	return nil
 }

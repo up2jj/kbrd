@@ -24,8 +24,19 @@ type MarketplaceManifest struct {
 }
 
 type MarketplaceEntry struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+	Name     string            `json:"name"`
+	Source   string            `json:"source"`
+	Versions []PluginVersion   `json:"versions,omitempty"`
+	Channels map[string]string `json:"channels,omitempty"`
+}
+
+// PluginVersion maps a published semantic version to a Git revision. Ref may
+// be a tag, branch, or commit; resolution always records the resulting full
+// commit and content digest in the board lock.
+type PluginVersion struct {
+	Version string `json:"version"`
+	Ref     string `json:"ref"`
+	Source  string `json:"source,omitempty"`
 }
 
 type PluginManifest struct {
@@ -64,6 +75,8 @@ type LockedPlugin struct {
 	ID                string `json:"id"`
 	Disabled          bool   `json:"disabled,omitempty"`
 	Version           string `json:"version,omitempty"`
+	RequestedVersion  string `json:"requestedVersion,omitempty"`
+	Channel           string `json:"channel,omitempty"`
 	Description       string `json:"description,omitempty"`
 	Marketplace       string `json:"marketplace"`
 	MarketplaceURL    string `json:"marketplaceUrl"`
@@ -77,6 +90,13 @@ type LockedPlugin struct {
 type BoardLock struct {
 	APIVersion int            `json:"apiVersion"`
 	Plugins    []LockedPlugin `json:"plugins"`
+	History    []LockedPlugin `json:"history,omitempty"`
+}
+
+// UpdateOptions controls how an update selects a published version. An empty
+// channel keeps the selection policy already recorded in the lock.
+type UpdateOptions struct {
+	Channel string
 }
 
 // RuntimePlugin is a verified cached plugin ready for the Lua host.

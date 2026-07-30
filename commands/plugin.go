@@ -45,6 +45,7 @@ func newPluginCmd() *cobra.Command {
 		newPluginSyncCmd(&boardDir),
 		newPluginOutdatedCmd(&boardDir),
 		newPluginUpdateCmd(&boardDir),
+		newPluginRollbackCmd(&boardDir),
 		newPluginDiffCmd(&boardDir),
 		newPluginValidateCmd(),
 	)
@@ -262,7 +263,7 @@ func newPluginSearchCmd() *cobra.Command {
 
 func newPluginAddCmd(boardDir *string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "add <marketplace/plugin>",
+		Use:     "add <marketplace/plugin[@version]>",
 		Aliases: []string{"install"},
 		Short:   "Add a plugin to this board's lock and cache it",
 		Args:    cobra.ExactArgs(1),
@@ -390,6 +391,7 @@ func newPluginSyncCmd(boardDir *string) *cobra.Command {
 
 func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 	var dryRun bool
+	var channel string
 	cmd := &cobra.Command{
 		Use:   "update [marketplace/plugin]",
 		Short: "Resolve newer marketplace revisions into the board lock",
@@ -405,7 +407,7 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 			}
 			var previews []plugin.UpdatePreview
 			if dryRun {
-				previews, err = manager.PreviewUpdates(cmd.Context(), *boardDir, ids)
+				previews, err = manager.PreviewUpdates(cmd.Context(), *boardDir, ids, plugin.UpdateOptions{Channel: channel})
 				if err != nil {
 					return err
 				}
@@ -416,19 +418,57 @@ func newPluginUpdateCmd(boardDir *string) *cobra.Command {
 				}
 				return nil
 			}
-			updated, err := manager.UpdatePlugins(cmd.Context(), *boardDir, ids)
+			before, err := plugin.LoadBoardLock(*boardDir)
+			if err != nil {
+				return err
+			}
+			currentByID := make(map[string]plugin.LockedPlugin, len(before.Plugins))
+			for _, locked := range before.Plugins {
+				currentByID[locked.ID] = locked
+			}
+			updated, err := manager.UpdatePlugins(cmd.Context(), *boardDir, ids, plugin.UpdateOptions{Channel: channel})
 			if err != nil {
 				return err
 			}
 			for i, locked := range updated {
 				id := ids[i]
+				current := currentByID[id]
+				if current == locked {
+					if current.RequestedVersion != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "%s is pinned at %s; use --channel or add %s@<version> to change it\n", id, current.RequestedVersion, id)
+					} else {
+						fmt.Fprintf(cmd.OutOrStdout(), "%s is already up to date at %s (%s)\n", id, valueOr(locked.Version, "unspecified"), shortCommit(locked.MarketplaceCommit))
+					}
+					continue
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "updated %s to %s (%s)\n", id, locked.Version, shortCommit(locked.MarketplaceCommit))
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show available changes without updating the lock or activating content")
+	cmd.Flags().StringVar(&channel, "channel", "", "select a published version channel (for example stable or beta)")
 	return cmd
+}
+
+func newPluginRollbackCmd(boardDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rollback <marketplace/plugin>",
+		Short: "Restore the plugin's previous exact lock entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := pluginManager()
+			if err != nil {
+				return err
+			}
+			locked, err := manager.RollbackPlugin(cmd.Context(), *boardDir, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "rolled back %s to %s (%s)\n", locked.ID, locked.Version, shortCommit(locked.MarketplaceCommit))
+			return nil
+		},
+	}
 }
 
 func newPluginOutdatedCmd(boardDir *string) *cobra.Command {

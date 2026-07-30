@@ -131,6 +131,46 @@ func TestPluginUpdateDryRunWithEmptyLock(t *testing.T) {
 	}
 }
 
+func TestPluginVersionAndRollbackCLIShape(t *testing.T) {
+	root := NewRootCmd()
+	add, _, err := root.Find([]string{"plugin", "add"})
+	if err != nil || !strings.Contains(add.Use, "[@version]") {
+		t.Fatalf("plugin add command = %q, %v", add.Use, err)
+	}
+	update, _, err := root.Find([]string{"plugin", "update"})
+	if err != nil || update.Flags().Lookup("channel") == nil {
+		t.Fatalf("plugin update --channel is not registered: %v", err)
+	}
+	rollback, _, err := root.Find([]string{"plugin", "rollback"})
+	if err != nil || rollback.Name() != "rollback" {
+		t.Fatalf("plugin rollback command is not registered: %v", err)
+	}
+}
+
+func TestPluginUpdateReportsExactVersionNoOp(t *testing.T) {
+	t.Setenv("KBRD_PLUGIN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("KBRD_PLUGIN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	board := t.TempDir()
+	locked := plugin.LockedPlugin{
+		ID: "acme/date-tools", Version: "1.4.2", RequestedVersion: "1.4.2",
+		Marketplace: "acme", MarketplaceURL: filepath.Join(t.TempDir(), "missing-marketplace"),
+		MarketplaceCommit: strings.Repeat("a", 40), Source: "plugins/date-tools",
+		Entrypoint: "init.lua", ContentSHA256: "sha256:" + strings.Repeat("0", 64),
+	}
+	if err := plugin.SaveBoardLock(board, plugin.BoardLock{Plugins: []plugin.LockedPlugin{locked}}); err != nil {
+		t.Fatal(err)
+	}
+
+	output := executePluginCommand(t, "plugin", "--board", board, "update", locked.ID)
+	want := "acme/date-tools is pinned at 1.4.2; use --channel or add acme/date-tools@<version> to change it"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+	if strings.Contains(output, "updated acme/date-tools") {
+		t.Fatalf("no-op output claims an update: %q", output)
+	}
+}
+
 func TestPrintPluginInfoShowsDeclarativeMetadata(t *testing.T) {
 	info := plugin.PluginInfo{
 		ID: "acme/date-tools",

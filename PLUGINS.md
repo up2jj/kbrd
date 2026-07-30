@@ -28,6 +28,7 @@ For local plugin development, register a marketplace from a filesystem path:
 ```bash
 kbrd plugin marketplace add ../kbrd-plugins
 kbrd plugin add acme/date-tools
+kbrd plugin add acme/date-tools@1.4.2
 ```
 
 The path must point to a Git repository with the [marketplace layout](#marketplace-layout),
@@ -57,6 +58,8 @@ kbrd plugin list
 kbrd plugin disable acme/date-tools
 kbrd plugin enable acme/date-tools
 kbrd plugin update acme/date-tools
+kbrd plugin update acme/date-tools --channel beta
+kbrd plugin rollback acme/date-tools
 kbrd plugin remove acme/date-tools
 ```
 
@@ -130,11 +133,25 @@ kbrd plugin update
 ```
 
 Plugin update refreshes the relevant marketplace, resolves the plugin at its
-new marketplace commit, verifies and caches its content, and atomically rewrites
-`kbrd.plugins.lock`. Review and commit the lock-file diff so other board clones
-receive the same revisions. If the marketplace is not registered on the current
-machine, update restores its registration from the URL and ref recorded in the
-board lock before resolving the new revision.
+selected version or channel, verifies and caches its content, and atomically
+rewrites `kbrd.plugins.lock`. An exact version selected with `@version` stays
+exact on later updates; the command reports that pin without fetching content
+or rewriting the lock. A channel selection stays on that channel. Pass
+`--channel` to change the selection policy. Review and commit the lock-file
+diff so other board clones receive the same revisions. If the marketplace is
+not registered on the current machine, update restores its registration from
+the URL and ref recorded in the board lock before resolving the new revision.
+
+Every changed lock entry is retained in lock history. Roll back one step without
+consulting the current catalog:
+
+```bash
+kbrd plugin rollback acme/date-tools
+```
+
+Rollback synchronizes and verifies the previous exact commit and digest before
+changing activation. Repeating it walks farther back through that plugin's lock
+history.
 
 `kbrd plugin sync` is deliberately different: it installs exactly what the
 current lock specifies and never selects a newer revision. After pulling an
@@ -168,7 +185,15 @@ marketplace-repository/
   "plugins": [
     {
       "name": "date-tools",
-      "source": "plugins/date-tools"
+      "source": "plugins/date-tools",
+      "versions": [
+        {"version": "1.4.2", "ref": "date-tools/v1.4.2"},
+        {"version": "1.5.0-beta.2", "ref": "date-tools/v1.5.0-beta.2"}
+      ],
+      "channels": {
+        "stable": "1.4.2",
+        "beta": "1.5.0-beta.2"
+      }
     }
   ]
 }
@@ -208,6 +233,14 @@ not an enforcement sandbox. README and changelog paths are relative to the
 plugin directory and must name regular files. Symlinks, special files, nested
 `.git` directories, unknown manifest fields, duplicate names, and plugins larger
 than 64 MiB are rejected. Submodules are not initialized.
+
+The optional `versions` list publishes semantic versions at Git refs. A version
+may override `source`; otherwise it uses the entry's main source. `channels` maps
+named channels to published versions. With version metadata present, an
+unqualified add selects `stable` (or the highest non-prerelease version when no
+explicit stable channel is declared). kbrd resolves each ref to a full commit
+and verifies that the selected checkout's `plugin.json` declares the cataloged
+version. Moving a tag or channel later cannot change an existing board lock.
 
 Inspect a registered marketplace plugin before adding it to a board:
 
@@ -259,10 +292,11 @@ declarations, exactly one layer must set `default = true`.
 
 ## Lock and cache behavior
 
-The generated lock records the canonical marketplace URL, exact Git commit,
-plugin source path, entrypoint, descriptive version, enabled state, and SHA-256
-content digest. Synchronization checks out that exact commit and refuses content
-that does not match the digest.
+The generated lock records the selection policy, canonical marketplace URL,
+exact Git commit, plugin source path, entrypoint, descriptive version, enabled
+state, and SHA-256 content digest. It also retains prior exact entries for
+rollback. Synchronization checks out the recorded commit and refuses content
+that does not match the digest; it never re-resolves the version or channel.
 
 Marketplace URLs containing credentials are rejected; use normal Git credential
 helpers for private repositories. Local marketplace paths are converted to

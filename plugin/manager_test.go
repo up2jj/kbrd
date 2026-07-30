@@ -425,6 +425,153 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 }
 
+func TestVersionedInstallChannelUpdateAndRollbackPreserveExactPins(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo := createMarketplaceRepo(t)
+	v1Commit := strings.TrimSpace(runGitOutput(t, repo, "rev-parse", "HEAD"))
+	runGit(t, repo, "tag", "date-tools/v1.0.0")
+
+	pluginManifest := filepath.Join(repo, "plugins", "date-tools", "plugin.json")
+	pluginEntrypoint := filepath.Join(repo, "plugins", "date-tools", "init.lua")
+	data, err := os.ReadFile(pluginManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pluginManifest, strings.Replace(string(data), `"version": "1.0.0"`, `"version": "2.0.0-beta.1"`, 1))
+	writeFile(t, pluginEntrypoint, `return "beta"`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "publish beta")
+	betaCommit := strings.TrimSpace(runGitOutput(t, repo, "rev-parse", "HEAD"))
+	runGit(t, repo, "tag", "date-tools/v2.0.0-beta.1")
+
+	data, err = os.ReadFile(pluginManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pluginManifest, strings.Replace(string(data), `"version": "2.0.0-beta.1"`, `"version": "1.5.0"`, 1))
+	writeFile(t, pluginEntrypoint, `return "stable"`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "publish stable")
+	stableCommit := strings.TrimSpace(runGitOutput(t, repo, "rev-parse", "HEAD"))
+	runGit(t, repo, "tag", "date-tools/v1.5.0")
+
+	writeFile(t, filepath.Join(repo, "marketplace.json"), `{
+  "apiVersion": 1,
+  "name": "acme",
+  "description": "Test plugins",
+  "plugins": [{
+    "name": "date-tools",
+    "source": "plugins/date-tools",
+    "versions": [
+      {"version":"1.0.0","ref":"date-tools/v1.0.0"},
+      {"version":"1.5.0","ref":"date-tools/v1.5.0"},
+      {"version":"2.0.0-beta.1","ref":"date-tools/v2.0.0-beta.1"}
+    ],
+    "channels": {"stable":"1.5.0","beta":"2.0.0-beta.1"}
+  }]
+}`)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "publish version catalog")
+
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	board := t.TempDir()
+	lockedV1, err := manager.AddPlugin(t.Context(), board, "acme/date-tools@1.0.0")
+	if err != nil {
+		t.Fatalf("AddPlugin exact version: %v", err)
+	}
+	if lockedV1.Version != "1.0.0" || lockedV1.RequestedVersion != "1.0.0" || lockedV1.MarketplaceCommit != v1Commit {
+		t.Fatalf("exact version lock = %+v", lockedV1)
+	}
+
+	lockedBeta, err := manager.UpdatePlugin(t.Context(), board, "acme/date-tools", plugin.UpdateOptions{Channel: "beta"})
+	if err != nil {
+		t.Fatalf("UpdatePlugin beta: %v", err)
+	}
+	if lockedBeta.Version != "2.0.0-beta.1" || lockedBeta.Channel != "beta" || lockedBeta.MarketplaceCommit != betaCommit {
+		t.Fatalf("beta lock = %+v", lockedBeta)
+	}
+	if lockedBeta.ContentSHA256 == lockedV1.ContentSHA256 {
+		t.Fatal("beta update retained the previous content digest")
+	}
+
+	rolledBack, err := manager.RollbackPlugin(t.Context(), board, "acme/date-tools")
+	if err != nil {
+		t.Fatalf("RollbackPlugin: %v", err)
+	}
+	if rolledBack != lockedV1 {
+		t.Fatalf("rollback = %+v, want exact prior pin %+v", rolledBack, lockedV1)
+	}
+	lock, err := plugin.LoadBoardLock(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lock.History) != 0 || len(lock.Plugins) != 1 || lock.Plugins[0] != lockedV1 {
+		t.Fatalf("lock after rollback = %+v", lock)
+	}
+
+	secondBoard := t.TempDir()
+	latestStable, err := manager.AddPlugin(t.Context(), secondBoard, "acme/date-tools")
+	if err != nil {
+		t.Fatalf("AddPlugin stable channel: %v", err)
+	}
+	if latestStable.Version != "1.5.0" || latestStable.Channel != "stable" || latestStable.MarketplaceCommit != stableCommit {
+		t.Fatalf("default stable lock = %+v", latestStable)
+	}
+}
+
+func TestUpdatePluginsExactPinIsNoOpWithoutFetchOrLockWrite(t *testing.T) {
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot:       filepath.Join(root, "config"),
+		CacheRoot:        filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	board := t.TempDir()
+	locked := plugin.LockedPlugin{
+		ID: "acme/date-tools", Version: "1.4.2", RequestedVersion: "1.4.2",
+		Marketplace: "acme", MarketplaceURL: filepath.Join(root, "missing-marketplace"),
+		MarketplaceCommit: strings.Repeat("a", 40), Source: "plugins/date-tools",
+		Entrypoint: "init.lua", ContentSHA256: "sha256:" + strings.Repeat("0", 64),
+	}
+	if err := plugin.SaveBoardLock(board, plugin.BoardLock{Plugins: []plugin.LockedPlugin{locked}}); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(board, plugin.LockFile)
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := manager.UpdatePlugins(t.Context(), board, []string{locked.ID})
+	if err != nil {
+		t.Fatalf("UpdatePlugins exact pin: %v", err)
+	}
+	if len(updated) != 1 || updated[0] != locked {
+		t.Fatalf("updated = %+v, want unchanged pin %+v", updated, locked)
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("exact no-op rewrote lock:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 func TestDisabledPluginDoesNotBlockFolderLuaStartup(t *testing.T) {
 	configRoot := t.TempDir()
 	cacheRoot := t.TempDir()
@@ -568,6 +715,16 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
+}
+
+func runGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
 }
 
 func writeFile(t *testing.T, path, body string) {
