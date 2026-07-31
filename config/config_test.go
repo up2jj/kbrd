@@ -3,9 +3,13 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -442,6 +446,36 @@ func TestTemplate_IsValidGlobalConfig(t *testing.T) {
 
 	if _, err := loadFrom(globalDir, folder); err != nil {
 		t.Fatalf("Template is not a valid global config: %v", err)
+	}
+}
+
+func TestTemplate_DocumentsEveryDefault(t *testing.T) {
+	v := viper.New()
+	setDefaults(v)
+
+	sectionPattern := regexp.MustCompile(`^\[([A-Za-z0-9_.-]+)\]$`)
+	optionPattern := regexp.MustCompile(`^#\s*([A-Za-z0-9_.-]+)\s*=`)
+	documented := make(map[string]bool)
+	section := ""
+	for _, line := range strings.Split(string(Template), "\n") {
+		if match := sectionPattern.FindStringSubmatch(strings.TrimSpace(line)); match != nil {
+			section = match[1]
+			continue
+		}
+		if match := optionPattern.FindStringSubmatch(strings.TrimSpace(line)); match != nil && section != "" {
+			documented[section+"."+match[1]] = true
+		}
+	}
+
+	var missing []string
+	for _, key := range v.AllKeys() {
+		if !documented[key] {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("config defaults missing from template.toml: %s", strings.Join(missing, ", "))
 	}
 }
 

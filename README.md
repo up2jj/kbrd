@@ -620,6 +620,8 @@ kbrd reads two TOML files, with the folder-local one overriding the global one:
 - **Folder-local:** `<board>/kbrd.toml`
 
 Generate templates with `kbrd init` / `kbrd init --global`, or from the config menu (`,`).
+When an existing config is opened from that menu, kbrd adds commented examples
+for options introduced since the file was created without changing configured values.
 
 ```toml
 [display]

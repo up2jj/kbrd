@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"kbrd/config"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func realPath(t *testing.T, p string) string {
@@ -182,10 +184,10 @@ func TestEnsureConfigFile_CreatesWhenMissing(t *testing.T) {
 	}
 }
 
-func TestEnsureConfigFile_PreservesExisting(t *testing.T) {
+func TestEnsureConfigFile_PreservesExistingAndAddsCurrentExamples(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.toml")
-	sentinel := []byte("# user edits\n")
+	sentinel := []byte("# user edits\n\n[display]\ncolumn_width = 41\n# theme = \"dark\" # my preferred example\n")
 	if err := os.WriteFile(path, sentinel, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -198,8 +200,58 @@ func TestEnsureConfigFile_PreservesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if !bytes.Equal(got, sentinel) {
-		t.Fatalf("file was overwritten; got %q want %q", got, sentinel)
+	text := string(got)
+	if !strings.Contains(text, "# user edits") || !strings.Contains(text, "column_width = 41") || !strings.Contains(text, `# theme = "dark" # my preferred example`) {
+		t.Fatalf("user content was not preserved:\n%s", text)
+	}
+	if strings.Count(text, "column_width") != 1 || strings.Count(text, "# theme =") != 1 {
+		t.Fatalf("existing active/commented options were duplicated:\n%s", text)
+	}
+	if !strings.Contains(text, "# card_view") || !strings.Contains(text, "[scripting]") || !strings.Contains(text, "# remote_require") {
+		t.Fatalf("current examples were not added:\n%s", text)
+	}
+	if strings.Contains(text, "# id = \"start-work\"") {
+		t.Fatalf("frontmatter preset fields were added as board options:\n%s", text)
+	}
+
+	before := append([]byte(nil), got...)
+	if err := ensureConfigFile(path); err != nil {
+		t.Fatalf("second ensureConfigFile: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after second ensure: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("refreshing current examples is not idempotent")
+	}
+}
+
+func TestMergeConfigExamples_DottedTableRemainsValid(t *testing.T) {
+	content := []byte("git.diff_tool = \"git\"\n")
+	updated, changed := mergeConfigExamples(content, config.Template)
+	if !changed {
+		t.Fatal("expected missing examples to be added")
+	}
+	if !strings.Contains(string(updated), "# git.sync_on_startup") {
+		t.Fatalf("dotted suggestion missing:\n%s", updated)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal(updated, &decoded); err != nil {
+		t.Fatalf("updated config is invalid TOML: %v\n%s", err, updated)
+	}
+
+	refreshed, changed := mergeConfigExamples(updated, config.Template)
+	if changed || !bytes.Equal(refreshed, updated) {
+		t.Fatalf("refreshing dotted config is not idempotent: changed=%v\n%s", changed, refreshed)
+	}
+}
+
+func TestMergeConfigExamples_MalformedFileIsUntouched(t *testing.T) {
+	content := []byte("not = valid = toml\n")
+	updated, changed := mergeConfigExamples(content, config.Template)
+	if changed || !bytes.Equal(updated, content) {
+		t.Fatalf("malformed config changed: changed=%v content=%q", changed, updated)
 	}
 }
 

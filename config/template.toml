@@ -40,6 +40,19 @@
 # diff_tool = "auto"        # auto | difft | diff-so-fancy | git
 # auto_sync_interval = ""   # empty/"0" disables; e.g. "30s", "5m", "1h"
 # generate_readme = false   # regenerate README.md from the board before each commit
+# manual_sync_mode = "attended" # "attended" stops on divergence; "auto" reconciles with conflict copies
+# sync_on_startup = true    # reconcile with the remote when the board opens
+# auto_commit = false       # commit pending edits before automatic TUI sync
+
+[scripting]
+# enabled = true
+# init_timeout_ms = 30000
+# command_timeout_ms = 2000
+# hook_timeout_ms = 500
+# error_threshold = 3       # disable a failing hook/timer after N consecutive errors; 0 = never
+# remote_require = false    # allow Lua require() from https:// and github: sources
+# http_timeout_ms = 10000
+# http_max_response_bytes = 2097152
 
 [hooks]
 # enabled    = true         # declarative YAML event hooks (hooks.yml / .kbrd_hooks.yml)
