@@ -71,7 +71,7 @@ func itemHeight(item Item, detailed bool, cfg renderConfig) int {
 		}
 		return cardRows(cfg.previewLines)
 	}
-	titleRows := len(wrapTitle(composeTitle(item, cfg.isHarpooned), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles))
+	titleRows := len(wrapTitle(cardTitle(item, detailed, cfg), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles))
 	if !detailed {
 		return titleRows + 2 // title body plus the card's top and bottom border
 	}
@@ -154,7 +154,8 @@ func renderCardBody(item Item, selected, marked, detailed bool, cfg renderConfig
 			gutterText = "✓"
 		}
 	}
-	titleRows := wrapTitle(composeTitle(item, d.isHarpooned), restWidth, d.titleMaxLines, d.wrapTitles)
+	title := cardTitle(item, detailed, d)
+	titleRows := wrapTitle(title, restWidth, d.titleMaxLines, d.wrapTitles)
 	titleLines := make([]string, len(titleRows))
 	for i, row := range titleRows {
 		gt := ""
@@ -216,21 +217,8 @@ func filesystemMeta(item Item, d renderConfig) string {
 	meta := item.Meta
 	if meta == "" {
 		meta = TimeAgo(item.Modified) + "  ·  " + item.HumanSize()
-		if d.statFor != nil {
-			if s, ok := d.statFor(item.FullPath); ok {
-				switch {
-				case s.Moved:
-					movedStyle := lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true)
-					meta += "  ·  " + movedStyle.Render("→ moved")
-				case s.New:
-					newStyle := lipgloss.NewStyle().Foreground(p.Success).Bold(true)
-					meta += "  ·  " + newStyle.Render("✚ new")
-				case s.Added > 0 || s.Deleted > 0:
-					addedStyle := lipgloss.NewStyle().Foreground(p.Success)
-					deletedStyle := lipgloss.NewStyle().Foreground(p.Danger)
-					meta += "  ·  " + addedStyle.Render(fmt.Sprintf("+%d", s.Added)) + deletedStyle.Render(fmt.Sprintf("-%d", s.Deleted))
-				}
-			}
+		if indicator := gitIndicator(item, d); indicator != "" {
+			meta += "  ·  " + indicator
 		}
 	}
 	if len(item.Tags) > 0 {
@@ -246,6 +234,32 @@ func filesystemMeta(item Item, d renderConfig) string {
 		meta += "  ·  " + badStyle.Render("⚠ yaml")
 	}
 	return meta
+}
+
+// gitIndicator renders the compact per-card Git state shared by the full
+// metadata row and focus mode's collapsed title. Keeping it at the start of a
+// collapsed title ensures the state remains visible when a long title truncates.
+func gitIndicator(item Item, d renderConfig) string {
+	if d.statFor == nil {
+		return ""
+	}
+	s, ok := d.statFor(item.FullPath)
+	if !ok {
+		return ""
+	}
+	p := d.palette
+	switch {
+	case s.Moved:
+		return lipgloss.NewStyle().Foreground(p.AccentAlt).Bold(true).Render("→ moved")
+	case s.New:
+		return lipgloss.NewStyle().Foreground(p.Success).Bold(true).Render("✚ new")
+	case s.Added > 0 || s.Deleted > 0:
+		added := lipgloss.NewStyle().Foreground(p.Success).Render(fmt.Sprintf("+%d", s.Added))
+		deleted := lipgloss.NewStyle().Foreground(p.Danger).Render(fmt.Sprintf("-%d", s.Deleted))
+		return added + deleted
+	default:
+		return ""
+	}
 }
 
 // fieldsRow renders the frontmatter `render:` line ("key: value  ·  …") styled
@@ -312,6 +326,19 @@ func composeTitle(item Item, isHarpooned func(string) bool) string {
 	}
 	if !item.Virtual && isHarpooned != nil && isHarpooned(item.FullPath) {
 		title = "[H] " + title
+	}
+	return title
+}
+
+// cardTitle adds focus-mode-only annotations to the regular composed title.
+// Both itemHeight and renderCardBody use it to keep measured and drawn heights
+// identical when the annotation causes a title to wrap.
+func cardTitle(item Item, detailed bool, cfg renderConfig) string {
+	title := composeTitle(item, cfg.isHarpooned)
+	if !detailed && !item.Virtual {
+		if indicator := gitIndicator(item, cfg); indicator != "" {
+			return indicator + "  " + title
+		}
 	}
 	return title
 }

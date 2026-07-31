@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"kbrd/config"
 	"kbrd/events"
+	kbrdfs "kbrd/fs"
 )
 
 // newTestColumn creates a column rooted at a temporary directory with the
@@ -996,6 +998,31 @@ func TestRenderItem_FocusCardsTitleOnlyHeightMatchesDraw(t *testing.T) {
 	}
 	if got := itemHeight(Item{Separator: true}, false, cfg); got != 1 {
 		t.Fatalf("focus-mode separator height = %d, want 1", got)
+	}
+}
+
+func TestRenderItem_FocusCardsTitleOnlyShowsGitIndicator(t *testing.T) {
+	t.Parallel()
+	item := Item{Name: "task", Title: "Task", FullPath: "/board/todo/task.md"}
+	cfg := renderConfig{
+		gutterW:       2,
+		colWidth:      24,
+		titleMaxLines: 1,
+		focusCards:    true,
+		statFor: func(path string) (kbrdfs.DiffStat, bool) {
+			if path != item.FullPath {
+				t.Fatalf("statFor(%q), want %q", path, item.FullPath)
+			}
+			return kbrdfs.DiffStat{Added: 2, Deleted: 1}, true
+		},
+	}
+
+	drawn := renderItem(item, false, false, false, cfg)
+	if !strings.Contains(ansi.Strip(drawn), "+2-1") {
+		t.Fatalf("title-only card missing Git indicator:\n%s", drawn)
+	}
+	if got, want := lipgloss.Height(drawn), itemHeight(item, false, cfg); got != want {
+		t.Fatalf("drawn height = %d, declared height = %d", got, want)
 	}
 }
 
