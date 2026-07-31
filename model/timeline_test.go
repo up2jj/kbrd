@@ -3,11 +3,28 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	cardhistory "kbrd/history"
 )
+
+func TestTimelineRenderRowIncludesHourAndMinute(t *testing.T) {
+	timeline := Timeline{palette: DarkPalette()}
+	event := cardhistory.Event{
+		Time:    time.Date(2026, 7, 13, 14, 37, 0, 0, time.UTC),
+		Type:    cardhistory.EventEdited,
+		Summary: "Edited",
+	}
+
+	row := ansi.Strip(timeline.renderRow(event, false, 66))
+	if !strings.Contains(row, "14:37") {
+		t.Fatalf("row = %q, want hour and minute", row)
+	}
+}
 
 func TestWriteRestoredCopyNeverOverwrites(t *testing.T) {
 	dir := t.TempDir()

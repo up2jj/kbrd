@@ -240,7 +240,8 @@ func (t *Timeline) View(termWidth, termHeight int) string {
 
 func (t *Timeline) renderRow(e cardhistory.Event, selected bool, width int) string {
 	icon := map[cardhistory.EventType]string{cardhistory.EventCreated: "+", cardhistory.EventEdited: "~", cardhistory.EventMetadata: "≡", cardhistory.EventMoved: "→", cardhistory.EventRenamed: "↪", cardhistory.EventDeleted: "−"}[e.Type]
-	label := fmt.Sprintf("%s  %-18s  %s", icon, TimeAgo(e.Time), e.Summary)
+	when := fmt.Sprintf("%s %s", TimeAgo(e.Time), e.Time.Format("15:04"))
+	label := fmt.Sprintf("%s  %-18s  %s", icon, when, e.Summary)
 	if e.Author != "" {
 		label += "  · " + e.Author
 	}
