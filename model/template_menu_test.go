@@ -140,6 +140,24 @@ func TestTemplateMenuSelectActions(t *testing.T) {
 	}
 }
 
+func TestTemplateMenuPluginTemplatesAreReadOnly(t *testing.T) {
+	t.Parallel()
+	var menu TemplateMenu
+	menu.SetPalette(DarkPalette())
+	menu.Open(0, columnRef{Name: "TODO", Path: "/board/TODO"}, []template.Template{{
+		Name: "acme/planning-kit: Task", Scope: template.ScopeBoard, PluginID: "acme/planning-kit",
+	}})
+	menu.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if _, ok := menu.SelectAction(templateMenuUse); !ok {
+		t.Fatal("plugin template cannot be used")
+	}
+	for _, action := range []templateMenuAction{templateMenuEdit, templateMenuRemove} {
+		if _, ok := menu.SelectAction(action); ok {
+			t.Fatalf("plugin template accepted mutating action %v", action)
+		}
+	}
+}
+
 func TestTemplateMenuOpenRejectsVirtualColumn(t *testing.T) {
 	t.Parallel()
 	b := &Board{

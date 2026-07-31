@@ -442,7 +442,7 @@ func (m *Manager) Sync(ctx context.Context, boardDir string) ([]RuntimePlugin, e
 		return nil, err
 	}
 	for _, locked := range lock.Plugins {
-		if _, err := m.runtimePlugin(locked); err == nil {
+		if _, err := m.cachedPlugin(locked); err == nil {
 			continue
 		}
 		if err := m.fetchLocked(ctx, locked); err != nil {
@@ -462,7 +462,7 @@ func (m *Manager) RuntimePlugins(boardDir string) ([]RuntimePlugin, error) {
 	}
 	plugins := make([]RuntimePlugin, 0, len(lock.Plugins))
 	for _, locked := range lock.Plugins {
-		if locked.Disabled {
+		if locked.Disabled || locked.Entrypoint == "" {
 			continue
 		}
 		runtime, err := m.runtimePlugin(locked)
@@ -472,6 +472,45 @@ func (m *Manager) RuntimePlugins(boardDir string) ([]RuntimePlugin, error) {
 		plugins = append(plugins, runtime)
 	}
 	return plugins, nil
+}
+
+// RuntimeAssetPacks returns verified static content declared by enabled locked
+// plugins. The paths point into the disposable content-addressed cache; callers
+// must treat them as read-only. Static-only plugins are included here and are
+// intentionally excluded from RuntimePlugins.
+func (m *Manager) RuntimeAssetPacks(boardDir string) ([]RuntimeAssets, error) {
+	if boardDir == "" {
+		return nil, nil
+	}
+	lock, err := LoadBoardLock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	assets := make([]RuntimeAssets, 0, len(lock.Plugins))
+	for _, locked := range lock.Plugins {
+		if locked.Disabled || locked.Assets.Empty() {
+			continue
+		}
+		cached, err := m.cachedPlugin(locked)
+		if err != nil {
+			return nil, fmt.Errorf("plugin %s is not synchronized: %w; run `kbrd plugin sync`", locked.ID, err)
+		}
+		pack, err := locked.Assets.resolve(locked.ID, cached.Root)
+		if err != nil {
+			return nil, err
+		}
+		assets = append(assets, pack)
+	}
+	return assets, nil
+}
+
+// RuntimeAssetPacks resolves static assets with the default plugin manager.
+func RuntimeAssetPacks(boardDir string) ([]RuntimeAssets, error) {
+	manager, err := DefaultManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.RuntimeAssetPacks(boardDir)
 }
 
 func RuntimePlugins(boardDir string) ([]RuntimePlugin, error) {
@@ -538,7 +577,8 @@ func (m *Manager) fetchLocked(ctx context.Context, locked LockedPlugin) error {
 		return err
 	}
 	_, name, _ := splitID(locked.ID)
-	if manifest.Name != name || (locked.Version != "" && manifest.Version != locked.Version) || manifest.Entrypoint != locked.Entrypoint {
+	if manifest.Name != name || (locked.Version != "" && manifest.Version != locked.Version) ||
+		manifest.Entrypoint != locked.Entrypoint || manifest.Assets != locked.Assets {
 		return fmt.Errorf("plugin %s manifest does not match its lock", locked.ID)
 	}
 	digest, err := contentDigest(source)
@@ -559,7 +599,7 @@ func (m *Manager) cacheFromSource(locked LockedPlugin, source string) error {
 	_, pluginName, _ := splitID(locked.ID)
 	cacheName := locked.Marketplace + "--" + pluginName + "--" + hexDigest
 	destination := filepath.Join(m.Paths.ContentCache, cacheName)
-	if _, err := m.runtimePlugin(locked); err == nil {
+	if _, err := m.cachedPlugin(locked); err == nil {
 		return nil
 	}
 	if err := os.MkdirAll(m.Paths.ContentCache, 0o700); err != nil {
@@ -588,6 +628,22 @@ func (m *Manager) cacheFromSource(locked LockedPlugin, source string) error {
 }
 
 func (m *Manager) runtimePlugin(locked LockedPlugin) (RuntimePlugin, error) {
+	if locked.Entrypoint == "" {
+		return RuntimePlugin{}, fmt.Errorf("plugin has no Lua entrypoint")
+	}
+	cached, err := m.cachedPlugin(locked)
+	if err != nil {
+		return RuntimePlugin{}, err
+	}
+	entrypoint, err := safeRelativePath(cached.Root, locked.Entrypoint)
+	if err != nil {
+		return RuntimePlugin{}, err
+	}
+	cached.Entrypoint = entrypoint
+	return cached, nil
+}
+
+func (m *Manager) cachedPlugin(locked LockedPlugin) (RuntimePlugin, error) {
 	hexDigest, err := digestHex(locked.ContentSHA256)
 	if err != nil {
 		return RuntimePlugin{}, err
@@ -603,11 +659,15 @@ func (m *Manager) runtimePlugin(locked LockedPlugin) (RuntimePlugin, error) {
 	if digest != locked.ContentSHA256 {
 		return RuntimePlugin{}, fmt.Errorf("cached content digest mismatch")
 	}
-	entrypoint, err := safeRelativePath(root, locked.Entrypoint)
+	manifest, err := LoadPlugin(root)
 	if err != nil {
 		return RuntimePlugin{}, err
 	}
-	return RuntimePlugin{ID: locked.ID, Root: root, ModuleRoot: moduleRoot, Entrypoint: entrypoint}, nil
+	if manifest.Name != name || (locked.Version != "" && manifest.Version != locked.Version) ||
+		manifest.Entrypoint != locked.Entrypoint || manifest.Assets != locked.Assets {
+		return RuntimePlugin{}, fmt.Errorf("cached manifest does not match lock")
+	}
+	return RuntimePlugin{ID: locked.ID, Root: root, ModuleRoot: moduleRoot}, nil
 }
 
 func normalizeGitURL(raw string) (string, error) {

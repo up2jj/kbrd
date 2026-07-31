@@ -15,7 +15,7 @@ func newPluginCmd() *cobra.Command {
 	var boardDir string
 	cmd := &cobra.Command{
 		Use:   "plugin",
-		Short: "Manage board-local Lua plugins",
+		Short: "Manage board-local Lua and static-content plugins",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if boardDir == "" {
 				cwd, err := os.Getwd()
@@ -47,6 +47,7 @@ func newPluginCmd() *cobra.Command {
 		newPluginUpdateCmd(&boardDir),
 		newPluginRollbackCmd(&boardDir),
 		newPluginDiffCmd(&boardDir),
+		newPluginStarterCmd(&boardDir),
 		newPluginValidateCmd(),
 	)
 	return cmd
@@ -96,6 +97,11 @@ func printPluginInfo(cmd *cobra.Command, info plugin.PluginInfo) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Timers: %s\n", formatDeclarations(manifest.Timers))
 	fmt.Fprintf(cmd.OutOrStdout(), "Network access: %t\n", manifest.NetworkAccess)
 	fmt.Fprintf(cmd.OutOrStdout(), "Shell access: %t\n", manifest.ShellAccess)
+	fmt.Fprintf(cmd.OutOrStdout(), "Card templates: %s\n", valueOr(manifest.Assets.CardTemplates, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Themes: %s\n", valueOr(manifest.Assets.Themes, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Frontmatter presets: %s\n", valueOr(manifest.Assets.FrontmatterPresets, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Custom commands: %s\n", valueOr(manifest.Assets.CustomCommands, "not declared"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Board starters: %s\n", valueOr(manifest.Assets.BoardStarters, "not declared"))
 	fmt.Fprintf(cmd.OutOrStdout(), "README: %s\n", valueOr(manifest.README, "not declared"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Changelog: %s\n", valueOr(manifest.Changelog, "not declared"))
 }
@@ -369,7 +375,7 @@ func newPluginRemoveCmd(boardDir *string) *cobra.Command {
 func newPluginSyncCmd(boardDir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sync",
-		Short: "Download and verify every plugin in the board lock",
+		Short: "Download and verify every plugin and static asset in the board lock",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := pluginManager()

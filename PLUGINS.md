@@ -1,11 +1,11 @@
 # Lua Plugins and Marketplaces
 
-kbrd can install Lua plugins from Git-backed marketplaces. Marketplace
+kbrd can install Lua and static-content plugins from Git-backed marketplaces. Marketplace
 registration is machine-local discovery state; plugin activation belongs only
 to the board's committed `kbrd.plugins.lock`. The downloaded cache is disposable
 and never decides which plugins load.
 
-Plugins execute with the same privileges as `init.lua` and `.kbrd.lua`, including
+Plugins with a Lua entrypoint execute with the same privileges as `init.lua` and `.kbrd.lua`, including
 the Lua standard library and the `kbrd.*` APIs. Only add marketplaces and plugins
 whose code you trust.
 
@@ -224,6 +224,95 @@ Each catalog directory has its own `plugin.json`:
   "changelog": "CHANGELOG.md"
 }
 ```
+
+### Static asset packs
+
+A marketplace entry is still a plugin: it keeps one identity, version policy,
+lock entry, Git commit, and SHA-256 digest whether it contains Lua, static
+assets, or both. Static-only plugins omit `entrypoint` and declare at least one
+asset path:
+
+```json
+{
+  "apiVersion": 1,
+  "name": "planning-kit",
+  "version": "1.0.0",
+  "description": "Planning templates, presets, and starter boards",
+  "assets": {
+    "cardTemplates": "templates",
+    "themes": "themes",
+    "frontmatterPresets": "presets.toml",
+    "customCommands": "commands.yml",
+    "boardStarters": "starters"
+  }
+}
+```
+
+Every asset path is relative to the plugin directory and may name a regular
+file or directory. Paths cannot escape the plugin root or name symlinks or
+special files. The declared categories are:
+
+- `cardTemplates` for card-template packs
+- `themes` for theme definitions
+- `frontmatterPresets` for declarative frontmatter presets
+- `customCommands` for custom-command packs
+- `boardStarters` for board starter kits
+
+Enabled assets load directly from the verified content-addressed cache; kbrd
+does not copy generated package state into the board. The native loaders apply
+these conventions:
+
+- **Card templates:** the path may be one Markdown file or a directory tree of
+  `.md` files. They appear in the template picker as
+  `<marketplace>/<plugin>: <template name>`.
+- **Frontmatter presets:** the path may be one TOML file or a directory tree of
+  `.toml` files using the ordinary `[[frontmatter_presets]]` format. IDs become
+  `<marketplace>/<plugin>:<id>`.
+- **Custom commands:** the path may be one YAML file or a directory tree of
+  `.yml`/`.yaml` files using the ordinary `commands:` format. IDs receive the
+  same plugin namespace. Plugin command packs do not load in `--safe` mode.
+- **Themes:** the path may be one TOML file or a directory tree. A theme is a
+  dark/light palette overlay:
+
+  ```toml
+  name = "night"
+  base = "dark" # dark or light; defaults to dark
+
+  [palette]
+  primary = "#7c3aed"
+  primary_strong = "#6d28d9"
+  border_active = "#8b5cf6"
+  ```
+
+  Select it in `kbrd.toml` with
+  `display.theme = "<marketplace>/<plugin>/<name>"`. Palette keys use the
+  snake_case names from `theme.Palette`; omitted keys inherit the base theme.
+- **Board starters:** the declared path is a directory whose immediate child
+  directories are named kits. Inspect and apply one explicitly:
+
+  ```bash
+  kbrd plugin starter list
+  kbrd plugin starter apply acme/planning-kit simple
+  ```
+
+  Application copies files into the board without changing its lock or
+  deleting content. Existing files cause an error; `--force` replaces files,
+  but `.git` and `kbrd.plugins.lock` are always protected. Use `--target` to
+  apply a kit somewhere other than the current board.
+
+Plugins load in stable plugin-ID order. Plugin IDs namespace reusable entries so plugins do
+not silently shadow one another. Board-local commands and frontmatter presets
+have final precedence and can replace a plugin entry by declaring its fully
+qualified ID.
+
+A mixed plugin can declare the same `assets` object alongside `entrypoint`.
+Capability and access metadata can describe either its Lua or static portions.
+`kbrd plugin add`, `sync`, `update`,
+`diff`, and `rollback` operate on the whole plugin tree, so code and assets
+cannot move independently of the digest recorded in `kbrd.plugins.lock`.
+Verified static paths are read only from the content-addressed plugin cache;
+the cache remains disposable and the board lock remains the activation source
+of truth.
 
 Names use lowercase kebab-case. Sources and entrypoints must stay within their
 own directories. The commands, hooks, layers, and timers arrays describe what

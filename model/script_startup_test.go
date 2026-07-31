@@ -180,7 +180,7 @@ func TestMissingLockedPluginOffersSyncOrLuaDisabledStartup(t *testing.T) {
 		t.Fatalf("startup = active %v cmd %v", b.scriptStartup.active, cmd)
 	}
 	view := ansi.Strip(b.View().Content)
-	for _, want := range []string{plugin.LockFile + " startup failed", "i install locked plugins", "s open without Lua", "kbrd plugin sync"} {
+	for _, want := range []string{plugin.LockFile + " startup failed", "i install locked plugins", "s open without plugins/Lua", "kbrd plugin sync"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -188,6 +188,13 @@ func TestMissingLockedPluginOffersSyncOrLuaDisabledStartup(t *testing.T) {
 	_, cmd = b.Update(tea.KeyPressMsg{Code: 's'})
 	if cmd == nil || b.cfg.Scripting.Enabled {
 		t.Fatalf("open without Lua = enabled %v cmd %v", b.cfg.Scripting.Enabled, cmd)
+	}
+	if !b.pluginAssets.skipLocked {
+		t.Fatal("open without plugins did not disable locked static assets")
+	}
+	_, _ = b.Update(cmd())
+	if b.scriptStartup.active {
+		t.Fatal("open without plugins remained on the startup recovery screen")
 	}
 }
 

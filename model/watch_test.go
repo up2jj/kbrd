@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -420,6 +421,37 @@ func TestBoard_WatchEvent_InvalidConfigKeepsCurrentConfig(t *testing.T) {
 
 	if b.cfg.ColumnWidth != 20 {
 		t.Fatalf("invalid config mutated column_width: got %d want 20", b.cfg.ColumnWidth)
+	}
+}
+
+func TestBoard_WatchEvent_UnavailablePluginThemeKeepsCurrentConfig(t *testing.T) {
+	b := boardWithNCols(t, 2, 2)
+	b.cfg.Theme = "acme/planning-kit/night"
+	b.theme = b.cfg.Theme
+	b.pluginAssets.themes = map[string]Palette{b.cfg.Theme: DarkPalette()}
+	b.applyPalette()
+
+	cfgPath := filepath.Join(b.cfg.Path, config.FolderConfigFile)
+	if err := os.WriteFile(cfgPath, []byte("[display]\ntheme = \"acme/planning-kit/missing\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	b.updateInner(watchEventMsg{Path: cfgPath})
+	cmd := b.debouncedReload(b.watchSeq)
+	if cmd == nil {
+		t.Fatal("expected a reload cmd")
+	}
+	msg, ok := cmd().(boardReloadedMsg)
+	if !ok {
+		t.Fatalf("config change should yield boardReloadedMsg")
+	}
+	if msg.err == nil || !strings.Contains(msg.err.Error(), "is not available") {
+		t.Fatalf("reload error = %v, want unavailable plugin theme", msg.err)
+	}
+	b.updateInner(msg)
+
+	if b.cfg.Theme != "acme/planning-kit/night" || b.theme != b.cfg.Theme {
+		t.Fatalf("invalid theme mutated board: cfg=%q board=%q", b.cfg.Theme, b.theme)
 	}
 }
 

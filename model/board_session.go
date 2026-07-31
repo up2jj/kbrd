@@ -126,6 +126,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 	}
 
 	b.cfg = newCfg
+	b.pluginAssets.reset(newCfg.FrontmatterPresets)
 	b.notifier.contextMu.RLock()
 	routePath := b.notifier.routePath
 	b.notifier.contextMu.RUnlock()

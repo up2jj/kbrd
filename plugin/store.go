@@ -114,8 +114,21 @@ func validateLockedPlugin(locked LockedPlugin) error {
 	if _, err := safeRelativePath(".", locked.Source); err != nil {
 		return fmt.Errorf("plugin %q source: %w", locked.ID, err)
 	}
-	if _, err := safeRelativePath(".", locked.Entrypoint); err != nil {
-		return fmt.Errorf("plugin %q entrypoint: %w", locked.ID, err)
+	if locked.Entrypoint == "" && locked.Assets.Empty() {
+		return fmt.Errorf("plugin %q lock has neither an entrypoint nor assets", locked.ID)
+	}
+	if locked.Entrypoint != "" {
+		if _, err := safeRelativePath(".", locked.Entrypoint); err != nil {
+			return fmt.Errorf("plugin %q entrypoint: %w", locked.ID, err)
+		}
+	}
+	for _, asset := range locked.Assets.declarations() {
+		if asset.relative == "" {
+			continue
+		}
+		if _, err := safeRelativePath(".", asset.relative); err != nil {
+			return fmt.Errorf("plugin %q asset %s: %w", locked.ID, asset.name, err)
+		}
 	}
 	if locked.RequestedVersion != "" {
 		if _, err := canonicalVersion(locked.RequestedVersion); err != nil {

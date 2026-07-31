@@ -70,6 +70,70 @@ func TestLoadPluginRejectsInvalidDeclarativeMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadPluginAcceptsStaticAssetsWithoutEntrypoint(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, PluginFile), `{
+  "apiVersion": 1,
+  "name": "planning-kit",
+  "description": "Planning board assets",
+  "commands": ["plan"],
+  "shellAccess": true,
+  "assets": {
+    "cardTemplates": "templates",
+    "themes": "themes",
+    "frontmatterPresets": "presets.toml",
+    "customCommands": "commands.yml",
+    "boardStarters": "starters"
+  }
+}`)
+	writeTestFile(t, filepath.Join(root, "templates", "task.md"), "---\n---\n")
+	writeTestFile(t, filepath.Join(root, "themes", "night.toml"), "name = \"night\"\n")
+	writeTestFile(t, filepath.Join(root, "presets.toml"), "[[frontmatter_presets]]\n")
+	writeTestFile(t, filepath.Join(root, "commands.yml"), "commands: []\n")
+	writeTestFile(t, filepath.Join(root, "starters", "simple", "README.md"), "# Simple\n")
+
+	manifest, err := LoadPlugin(root)
+	if err != nil {
+		t.Fatalf("LoadPlugin: %v", err)
+	}
+	if manifest.Entrypoint != "" || manifest.Assets.CardTemplates != "templates" || manifest.Assets.BoardStarters != "starters" {
+		t.Fatalf("manifest = %+v", manifest)
+	}
+}
+
+func TestLoadPluginRejectsUnsafeOrInertStaticMetadata(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		want  string
+		setup func(string)
+	}{
+		{
+			name: "no entrypoint or assets",
+			body: `{"apiVersion":1,"name":"empty","description":"Empty"}`,
+			want: "entrypoint or assets are required",
+		},
+		{
+			name: "asset escapes root",
+			body: `{"apiVersion":1,"name":"escape","description":"Escape","assets":{"themes":"../themes"}}`,
+			want: "path escapes its root",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, filepath.Join(root, PluginFile), tt.body)
+			if tt.setup != nil {
+				tt.setup(root)
+			}
+			_, err := LoadPlugin(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestContentDigestRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "target.lua"), `return {}`)

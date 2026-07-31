@@ -83,7 +83,7 @@ func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd
 	if col.Virtual {
 		return b, b.notifier.ErrorCause("", errVirtualColumn)
 	}
-	tmpls, warns, err := template.List(b.cfg.Path, col.Path)
+	tmpls, warns, err := b.listTemplates(col.Path)
 	if err != nil {
 		return b, b.notifier.ErrorCause("failed to list templates", err)
 	}

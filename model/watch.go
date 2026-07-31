@@ -110,6 +110,7 @@ func (b *Board) debouncedReload(seq int) tea.Cmd {
 func (b *Board) reloadCmd(seq int, reloadConfig ...bool) tea.Cmd {
 	cfg := b.cfg
 	currentPalette := b.palette
+	pluginThemes := b.pluginAssets.themes
 	terminalDark := b.terminalDark
 	shouldReloadConfig := len(reloadConfig) > 0 && reloadConfig[0]
 	// Snapshot current items by value on the UI goroutine; the closure only
@@ -128,12 +129,15 @@ func (b *Board) reloadCmd(seq int, reloadConfig ...bool) tea.Cmd {
 			if safeMode {
 				applySafeMode(&next)
 			}
+			if err := requireSelectedPluginTheme(next.Theme, pluginThemes); err != nil {
+				return boardReloadedMsg{Seq: seq, err: err}
+			}
 			cfg = next
 			reloadedCfg = &next
 		}
 		palette := currentPalette
 		if shouldReloadConfig {
-			palette = PaletteForTheme(cfg.Theme, terminalDark)
+			palette = paletteForTheme(cfg.Theme, terminalDark, pluginThemes)
 		}
 		columns, err := buildColumns(cfg, palette, cache)
 		if err != nil {

@@ -15,6 +15,7 @@ import (
 	"kbrd/config"
 	"kbrd/events"
 	kbrdfs "kbrd/fs"
+	"kbrd/plugin"
 	"kbrd/script"
 	"kbrd/shellcmd"
 )
@@ -63,6 +64,9 @@ func (b *Board) initScripting() error {
 // watchers are loaded. A successful Lua host is retained for normal startup.
 func (b *Board) initRuntime() error {
 	b.commandWarnings = nil
+	if err := b.loadPluginAssets(); err != nil {
+		return fmt.Errorf("%s: %w", plugin.LockFile, err)
+	}
 	// before_deactivate may recreate immediate presentation state while the old
 	// host closes, so tear it down before clearing that state for the new host.
 	b.closeScripting()

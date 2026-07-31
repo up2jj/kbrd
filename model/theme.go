@@ -86,6 +86,13 @@ func LightPalette() Palette {
 // callers pass terminalDark=true so startup falls back to the long-standing dark
 // look.
 func PaletteForTheme(mode string, terminalDark bool) Palette {
+	return paletteForTheme(mode, terminalDark, nil)
+}
+
+func paletteForTheme(mode string, terminalDark bool, custom map[string]Palette) Palette {
+	if palette, ok := custom[mode]; ok {
+		return palette
+	}
 	switch mode {
 	case "light":
 		return LightPalette()

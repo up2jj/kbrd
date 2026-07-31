@@ -40,22 +40,35 @@ type PluginVersion struct {
 }
 
 type PluginManifest struct {
-	APIVersion    int      `json:"apiVersion"`
-	Name          string   `json:"name"`
-	Version       string   `json:"version,omitempty"`
-	Description   string   `json:"description"`
-	Entrypoint    string   `json:"entrypoint"`
-	Author        Owner    `json:"author,omitempty"`
-	License       string   `json:"license,omitempty"`
-	Homepage      string   `json:"homepage,omitempty"`
-	Commands      []string `json:"commands,omitempty"`
-	Hooks         []string `json:"hooks,omitempty"`
-	Layers        []string `json:"layers,omitempty"`
-	Timers        []string `json:"timers,omitempty"`
-	NetworkAccess bool     `json:"networkAccess,omitempty"`
-	ShellAccess   bool     `json:"shellAccess,omitempty"`
-	README        string   `json:"readme,omitempty"`
-	Changelog     string   `json:"changelog,omitempty"`
+	APIVersion    int          `json:"apiVersion"`
+	Name          string       `json:"name"`
+	Version       string       `json:"version,omitempty"`
+	Description   string       `json:"description"`
+	Entrypoint    string       `json:"entrypoint,omitempty"`
+	Assets        PluginAssets `json:"assets,omitzero"`
+	Author        Owner        `json:"author,omitempty"`
+	License       string       `json:"license,omitempty"`
+	Homepage      string       `json:"homepage,omitempty"`
+	Commands      []string     `json:"commands,omitempty"`
+	Hooks         []string     `json:"hooks,omitempty"`
+	Layers        []string     `json:"layers,omitempty"`
+	Timers        []string     `json:"timers,omitempty"`
+	NetworkAccess bool         `json:"networkAccess,omitempty"`
+	ShellAccess   bool         `json:"shellAccess,omitempty"`
+	README        string       `json:"readme,omitempty"`
+	Changelog     string       `json:"changelog,omitempty"`
+}
+
+// PluginAssets declares inspectable, non-Lua content shipped by a plugin. Each
+// value is a path relative to the plugin root and may name either a regular
+// file or a directory. A plugin can combine any of these assets with a Lua
+// entrypoint, or omit the entrypoint and be entirely static.
+type PluginAssets struct {
+	CardTemplates      string `json:"cardTemplates,omitempty"`
+	Themes             string `json:"themes,omitempty"`
+	FrontmatterPresets string `json:"frontmatterPresets,omitempty"`
+	CustomCommands     string `json:"customCommands,omitempty"`
+	BoardStarters      string `json:"boardStarters,omitempty"`
 }
 
 type Marketplace struct {
@@ -72,19 +85,20 @@ type Registry struct {
 }
 
 type LockedPlugin struct {
-	ID                string `json:"id"`
-	Disabled          bool   `json:"disabled,omitempty"`
-	Version           string `json:"version,omitempty"`
-	RequestedVersion  string `json:"requestedVersion,omitempty"`
-	Channel           string `json:"channel,omitempty"`
-	Description       string `json:"description,omitempty"`
-	Marketplace       string `json:"marketplace"`
-	MarketplaceURL    string `json:"marketplaceUrl"`
-	MarketplaceRef    string `json:"marketplaceRef,omitempty"`
-	MarketplaceCommit string `json:"marketplaceCommit"`
-	Source            string `json:"source"`
-	Entrypoint        string `json:"entrypoint"`
-	ContentSHA256     string `json:"contentSha256"`
+	ID                string       `json:"id"`
+	Disabled          bool         `json:"disabled,omitempty"`
+	Version           string       `json:"version,omitempty"`
+	RequestedVersion  string       `json:"requestedVersion,omitempty"`
+	Channel           string       `json:"channel,omitempty"`
+	Description       string       `json:"description,omitempty"`
+	Marketplace       string       `json:"marketplace"`
+	MarketplaceURL    string       `json:"marketplaceUrl"`
+	MarketplaceRef    string       `json:"marketplaceRef,omitempty"`
+	MarketplaceCommit string       `json:"marketplaceCommit"`
+	Source            string       `json:"source"`
+	Entrypoint        string       `json:"entrypoint,omitempty"`
+	Assets            PluginAssets `json:"assets,omitzero"`
+	ContentSHA256     string       `json:"contentSha256"`
 }
 
 type BoardLock struct {
@@ -105,6 +119,18 @@ type RuntimePlugin struct {
 	Root       string
 	ModuleRoot string
 	Entrypoint string
+}
+
+// RuntimeAssets contains verified absolute paths for one enabled plugin's
+// static content. Empty fields correspond to asset kinds it does not ship.
+type RuntimeAssets struct {
+	ID                 string
+	Root               string
+	CardTemplates      string
+	Themes             string
+	FrontmatterPresets string
+	CustomCommands     string
+	BoardStarters      string
 }
 
 type AvailablePlugin struct {

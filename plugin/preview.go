@@ -137,7 +137,7 @@ func (m *Manager) previewUpdate(ctx context.Context, current, candidate LockedPl
 }
 
 func (m *Manager) previewCurrentRoot(ctx context.Context, locked LockedPlugin) (string, func(), error) {
-	if runtime, err := m.runtimePlugin(locked); err == nil {
+	if runtime, err := m.cachedPlugin(locked); err == nil {
 		return runtime.Root, func() {}, nil
 	}
 	if err := os.MkdirAll(m.Paths.CacheRoot, 0o700); err != nil {
@@ -192,6 +192,7 @@ func compareManifests(before, after PluginManifest) []ManifestChange {
 		{"version", before.Version, after.Version},
 		{"description", before.Description, after.Description},
 		{"entrypoint", before.Entrypoint, after.Entrypoint},
+		{"assets", before.Assets, after.Assets},
 		{"author", before.Author, after.Author},
 		{"license", before.License, after.License},
 		{"homepage", before.Homepage, after.Homepage},

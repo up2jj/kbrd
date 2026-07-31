@@ -425,6 +425,116 @@ kbrd.command("board-date", "Board date", function() return util.value end)
 	}
 }
 
+func TestManagerLocksAndResolvesStaticPluginAssets(t *testing.T) {
+	if !kbrdfs.GitAvailable() {
+		t.Skip("git unavailable")
+	}
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "marketplace.json"), `{
+  "apiVersion": 1,
+  "name": "acme",
+  "plugins": [{"name":"planning-kit","source":"plugins/planning-kit"}]
+}`)
+	pluginRoot := filepath.Join(repo, "plugins", "planning-kit")
+	writeFile(t, filepath.Join(pluginRoot, "plugin.json"), `{
+  "apiVersion": 1,
+  "name": "planning-kit",
+  "version": "1.0.0",
+  "description": "Static planning assets",
+  "assets": {
+    "cardTemplates": "templates",
+    "themes": "themes",
+    "frontmatterPresets": "presets.toml",
+    "customCommands": "commands.yml",
+    "boardStarters": "starters"
+  }
+}`)
+	writeFile(t, filepath.Join(pluginRoot, "templates", "task.md"), "---\n---\n")
+	writeFile(t, filepath.Join(pluginRoot, "themes", "night.toml"), "name = \"night\"\n")
+	writeFile(t, filepath.Join(pluginRoot, "presets.toml"), "[[frontmatter_presets]]\n")
+	writeFile(t, filepath.Join(pluginRoot, "commands.yml"), "commands: []\n")
+	writeFile(t, filepath.Join(pluginRoot, "starters", "simple", "README.md"), "# Simple\n")
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "static plugin")
+
+	root := t.TempDir()
+	manager := plugin.NewManager(plugin.Paths{
+		ConfigRoot: filepath.Join(root, "config"), CacheRoot: filepath.Join(root, "cache"),
+		RegistryFile:     filepath.Join(root, "config", "marketplaces.json"),
+		MarketplaceCache: filepath.Join(root, "cache", "marketplaces"),
+		ContentCache:     filepath.Join(root, "cache", "content"),
+	})
+	if _, err := manager.AddMarketplace(t.Context(), repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	board := t.TempDir()
+	locked, err := manager.AddPlugin(t.Context(), board, "acme/planning-kit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if locked.Entrypoint != "" || locked.Assets.Themes != "themes" {
+		t.Fatalf("locked = %+v", locked)
+	}
+	if runtime, err := manager.RuntimePlugins(board); err != nil || len(runtime) != 0 {
+		t.Fatalf("RuntimePlugins = %+v, %v", runtime, err)
+	}
+	packs, err := manager.RuntimeAssetPacks(board)
+	if err != nil || len(packs) != 1 {
+		t.Fatalf("RuntimeAssetPacks = %+v, %v", packs, err)
+	}
+	pack := packs[0]
+	for _, path := range []string{pack.CardTemplates, pack.Themes, pack.FrontmatterPresets, pack.CustomCommands, pack.BoardStarters} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("asset path %q: %v", path, err)
+		}
+		if !strings.HasPrefix(path, pack.Root+string(filepath.Separator)) {
+			t.Errorf("asset path %q escapes root %q", path, pack.Root)
+		}
+	}
+	lock, err := plugin.LoadBoardLock(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock.Plugins[0].Assets.Themes = "other-themes"
+	if err := plugin.SaveBoardLock(board, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RuntimeAssetPacks(board); err == nil || !strings.Contains(err.Error(), "manifest does not match lock") {
+		t.Fatalf("RuntimeAssetPacks accepted tampered asset metadata: %v", err)
+	}
+	lock.Plugins[0] = locked
+	if err := plugin.SaveBoardLock(board, lock); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(manager.Paths.ContentCache); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Sync(t.Context(), board); err != nil {
+		t.Fatalf("Sync static plugin: %v", err)
+	}
+	if packs, err := manager.RuntimeAssetPacks(board); err != nil || len(packs) != 1 {
+		t.Fatalf("RuntimeAssetPacks after sync = %+v, %v", packs, err)
+	}
+	starters, err := manager.BoardStarters(board)
+	if err != nil || len(starters) != 1 || starters[0].Name != "simple" {
+		t.Fatalf("BoardStarters = %+v, %v", starters, err)
+	}
+	target := t.TempDir()
+	if err := manager.ApplyBoardStarter(board, "acme/planning-kit", "simple", target, false); err != nil {
+		t.Fatalf("ApplyBoardStarter: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "README.md")); err != nil || string(data) != "# Simple\n" {
+		t.Fatalf("applied README = %q, %v", data, err)
+	}
+	if err := manager.ApplyBoardStarter(board, "acme/planning-kit", "simple", target, false); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second ApplyBoardStarter error = %v", err)
+	}
+}
+
 func TestVersionedInstallChannelUpdateAndRollbackPreserveExactPins(t *testing.T) {
 	if !kbrdfs.GitAvailable() {
 		t.Skip("git unavailable")

@@ -145,6 +145,10 @@ func TestPluginVersionAndRollbackCLIShape(t *testing.T) {
 	if err != nil || rollback.Name() != "rollback" {
 		t.Fatalf("plugin rollback command is not registered: %v", err)
 	}
+	starter, _, err := root.Find([]string{"plugin", "starter", "apply"})
+	if err != nil || starter.Name() != "apply" || starter.Flags().Lookup("force") == nil || starter.Flags().Lookup("target") == nil {
+		t.Fatalf("plugin starter apply command is not registered: %v", err)
+	}
 }
 
 func TestPluginUpdateReportsExactVersionNoOp(t *testing.T) {

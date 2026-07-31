@@ -110,7 +110,11 @@ func copyPluginTree(source, target string) error {
 			if entry.Name() == ".git" {
 				return fmt.Errorf("plugin contains nested .git directory %q", rel)
 			}
-			return os.MkdirAll(dst, 0o700)
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(dst, info.Mode().Perm())
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -123,7 +127,7 @@ func copyPluginTree(source, target string) error {
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
 		if err != nil {
 			_ = in.Close()
 			return err

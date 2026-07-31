@@ -127,6 +127,9 @@ func (m *TemplateMenu) templateEntries(scope string) []templateMenuEntry {
 		if scope == template.ScopeBoard {
 			desc = "Board template"
 		}
+		if tmpl.PluginID != "" {
+			desc = "Plugin template from " + tmpl.PluginID
+		}
 		entries = append(entries, templateMenuEntry{
 			Kind:     templateMenuEntryTemplate,
 			Label:    tmpl.Name,
@@ -188,6 +191,9 @@ func (m *TemplateMenu) SelectAction(action templateMenuAction) (templateMenuEntr
 	case templateMenuEntryAuthor:
 		return entry, action == templateMenuAuthor || action == templateMenuUse
 	case templateMenuEntryTemplate:
+		if entry.Template.PluginID != "" {
+			return entry, action == templateMenuUse
+		}
 		return entry, action == templateMenuUse || action == templateMenuEdit || action == templateMenuRemove
 	}
 	return templateMenuEntry{}, false

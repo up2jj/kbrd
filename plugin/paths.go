@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"kbrd/config"
 )
+
+const defaultAppDir = "kbrd"
 
 type Paths struct {
 	ConfigRoot       string
@@ -23,7 +23,7 @@ func DefaultPaths() (Paths, error) {
 		if err != nil {
 			return Paths{}, fmt.Errorf("locate user config directory: %w", err)
 		}
-		configRoot = filepath.Join(base, config.AppDirName, "plugins")
+		configRoot = filepath.Join(base, defaultAppDir, "plugins")
 	}
 	cacheRoot := os.Getenv("KBRD_PLUGIN_CACHE_DIR")
 	if cacheRoot == "" {
@@ -31,7 +31,7 @@ func DefaultPaths() (Paths, error) {
 		if err != nil {
 			return Paths{}, fmt.Errorf("locate user cache directory: %w", err)
 		}
-		cacheRoot = filepath.Join(base, config.AppDirName, "plugins")
+		cacheRoot = filepath.Join(base, defaultAppDir, "plugins")
 	}
 	return Paths{
 		ConfigRoot:       configRoot,

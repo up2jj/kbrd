@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"kbrd/board"
+	"kbrd/plugin"
 )
 
 func writeTemplate(t *testing.T, dir, name, content string) string {
@@ -145,6 +146,24 @@ func TestListTemplatesMergeAndShadow(t *testing.T) {
 	}
 	if tmpls[1].Name != "Chore" || tmpls[1].Scope != ScopeBoard {
 		t.Errorf("tmpls[1] = %+v", tmpls[1])
+	}
+}
+
+func TestListWithPluginAssetsAddsQualifiedTemplates(t *testing.T) {
+	boardDir := t.TempDir()
+	columnDir := filepath.Join(boardDir, "Todo")
+	if err := os.MkdirAll(columnDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := t.TempDir()
+	writeTemplate(t, filepath.Join(pluginDir, "nested"), "task.md", "---\nname: Task\n---\nBody")
+
+	templates, warnings, err := ListWithPluginAssets(boardDir, columnDir, []plugin.AssetSource{{ID: "acme/planning-kit", Path: pluginDir}})
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("ListWithPluginAssets warnings/error = %+v, %v", warnings, err)
+	}
+	if len(templates) != 1 || templates[0].Name != "acme/planning-kit: Task" || templates[0].PluginID != "acme/planning-kit" || templates[0].Scope != ScopeBoard {
+		t.Fatalf("templates = %+v", templates)
 	}
 }
 

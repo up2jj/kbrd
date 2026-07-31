@@ -216,8 +216,20 @@ func NormalizeTheme(theme string) string {
 	case "light", "dark":
 		return theme
 	default:
+		// Plugin themes are namespaced as marketplace/plugin/theme. Unknown
+		// unqualified values retain the historical auto fallback.
+		if IsPluginTheme(theme) {
+			return theme
+		}
 		return "auto"
 	}
+}
+
+// IsPluginTheme reports whether a theme uses the marketplace/plugin/theme
+// namespace reserved for locked plugin assets.
+func IsPluginTheme(theme string) bool {
+	parts := strings.Split(theme, "/")
+	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != ""
 }
 
 func Load(path string) (Config, error) {

@@ -175,19 +175,24 @@ func LoadPlugin(root string) (PluginManifest, error) {
 	if strings.TrimSpace(manifest.Description) == "" {
 		return manifest, fmt.Errorf("%s: description is required", path)
 	}
-	if manifest.Entrypoint == "" {
-		return manifest, fmt.Errorf("%s: entrypoint is required", path)
+	if manifest.Entrypoint == "" && manifest.Assets.Empty() {
+		return manifest, fmt.Errorf("%s: entrypoint or assets are required", path)
 	}
-	entrypoint, err := safeRelativePath(root, manifest.Entrypoint)
-	if err != nil {
-		return manifest, fmt.Errorf("%s: entrypoint: %w", path, err)
+	if manifest.Entrypoint != "" {
+		entrypoint, err := safeRelativePath(root, manifest.Entrypoint)
+		if err != nil {
+			return manifest, fmt.Errorf("%s: entrypoint: %w", path, err)
+		}
+		info, err := os.Stat(entrypoint)
+		if err != nil {
+			return manifest, fmt.Errorf("%s: entrypoint: %w", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return manifest, fmt.Errorf("%s: entrypoint must be a regular file", path)
+		}
 	}
-	info, err := os.Stat(entrypoint)
-	if err != nil {
-		return manifest, fmt.Errorf("%s: entrypoint: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return manifest, fmt.Errorf("%s: entrypoint must be a regular file", path)
+	if err := validatePluginAssets(root, manifest.Assets); err != nil {
+		return manifest, fmt.Errorf("%s: assets: %w", path, err)
 	}
 	declarationGroups := []struct {
 		name   string
@@ -227,6 +232,39 @@ func LoadPlugin(root string) (PluginManifest, error) {
 		}
 	}
 	return manifest, nil
+}
+
+func validatePluginAssets(root string, assets PluginAssets) error {
+	for _, asset := range assets.declarations() {
+		if asset.relative == "" {
+			continue
+		}
+		if err := validatePluginAsset(root, asset); err != nil {
+			return fmt.Errorf("%s: %w", asset.name, err)
+		}
+	}
+	return nil
+}
+
+func validatePluginAsset(root string, asset pluginAssetDeclaration) error {
+	path, err := safeRelativePath(root, asset.relative)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return fmt.Errorf("must name a regular file or directory")
+	}
+	if asset.requireDir && !info.IsDir() {
+		return fmt.Errorf("must name a directory")
+	}
+	if !info.IsDir() && len(asset.extensions) > 0 && !slices.Contains(asset.extensions, strings.ToLower(filepath.Ext(path))) {
+		return fmt.Errorf("file has unsupported extension")
+	}
+	return nil
 }
 
 func validateDeclarations(values []string) error {

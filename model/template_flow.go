@@ -441,6 +441,9 @@ func (t *TemplateFlow) templateChoices(scope string) []createChoice {
 		if scope == template.ScopeBoard {
 			desc = "Board template"
 		}
+		if tmpl.PluginID != "" {
+			desc = "Plugin template from " + tmpl.PluginID
+		}
 		choices = append(choices, createChoice{
 			Kind:     createChoiceTemplate,
 			Label:    tmpl.Name,

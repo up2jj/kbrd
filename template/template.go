@@ -30,6 +30,7 @@ import (
 
 	"kbrd/board"
 	"kbrd/natdate"
+	"kbrd/plugin"
 )
 
 // Dir is the subfolder (of a column or the board root) that holds card
@@ -66,6 +67,7 @@ type Template struct {
 	Body     string // markdown after the frontmatter
 	Path     string // source file, for error messages
 	Scope    string // ScopeColumn or ScopeBoard
+	PluginID string // locked plugin owner; empty for board and column templates
 }
 
 // Step is one form page; the user fills steps in declaration order.
@@ -125,6 +127,13 @@ type meta struct {
 // are not an error. Files that fail to parse or validate are reported as
 // warnings and excluded.
 func List(boardPath, columnPath string) ([]Template, []LoadWarning, error) {
+	return ListWithPluginAssets(boardPath, columnPath, nil)
+}
+
+// ListWithPluginAssets adds verified plugin templates to the ordinary column
+// and board template sources. Plugin names are qualified to avoid collisions;
+// column and board templates retain their existing local precedence.
+func ListWithPluginAssets(boardPath, columnPath string, sources []plugin.AssetSource) ([]Template, []LoadWarning, error) {
 	var warns []LoadWarning
 	colTmpls, w, err := readDir(filepath.Join(columnPath, Dir), ScopeColumn)
 	if err != nil {
@@ -147,7 +156,75 @@ func List(boardPath, columnPath string) ([]Template, []LoadWarning, error) {
 			merged = append(merged, t)
 		}
 	}
+	for _, source := range sources {
+		templates, w, err := readPluginPath(source)
+		if err != nil {
+			return nil, nil, fmt.Errorf("plugin %s card templates: %w", source.ID, err)
+		}
+		warns = append(warns, w...)
+		merged = append(merged, templates...)
+	}
 	return merged, warns, nil
+}
+
+func readPluginPath(source plugin.AssetSource) ([]Template, []LoadWarning, error) {
+	files, err := pluginTemplateFiles(source.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+	templates, warnings := parsePluginTemplates(source.ID, files)
+	return templates, warnings, nil
+}
+
+func pluginTemplateFiles(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		if isPluginTemplateFile(path) {
+			return []string{path}, nil
+		}
+		return nil, fmt.Errorf("%s is not a Markdown file or directory", path)
+	}
+
+	var files []string
+	err = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() && isPluginTemplateFile(entry.Name()) {
+			files = append(files, candidate)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+func isPluginTemplateFile(path string) bool {
+	name := filepath.Base(path)
+	return !board.Hidden(name) && strings.EqualFold(filepath.Ext(name), ".md")
+}
+
+func parsePluginTemplates(pluginID string, files []string) ([]Template, []LoadWarning) {
+	var templates []Template
+	var warnings []LoadWarning
+	for _, path := range files {
+		tmpl, err := Parse(path)
+		if err != nil {
+			warnings = append(warnings, LoadWarning{Path: path, Err: err})
+			continue
+		}
+		tmpl.Name = pluginID + ": " + tmpl.Name
+		tmpl.Scope = ScopeBoard
+		tmpl.PluginID = pluginID
+		templates = append(templates, tmpl)
+	}
+	return templates, warnings
 }
 
 // readDir parses every .md file in dir, sorted by display name.

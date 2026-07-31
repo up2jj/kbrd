@@ -195,7 +195,7 @@ func (m *Manager) resolveCatalogPlugin(
 	locked := LockedPlugin{
 		ID: id, Version: manifest.Version, Description: manifest.Description,
 		Marketplace: marketplace.Name, MarketplaceURL: marketplace.URL, MarketplaceRef: marketplace.Ref,
-		MarketplaceCommit: commit, Source: sourcePath, Entrypoint: manifest.Entrypoint,
+		MarketplaceCommit: commit, Source: sourcePath, Entrypoint: manifest.Entrypoint, Assets: manifest.Assets,
 		ContentSHA256: digest,
 	}
 	if effectiveSelection.version != "" {

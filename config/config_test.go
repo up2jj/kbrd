@@ -709,3 +709,23 @@ func TestValidateServe(t *testing.T) {
 		})
 	}
 }
+
+func TestPluginThemeClassification(t *testing.T) {
+	tests := []struct {
+		name  string
+		theme string
+		want  bool
+	}{
+		{name: "qualified", theme: "acme/planning-kit/night", want: true},
+		{name: "builtin", theme: "dark"},
+		{name: "missing component", theme: "acme//night"},
+		{name: "extra component", theme: "acme/planning-kit/night/alt"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsPluginTheme(test.theme); got != test.want {
+				t.Fatalf("IsPluginTheme(%q) = %t, want %t", test.theme, got, test.want)
+			}
+		})
+	}
+}

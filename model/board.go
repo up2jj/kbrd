@@ -56,6 +56,7 @@ type Board struct {
 	theme               string
 	terminalDark        bool
 	palette             Palette
+	pluginAssets        pluginAssetRuntime
 	watcher             *kbrdfs.Watcher
 	dialog              Dialog
 	helpMenu            HelpMenu
@@ -178,6 +179,7 @@ func NewBoardWithOptions(cfg config.Config, opts BoardOptions) *Board {
 		palette:         palette,
 		terminal:        NewTerminal(),
 		releaseChecker:  newReleaseChecker(),
+		pluginAssets:    newPluginAssetRuntime(cfg.FrontmatterPresets),
 		remindersSyncer: opts.Reminders,
 		scratchpads:     opts.Scratchpad,
 	}
@@ -255,7 +257,7 @@ func (g gitNotifier) Error(msg string) tea.Cmd {
 // applyPalette propagates the effective palette to all sub-models and restyles
 // any pre-built input widgets. Call after b.theme or b.terminalDark changes.
 func (b *Board) applyPalette() {
-	b.palette = PaletteForTheme(b.theme, b.terminalDark)
+	b.palette = paletteForTheme(b.theme, b.terminalDark, b.pluginAssets.themes)
 	applyPackageStyles(b.palette)
 	theme.ApplyTextInputPalette(&b.mnemonic.input, b.palette)
 	b.dialog.palette = b.palette

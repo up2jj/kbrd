@@ -92,6 +92,11 @@ defaults off.
   read existing card contents or run custom commands.
 - **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
   `.kbrd_templates/`, `kbrd.plugins.lock`, and `.mcp.json` in any board you didn't author before opening it.
+- **Review locked plugin assets too**: plugin custom-command packs can run shell
+  commands when selected, templates can use `{{shell}}` when template execution
+  is enabled, and an explicitly applied board starter may contain any normal
+  board-local executable file. `kbrd plugin diff` shows locked asset changes;
+  `--safe` excludes plugin command packs and disables template shell execution.
 - **Delete** folder-local config you don't need or trust.
 
 ## Reporting a vulnerability

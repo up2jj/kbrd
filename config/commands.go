@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"path/filepath"
 	"text/template"
 	"time"
 
@@ -121,14 +120,7 @@ type CommandLoadOptions struct {
 // LoadCommandsWithOptions reads custom commands with caller-controlled trust
 // boundaries. IncludeFolder gates the board-local .kbrd_commands.yml file.
 func LoadCommandsWithOptions(folderPath string, opts CommandLoadOptions) ([]Command, []CommandLoadWarning, error) {
-	globalDir, err := os.UserConfigDir()
-	if err != nil {
-		globalDir = ""
-	}
-	if !opts.IncludeFolder {
-		folderPath = ""
-	}
-	return loadCommandsFrom(filepath.Join(globalDir, AppDirName), folderPath)
+	return LoadCommandsWithPluginAssets(folderPath, nil, opts)
 }
 
 func loadCommandsFrom(globalDir, folderPath string) ([]Command, []CommandLoadWarning, error) {

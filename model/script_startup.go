@@ -170,6 +170,7 @@ func (s boardScriptStartup) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		return b, tea.ExecProcess(cmd, func(err error) tea.Msg { return scriptPluginSyncDoneMsg{err: err} })
 	case "s":
 		b.cfg.Scripting.Enabled = false
+		b.pluginAssets.disableLocked()
 		b.scriptStartup.editError = ""
 		return b, func() tea.Msg { return scriptInitRunMsg{} }
 	case "e":
@@ -246,7 +247,7 @@ func (b *Board) renderScriptStartup() string {
 		actions = "e edit in $EDITOR   " + actions
 	}
 	if s.source == plugin.LockFile {
-		actions = "i install locked plugins   r retry   s open without Lua   enter traceback   q quit"
+		actions = "i install locked plugins   r retry   s open without plugins/Lua   enter traceback   q quit"
 	}
 	lines = append(lines, muted.Render(actions))
 

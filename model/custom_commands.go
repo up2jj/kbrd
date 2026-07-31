@@ -36,7 +36,7 @@ type customCommandFinishedMsg struct {
 }
 
 func (b *Board) loadCommands() {
-	cmds, warnings, err := config.LoadCommands(b.cfg.Path)
+	cmds, warnings, err := config.LoadCommandsWithPluginAssets(b.cfg.Path, b.pluginCommandSources(), config.CommandLoadOptions{IncludeFolder: !b.safeMode})
 	if err != nil {
 		b.commands = nil
 		b.commandWarnings = []config.CommandLoadWarning{{Source: "commands", Message: err.Error()}}
