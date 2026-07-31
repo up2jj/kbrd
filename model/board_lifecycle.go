@@ -107,6 +107,7 @@ func (l boardLifecycle) applyReloadedColumns(columns []*Column) {
 func (l boardLifecycle) applyReloadedConfig(cfg config.Config) {
 	b := l.board
 	cfg.Theme = config.NormalizeTheme(cfg.Theme)
+	cfg.CardView = config.NormalizeCardView(cfg.CardView)
 	b.pluginAssets.setBoardPresets(cfg.FrontmatterPresets)
 	cfg.FrontmatterPresets = b.pluginAssets.frontmatterPresets()
 	old := b.cfg

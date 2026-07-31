@@ -736,13 +736,13 @@ func TestItemHeight_RenderLineAddsRow(t *testing.T) {
 	sep := Item{Name: "s", Separator: true, Render: []string{"priority"}}
 
 	cfg := renderConfig{previewLines: 3}
-	if got, want := itemHeight(plain, cfg), cardRows(3); got != want {
+	if got, want := itemHeight(plain, true, cfg), cardRows(3); got != want {
 		t.Errorf("itemHeight(plain) = %d, want %d", got, want)
 	}
-	if got, want := itemHeight(withRender, cfg), cardRows(3)+1; got != want {
+	if got, want := itemHeight(withRender, true, cfg), cardRows(3)+1; got != want {
 		t.Errorf("itemHeight(withRender) = %d, want %d (one taller)", got, want)
 	}
-	if got, want := itemHeight(sep, cfg), cardRows(3); got != want {
+	if got, want := itemHeight(sep, true, cfg), cardRows(3); got != want {
 		t.Errorf("itemHeight(separator) = %d, want %d (separators ignore render)", got, want)
 	}
 }
@@ -784,15 +784,15 @@ func TestItemHeight_WrappedTitleAddsRows(t *testing.T) {
 	wrapped := renderConfig{previewLines: 1, gutterW: 2, colWidth: 20, wrapTitles: true, titleMaxLines: 2}
 	off := renderConfig{previewLines: 1, gutterW: 2, colWidth: 20, wrapTitles: false, titleMaxLines: 2}
 
-	if got, want := itemHeight(long, wrapped), cardRows(1)+1; got != want {
+	if got, want := itemHeight(long, true, wrapped), cardRows(1)+1; got != want {
 		t.Errorf("wrapped itemHeight = %d, want %d (one extra title row, capped at 2)", got, want)
 	}
-	if got, want := itemHeight(long, off), cardRows(1); got != want {
+	if got, want := itemHeight(long, true, off), cardRows(1); got != want {
 		t.Errorf("wrap-off itemHeight = %d, want %d (single-line regression guard)", got, want)
 	}
 	// Separators never grow on a long title.
 	sep := Item{Name: "s", Title: "this title is definitely much longer than one row", Separator: true}
-	if got, want := itemHeight(sep, wrapped), cardRows(1); got != want {
+	if got, want := itemHeight(sep, true, wrapped), cardRows(1); got != want {
 		t.Errorf("separator itemHeight = %d, want %d", got, want)
 	}
 }
@@ -810,8 +810,8 @@ func TestColumn_View_WrappedCardHeightMatchesItemHeight(t *testing.T) {
 	_ = col.View(ctx)
 
 	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24 - scrollGutterW, wrapTitles: true, titleMaxLines: 2}
-	declared := itemHeight(col.Items[0], cfg)
-	drawn := lipgloss.Height(renderItem(col.Items[0], false, false, cfg))
+	declared := itemHeight(col.Items[0], true, cfg)
+	drawn := lipgloss.Height(renderItem(col.Items[0], false, false, true, cfg))
 	if declared != drawn {
 		t.Errorf("declared itemHeight %d != drawn card height %d (sync invariant broken)", declared, drawn)
 	}
@@ -827,8 +827,8 @@ func TestItemHeight_VirtualWrappedTitleMatchesDraw(t *testing.T) {
 	v := Item{Name: "v", Virtual: true, Title: "a long virtual card title that overflows one row", Meta: "x"}
 	cfg := renderConfig{previewLines: 1, gutterW: 2, colWidth: 24, wrapTitles: true, titleMaxLines: 2}
 
-	declared := itemHeight(v, cfg)
-	drawn := lipgloss.Height(renderItem(v, false, false, cfg))
+	declared := itemHeight(v, true, cfg)
+	drawn := lipgloss.Height(renderItem(v, false, false, true, cfg))
 	if declared != drawn {
 		t.Errorf("virtual declared itemHeight %d != drawn %d", declared, drawn)
 	}
@@ -849,18 +849,18 @@ func TestRenderItem_HarpoonMarker(t *testing.T) {
 		},
 	}
 
-	marked := renderItem(Item{Name: "harpooned", Title: "Harpooned", FullPath: harpoonedPath}, false, false, cfg)
+	marked := renderItem(Item{Name: "harpooned", Title: "Harpooned", FullPath: harpoonedPath}, false, false, true, cfg)
 	if !strings.Contains(marked, "[H]") {
 		t.Fatalf("harpooned card missing marker:\n%s", marked)
 	}
 	if strings.Contains(marked, "⚓") {
 		t.Fatalf("harpooned card uses an emoji marker:\n%s", marked)
 	}
-	plain := renderItem(Item{Name: "plain", Title: "Plain", FullPath: "/board/todo/plain.md"}, false, false, cfg)
+	plain := renderItem(Item{Name: "plain", Title: "Plain", FullPath: "/board/todo/plain.md"}, false, false, true, cfg)
 	if strings.Contains(plain, "[H]") {
 		t.Fatalf("ordinary card unexpectedly marked:\n%s", plain)
 	}
-	virtual := renderItem(Item{Name: "virtual", Title: "Virtual", FullPath: harpoonedPath, Virtual: true}, false, false, cfg)
+	virtual := renderItem(Item{Name: "virtual", Title: "Virtual", FullPath: harpoonedPath, Virtual: true}, false, false, true, cfg)
 	if strings.Contains(virtual, "[H]") {
 		t.Fatalf("virtual card unexpectedly marked:\n%s", virtual)
 	}
@@ -883,11 +883,11 @@ func TestColumn_View_RenderLine(t *testing.T) {
 	for _, it := range col.Items {
 		switch it.Name {
 		case "task":
-			if got, want := itemHeight(it, renderConfig{previewLines: 3}), cardRows(3)+1; got != want {
+			if got, want := itemHeight(it, true, renderConfig{previewLines: 3}), cardRows(3)+1; got != want {
 				t.Errorf("task itemHeight = %d, want %d", got, want)
 			}
 		case "plain":
-			if got, want := itemHeight(it, renderConfig{previewLines: 3}), cardRows(3); got != want {
+			if got, want := itemHeight(it, true, renderConfig{previewLines: 3}), cardRows(3); got != want {
 				t.Errorf("plain itemHeight = %d, want %d", got, want)
 			}
 		}
@@ -931,6 +931,71 @@ func TestColumn_View_PreviewDensity(t *testing.T) {
 		if !strings.Contains(zoomed, want) {
 			t.Errorf("zoomed view missing %q:\n%s", want, zoomed)
 		}
+	}
+}
+
+func TestColumn_View_FocusCardsShowsDetailsOnlyForActiveSelection(t *testing.T) {
+	t.Parallel()
+	col := newTestColumn(t, map[string]string{
+		"alpha": "alpha preview",
+		"bravo": "bravo preview",
+	})
+	col.SetHeight(40)
+	ctx := RenderCtx{Active: true, Width: 60, GutterW: 2, PreviewLines: 3, FocusCards: true}
+
+	view := col.View(ctx)
+	if !strings.Contains(view, "alpha preview") {
+		t.Fatalf("selected card details missing:\n%s", view)
+	}
+	if strings.Contains(view, "bravo preview") {
+		t.Fatalf("unselected card details visible:\n%s", view)
+	}
+
+	col.SelectIndex(1)
+	view = col.View(ctx)
+	if strings.Contains(view, "alpha preview") || !strings.Contains(view, "bravo preview") {
+		t.Fatalf("details did not follow selection:\n%s", view)
+	}
+
+	ctx.Active = false
+	view = col.View(ctx)
+	if strings.Contains(view, "alpha preview") || strings.Contains(view, "bravo preview") {
+		t.Fatalf("inactive column expanded its remembered selection:\n%s", view)
+	}
+}
+
+func TestRenderItem_FocusCardsTitleOnlyHeightMatchesDraw(t *testing.T) {
+	t.Parallel()
+	item := Item{
+		Name:    "task",
+		Title:   "A deliberately long title that wraps",
+		Preview: []string{"hidden preview"},
+		Meta:    "hidden metadata",
+		Render:  []string{"priority"},
+		Data:    map[string]any{"priority": "high"},
+	}
+	cfg := renderConfig{
+		previewLines:  3,
+		gutterW:       2,
+		colWidth:      24,
+		wrapTitles:    true,
+		titleMaxLines: 2,
+		focusCards:    true,
+		expandedIndex: -1,
+	}
+
+	drawn := renderItem(item, false, false, false, cfg)
+	if strings.Contains(drawn, "hidden preview") || strings.Contains(drawn, "hidden metadata") || strings.Contains(drawn, "priority: high") {
+		t.Fatalf("title-only card leaked detail rows:\n%s", drawn)
+	}
+	if !strings.Contains(drawn, "A deliberately") {
+		t.Fatalf("title-only card lost its title:\n%s", drawn)
+	}
+	if got, want := lipgloss.Height(drawn), itemHeight(item, false, cfg); got != want {
+		t.Fatalf("drawn height = %d, declared height = %d", got, want)
+	}
+	if got := itemHeight(Item{Separator: true}, false, cfg); got != 1 {
+		t.Fatalf("focus-mode separator height = %d, want 1", got)
 	}
 }
 

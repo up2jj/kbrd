@@ -179,6 +179,28 @@ func TestVariableHeightScrollKeepsCursorVisible(t *testing.T) {
 	}
 }
 
+func TestEnsureSelectedVisibleAfterDelegateHeightChange(t *testing.T) {
+	items := make([]fakeItem, 5)
+	for i := range items {
+		items[i] = fakeItem{h: 1, sel: true, fv: "x", name: "x"}
+	}
+	m := newModel(fake{items: items}, 20, 4)
+	m.SelectLast()
+	m.View()
+
+	items[4].h = 4
+	m.SetDelegate(fake{items: items})
+	m.EnsureSelectedVisible()
+	m.View()
+
+	top := m.offsetOf(m.Index())
+	height := m.heightOf(m.Index())
+	if top < m.vp.YOffset() || top+height > m.vp.YOffset()+m.vp.Height() {
+		t.Fatalf("expanded selected row [%d,%d) not within viewport [%d,%d)",
+			top, top+height, m.vp.YOffset(), m.vp.YOffset()+m.vp.Height())
+	}
+}
+
 func TestFilterNarrowsAndExcludesEmpty(t *testing.T) {
 	f := fake{items: []fakeItem{
 		{h: 1, sel: true, fv: "apple", name: "apple"},

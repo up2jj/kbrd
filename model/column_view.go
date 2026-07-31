@@ -100,6 +100,7 @@ type RenderCtx struct {
 	PreviewLines  int  // preview rows per card (Slot.PreviewLines)
 	WrapTitles    bool // word-wrap titles across rows instead of truncating
 	TitleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
+	FocusCards    bool // collapse every card except the active selected card to its title
 	GutterW       int  // mnemonic gutter width
 	MnemonicOf    func(name string) string
 	StatFor       func(absPath string) (kbrdfs.DiffStat, bool)
@@ -122,7 +123,13 @@ func (c *Column) View(ctx RenderCtx) string {
 	}
 
 	listW := max(ctx.Width-scrollGutterW, 1)
-	c.renderCfg = renderConfig{
+	expandedIndex := -1
+	if ctx.FocusCards && ctx.Active {
+		if selected, ok := c.list.Selected(); ok {
+			expandedIndex = selected
+		}
+	}
+	nextRenderCfg := renderConfig{
 		isActive:      ctx.Active,
 		mnemonicOf:    ctx.MnemonicOf,
 		gutterW:       ctx.GutterW,
@@ -130,11 +137,17 @@ func (c *Column) View(ctx RenderCtx) string {
 		previewLines:  ctx.PreviewLines,
 		wrapTitles:    ctx.WrapTitles,
 		titleMaxLines: ctx.TitleMaxLines,
+		focusCards:    ctx.FocusCards,
+		expandedIndex: expandedIndex,
 		statFor:       ctx.StatFor,
 		isHarpooned:   ctx.IsHarpooned,
 		palette:       c.palette,
 		isMarked:      c.IsMarked,
 	}
+	if c.renderCfg.focusCards != nextRenderCfg.focusCards || c.renderCfg.expandedIndex != nextRenderCfg.expandedIndex {
+		c.list.EnsureSelectedVisible()
+	}
+	c.renderCfg = nextRenderCfg
 	c.width = ctx.Width
 	c.list.SetSize(listW, c.height)
 	c.syncDelegate()

@@ -40,7 +40,11 @@ type Config struct {
 	WrapTitles bool
 	// TitleMaxLines caps the wrapped title height; the last row is
 	// ellipsis-truncated when the title still overflows. Default 2.
-	TitleMaxLines        int
+	TitleMaxLines int
+	// CardView controls how much of each card is shown. "full" preserves the
+	// regular card body; "focus" collapses every card except the selected card
+	// in the active column to its title. Default "full".
+	CardView             string
 	Theme                string
 	NotifyBackend        string
 	BoardName            string
@@ -82,6 +86,11 @@ type Config struct {
 	// would collapse. See ResolveInstanceName.
 	InstanceName string
 }
+
+const (
+	CardViewFull  = "full"
+	CardViewFocus = "focus"
+)
 
 // ServeConfig holds the [serve] table consumed by `kbrd serve`. Values are
 // one layer of the flag > env > toml > default chain, so unset keys stay ""
@@ -225,6 +234,15 @@ func NormalizeTheme(theme string) string {
 	}
 }
 
+// NormalizeCardView returns a supported display.card_view mode. Anything but
+// the explicit focus mode preserves the existing full-card presentation.
+func NormalizeCardView(view string) string {
+	if view == CardViewFocus {
+		return CardViewFocus
+	}
+	return CardViewFull
+}
+
 // IsPluginTheme reports whether a theme uses the marketplace/plugin/theme
 // namespace reserved for locked plugin assets.
 func IsPluginTheme(theme string) bool {
@@ -250,6 +268,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 	v.SetDefault("display.title_from_heading", false)
 	v.SetDefault("display.wrap_titles", true)
 	v.SetDefault("display.title_max_lines", 2)
+	v.SetDefault("display.card_view", CardViewFull)
 	v.SetDefault("display.theme", "auto")
 	v.SetDefault("notify.backend", "auto")
 	v.SetDefault("board.item_double_click", "peek")
@@ -337,6 +356,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		itemDoubleClick = "peek"
 	}
 	theme := NormalizeTheme(v.GetString("display.theme"))
+	cardView := NormalizeCardView(v.GetString("display.card_view"))
 
 	return Config{
 		Path:                 folderPath,
@@ -346,6 +366,7 @@ func loadFrom(globalDir, folderPath string) (Config, error) {
 		TitleFromHeading:     v.GetBool("display.title_from_heading"),
 		WrapTitles:           v.GetBool("display.wrap_titles"),
 		TitleMaxLines:        v.GetInt("display.title_max_lines"),
+		CardView:             cardView,
 		Theme:                theme,
 		NotifyBackend:        v.GetString("notify.backend"),
 		BoardName:            v.GetString("board.name"),

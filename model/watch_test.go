@@ -199,6 +199,7 @@ func TestBoard_WatchEvent_ConfigChangeReloadsTOML(t *testing.T) {
 [display]
 column_width = 41
 preview_lines = 7
+card_view = "focus"
 theme = "light"
 
 [scripting]
@@ -229,6 +230,9 @@ exec = true
 	}
 	if b.cfg.PreviewLines != 7 {
 		t.Fatalf("preview_lines: got %d want 7", b.cfg.PreviewLines)
+	}
+	if b.cfg.CardView != config.CardViewFocus {
+		t.Fatalf("card_view: got %q want %q", b.cfg.CardView, config.CardViewFocus)
 	}
 	if b.cfg.Theme != "light" || b.theme != "light" {
 		t.Fatalf("theme not applied: cfg=%q board=%q", b.cfg.Theme, b.theme)

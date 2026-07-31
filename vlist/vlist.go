@@ -216,6 +216,11 @@ func (m *Model) Selected() (int, bool) {
 	return m.visible[m.cursor], true
 }
 
+// EnsureSelectedVisible requests that the next View scroll the selected row
+// fully into view. Hosts use this after changing delegate-provided item heights
+// without moving the cursor, such as expanding a focused card.
+func (m *Model) EnsureSelectedVisible() { m.scrollToCursor = true }
+
 // Visible returns the underlying indices currently shown, in display order.
 func (m *Model) Visible() []int {
 	out := make([]int, len(m.visible))

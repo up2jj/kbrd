@@ -626,6 +626,7 @@ Generate templates with `kbrd init` / `kbrd init --global`, or from the config m
 column_width  = 32          # width of each column
 preview_lines = 3           # lines shown in a card preview
 title_from_heading = false  # use the first "# " heading as the card title
+card_view = "full"          # full | focus (focus expands only the selected card)
 theme         = "auto"      # auto follows terminal background; light | dark force a palette
 
 [notify]

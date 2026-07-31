@@ -30,6 +30,9 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	if cfg.ColumnWidth != 32 || cfg.PreviewLines != 3 || cfg.Theme != "auto" || cfg.NotifyBackend != "auto" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	if cfg.CardView != CardViewFull {
+		t.Fatalf("display.card_view: got %q want %q", cfg.CardView, CardViewFull)
+	}
 	if cfg.Path != folder {
 		t.Fatalf("path: got %q want %q", cfg.Path, folder)
 	}
@@ -50,6 +53,31 @@ func TestLoad_DefaultsOnly(t *testing.T) {
 	}
 	if got := strings.Join(cfg.Reminders.DoneColumns, ","); got != "Done" {
 		t.Fatalf("reminders done columns: got %q want Done", got)
+	}
+}
+
+func TestLoad_CardView(t *testing.T) {
+	tests := []struct {
+		name string
+		view string
+		want string
+	}{
+		{name: "focus", view: CardViewFocus, want: CardViewFocus},
+		{name: "full", view: CardViewFull, want: CardViewFull},
+		{name: "unknown falls back", view: "titles", want: CardViewFull},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			folder := t.TempDir()
+			writeFile(t, filepath.Join(folder, FolderConfigFile), "[display]\ncard_view = \""+tt.view+"\"\n")
+			cfg, err := loadFrom(t.TempDir(), folder)
+			if err != nil {
+				t.Fatalf("loadFrom: %v", err)
+			}
+			if cfg.CardView != tt.want {
+				t.Fatalf("display.card_view: got %q want %q", cfg.CardView, tt.want)
+			}
+		})
 	}
 }
 

@@ -22,6 +22,8 @@ type renderConfig struct {
 	previewLines  int  // preview rows per card; <=1 means the compact default
 	wrapTitles    bool // word-wrap titles across rows instead of truncating
 	titleMaxLines int  // cap on wrapped title rows (<=1 disables wrapping)
+	focusCards    bool // title-only cards except expandedIndex
+	expandedIndex int  // underlying item index expanded in focus mode; -1 means none
 	statFor       func(absPath string) (kbrdfs.DiffStat, bool)
 	isHarpooned   func(absPath string) bool
 	palette       Palette
@@ -37,12 +39,16 @@ type cardDelegate struct {
 }
 
 func (d cardDelegate) Len() int                 { return len(d.items) }
-func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], d.cfg) }
+func (d cardDelegate) Height(i int) int         { return itemHeight(d.items[i], d.detailed(i), d.cfg) }
 func (d cardDelegate) FilterValue(i int) string { return d.items[i].FilterValue() }
 func (d cardDelegate) Selectable(i int) bool    { return !d.items[i].Separator }
 func (d cardDelegate) Render(i int, selected bool) string {
 	marked := d.cfg.isMarked != nil && d.cfg.isMarked(d.items[i].Name)
-	return renderItem(d.items[i], selected, marked, d.cfg)
+	return renderItem(d.items[i], selected, marked, d.detailed(i), d.cfg)
+}
+
+func (d cardDelegate) detailed(i int) bool {
+	return !d.cfg.focusCards || i == d.cfg.expandedIndex
 }
 
 // cardRows is the base height of one card slot for a given preview density:
@@ -57,14 +63,19 @@ func cardRows(previewLines int) int {
 // title adds one row per extra title line; these are the variable heights vlist
 // stacks. It must match what renderItem / renderCardBody draw — both derive the
 // title row count from wrapTitle, so they cannot disagree. Separators keep their
-// single-line rule layout.
-func itemHeight(item Item, cfg renderConfig) int {
-	h := cardRows(cfg.previewLines)
+// padded slot in full mode and shrink to a single rule row in focus mode.
+func itemHeight(item Item, detailed bool, cfg renderConfig) int {
 	if item.Separator {
-		return h
+		if cfg.focusCards {
+			return 1
+		}
+		return cardRows(cfg.previewLines)
 	}
-	extraTitleRows := len(wrapTitle(composeTitle(item, cfg.isHarpooned), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles)) - 1
-	h += extraTitleRows
+	titleRows := len(wrapTitle(composeTitle(item, cfg.isHarpooned), titleWidth(cfg), cfg.titleMaxLines, cfg.wrapTitles))
+	if !detailed {
+		return titleRows + 2 // title body plus the card's top and bottom border
+	}
+	h := cardRows(cfg.previewLines) + titleRows - 1
 	if len(item.Render) > 0 {
 		h++
 	}
@@ -73,20 +84,20 @@ func itemHeight(item Item, cfg renderConfig) int {
 
 // renderItem draws one item to a string, dispatching by kind. selected marks the
 // cursor row; cfg carries the per-frame render context.
-func renderItem(item Item, selected, marked bool, cfg renderConfig) string {
+func renderItem(item Item, selected, marked, detailed bool, cfg renderConfig) string {
 	if item.Separator {
 		return renderSeparatorStr(item, cfg)
 	}
 	if item.Virtual {
-		return renderCardBody(item, selected, marked, cfg, item.Meta, cfg.palette.BorderMuted)
+		return renderCardBody(item, selected, marked, detailed, cfg, item.Meta, cfg.palette.BorderMuted)
 	}
-	return renderCardBody(item, selected, marked, cfg, filesystemMeta(item, cfg), cfg.palette.FgSubtle)
+	return renderCardBody(item, selected, marked, detailed, cfg, filesystemMeta(item, cfg), cfg.palette.FgSubtle)
 }
 
 // renderCardBody draws the shared card frame for filesystem and virtual items.
 // The callers supply the already-resolved meta text and the selected-but-
 // inactive meta color, which are the only rendering differences between kinds.
-func renderCardBody(item Item, selected, marked bool, cfg renderConfig, meta string, inactiveSelectedMetaFg color.Color) string {
+func renderCardBody(item Item, selected, marked, detailed bool, cfg renderConfig, meta string, inactiveSelectedMetaFg color.Color) string {
 	isSelected := selected
 	d := cfg
 	gutterW := max(d.gutterW, 2)
@@ -151,6 +162,9 @@ func renderCardBody(item Item, selected, marked bool, cfg renderConfig, meta str
 			gt = gutterText
 		}
 		titleLines[i] = gutterStyle.Render(gt) + restStyle.Render(row)
+	}
+	if !detailed {
+		return renderCard(innerW, cardBorder, titleLines...)
 	}
 
 	// Preview block — N rows depending on the layout's density.
@@ -395,7 +409,7 @@ func renderSeparatorStr(item Item, d renderConfig) string {
 	style := lipgloss.NewStyle().Width(d.colWidth).MaxWidth(d.colWidth).Foreground(fg)
 	blank := lipgloss.NewStyle().Width(d.colWidth).Render("")
 
-	total := itemHeight(item, d)
+	total := itemHeight(item, false, d)
 	ruleRow := total / 2
 	rows := make([]string, 0, total)
 	for i := range total {

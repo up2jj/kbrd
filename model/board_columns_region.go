@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"kbrd/config"
 	kbrdfs "kbrd/fs"
 )
 
@@ -20,6 +21,7 @@ type boardColumnsRegionContext struct {
 	columnWidth     int
 	wrapTitles      bool
 	titleMaxLines   int
+	focusCards      bool
 	mnemonicMaxLen  int
 	palette         Palette
 	mnemonicLookup  func(colIdx int) func(name string) string
@@ -43,6 +45,7 @@ func (b *Board) columnsRegionContext() boardColumnsRegionContext {
 		columnWidth:     b.cfg.ColumnWidth,
 		wrapTitles:      b.cfg.WrapTitles,
 		titleMaxLines:   b.cfg.TitleMaxLines,
+		focusCards:      b.cfg.CardView == config.CardViewFocus,
 		mnemonicMaxLen:  b.mnemonicMaxLen,
 		palette:         b.palette,
 		mnemonicLookup:  b.mnemonicLookup,
@@ -166,6 +169,7 @@ func (p *boardColumnsRegion) renderColumns(ctx boardColumnsRegionContext, width 
 			PreviewLines:  s.PreviewLines,
 			WrapTitles:    ctx.wrapTitles,
 			TitleMaxLines: ctx.titleMaxLines,
+			FocusCards:    ctx.focusCards,
 			GutterW:       gutterW,
 			MnemonicOf:    ctx.mnemonicLookup(s.Col),
 			StatFor:       ctx.statFor,
