@@ -87,30 +87,53 @@ func Bool(v any) bool {
 // from it, so truncation would lose content (the MaxBytes bound belongs to the
 // streaming loader that captures frontmatter for Parse).
 func Split(raw string) (block, body string, fenced bool) {
-	rest, ok := strings.CutPrefix(raw, "---\n")
-	if !ok {
-		return "", raw, false
+	_, block, body, fenced, _ = SplitExact(raw)
+	return block, body, fenced
+}
+
+// SplitExact separates raw into an exact leading frontmatter prefix, the block
+// between its fences, and the body. Prefix includes both fences and their
+// original LF or CRLF line endings. apparent reports a leading "---" logical
+// line without a complete closing fence, allowing editors to fail closed.
+func SplitExact(raw string) (prefix, block, body string, fenced, apparent bool) {
+	opening, next, terminated := logicalLine(raw, 0)
+	if opening != "---" {
+		return "", "", raw, false, false
 	}
-	for i := 0; i <= len(rest); {
-		end := strings.Index(rest[i:], "\n")
-		line := ""
-		next := len(rest)
-		if end >= 0 {
-			line = rest[i : i+end]
-			next = i + end + 1
-		} else {
-			line = rest[i:]
+	apparent = true
+	if !terminated {
+		return "", "", raw, false, true
+	}
+	blockStart := next
+	for pos := blockStart; pos < len(raw); {
+		line, lineNext, lineTerminated := logicalLine(raw, pos)
+		fence := strings.TrimRight(line, " \t")
+		if (fence == "---" || fence == "...") && lineTerminated {
+			return raw[:lineNext], raw[blockStart:pos], raw[lineNext:], true, true
 		}
-		if t := strings.TrimRight(line, " \t\r"); t == "---" || t == "..." {
-			return rest[:i], rest[next:], true
-		}
-		if end < 0 {
+		if !lineTerminated {
 			break
 		}
-		i = next
+		pos = lineNext
 	}
-	// No closing fence: not a well-formed block.
-	return "", raw, false
+	return "", "", raw, false, true
+}
+
+// logicalLine returns one line without its terminator, the offset following
+// the terminator, and whether it ended in LF (optionally preceded by CR).
+func logicalLine(raw string, start int) (line string, next int, terminated bool) {
+	if start >= len(raw) {
+		return "", start, false
+	}
+	if rel := strings.IndexByte(raw[start:], '\n'); rel >= 0 {
+		end := start + rel
+		line = raw[start:end]
+		if strings.HasSuffix(line, "\r") {
+			line = strings.TrimSuffix(line, "\r")
+		}
+		return line, end + 1, true
+	}
+	return raw[start:], len(raw), false
 }
 
 // Validate reports whether setting key to value would produce a well-formed

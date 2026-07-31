@@ -1,0 +1,362 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f5;
+  --surface-hover: #e4e4e7;
+  --text: #18181b;
+  --muted: #71717a;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --danger: #dc2626;
+  --ok: #15803d;
+  --border: #d4d4d8;
+  --banner-border: #d97706;
+  --banner-bg: #fffbeb;
+  --code-bg: #f4f4f5;
+  --code-text: #be123c;
+  --selection: rgba(37, 99, 235, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #111113;
+    --panel: #18181b;
+    --surface: #1f1f23;
+    --surface-muted: #27272a;
+    --surface-hover: #3f3f46;
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --accent: #60a5fa;
+    --accent-text: #08111f;
+    --danger: #fb7185;
+    --ok: #86efac;
+    --border: #3f3f46;
+    --banner-border: #b45309;
+    --banner-bg: #2b1d0e;
+    --code-bg: #27272a;
+    --code-text: #fda4af;
+    --selection: rgba(96, 165, 250, 0.25);
+  }
+}
+
+* { box-sizing: border-box; }
+::selection { background: var(--selection); }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.crumbs {
+  min-width: 0;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.crumbs span,
+.crumbs strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crumbs b,
+.frontmatter-note { color: var(--muted); }
+
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 14px;
+  background: var(--surface-muted);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+#save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+#save:hover:not(:disabled) { filter: brightness(1.08); }
+#status[data-state="saved"] { color: var(--ok); }
+#status[data-state="conflict"],
+#status[data-state="offline"] { color: var(--danger); }
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.frontmatter-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+#banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--banner-border);
+  border-radius: 8px;
+  background: var(--banner-bg);
+  line-height: 1.5;
+}
+
+#banner button { margin: 8px 8px 0 0; }
+#editor {
+  min-height: calc(100vh - 130px);
+  background: var(--surface);
+}
+
+#link-completion {
+  position: fixed;
+  z-index: 100;
+  width: min(340px, calc(100vw - 16px));
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
+}
+
+.link-completion-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.link-completion-option strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.link-completion-option span {
+  overflow: hidden;
+  max-width: 120px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+
+.link-completion-option[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.link-completion-option[aria-selected="true"] span { color: var(--accent-text); }
+.link-completion-empty { padding: 8px 10px; color: var(--muted); }
+
+.kbrd-readonly [contenteditable] { cursor: default; }
+.kbrd-readonly .toastui-editor-toolbar button {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+/* TOAST UI ships with a light-only stylesheet. These overrides keep every
+   editor surface synchronized with the operating system appearance setting. */
+.toastui-editor-defaultUI {
+  border-color: var(--border) !important;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.toastui-editor-defaultUI-toolbar,
+.toastui-editor-dropdown-toolbar {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+.toastui-editor-toolbar-divider,
+.toastui-editor-md-splitter { background-color: var(--border); }
+.toastui-editor-md-container .toastui-editor-md-splitter { background-color: var(--border); }
+
+.toastui-editor-toolbar button:hover,
+.toastui-editor-toolbar button.active {
+  background-color: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.toastui-editor-main,
+.toastui-editor-main-container,
+.toastui-editor-ww-container,
+.toastui-editor-md-container,
+.toastui-editor-md-preview {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.toastui-editor-contents,
+.toastui-editor-contents p,
+.toastui-editor-contents h1,
+.toastui-editor-contents h2,
+.toastui-editor-contents h3,
+.toastui-editor-contents h4,
+.toastui-editor-contents h5,
+.toastui-editor-contents h6,
+.toastui-editor-contents ol,
+.toastui-editor-contents ul,
+.toastui-editor-contents table,
+.toastui-editor-contents td,
+.ProseMirror {
+  color: var(--text);
+}
+
+.toastui-editor-contents h1,
+.toastui-editor-contents h2 { border-color: var(--border); }
+
+.toastui-editor-contents blockquote,
+.toastui-editor-contents blockquote p,
+.toastui-editor-contents blockquote ol,
+.toastui-editor-contents blockquote ul,
+.toastui-editor-contents del { color: var(--muted); }
+.toastui-editor-contents blockquote { border-color: var(--border); }
+.toastui-editor-contents a { color: var(--accent); }
+
+.toastui-editor-contents pre,
+.toastui-editor-md-code-block-line-background {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.toastui-editor-contents code {
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+.toastui-editor-contents table,
+.toastui-editor-contents table th,
+.toastui-editor-contents table td { border-color: var(--border); }
+.toastui-editor-contents table th {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+.toastui-editor-contents table th p { color: var(--text); }
+
+.toastui-editor-contents .toastui-editor-ww-code-block::after {
+  background-color: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.toastui-editor-ww-code-block-language,
+.toastui-editor-ww-code-block-language input {
+  background-color: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.toastui-editor-mode-switch {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.toastui-editor-mode-switch .tab-item {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.toastui-editor-mode-switch .tab-item.active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.toastui-editor-popup,
+.toastui-editor-context-menu,
+.toastui-editor-tooltip {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.toastui-editor-popup input,
+.toastui-editor-popup label,
+.toastui-editor-context-menu li { color: var(--text); }
+.toastui-editor-popup input {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+.toastui-editor-md-heading,
+.toastui-editor-md-strong,
+.toastui-editor-md-emph,
+.toastui-editor-md-table-cell { color: var(--text); }
+
+.toastui-editor-md-block-quote,
+.toastui-editor-md-delimiter,
+.toastui-editor-md-meta,
+.toastui-editor-md-thematic-break { color: var(--muted); }
+
+.toastui-editor-md-link,
+.toastui-editor-md-link-desc,
+.toastui-editor-md-list-item-style { color: var(--accent); }
+.toastui-editor-md-code,
+.toastui-editor-md-code.toastui-editor-md-marked-text {
+  background-color: var(--code-bg);
+  color: var(--code-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  .toastui-editor-toolbar-icons { filter: invert(0.9); }
+  .toastui-editor-contents .task-list-item::before { filter: brightness(0.8); }
+}
+
+@media (max-width: 640px) {
+  header { padding: 10px 12px; }
+  main { padding: 12px; }
+  .crumbs span { display: none; }
+  .actions { gap: 8px; }
+}

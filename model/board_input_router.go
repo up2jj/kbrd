@@ -61,6 +61,8 @@ func (r boardInputRouter) handlePeekAction(msg tea.KeyPressMsg) (tea.Cmd, bool) 
 	switch {
 	case key.Matches(msg, Keys.Edit):
 		action = actionEdit
+	case key.Matches(msg, Keys.EditBrowser):
+		action = actionEditBrowser
 	case key.Matches(msg, Keys.Append):
 		action = actionAppend
 	case key.Matches(msg, Keys.Prepend):

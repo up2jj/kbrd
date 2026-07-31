@@ -10,6 +10,7 @@ type itemActionID string
 const (
 	actionPeek            itemActionID = "peek"
 	actionEdit            itemActionID = "edit"
+	actionEditBrowser     itemActionID = "edit_browser"
 	actionAppend          itemActionID = "append"
 	actionPrepend         itemActionID = "prepend"
 	actionJournal         itemActionID = "journal"
@@ -204,6 +205,17 @@ func itemActionSpecs() []itemActionSpec {
 			NeedsItem:   true,
 			Run: func(ctx itemActionContext) tea.Cmd {
 				return ctx.Board.itemActions().edit(ctx.ColIdx, ctx.Column, ctx.Item)
+			},
+		},
+		{
+			ID:          actionEditBrowser,
+			Binding:     Keys.EditBrowser,
+			Label:       "edit in browser",
+			Description: "Open the selected card in the local browser WYSIWYG editor.",
+			Cardinality: actionSingle,
+			NeedsItem:   true,
+			Run: func(ctx itemActionContext) tea.Cmd {
+				return ctx.Board.itemActions().editBrowser(ctx.Column, ctx.Item)
 			},
 		},
 		{

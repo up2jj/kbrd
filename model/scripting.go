@@ -240,9 +240,12 @@ func (b *Board) collectEditorOpenCmd() tea.Cmd {
 	}
 	b.selectedCol = colIdx
 	b.columns[colIdx].SelectByName(item.Name)
-	cmd := b.editor.OpenEdit(colIdx, b.columns[colIdx].Path, item.Name, item.FullPath)
-	b.editor.GoToLine(req.Line)
-	return cmd
+	col := b.columns[colIdx]
+	return b.acquireCardEditor(colIdx, col, item, func() tea.Cmd {
+		cmd := b.openFullCardEditor(colIdx, col, item)
+		b.editor.GoToLine(req.Line)
+		return cmd
+	})
 }
 
 // resolveEditorTarget finds the column index and item for an editor-open request:

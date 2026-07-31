@@ -392,8 +392,10 @@ func (b *Board) frontmatterActions() boardFrontmatterActions {
 // card.
 func (a boardFrontmatterActions) openEditor(colIndex int, col *Column, item *Item) tea.Cmd {
 	b := a.board
-	keys, defaults := a.keySources(col.Name, item.Name)
-	return b.frontmatterEdit.Open(refForItem(col, item), colIndex, item.Name, item.Data, keys, defaults)
+	return b.acquireCardEditor(colIndex, col, item, func() tea.Cmd {
+		keys, defaults := a.keySources(col.Name, item.Name)
+		return b.frontmatterEdit.Open(refForItem(col, item), colIndex, item.Name, item.Data, keys, defaults)
+	})
 }
 
 // keySources collects key-completion candidates for the editor: the

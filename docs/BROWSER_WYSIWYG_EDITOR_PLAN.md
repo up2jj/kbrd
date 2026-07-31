@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready to implement.
+Implemented.
 
 This plan adds an optional browser-based WYSIWYG editor for one selected card
 while the normal kbrd TUI remains running. The browser is a new editing surface,
@@ -127,6 +127,8 @@ The page contains:
 - a deliberately limited formatting toolbar;
 - a read-only indication that frontmatter is preserved outside the editor;
 - a Save button;
+- an Exit button that flushes any dirty recovery draft and closes the tab;
+- a `[[` card-link completion popup with filename filtering and keyboard selection;
 - `saving draft`, `unsaved`, `saved`, `conflict`, `offline`, and `read-only`
   status states; and
 - conflict and handoff banners when required.

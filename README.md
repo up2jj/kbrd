@@ -79,6 +79,7 @@ A quick, scannable rundown of everything kbrd does:
   edits, metadata changes, moves, renames, snapshots, and diffs without working
   with commit hashes; old revisions can only be restored as a new copy.
 - **Edit inline** — a modal **vim-like** editor (Normal/Insert/Visual, motions & operators, `:` command-line, surround, markdown list/checkbox helpers, system clipboard, `:lua` eval); press `:help` for the cheatsheet. See [EDITOR.md](./EDITOR.md). Or open in `$EDITOR` (`o`).
+- **Edit in the browser** — press `B` for an embedded, local-only WYSIWYG/Markdown editor. Typing creates a crash-recovery draft; only an explicit Save changes the card and fires normal save hooks. Frontmatter stays byte-identical and outside the editable body.
 - **Append / prepend** — add content to existing cards (`a` / `p`).
 - **Journal entries** — append timestamped notes to a card (`b`), with optional natural-date prefixes like `yesterday` or `next monday`.
 - **Clipboard ring** — copy card content into a machine-local, searchable history
@@ -321,6 +322,7 @@ All bindings below are the defaults from the in-app help (`?`).
 | --- | --- |
 | `space` | Peek (rendered Markdown) |
 | `e` | Edit |
+| `B` | Edit in the local browser (WYSIWYG / Markdown) |
 | `a` / `p` | Append / prepend content |
 | `b` | Journal entry |
 | `c` / `v` | Copy / paste |
@@ -435,6 +437,41 @@ back to a plain textarea editor.
 > The non-vim fallback (`[editor] vim = false`) uses `ctrl+s`/`enter` to save,
 > `ctrl+z`/`ctrl+y` to undo/redo, `ctrl+t` to insert/toggle a task, `ctrl+e` to expand,
 > and `esc` to cancel.
+
+### Browser editor (`B`)
+
+Press `B` on a filesystem card to open the editor on a random capability URL
+served only from `127.0.0.1`. The listener starts lazily and stops when the board
+changes or kbrd exits. All JavaScript and CSS are embedded in the binary; the
+page does not need network access.
+
+The editor starts in WYSIWYG mode and retains TOAST UI's Markdown mode switch.
+Typing writes the hidden `.<card>.md.kbrd-swap` recovery draft after a short
+pause, but does not change the card or run hooks. Choose **Save** or press
+`Ctrl/Cmd+S` for a real save through the TUI's normal mutation path. A successful
+save fires one `item_saved` event with `kind = "browser"`. Choose **Exit** to
+flush any unsaved recovery draft, release the writer lease, and close the
+current tab.
+
+Type `[[` to open card-link completion. Continue typing to filter card filenames,
+use the arrow keys to choose a result, and press `Enter` or `Tab` to insert the
+completed `[[card-name]]` link. Duplicate filenames show their column names in
+the popup.
+
+If another process changes the card, a clean browser buffer reloads it. A dirty
+buffer enters conflict state and offers **Reload disk**, **Keep my body**, or
+**Stay conflicted**. Keeping the browser body still uses the newest frontmatter
+from disk. Complete LF or CRLF frontmatter is preserved byte-for-byte; an
+unterminated apparent frontmatter block is read-only instead of being exposed as
+Markdown.
+
+Only one browser tab holds the writer lease; additional tabs observe read-only.
+Opening the same card in the TUI offers an explicit browser-to-TUI takeover and
+rebases the recovery draft before the normal recovery prompt. Automatic Git sync
+pauses only while a browser writer heartbeat is active or handing off. Revision
+checks reject disk changes visible immediately before kbrd's atomic replacement,
+but cannot lock out an arbitrary external writer in the narrow interval between
+that check and the rename.
 
 ### Journal entries (`b`)
 
@@ -1139,7 +1176,7 @@ keeps your local version as the card and writes the incoming version to a siblin
 set-aside edit propagates back to every machine on the next push. All **automatic**
 flows (the web daemon and the TUI auto-sync) self-heal this way; the **manual** TUI sync
 follows `git.manual_sync_mode` (`attended` fails loud on divergence, `auto` reconciles
-like the rest). The TUI auto-sync pauses while the in-app editor is open, and otherwise
+like the rest). The TUI auto-sync pauses while an in-app TUI or active browser editor is open, and otherwise
 only runs on a clean tree (a merge can't run over uncommitted edits); set
 `git.auto_commit = true` to have it commit pending edits first on later ticks. Edits
 carry a content hash, so a card changed upstream mid-edit is flagged instead of
@@ -1196,7 +1233,9 @@ Content-Security-Policy is `default-src 'self'`, so custom styles must be served
 | `template/` | Card templates: discovery, frontmatter schema, validation, rendering |
 | `config/` | TOML config + custom-command loading and templates |
 | `events/` | Event bus that feeds the scripting hooks |
+| `editdraft/` | Shared atomic crash-recovery sidecars for TUI and browser editors |
 | `fs/` | Filesystem and git CLI helpers, plus the file watcher |
+| `browseredit/` | Embedded loopback WYSIWYG editor, hardened HTTP protocol, leases, SSE, and card watches |
 | `mcp/` | MCP server: protocol, tools, command bridge, agents template |
 | `extension/` | Embedded unpacked Chrome extension and its safe extraction logic |
 | `web/` | Headless web frontend (`kbrd serve`): handlers, templates, auth, git sync |

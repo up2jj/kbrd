@@ -124,6 +124,7 @@ func (s boardSession) loadBoard(path string) (tea.Cmd, error) {
 		_ = b.watcher.Close()
 		b.watcher = nil
 	}
+	b.closeBrowserEditor("board switched")
 
 	b.cfg = newCfg
 	b.pluginAssets.reset(newCfg.FrontmatterPresets)

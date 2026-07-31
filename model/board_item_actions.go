@@ -12,11 +12,11 @@ import (
 
 func (a boardItemActions) edit(colIdx int, col *Column, item *Item) tea.Cmd {
 	b := a.board
-	b.bus.Publish(events.ItemOpen{
-		Item: events.ItemRef{Column: col.Name, Name: item.Name},
-		Kind: "edit",
-	})
-	return b.editor.OpenEdit(colIdx, col.Path, item.Name, item.FullPath)
+	return b.acquireCardEditor(colIdx, col, item, func() tea.Cmd { return b.openFullCardEditor(colIdx, col, item) })
+}
+
+func (a boardItemActions) editBrowser(col *Column, item *Item) tea.Cmd {
+	return a.board.openBrowserEditor(col, item)
 }
 
 func (a boardItemActions) peek(col *Column, item *Item) tea.Cmd {
@@ -29,15 +29,18 @@ func (a boardItemActions) peek(col *Column, item *Item) tea.Cmd {
 }
 
 func (a boardItemActions) append(colIdx int, col *Column, item *Item) tea.Cmd {
-	return a.board.editor.OpenAppend(colIdx, col.Path, item.FullPath, item.Name)
+	b := a.board
+	return b.acquireCardEditor(colIdx, col, item, func() tea.Cmd { return b.editor.OpenAppend(colIdx, col.Path, item.FullPath, item.Name) })
 }
 
 func (a boardItemActions) prepend(colIdx int, col *Column, item *Item) tea.Cmd {
-	return a.board.editor.OpenPrepend(colIdx, col.Path, item.FullPath, item.Name)
+	b := a.board
+	return b.acquireCardEditor(colIdx, col, item, func() tea.Cmd { return b.editor.OpenPrepend(colIdx, col.Path, item.FullPath, item.Name) })
 }
 
 func (a boardItemActions) journal(colIdx int, col *Column, item *Item) tea.Cmd {
-	return a.board.editor.OpenJournal(colIdx, col.Path, item.FullPath, item.Name)
+	b := a.board
+	return b.acquireCardEditor(colIdx, col, item, func() tea.Cmd { return b.editor.OpenJournal(colIdx, col.Path, item.FullPath, item.Name) })
 }
 
 func (a boardItemActions) copy(col *Column, item *Item) tea.Cmd {

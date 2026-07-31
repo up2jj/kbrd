@@ -90,6 +90,14 @@ defaults off.
   Messaging. The registered host only accepts the
   bundled extension's fixed origin and supports board/folder listing plus card creation; it cannot
   read existing card contents or run custom commands.
+- **Treat browser-editor capability URLs as temporary secrets.** The `B` editor
+  binds only to a random `127.0.0.1` port, validates Host and same-origin writes,
+  requires a separate random writer lease for every mutation, and sends no CORS
+  permission. Its assets are embedded trusted application files and remain
+  available under `--safe`; it never loads board-provided HTML or scripts. A
+  copied capability URL grants read-only access to that card and the names of
+  other cards offered for link completion for the current board lifetime, so
+  do not share it.
 - **Review before opening**: inspect `.envrc`, `.kbrd.lua`, `.kbrd_commands.yml`, `.kbrd_hooks.yml`,
   `.kbrd_templates/`, `kbrd.plugins.lock`, and `.mcp.json` in any board you didn't author before opening it.
 - **Review locked plugin assets too**: plugin custom-command packs can run shell

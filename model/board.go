@@ -11,6 +11,7 @@ import (
 
 	"kbrd/board"
 	"kbrd/boardenv"
+	"kbrd/browseredit"
 	"kbrd/clipboardring"
 	"kbrd/config"
 	"kbrd/events"
@@ -120,11 +121,14 @@ type Board struct {
 	scriptUI ScriptUI
 	// transformPending marks a column_items transform that was skipped because
 	// a script was mid-run; drainColumnTransform re-applies it once idle.
-	transformPending bool
-	templateFlow     TemplateFlow
-	templateExec     templateExec
-	frontmatterEdit  FrontmatterEditor
-	hooks            *hookRunner // declarative YAML event hooks; nil when disabled
+	transformPending     bool
+	templateFlow         TemplateFlow
+	templateExec         templateExec
+	frontmatterEdit      FrontmatterEditor
+	hooks                *hookRunner // declarative YAML event hooks; nil when disabled
+	browserEditor        *browseredit.Manager
+	browserTargets       map[string]browserEditorTarget
+	browserSaveWaitArmed bool
 
 	// virtualCols are script-supplied columns (kbrd.column.set), kept in a
 	// registry separate from the filesystem columns so they survive disk
@@ -235,7 +239,7 @@ func (b *Board) initGit() {
 			return nil
 		},
 		EditorActive: func() bool {
-			return b.editor != nil && b.editor.state != editorNone
+			return (b.editor != nil && b.editor.state != editorNone) || (b.browserEditor != nil && b.browserEditor.Active())
 		},
 		OnReview:      b.openConflictReview,
 		OnSyncSettled: func() tea.Cmd { b.quitting = true; return tea.Quit },
@@ -646,6 +650,31 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorSaveMsg:
 		return b.mutationHandlers().handleSave(msg)
 
+	case browserEditorSaveRequestMsg:
+		return b.handleBrowserEditorSave(msg)
+
+	case browserEditorStoppedMsg:
+		b.browserSaveWaitArmed = false
+		return b, nil
+
+	case browserOpenExistingMsg:
+		return b.handleBrowserOpenExisting(msg)
+
+	case browserTakeoverMsg:
+		return b.handleBrowserTakeover(msg)
+
+	case browserHandoffResultMsg:
+		return b.handleBrowserHandoffResult(msg)
+
+	case browserTakeoverContinueMsg:
+		return b.handleBrowserTakeoverContinue(msg)
+
+	case browserTakeoverCancelMsg:
+		return b.handleBrowserTakeoverCancel(msg)
+
+	case browserTakeoverForceMsg:
+		return b.handleBrowserTakeoverForce(msg)
+
 	case managedFileSaveMsg:
 		return b.mutationHandlers().handleManagedFileSave(msg)
 
@@ -853,6 +882,7 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Bubble Tea program returns. Idempotent.
 func (b *Board) Close() {
 	b.cancelScriptUI()
+	b.closeBrowserEditor("application closed")
 	if b.watcher != nil {
 		_ = b.watcher.Close()
 		b.watcher = nil

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.CardName}} — kbrd editor</title>
+  <link rel="stylesheet" href="/static/toastui-editor.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-token="{{.Token}}">
+  <header>
+    <div class="crumbs"><span>{{.BoardName}}</span><b>›</b><span>{{.ColumnName}}</span><b>›</b><strong>{{.CardName}}</strong></div>
+    <div class="actions"><span id="status" data-state="loading">loading</span><button id="exit" type="button">Exit</button><button id="save" type="button" disabled>Save</button></div>
+  </header>
+  <main>
+    <div id="banner" hidden></div>
+    <div class="frontmatter-note">Frontmatter is preserved from the card on disk and is not shown in this editor.</div>
+    <div id="editor"></div>
+    <div id="link-completion" role="listbox" aria-label="Card link suggestions" hidden></div>
+  </main>
+  <script src="/static/toastui-editor.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

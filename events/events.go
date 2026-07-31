@@ -171,7 +171,7 @@ func (ColumnChange) eventTag() {}
 // externally). Append/Prepend/Journal also count.
 type ItemOpen struct {
 	Item ItemRef
-	Kind string // "edit" | "append" | "prepend" | "journal" | "external" | "share"
+	Kind string // "edit" | "browser" | "append" | "prepend" | "journal" | "external" | "share"
 }
 
 func (ItemOpen) eventTag() {}
@@ -183,7 +183,7 @@ func (ItemOpen) eventTag() {}
 // hooks are loop-free. External edits are reported by ItemChanged instead.
 type ItemSaved struct {
 	Item ItemRef
-	Kind string // "save" | "append" | "prepend" | "journal" | "frontmatter_preset"
+	Kind string // "save" | "browser" | "append" | "prepend" | "journal" | "frontmatter_preset"
 }
 
 func (ItemSaved) eventTag() {}

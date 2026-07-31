@@ -72,8 +72,22 @@ func (h boardMutationHandlers) writeExistingItem(target itemRefStable, fallbackN
 		return b, b.notifier.ErrorCause(errorPrefix, err)
 	}
 	b.editor.confirmSaved()
-	b.finalizeItemSave(col, item.Name, kind)
+	h.board.finalizeItemSave(col, item.Name, kind)
 	return b, b.notifier.Success(success(item.Name))
+}
+
+// writeResolvedExistingItem is the frontend-neutral completion boundary for
+// an already-resolved existing card. Browser saves use it only after their
+// stricter captured-path and final-revision checks.
+func (h boardMutationHandlers) writeResolvedExistingItem(col *Column, item *Item, kind string, write func(*Item) error) error {
+	if col == nil || item == nil || col.Virtual || item.Virtual {
+		return errors.New("item is not a filesystem card")
+	}
+	if err := write(item); err != nil {
+		return err
+	}
+	h.board.finalizeItemSave(col, item.Name, kind)
+	return nil
 }
 
 // openTemplateFlow starts the unified create overlay for col: an empty-card

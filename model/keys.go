@@ -37,6 +37,7 @@ type KeyMap struct {
 	ToggleMark      key.Binding
 	ClearMarks      key.Binding
 	Edit            key.Binding
+	EditBrowser     key.Binding
 	Append          key.Binding
 	Prepend         key.Binding
 	Journal         key.Binding
@@ -165,6 +166,7 @@ var Keys = KeyMap{
 	ToggleMark:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "mark/unmark")),
 	ClearMarks:      key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "clear marks")),
 	Edit:            key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	EditBrowser:     key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "edit in browser")),
 	Append:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append")),
 	Prepend:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prepend")),
 	Journal:         key.NewBinding(key.WithKeys("b", "J"), key.WithHelp("b", "journal entry")),

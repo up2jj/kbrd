@@ -3,10 +3,11 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
-	kbrdfs "kbrd/fs"
+	"kbrd/editdraft"
 )
 
 // The swap sidecar gives the vim editor crash safety without ever auto-writing
@@ -18,9 +19,7 @@ import (
 // <columnDir>/.<filename>.kbrd-swap. The dotfile name and non-".md" suffix keep
 // it out of the card listing (board.Hidden / the .md filter).
 func (e *Editor) setSwapTarget(fullPath string) {
-	dir := filepath.Dir(fullPath)
-	base := filepath.Base(fullPath)
-	e.swapFile = filepath.Join(dir, "."+base+".kbrd-swap")
+	e.swapFile = editdraft.Path(fullPath)
 	e.lastSwapRevision = 0
 }
 
@@ -41,7 +40,10 @@ func (e *Editor) flushSwap() {
 	text := e.buf.Text()
 	// A failed swap write means unsaved edits aren't crash-protected; surface it
 	// (vimFooter) so the user knows recovery is off rather than failing silently.
-	if err := kbrdfs.WriteFileAtomicDurable(e.swapFile, []byte(text), 0o644); err != nil {
+	// swapFile is retained on Editor for compatibility with existing UI/tests;
+	// editdraft owns the shared path and durable-write behavior.
+	documentPath := swapDocumentPath(e.swapFile)
+	if err := editdraft.Write(documentPath, []byte(text)); err != nil {
 		e.swapWriteFailed = true
 		return
 	}
@@ -53,10 +55,18 @@ func (e *Editor) flushSwap() {
 // the swap gone there is nothing left unprotected, so the warning is cleared too.
 func (e *Editor) clearSwap() {
 	if e.swapFile != "" {
-		_ = os.Remove(e.swapFile)
+		documentPath := swapDocumentPath(e.swapFile)
+		_ = editdraft.Clear(documentPath)
 	}
 	e.lastSwapRevision = 0
 	e.swapWriteFailed = false
+}
+
+func swapDocumentPath(swapPath string) string {
+	base := filepath.Base(swapPath)
+	base = strings.TrimPrefix(base, ".")
+	base = strings.TrimSuffix(base, ".kbrd-swap")
+	return filepath.Join(filepath.Dir(swapPath), base)
 }
 
 // openSwapCheck returns a command that prompts for recovery when a swap with
