@@ -104,6 +104,9 @@ func TestTemplateFlowCreateMenu_EmptyOnly(t *testing.T) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
+	if strings.Contains(view, "Clipboard contents") {
+		t.Fatalf("empty clipboard should hide clipboard choice:\n%s", view)
+	}
 
 	cmd := flow.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
@@ -119,6 +122,53 @@ func TestTemplateFlowCreateMenu_EmptyOnly(t *testing.T) {
 	}
 	if flow.Active() {
 		t.Fatal("flow should close after choosing empty card")
+	}
+}
+
+func TestTemplateFlowCreateMenu_ClipboardChoice(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.OpenWithClipboard(2, columnRef{Name: "TODO", Path: "/board/TODO"}, nil, "clipboard body")
+
+	flow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	choice, ok := flow.selectedChoice()
+	if !ok || choice.Kind != createChoiceClipboard {
+		t.Fatalf("selected choice = %+v, %v; want clipboard choice", choice, ok)
+	}
+
+	cmd := flow.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("clipboard choice returned nil cmd")
+	}
+	msg, ok := cmd().(createClipboardItemMsg)
+	if !ok {
+		t.Fatalf("cmd msg = %T, want createClipboardItemMsg", msg)
+	}
+	if msg.ColIndex != 2 || msg.Column.Name != "TODO" || msg.Column.Path != "/board/TODO" || msg.Content != "clipboard body" {
+		t.Fatalf("clipboard create msg = %+v", msg)
+	}
+	if flow.Active() {
+		t.Fatal("flow should close after choosing clipboard contents")
+	}
+}
+
+func TestTemplateFlowCreateMenu_FuzzySearchFindsClipboard(t *testing.T) {
+	t.Parallel()
+	var flow TemplateFlow
+	flow.SetPalette(DarkPalette())
+	flow.SetSize(100, 40)
+	flow.OpenWithClipboard(0, columnRef{Name: "TODO", Path: "/board/TODO"}, nil, "clipboard body")
+
+	flow.Update(keyPressText("/"))
+	flow.Update(keyPressText("clipboard"))
+	choice, ok := flow.selectedChoice()
+	if !ok || choice.Kind != createChoiceClipboard {
+		t.Fatalf("selected after filter = %+v, %v; want clipboard choice", choice, ok)
+	}
+	if !strings.Contains(flow.View(), "Create a .md card") {
+		t.Fatalf("filtered clipboard row missing description:\n%s", flow.View())
 	}
 }
 

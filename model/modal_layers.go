@@ -137,7 +137,7 @@ func (b *Board) modalLayers() []modalLayer {
 			key: func(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				cmd := b.templateFlow.Update(msg)
 				if !b.templateFlow.Active() {
-					b.clipboardActions().cancelTemplateRead()
+					b.clipboardActions().cancelTemplateFlowRead()
 				}
 				return b, cmd
 			},

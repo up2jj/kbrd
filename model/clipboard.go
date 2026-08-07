@@ -27,14 +27,16 @@ const (
 	clipboardReadEditor
 	clipboardReadTemplate
 	clipboardReadRingImport
+	clipboardReadCreateMenu
 )
 
 type clipboardReadState struct {
-	request  uint64
-	kind     clipboardReadKind
-	paste    pasteMenuTarget
-	template templateStartFormMsg
-	ring     pasteMenuTarget
+	request    uint64
+	kind       clipboardReadKind
+	paste      pasteMenuTarget
+	template   templateStartFormMsg
+	ring       pasteMenuTarget
+	createMenu createMenuClipboardMsg
 }
 
 type clipboardFallbackMsg struct{ request uint64 }
@@ -123,8 +125,12 @@ func (a boardClipboardActions) readRingImport(target pasteMenuTarget) tea.Cmd {
 	return a.request(clipboardReadState{kind: clipboardReadRingImport, ring: target})
 }
 
-func (a boardClipboardActions) cancelTemplateRead() {
-	if a.board.clipboardRead.kind == clipboardReadTemplate {
+func (a boardClipboardActions) readCreateMenu(msg createMenuClipboardMsg) tea.Cmd {
+	return a.request(clipboardReadState{kind: clipboardReadCreateMenu, createMenu: msg})
+}
+
+func (a boardClipboardActions) cancelTemplateFlowRead() {
+	if a.board.clipboardRead.kind == clipboardReadTemplate || a.board.clipboardRead.kind == clipboardReadCreateMenu {
 		a.board.clipboardRead = clipboardReadState{}
 	}
 }
@@ -228,6 +234,16 @@ func (a boardClipboardActions) handleContent(content string) (tea.Model, tea.Cmd
 		return b, b.templateFlow.OpenTemplate(state.template.ColIndex, state.template.Column, state.template.Template, content)
 	case clipboardReadRingImport:
 		return b, a.importRingContent(content, state.ring)
+	case clipboardReadCreateMenu:
+		if b.templateFlow.stage != tfCreateClipboard {
+			return b, nil
+		}
+		return b, b.templateFlow.OpenWithClipboard(
+			state.createMenu.ColIndex,
+			state.createMenu.Column,
+			state.createMenu.Templates,
+			content,
+		)
 	default:
 		return b, nil
 	}

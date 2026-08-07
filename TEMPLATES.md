@@ -1,7 +1,8 @@
 # Card templates
 
 Create pre-structured cards from reusable templates. Press `n` in a column to open
-the create menu, then pick an empty Markdown file or a template. Template forms
+the create menu, then pick an empty Markdown file, the current clipboard contents
+when non-empty, or a template. Template forms
 are multi-step, powered by [huh](https://github.com/charmbracelet/huh), and kbrd
 renders the result into a new `.md` card in that column.
 
@@ -357,7 +358,7 @@ the Lua path. To open a board you don't fully trust with everything defused, lau
 | Keys | Action |
 | --- | --- |
 | `n` | Open the create menu for the current column |
-| `↑` / `↓`, `enter` | Pick an empty Markdown file or template |
+| `↑` / `↓`, `enter` | Pick an empty Markdown file, non-empty clipboard contents, or template |
 | `/` | Fuzzy-search create options |
 | `tab` / `enter` | Next field / next step |
 | `shift+tab` | Previous field / step |
@@ -370,7 +371,9 @@ and YAML hooks see template-created cards exactly like manually created ones.
 
 ## Errors & edge cases
 
-- **No templates anywhere** → the create menu still offers an empty Markdown file.
+- **No templates anywhere** → the create menu still offers an empty Markdown file and,
+  when available, creation from the current clipboard.
+- **Empty or unavailable clipboard** → the clipboard option is hidden.
 - **A template fails to parse or validate** (bad YAML, unknown `type`, `select` without
   `options`, duplicate/reserved `key`, broken `{{...}}` syntax) → it is skipped with a
   warning toast; valid templates still load.

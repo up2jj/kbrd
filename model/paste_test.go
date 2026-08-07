@@ -103,6 +103,81 @@ func TestPasteMenuOpensFromSystemClipboardFallback(t *testing.T) {
 	}
 }
 
+func TestCreateClipboardItemUsesTerminalClipboardContent(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	col := b.columns[0]
+
+	model, readCmd := b.mutationHandlers().openTemplateFlow(col)
+	b = model.(*Board)
+	if readCmd == nil || b.clipboardRead.kind != clipboardReadCreateMenu || b.templateFlow.stage != tfCreateClipboard {
+		t.Fatal("create menu did not wait for a clipboard read")
+	}
+
+	model, _ = b.Update(tea.ClipboardMsg{Content: "exact\nclipboard body"})
+	b = model.(*Board)
+	if b.templateFlow.stage != tfPick {
+		t.Fatalf("template flow stage = %v, want picker", b.templateFlow.stage)
+	}
+	b.templateFlow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	createCmd := b.templateFlow.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if createCmd == nil {
+		t.Fatal("clipboard choice did not return a create command")
+	}
+	model, focusCmd := b.Update(createCmd())
+	b = model.(*Board)
+	if focusCmd == nil {
+		t.Fatal("clipboard choice did not focus the filename prompt")
+	}
+	if b.editor.state != editorNew || b.editor.NewContent != "exact\nclipboard body" {
+		t.Fatalf("editor state/content = %v/%q, want editorNew with exact clipboard body", b.editor.state, b.editor.NewContent)
+	}
+	if b.editor.ColPath != col.Path || b.editor.ColName != col.Name {
+		t.Fatalf("editor target = %q/%q, want %q/%q", b.editor.ColPath, b.editor.ColName, col.Path, col.Name)
+	}
+}
+
+func TestCreateClipboardItemUsesSystemClipboardFallback(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	col := b.columns[0]
+
+	model, _ := b.mutationHandlers().openTemplateFlow(col)
+	b = model.(*Board)
+	request := b.clipboardRead.request
+
+	model, fallbackCmd := b.Update(clipboardFallbackMsg{request: request})
+	b = model.(*Board)
+	if fallbackCmd == nil {
+		t.Fatal("clipboard fallback did not request a system read")
+	}
+	model, _ = b.Update(clipboardSystemReadMsg{request: request, content: "system clipboard body"})
+	b = model.(*Board)
+	if b.templateFlow.stage != tfPick {
+		t.Fatalf("template flow stage = %v, want picker", b.templateFlow.stage)
+	}
+	b.templateFlow.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	choice, ok := b.templateFlow.selectedChoice()
+	if !ok || choice.Kind != createChoiceClipboard || b.templateFlow.clipboard != "system clipboard body" {
+		t.Fatalf("clipboard choice/state = %+v/%q, want system clipboard content", choice, b.templateFlow.clipboard)
+	}
+}
+
+func TestCreateMenuHidesClipboardChoiceWhenClipboardEmpty(t *testing.T) {
+	b := boardWithNCols(t, 1, 1)
+	col := b.columns[0]
+
+	model, _ := b.mutationHandlers().openTemplateFlow(col)
+	b = model.(*Board)
+	model, _ = b.Update(tea.ClipboardMsg{})
+	b = model.(*Board)
+
+	if b.templateFlow.stage != tfPick {
+		t.Fatalf("template flow stage = %v, want picker", b.templateFlow.stage)
+	}
+	if strings.Contains(ansi.Strip(b.templateFlow.View()), "Clipboard contents") {
+		t.Fatalf("empty clipboard should hide clipboard choice:\n%s", b.templateFlow.View())
+	}
+}
+
 func TestFormatClipboardPreview(t *testing.T) {
 	got := formatClipboardPreview("\x1b[31mred\x1b[0m\tvalue\nsecond\nthird\nfourth", 12)
 	if strings.Contains(got, "\x1b") || strings.Contains(got, "fourth") {

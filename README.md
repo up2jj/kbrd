@@ -170,7 +170,7 @@ A quick, scannable rundown of everything kbrd does:
     <td width="50%"><img src="docs/screenshots/virtual-column.png" alt="Lua-driven virtual column" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><em>Create cards from an empty file or template (<code>n</code>)</em></td>
+    <td align="center"><em>Create cards from an empty file, clipboard contents, or template (<code>n</code>)</em></td>
     <td align="center"><em>Lua-driven virtual columns, e.g. open tasks (<code>tab</code>)</em></td>
   </tr>
   <tr>
@@ -510,7 +510,7 @@ override it.
 
 | Keys | Action |
 | --- | --- |
-| `↑` / `↓`, `enter` | Pick an empty card or template |
+| `↑` / `↓`, `enter` | Pick an empty card, non-empty clipboard contents, or template |
 | `/` | Fuzzy-search create options |
 | `tab` / `enter` | Next field / step |
 | `shift+tab` | Previous field / step |
@@ -824,8 +824,9 @@ commands:
 
 ## Card templates
 
-Press `n` in a column to open the create menu: start an empty Markdown card, or
-choose from column-level and board-level templates. A template is a Markdown file
+Press `n` in a column to open the create menu: start an empty Markdown card, create
+one from the current clipboard contents when it is non-empty, or choose from
+column-level and board-level templates. A template is a Markdown file
 whose YAML frontmatter declares a multi-step form (text inputs, selects,
 multi-selects, confirms — rendered with
 [huh](https://github.com/charmbracelet/huh)); the body is a Go `text/template` that

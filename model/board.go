@@ -840,6 +840,13 @@ func (b *Board) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case createEmptyItemMsg:
 		return b.mutationHandlers().handleCreateEmptyItem(msg)
 
+	case createClipboardItemMsg:
+		return b.pasteActions().openNewItem(pasteNewItemMsg{
+			Column:   msg.Column,
+			ColIndex: msg.ColIndex,
+			Content:  msg.Content,
+		})
+
 	case frontmatterSubmitMsg:
 		return b.frontmatterActions().handleSubmit(msg)
 

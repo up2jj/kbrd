@@ -31,21 +31,31 @@ type templateStartFormMsg struct {
 	Template template.Template
 }
 
+// createMenuClipboardMsg carries the create-menu state across the asynchronous
+// clipboard read performed before the picker is shown.
+type createMenuClipboardMsg struct {
+	Column    columnRef
+	ColIndex  int
+	Templates []template.Template
+}
+
 // templateFlowStage tracks which screen of the flow is showing.
 type templateFlowStage int
 
 const (
-	tfNone      templateFlowStage = iota
-	tfPick                        // choosing what to create
-	tfForm                        // filling the huh form
-	tfAuthor                      // filling the column-template authoring form
-	tfClipboard                   // awaiting an OSC52 prefill response
+	tfNone            templateFlowStage = iota
+	tfPick                              // choosing what to create
+	tfForm                              // filling the huh form
+	tfAuthor                            // filling the column-template authoring form
+	tfClipboard                         // awaiting an OSC52 prefill response
+	tfCreateClipboard                   // awaiting clipboard contents before showing the create picker
 )
 
 type createChoiceKind int
 
 const (
 	createChoiceEmpty createChoiceKind = iota
+	createChoiceClipboard
 	createChoiceTemplate
 	createChoiceAuthorTemplate
 )
@@ -69,6 +79,14 @@ type createMenuRow struct {
 type createEmptyItemMsg struct {
 	Column   columnRef
 	ColIndex int
+}
+
+// createClipboardItemMsg asks the Board to open the new-card filename prompt
+// with captured clipboard content for a stable column.
+type createClipboardItemMsg struct {
+	Column   columnRef
+	ColIndex int
+	Content  string
 }
 
 type templateAuthorValues struct {
@@ -97,6 +115,7 @@ type TemplateFlow struct {
 	column    columnRef
 	colIndex  int
 	templates []template.Template
+	clipboard string
 	rows      []createMenuRow
 	groupedPicker
 	tmpl       template.Template
@@ -115,6 +134,7 @@ func (t *TemplateFlow) Close() {
 	t.stage = tfNone
 	t.column = columnRef{}
 	t.templates = nil
+	t.clipboard = ""
 	t.rows = nil
 	t.groupedPicker.Reset()
 	t.tmpl = template.Template{}
@@ -144,17 +164,31 @@ func (t *TemplateFlow) fitForm() {
 		WithHeight(min(t.height-6, 24))
 }
 
-// Open starts the unified create menu for the given column. Template forms are
-// reached by selecting a template; empty-card creation uses the existing editor
-// filename prompt via createEmptyItemMsg.
+// Open starts the unified create menu without a clipboard choice. Production
+// callers use WaitForCreateClipboard followed by OpenWithClipboard so the
+// choice reflects the current clipboard snapshot.
 func (t *TemplateFlow) Open(colIndex int, column columnRef, templates []template.Template) tea.Cmd {
+	return t.OpenWithClipboard(colIndex, column, templates, "")
+}
+
+func (t *TemplateFlow) OpenWithClipboard(colIndex int, column columnRef, templates []template.Template, clipboard string) tea.Cmd {
 	t.colIndex = colIndex
 	t.column = column
 	t.templates = templates
+	t.clipboard = clipboard
 	t.groupedPicker.Reset()
 	t.stage = tfPick
 	t.recomputeMenu()
 	return nil
+}
+
+func (t *TemplateFlow) WaitForCreateClipboard(colIndex int, column columnRef, templates []template.Template) {
+	t.colIndex = colIndex
+	t.column = column
+	t.templates = templates
+	t.clipboard = ""
+	t.groupedPicker.Reset()
+	t.stage = tfCreateClipboard
 }
 
 func (t *TemplateFlow) OpenTemplate(colIndex int, column columnRef, tmpl template.Template, clipboard string) tea.Cmd {
@@ -345,7 +379,7 @@ func (t *TemplateFlow) Update(msg tea.Msg) tea.Cmd {
 		return t.updateForm(msg)
 	case tfAuthor:
 		return t.updateAuthorForm(msg)
-	case tfClipboard:
+	case tfClipboard, tfCreateClipboard:
 		if k, ok := msg.(tea.KeyPressMsg); ok && k.Code == tea.KeyEsc {
 			t.Close()
 		}
@@ -404,7 +438,11 @@ func (t *TemplateFlow) recomputeMenu() {
 			t.nav = append(t.nav, len(t.rows)-1)
 		}
 	} else {
-		t.appendMenuGroup("Create", []createChoice{emptyCreateChoice()})
+		createChoices := []createChoice{emptyCreateChoice()}
+		if t.clipboard != "" {
+			createChoices = append(createChoices, clipboardCreateChoice())
+		}
+		t.appendMenuGroup("Create", createChoices)
 		t.appendMenuGroup("Template authoring", []createChoice{authorTemplateChoice()})
 		t.appendMenuGroup("Column templates", t.templateChoices(template.ScopeColumn))
 		t.appendMenuGroup("Board templates", t.templateChoices(template.ScopeBoard))
@@ -425,7 +463,11 @@ func (t *TemplateFlow) appendMenuGroup(title string, choices []createChoice) {
 }
 
 func (t *TemplateFlow) menuChoices() []createChoice {
-	choices := []createChoice{emptyCreateChoice(), authorTemplateChoice()}
+	choices := []createChoice{emptyCreateChoice()}
+	if t.clipboard != "" {
+		choices = append(choices, clipboardCreateChoice())
+	}
+	choices = append(choices, authorTemplateChoice())
 	choices = append(choices, t.templateChoices(template.ScopeColumn)...)
 	choices = append(choices, t.templateChoices(template.ScopeBoard)...)
 	return choices
@@ -459,6 +501,14 @@ func emptyCreateChoice() createChoice {
 		Kind:  createChoiceEmpty,
 		Label: "Empty Markdown file",
 		Desc:  "Create an empty .md card in this column",
+	}
+}
+
+func clipboardCreateChoice() createChoice {
+	return createChoice{
+		Kind:  createChoiceClipboard,
+		Label: "Clipboard contents",
+		Desc:  "Create a .md card from the current clipboard",
 	}
 }
 
@@ -517,6 +567,10 @@ func (t *TemplateFlow) runSelectedChoice() tea.Cmd {
 	switch choice.Kind {
 	case createChoiceEmpty:
 		msg := createEmptyItemMsg{Column: t.column, ColIndex: t.colIndex}
+		t.Close()
+		return func() tea.Msg { return msg }
+	case createChoiceClipboard:
+		msg := createClipboardItemMsg{Column: t.column, ColIndex: t.colIndex, Content: t.clipboard}
 		t.Close()
 		return func() tea.Msg { return msg }
 	case createChoiceTemplate:
@@ -656,6 +710,9 @@ func (t *TemplateFlow) View() string {
 	case tfClipboard:
 		footer := RenderInlineHints([]Shortcut{{Keys: "esc", Label: "cancel"}})
 		return OverlayFrame{Title: t.tmpl.Name, Body: "Reading clipboard…", Footer: footer, Palette: t.palette}.Render()
+	case tfCreateClipboard:
+		footer := RenderInlineHints([]Shortcut{{Keys: "esc", Label: "cancel"}})
+		return OverlayFrame{Title: "Create item", Body: "Reading clipboard…", Footer: footer, Palette: t.palette}.Render()
 	}
 	return ""
 }

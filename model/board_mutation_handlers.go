@@ -90,8 +90,9 @@ func (h boardMutationHandlers) writeResolvedExistingItem(col *Column, item *Item
 	return nil
 }
 
-// openTemplateFlow starts the unified create overlay for col: an empty-card
-// action plus the column's .kbrd_templates merged with board-level templates.
+// openTemplateFlow starts the unified create overlay for col. It reads the
+// clipboard before showing the picker so clipboard creation is offered only
+// when content is available.
 func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd) {
 	b := h.board
 	if col.Virtual {
@@ -106,7 +107,9 @@ func (h boardMutationHandlers) openTemplateFlow(col *Column) (tea.Model, tea.Cmd
 		w := warns[0]
 		warnCmd = b.notifier.ErrorCause("skipped "+filepath.Base(w.Path), w.Err)
 	}
-	return b, tea.Batch(warnCmd, b.templateFlow.Open(b.selectedCol, refForColumn(col), tmpls))
+	start := createMenuClipboardMsg{Column: refForColumn(col), ColIndex: b.selectedCol, Templates: tmpls}
+	b.templateFlow.WaitForCreateClipboard(start.ColIndex, start.Column, tmpls)
+	return b, tea.Batch(warnCmd, b.clipboardActions().readCreateMenu(start))
 }
 
 func (h boardMutationHandlers) handleCreateEmptyItem(msg createEmptyItemMsg) (tea.Model, tea.Cmd) {
