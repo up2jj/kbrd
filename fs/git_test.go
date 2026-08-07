@@ -59,6 +59,15 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
+
 func TestGitAvailable(t *testing.T) {
 	// Sanity: GitAvailable returns the same value across calls (sync.Once).
 	a := GitAvailable()
@@ -105,6 +114,134 @@ func TestGitHasRemote_NotARepo(t *testing.T) {
 	}
 	if GitHasRemote("") {
 		t.Fatalf("expected false for empty repoRoot")
+	}
+}
+
+func TestGitDiscardFile_TrackedChanges(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{
+			name: "unstaged modification",
+			mutate: func(t *testing.T, root string) {
+				writeFile(t, filepath.Join(root, "seed.md"), "changed\n")
+			},
+		},
+		{
+			name: "staged modification",
+			mutate: func(t *testing.T, root string) {
+				writeFile(t, filepath.Join(root, "seed.md"), "changed\n")
+				run(t, root, "add", "seed.md")
+			},
+		},
+		{
+			name: "deletion",
+			mutate: func(t *testing.T, root string) {
+				if err := os.Remove(filepath.Join(root, "seed.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := initRepo(t)
+			tt.mutate(t, root)
+			changes := GitChangedFiles(root)
+			if len(changes) != 1 {
+				t.Fatalf("changes = %+v, want one", changes)
+			}
+			if err := GitDiscardFile(root, changes[0]); err != nil {
+				t.Fatalf("GitDiscardFile: %v", err)
+			}
+			if got := readFile(t, filepath.Join(root, "seed.md")); got != "seed\n" {
+				t.Fatalf("restored contents = %q, want seed", got)
+			}
+			if !GitWorkingTreeClean(root) {
+				t.Fatal("working tree remains dirty")
+			}
+		})
+	}
+}
+
+func TestGitDiscardFile_NewFilesAndSelectedIsolation(t *testing.T) {
+	root := initRepo(t)
+	selected := filepath.Join(root, "new file.md")
+	other := filepath.Join(root, "other.md")
+	writeFile(t, selected, "selected\n")
+	writeFile(t, other, "other\n")
+	run(t, root, "add", "new file.md")
+
+	var change FileChange
+	for _, candidate := range GitChangedFiles(root) {
+		if candidate.Path == "new file.md" {
+			change = candidate
+		}
+	}
+	if change.Path == "" {
+		t.Fatal("staged addition not reported")
+	}
+	if err := GitDiscardFile(root, change); err != nil {
+		t.Fatalf("GitDiscardFile: %v", err)
+	}
+	if _, err := os.Stat(selected); !os.IsNotExist(err) {
+		t.Fatalf("selected file still exists: %v", err)
+	}
+	if got := readFile(t, other); got != "other\n" {
+		t.Fatalf("unselected file contents = %q", got)
+	}
+	changes := GitChangedFiles(root)
+	if len(changes) != 1 || changes[0].Path != "other.md" {
+		t.Fatalf("remaining changes = %+v, want only other.md", changes)
+	}
+}
+
+func TestGitDiscardFile_UntrackedFileInUnbornRepo(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	run(t, root, "init", "-b", "main")
+	writeFile(t, filepath.Join(root, "new.md"), "new\n")
+
+	change := GitChangedFiles(root)[0]
+	if err := GitDiscardFile(root, change); err != nil {
+		t.Fatalf("GitDiscardFile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "new.md")); !os.IsNotExist(err) {
+		t.Fatalf("untracked file still exists: %v", err)
+	}
+}
+
+func TestGitDiscardFile_Rename(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		name := "unstaged"
+		if staged {
+			name = "staged"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := initRepo(t)
+			if err := os.Rename(filepath.Join(root, "seed.md"), filepath.Join(root, "renamed.md")); err != nil {
+				t.Fatal(err)
+			}
+			if staged {
+				run(t, root, "add", "-A")
+			}
+
+			changes := GitChangedFiles(root)
+			if len(changes) != 1 || changes[0].OrigPath != "seed.md" {
+				t.Fatalf("rename changes = %+v", changes)
+			}
+			if err := GitDiscardFile(root, changes[0]); err != nil {
+				t.Fatalf("GitDiscardFile: %v", err)
+			}
+			if got := readFile(t, filepath.Join(root, "seed.md")); got != "seed\n" {
+				t.Fatalf("restored contents = %q", got)
+			}
+			if _, err := os.Stat(filepath.Join(root, "renamed.md")); !os.IsNotExist(err) {
+				t.Fatalf("rename destination still exists: %v", err)
+			}
+		})
 	}
 }
 

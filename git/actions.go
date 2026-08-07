@@ -85,6 +85,27 @@ func (c *Controller) handleGitDiffForFile(msg gitDiffForFileMsg) tea.Cmd {
 	return nil
 }
 
+func (c *Controller) handleGitDiscard(msg gitDiscardRequestMsg) tea.Cmd {
+	root := c.repoRoot
+	change := msg.Change
+	return func() tea.Msg {
+		return gitDiscardDoneMsg{Change: change, Err: kbrdfs.GitDiscardFile(root, change)}
+	}
+}
+
+func (c *Controller) handleGitDiscardDone(msg gitDiscardDoneMsg) tea.Cmd {
+	c.refreshStats()
+	c.refreshPanel()
+	if msg.Err != nil {
+		return c.notifier.Error("discard failed: " + msg.Err.Error())
+	}
+	cmds := []tea.Cmd{c.notifier.Success("discarded changes to " + discardDisplayPath(msg.Change))}
+	if diffCmd := c.panel.DiffRequestForCurrent(); diffCmd != nil {
+		cmds = append(cmds, diffCmd)
+	}
+	return tea.Batch(cmds...)
+}
+
 func (c *Controller) runFileDiff(path, status, origPath string) string {
 	tool := resolveDiffTool(c.cfg.GitDiffTool)
 

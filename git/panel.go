@@ -14,15 +14,17 @@ import (
 
 	kbrdfs "kbrd/fs"
 	"kbrd/theme"
+	"kbrd/tui"
 )
 
 // panelKeys are deliberately intent-led. Git's commit/sync distinction is
 // still available to people who need it, but the default dirty-tree action is
 // one "save & sync" operation rather than two easily-confused actions.
 var panelKeys = struct {
-	Save, Pull, History, Changes, Review, Connect, Cancel, Close, FocusNext, FocusPrev, Up, Down key.Binding
+	Save, Discard, Pull, History, Changes, Review, Connect, Cancel, Close, FocusNext, FocusPrev, Up, Down key.Binding
 }{
 	Save:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "save & sync")),
+	Discard:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "discard")),
 	Pull:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "pull")),
 	History:   key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "history")),
 	Changes:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "changes")),
@@ -80,6 +82,15 @@ type gitConnectRemoteSyncDoneMsg struct {
 	Err error
 }
 type gitRefreshMsg struct{ gitMsg }
+type gitDiscardRequestMsg struct {
+	gitMsg
+	Change kbrdfs.FileChange
+}
+type gitDiscardDoneMsg struct {
+	gitMsg
+	Change kbrdfs.FileChange
+	Err    error
+}
 type gitDiffForFileMsg struct {
 	gitMsg
 	Path     string
@@ -103,6 +114,8 @@ type GitPanel struct {
 	fileOffset   int
 	commitIn     textinput.Model
 	remoteIn     textinput.Model
+	discard      tui.Confirm
+	pendingDrop  kbrdfs.FileChange
 	thenSync     bool
 	right        viewport.Model
 	log          viewport.Model
@@ -151,6 +164,7 @@ func (p *GitPanel) SetPalette(pal theme.Palette) {
 	p.palette = pal
 	theme.ApplyTextInputPalette(&p.commitIn, pal)
 	theme.ApplyTextInputPalette(&p.remoteIn, pal)
+	p.discard.SetPalette(pal)
 }
 
 func (p *GitPanel) Active() bool { return p.active }
@@ -174,6 +188,8 @@ func (p *GitPanel) Open(repoRoot, branch string, hasRemote bool, files []kbrdfs.
 	p.logContent = "Loading history…"
 	p.termW = termW
 	p.termH = termH
+	p.discard.SetPalette(p.palette)
+	p.discard.SetSize(termW, termH)
 	p.commitIn = newPanelInput("  message: ", 200, p.palette)
 	p.remoteIn = newPanelInput("  remote URL: ", 300, p.palette)
 	p.remoteIn.Placeholder = "git@github.com:you/board.git"
@@ -197,6 +213,7 @@ func (p *GitPanel) Refresh(branch string, hasRemote bool, files []kbrdfs.FileCha
 	p.followFileCursor()
 	p.termW = termW
 	p.termH = termH
+	p.discard.SetSize(termW, termH)
 	p.diffCache = map[string]string{}
 	p.rebuild()
 }
@@ -267,6 +284,8 @@ func (p *GitPanel) Close() {
 	p.focus = focusFiles
 	p.rightView = rightDiff
 	p.thenSync = false
+	p.discard.Close()
+	p.pendingDrop = kbrdfs.FileChange{}
 	p.hasRemote = false
 	p.diffCache = nil
 	p.rightTitle = ""
@@ -335,6 +354,19 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
+	}
+	if p.discard.Active() {
+		p.discard.Update(km)
+		result, done := p.discard.TakeResult()
+		if !done {
+			return nil
+		}
+		change := p.pendingDrop
+		p.pendingDrop = kbrdfs.FileChange{}
+		if !result.Submitted || !result.Value {
+			return nil
+		}
+		return func() tea.Msg { return gitDiscardRequestMsg{Change: change} }
 	}
 
 	if p.input == inputCommit {
@@ -408,6 +440,10 @@ func (p *GitPanel) Update(msg tea.Msg) tea.Cmd {
 	}
 	if len(p.files) > 0 && key.Matches(km, panelKeys.Save) {
 		p.startCommitInput(p.hasRemote)
+		return nil
+	}
+	if len(p.files) > 0 && key.Matches(km, panelKeys.Discard) {
+		p.startDiscardConfirm()
 		return nil
 	}
 	if key.Matches(km, panelKeys.Up) {
@@ -500,6 +536,9 @@ func (p *GitPanel) followFileCursor() {
 }
 
 func (p *GitPanel) HandleMouse(msg tea.MouseMsg) tea.Cmd {
+	if p.discard.Active() {
+		return nil
+	}
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
 		return p.scrollFocused(-3)
@@ -557,6 +596,36 @@ func (p *GitPanel) startRemoteInput() {
 	p.input = inputRemote
 	p.remoteIn.SetValue("")
 	p.remoteIn.Focus()
+}
+
+func (p *GitPanel) startDiscardConfirm() {
+	change, ok := p.CurrentFile()
+	if !ok {
+		return
+	}
+	detail := "All staged and unstaged changes to this file will be lost."
+	if change.Status == "??" {
+		detail = "This untracked file will be permanently deleted."
+	} else if change.OrigPath != "" {
+		detail = "The original path will be restored and the renamed file removed."
+	}
+	p.pendingDrop = change
+	p.discard.Open(tui.ConfirmOptions{
+		Title:        "Discard changes?",
+		Message:      discardDisplayPath(change),
+		Detail:       []string{detail, "This cannot be undone."},
+		ConfirmLabel: "Discard",
+		RejectLabel:  "Cancel",
+		Default:      false,
+		Destructive:  true,
+	})
+}
+
+func discardDisplayPath(change kbrdfs.FileChange) string {
+	if change.OrigPath != "" {
+		return change.OrigPath + " → " + change.Path
+	}
+	return change.Path
 }
 
 func (p *GitPanel) renderFiles(width int) string {
@@ -716,6 +785,7 @@ func (p *GitPanel) View() string {
 		} else {
 			hints = append(hints, theme.Hint{Keys: "c", Label: "save"})
 		}
+		hints = append(hints, theme.Hint{Keys: "x", Label: "discard"})
 	}
 	if p.hasRemote {
 		hints = append(hints, theme.Hint{Keys: "s", Label: "pull"})
@@ -756,6 +826,9 @@ func (p *GitPanel) View() string {
 	}.Render()
 	if p.input != inputNone {
 		return lipgloss.Place(lipgloss.Width(panel), lipgloss.Height(panel), lipgloss.Center, lipgloss.Center, p.inputDialog(), lipgloss.WithWhitespaceChars(" "))
+	}
+	if p.discard.Active() {
+		return lipgloss.Place(lipgloss.Width(panel), lipgloss.Height(panel), lipgloss.Center, lipgloss.Center, p.discard.View(), lipgloss.WithWhitespaceChars(" "))
 	}
 	return panel
 }

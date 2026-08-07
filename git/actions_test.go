@@ -25,6 +25,21 @@ type stubNotifier struct{}
 func (stubNotifier) Success(string) tea.Cmd { return func() tea.Msg { return nil } }
 func (stubNotifier) Error(string) tea.Cmd   { return func() tea.Msg { return nil } }
 
+type captureNotifier struct {
+	success string
+	failure string
+}
+
+func (n *captureNotifier) Success(msg string) tea.Cmd {
+	n.success = msg
+	return func() tea.Msg { return nil }
+}
+
+func (n *captureNotifier) Error(msg string) tea.Cmd {
+	n.failure = msg
+	return func() tea.Msg { return nil }
+}
+
 func newTestController(repoRoot string) Controller {
 	return Controller{
 		cfg:      config.Config{},
@@ -329,6 +344,53 @@ func TestGitPanelSaveExplainsWhetherItWillSync(t *testing.T) {
 	}
 }
 
+func TestGitPanelDiscardRequiresSafeConfirmation(t *testing.T) {
+	change := kbrdfs.FileChange{Path: "renamed.md", OrigPath: "seed.md", Status: "R "}
+	var p GitPanel
+	p.Open("", "main", false, []kbrdfs.FileChange{change}, 120, 30)
+
+	p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	view := ansi.Strip(p.View())
+	for _, want := range []string{"Discard changes?", "seed.md → renamed.md", "This cannot be undone.", "Discard", "Cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("discard confirmation missing %q\n%s", want, view)
+		}
+	}
+	if cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
+		t.Fatal("default confirmation choice should cancel")
+	}
+	if p.discard.Active() {
+		t.Fatal("confirmation remained open after cancellation")
+	}
+
+	p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	before := p.right.YOffset()
+	p.HandleMouse(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if p.right.YOffset() != before {
+		t.Fatal("mouse scrolled the panel behind the confirmation")
+	}
+	p.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg, ok := cmd().(gitDiscardRequestMsg)
+	if !ok {
+		t.Fatalf("confirmed discard message = %T, want gitDiscardRequestMsg", cmd())
+	}
+	if msg.Change != change {
+		t.Fatalf("discard change = %+v, want %+v", msg.Change, change)
+	}
+
+	p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
+		t.Fatal("escape should cancel without a command")
+	}
+	if p.discard.Active() {
+		t.Fatal("confirmation remained open after escape")
+	}
+	if got := ansi.Strip(p.View()); !strings.Contains(got, "x discard") {
+		t.Fatalf("panel footer missing discard hint\n%s", got)
+	}
+}
+
 func TestGitPanelUsesClearFileAndDiffSections(t *testing.T) {
 	var p GitPanel
 	p.Open("", "main", true, []kbrdfs.FileChange{{Path: "task.md", Status: " M", Added: 1, Deleted: 1}}, 120, 30)
@@ -399,6 +461,59 @@ func TestControllerRoutesReviewRequest(t *testing.T) {
 	c.Update(gitReviewRequestMsg{})
 	if !called {
 		t.Fatal("review request did not invoke the host callback")
+	}
+}
+
+func TestControllerDiscardsSelectedFileAndRefreshesPanel(t *testing.T) {
+	root := initSyncRepo(t)
+	path := filepath.Join(root, "seed.md")
+	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	change := kbrdfs.GitChangedFiles(root)[0]
+	notifier := &captureNotifier{}
+	c := newTestController(root)
+	c.notifier = notifier
+	c.panel.Open(root, "main", false, []kbrdfs.FileChange{change}, 120, 30)
+
+	done, ok := c.Update(gitDiscardRequestMsg{Change: change})().(gitDiscardDoneMsg)
+	if !ok {
+		t.Fatal("discard command did not return gitDiscardDoneMsg")
+	}
+	if done.Err != nil {
+		t.Fatalf("discard failed: %v", done.Err)
+	}
+	if cmd := c.Update(done); cmd == nil {
+		t.Fatal("successful discard did not return notification command")
+	}
+	if notifier.success != "discarded changes to seed.md" {
+		t.Fatalf("success notification = %q", notifier.success)
+	}
+	if len(c.panel.files) != 0 || len(c.stats) != 0 {
+		t.Fatalf("state not refreshed: files=%+v stats=%+v", c.panel.files, c.stats)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil || string(contents) != "seed\n" {
+		t.Fatalf("restored file = %q, %v", contents, err)
+	}
+}
+
+func TestControllerReportsDiscardFailure(t *testing.T) {
+	notifier := &captureNotifier{}
+	c := newTestController(t.TempDir())
+	c.notifier = notifier
+	change := kbrdfs.FileChange{Path: "missing.md", Status: " M"}
+	c.panel.Open(c.repoRoot, "main", false, []kbrdfs.FileChange{change}, 120, 30)
+
+	done := c.Update(gitDiscardRequestMsg{Change: change})().(gitDiscardDoneMsg)
+	if done.Err == nil {
+		t.Fatal("discard outside a repository unexpectedly succeeded")
+	}
+	if cmd := c.Update(done); cmd == nil {
+		t.Fatal("failed discard did not return notification command")
+	}
+	if !strings.Contains(notifier.failure, "discard failed:") {
+		t.Fatalf("failure notification = %q", notifier.failure)
 	}
 }
 

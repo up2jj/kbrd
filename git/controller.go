@@ -266,6 +266,10 @@ func (c *Controller) Update(m Msg) tea.Cmd {
 		return nil
 	case gitDiffForFileMsg:
 		return c.handleGitDiffForFile(msg)
+	case gitDiscardRequestMsg:
+		return c.handleGitDiscard(msg)
+	case gitDiscardDoneMsg:
+		return c.handleGitDiscardDone(msg)
 	case gitCommitRequestMsg:
 		return c.handleGitCommit(msg)
 	case gitPostCommitMsg:
