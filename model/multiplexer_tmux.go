@@ -8,7 +8,7 @@ func (t tmuxMultiplexer) Name() string { return "tmux" }
 
 func (t tmuxMultiplexer) Supports(MultiplexerCapability) bool { return false }
 
-func (t tmuxMultiplexer) FocusPane(id string) error {
+func (t tmuxMultiplexer) FocusTarget(id string) error {
 	if err := t.runner.Run("tmux", "select-window", "-t", id); err != nil {
 		return err
 	}

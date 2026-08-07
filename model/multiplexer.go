@@ -16,7 +16,7 @@ import (
 type Multiplexer interface {
 	Name() string
 	Supports(MultiplexerCapability) bool
-	FocusPane(id string) error
+	FocusTarget(id string) error
 	OpenEditor(boardDir, path string, placement EditorPlacement) (string, error)
 	OpenShell(boardDir string) error
 	RenameWorkspace(name string) error
@@ -24,7 +24,10 @@ type Multiplexer interface {
 
 type MultiplexerCapability uint8
 
-const FloatingPanes MultiplexerCapability = iota
+const (
+	FloatingPanes MultiplexerCapability = iota
+	TabbedEditors
+)
 
 type EditorPlacement uint8
 
@@ -54,26 +57,26 @@ func (execMuxRunner) Output(name string, args []string, env []string) ([]byte, e
 	return cmd.Output()
 }
 
-// terminalDoneMsg reports an asynchronous multiplexer operation. path/paneID
-// are populated for editors so reopening a card can focus its existing pane.
+// terminalDoneMsg reports an asynchronous multiplexer operation. path and
+// focusTarget are populated for editors that the backend can focus again.
 type terminalDoneMsg struct {
-	backend string
-	path    string
-	paneID  string
-	desc    string
-	err     error
+	backend     string
+	path        string
+	focusTarget string
+	desc        string
+	err         error
 }
 
 // Terminal owns terminal-menu state and pane reuse. It contains no
 // multiplexer-specific command knowledge.
 type Terminal struct {
-	backend     Multiplexer
-	active      bool
-	boardDir    string
-	path        string
-	cardName    string
-	editorPanes map[string]string
-	palette     Palette
+	backend       Multiplexer
+	active        bool
+	boardDir      string
+	path          string
+	cardName      string
+	editorTargets map[string]string
+	palette       Palette
 }
 
 func NewTerminal() Terminal {
@@ -82,13 +85,15 @@ func NewTerminal() Terminal {
 
 func newTerminal(getenv func(string) string, runner muxRunner) Terminal {
 	return Terminal{
-		backend:     detectMultiplexer(getenv, runner),
-		editorPanes: map[string]string{},
+		backend:       detectMultiplexer(getenv, runner),
+		editorTargets: map[string]string{},
 	}
 }
 
 func detectMultiplexer(getenv func(string) string, runner muxRunner) Multiplexer {
 	switch {
+	case getenv("HERDR_ENV") == "1":
+		return herdrMultiplexer{runner: runner, workspaceID: getenv("HERDR_WORKSPACE_ID")}
 	case getenv("ZELLIJ") != "":
 		return zellijMultiplexer{runner: runner}
 	case getenv("TMUX") != "":
@@ -99,7 +104,7 @@ func detectMultiplexer(getenv func(string) string, runner muxRunner) Multiplexer
 }
 
 func multiplexerAvailable() bool {
-	return os.Getenv("ZELLIJ") != "" || os.Getenv("TMUX") != ""
+	return os.Getenv("HERDR_ENV") == "1" || os.Getenv("ZELLIJ") != "" || os.Getenv("TMUX") != ""
 }
 
 func (t *Terminal) Enabled() bool        { return t.backend != nil }
@@ -143,8 +148,8 @@ func (t *Terminal) Done(msg terminalDoneMsg, n *Notifier) tea.Cmd {
 	if msg.err != nil {
 		return n.ErrorCause(msg.backend, msg.err)
 	}
-	if msg.paneID != "" {
-		t.editorPanes[msg.path] = msg.paneID
+	if msg.focusTarget != "" {
+		t.editorTargets[msg.path] = msg.focusTarget
 	}
 	return n.Success(msg.desc)
 }
@@ -170,13 +175,13 @@ func (t *Terminal) Update(msg tea.KeyPressMsg) tea.Cmd {
 
 func (t *Terminal) openEditor(placement EditorPlacement) tea.Cmd {
 	backend := t.backend
-	boardDir, path, existing := t.boardDir, t.path, t.editorPanes[t.path]
+	boardDir, path, existing := t.boardDir, t.path, t.editorTargets[t.path]
 	t.close()
 	return func() tea.Msg {
-		if existing != "" && backend.FocusPane(existing) == nil {
-			return terminalDoneMsg{backend: backend.Name(), path: path, paneID: existing, desc: "focused editor"}
+		if existing != "" && backend.FocusTarget(existing) == nil {
+			return terminalDoneMsg{backend: backend.Name(), path: path, focusTarget: existing, desc: "focused editor"}
 		}
-		paneID, err := backend.OpenEditor(boardDir, path, placement)
+		focusTarget, err := backend.OpenEditor(boardDir, path, placement)
 		if err != nil {
 			return terminalDoneMsg{backend: backend.Name(), path: path, err: err}
 		}
@@ -185,8 +190,10 @@ func (t *Terminal) openEditor(placement EditorPlacement) tea.Cmd {
 			desc = "opened tiled editor"
 		} else if backend.Supports(FloatingPanes) {
 			desc = "opened floating editor"
+		} else if backend.Supports(TabbedEditors) {
+			desc = "opened editor tab"
 		}
-		return terminalDoneMsg{backend: backend.Name(), path: path, paneID: paneID, desc: desc}
+		return terminalDoneMsg{backend: backend.Name(), path: path, focusTarget: focusTarget, desc: desc}
 	}
 }
 
@@ -196,8 +203,13 @@ func (t *Terminal) View() string {
 		heading = "terminal · " + t.cardName
 	}
 	preferred := "open editor in new window"
-	if t.backend != nil && t.backend.Supports(FloatingPanes) {
-		preferred = "open in floating editor pane"
+	if t.backend != nil {
+		switch {
+		case t.backend.Supports(FloatingPanes):
+			preferred = "open in floating editor pane"
+		case t.backend.Supports(TabbedEditors):
+			preferred = "open editor in new tab"
+		}
 	}
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(t.palette.Primary)
 	labelStyle := lipgloss.NewStyle().Foreground(t.palette.FgBase)

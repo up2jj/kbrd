@@ -12,7 +12,7 @@ func (z zellijMultiplexer) Supports(capability MultiplexerCapability) bool {
 	return capability == FloatingPanes
 }
 
-func (z zellijMultiplexer) FocusPane(id string) error {
+func (z zellijMultiplexer) FocusTarget(id string) error {
 	return z.runner.Run("zellij", "action", "focus-pane-id", id)
 }
 

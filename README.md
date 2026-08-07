@@ -134,7 +134,7 @@ A quick, scannable rundown of everything kbrd does:
 - **Bundled Chrome extension** — convert the main article or a right-clicked text selection to editable Markdown and capture it directly into a board through Native Messaging; the CLI, companion, and browser share one ingestion workflow for metadata, destination resolution, durable creation, and hooks. It ships inside the kbrd binary for unpacked installation and requires no Web Store, running TUI, or MCP server. See [EXTENSION.md](./EXTENSION.md).
 - **Themes** — terminal-aware light / dark palettes, with optional override.
 - **In-app config menu** — open or scaffold config & command files (`,`).
-- **Terminal multiplexer integration** — inside [Zellij](https://zellij.dev) or [tmux](https://github.com/tmux/tmux), open a card in an editor pane/window or a shell scoped to the board (`z`); the current tab/window is named after the board.
+- **Terminal multiplexer integration** — inside [Herdr](https://herdr.dev), [Zellij](https://zellij.dev), or [tmux](https://github.com/tmux/tmux), open a card in an editor tab/pane/window or a shell scoped to the board (`z`); the current workspace/tab/window is named after the board.
 
 ---
 
@@ -219,7 +219,7 @@ Move the resulting `kbrd` binary somewhere on your `PATH`. See [Development](#de
 - `git` — for the git panel and sync features.
 - Optional: [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) — required for filesystem content in global search; active-layer virtual metadata remains searchable without it.
 - Optional: [`difft`](https://github.com/Wilfred/difftastic) or `diff-so-fancy` — nicer diffs (falls back to `git`).
-- Optional: [`zellij`](https://zellij.dev) or [`tmux`](https://github.com/tmux/tmux) — enables the `z` terminal actions menu when kbrd runs inside that multiplexer.
+- Optional: [`herdr`](https://herdr.dev), [`zellij`](https://zellij.dev), or [`tmux`](https://github.com/tmux/tmux) — enables the `z` terminal actions menu when kbrd runs inside that multiplexer.
 - Optional: [`direnv`](https://direnv.net) — loads an approved board `.envrc` when opening or switching boards.
 
 ---
@@ -601,11 +601,11 @@ can publish the resolution during a later automatic sync.
 
 ### Terminal actions (`z`)
 
-Available inside [Zellij](https://zellij.dev) or [tmux](https://github.com/tmux/tmux).
+Available inside [Herdr](https://herdr.dev), [Zellij](https://zellij.dev), or [tmux](https://github.com/tmux/tmux).
 
 | Keys | Action |
 | --- | --- |
-| `f` | Open the card in a floating pane (Zellij) or new window (tmux) |
+| `f` | Open the card in a new tab (Herdr), floating pane (Zellij), or new window (tmux) |
 | `e` | Open the card in a new tiled pane |
 | `s` | Open a shell in the board directory |
 | `q` / `esc` | Close |
@@ -781,21 +781,27 @@ with the card missing.
 
 ## Terminal multiplexer integration
 
-When kbrd detects [Zellij](https://zellij.dev) (`ZELLIJ`) or
-[tmux](https://github.com/tmux/tmux) (`TMUX`), it names the current tab/window after the
-board and adds a **`z` terminal menu** so you can jump into a card without leaving the board.
-Zellij takes precedence if both environment variables are present.
+When kbrd detects [Herdr](https://herdr.dev) (`HERDR_ENV=1`),
+[Zellij](https://zellij.dev) (`ZELLIJ`), or [tmux](https://github.com/tmux/tmux)
+(`TMUX`), it names the current Herdr workspace, Zellij tab, or tmux window after
+the board and adds a **`z` terminal menu** so you can jump into a card without
+leaving the board. Herdr takes precedence when multiplexers are nested; Zellij
+takes precedence over tmux.
 
 | Key | Action |
 | --- | --- |
-| `f` | Open the card in a **floating pane** (Zellij) or **new window** (tmux) |
+| `f` | Open the card in a **new tab** (Herdr), **floating pane** (Zellij), or **new window** (tmux) |
 | `e` | Open the card in a new **tiled** pane |
 | `s` | Open a **shell** in the board directory |
 
-Editor panes use `$VISUAL` → `$EDITOR` → `vi`. Reopening a card you already have open
-**focuses the existing pane** instead of spawning a duplicate. The `z` binding and its
-help entry appear only inside a supported multiplexer; everywhere else it does nothing.
-Outside a multiplexer, use `o` to open a card with the system's external opener.
+Editor panes use `$VISUAL` → `$EDITOR` → `vi`. Reopening a card you already have
+open **focuses the existing pane** instead of spawning a duplicate. In Herdr,
+editor panes—and tabs created with `f`—are labeled with the board-relative card
+path. Herdr reuse applies to editors opened as tabs with `f`; Herdr does not
+expose direct focus-by-ID for ordinary tiled panes, so reopening an editor
+created with `e` creates another split. The `z` binding and its help entry appear
+only inside a supported multiplexer; everywhere else it does nothing. Outside a
+multiplexer, use `o` to open a card with the system's external opener.
 
 ### Extending zellij usage with custom commands
 
